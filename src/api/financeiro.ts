@@ -702,14 +702,32 @@ export async function buscarExtratoInter(
   const transacoes = resp.transacoes ?? resp.data ?? [];
 
   for (const t of transacoes) {
+    // Extrair nome do remetente/destinatário de vários formatos da API Inter
+    const tipoOp = (t.tipoOperacao ?? t.tipo) === "D" ? "DEBITO" : "CREDITO";
+    const contrapartida = t.detalhes?.pagador?.nome 
+      ?? t.detalhes?.recebedor?.nome 
+      ?? t.detalhes?.nomeFavorecido
+      ?? t.nomeOrigem 
+      ?? t.nomeDestino 
+      ?? (typeof t.titulo === "string" ? t.titulo : t.titulo?.nomeTitulo)
+      ?? t.detalhe 
+      ?? "";
+    const cpfCnpj = t.detalhes?.pagador?.cpfCnpj
+      ?? t.detalhes?.recebedor?.cpfCnpj
+      ?? t.cpfCnpj
+      ?? t.cpfCnpjOrigem
+      ?? t.cpfCnpjDestino
+      ?? "";
+
     await supabase.from("fin_extrato_inter" as any).upsert(
       {
         end_to_end_id: t.endToEndId ?? t.id ?? `${t.dataHora ?? t.dataEntrada}-${t.valor}`,
-        tipo: (t.tipoOperacao ?? t.tipo) === "D" ? "DEBITO" : "CREDITO",
+        tipo: tipoOp,
         valor: parseFloat(t.valor ?? "0"),
         data_hora: t.dataHora ?? t.dataEntrada,
-        descricao: t.descricao ?? t.titulo ?? "",
-        contrapartida: t.titulo?.nomeTitulo ?? t.nomeOrigem ?? t.nomeDestino ?? t.detalhe ?? "",
+        descricao: t.descricao ?? (typeof t.titulo === "string" ? t.titulo : "") ?? "",
+        contrapartida,
+        cpf_cnpj: cpfCnpj,
         payload_raw: t,
       },
       { onConflict: "end_to_end_id", ignoreDuplicates: true }
