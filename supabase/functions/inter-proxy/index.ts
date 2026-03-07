@@ -11,38 +11,22 @@ const INTER_BASE_URL = "https://cdpj.partners.bancointer.com.br";
 // In-memory token cache
 let cachedToken: { access_token: string; expires_at: number } | null = null;
 
-/** Normalize PEM: secrets often arrive with literal "\n" instead of newlines, or as a single line */
-function normalizePem(pem: string): string {
-  if (!pem) return pem;
-  // Step 1: Replace literal \n (escaped) with real newlines
-  let normalized = pem.replace(/\\n/g, "\n");
-  // Step 2: Replace \r\n with \n
-  normalized = normalized.replace(/\r\n/g, "\n");
-  // Step 3: If it's all on one line (no real newlines between BEGIN and END), 
-  // split the base64 content into 64-char lines
-  const lines = normalized.split("\n").map(l => l.trim()).filter(l => l.length > 0);
-  if (lines.length <= 2) {
-    // Everything is on one or two lines - need to restructure
-    const fullText = lines.join("");
-    const beginMatch = fullText.match(/(-----BEGIN [A-Z ]+-----)/);
-    const endMatch = fullText.match(/(-----END [A-Z ]+-----)/);
-    if (beginMatch && endMatch) {
-      const header = beginMatch[1];
-      const footer = endMatch[1];
-      const b64 = fullText.replace(header, "").replace(footer, "").replace(/\s/g, "");
-      const chunks: string[] = [];
-      for (let i = 0; i < b64.length; i += 64) {
-        chunks.push(b64.substring(i, i + 64));
-      }
-      return `${header}\n${chunks.join("\n")}\n${footer}\n`;
-    }
-  }
-  // Ensure header/footer have their own lines
-  normalized = lines.join("\n") + "\n";
-  return normalized;
+// ─── Reconstrói PEM a partir do base64 puro, à prova de formatação ───
+function rebuildPEM(raw: string, type: "CERTIFICATE" | "PRIVATE KEY"): string {
+  if (!raw) return "";
+  const header = `-----BEGIN ${type}-----`;
+  const footer = `-----END ${type}-----`;
+  // Remove headers/footers caso existam, e qualquer whitespace
+  const clean = raw
+    .replace(/-----BEGIN [A-Z ]+-----/g, "")
+    .replace(/-----END [A-Z ]+-----/g, "")
+    .replace(/\\n/g, "")
+    .replace(/\s+/g, "");
+  const lines = clean.match(/.{1,64}/g)?.join("\n") ?? clean;
+  return `${header}\n${lines}\n${footer}\n`;
 }
 
-async function getAccessToken(
+async function getToken(
   clientId: string,
   clientSecret: string,
   cert: string,
@@ -52,40 +36,44 @@ async function getAccessToken(
     return cachedToken.access_token;
   }
 
-  const params = new URLSearchParams({
+  // @ts-ignore - Deno supports createHttpClient
+  const httpClient = Deno.createHttpClient({ certChain: cert, privateKey: key });
+
+  const body = new URLSearchParams({
     grant_type: "client_credentials",
     client_id: clientId,
     client_secret: clientSecret,
-    scope:
-      "extrato.read cobv.write cobv.read cobv.cancel pagamento-pix.write pagamento-pix.read",
+    scope: "extrato.read cobv.write cobv.read pix.write pix.read pagamento-pix.write pagamento-pix.read",
   });
 
-  console.log("PEM cert starts with:", cert.substring(0, 30), "lines:", cert.split("\n").length);
-  console.log("PEM key starts with:", key.substring(0, 30), "lines:", key.split("\n").length);
-
-  // @ts-ignore - Deno supports createHttpClient
-  const client = Deno.createHttpClient({ certChain: cert, privateKey: key });
-
-  const response = await fetch(`${INTER_BASE_URL}/oauth/v2/token`, {
+  const res = await fetch(`${INTER_BASE_URL}/oauth/v2/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: params.toString(),
+    body,
     // @ts-ignore
-    client,
+    client: httpClient,
   });
 
-  if (!response.ok) {
-    const text = await response.text();
-    console.error("OAuth error:", response.status, text, "clientId:", clientId?.substring(0, 8) + "...");
-    throw new Error(`OAuth failed: ${response.status} - ${text}`);
+  if (!res.ok) {
+    const errorBody = await res.text();
+    console.error("[inter-proxy] OAuth falhou", {
+      status: res.status,
+      body: errorBody,
+      cert_ok: cert.includes("BEGIN CERTIFICATE"),
+      key_ok: key.includes("PRIVATE KEY"),
+      client_id: clientId ? clientId.substring(0, 8) + "..." : "AUSENTE",
+      secret_set: !!clientSecret,
+      cert_lines: cert.split("\n").length,
+      key_lines: key.split("\n").length,
+    });
+    throw new Error(`OAuth ${res.status}: ${errorBody}`);
   }
 
-  const data = await response.json();
+  const data = await res.json();
   cachedToken = {
     access_token: data.access_token,
     expires_at: Date.now() + (data.expires_in - 60) * 1000,
   };
-
   return cachedToken.access_token;
 }
 
@@ -95,27 +83,37 @@ serve(async (req) => {
   }
 
   try {
-    const clientId = Deno.env.get("INTER_CLIENT_ID")?.trim();
-    const clientSecret = Deno.env.get("INTER_CLIENT_SECRET")?.trim();
-    const cert = normalizePem(Deno.env.get("INTER_CERT") ?? "");
-    const key = normalizePem(Deno.env.get("INTER_KEY") ?? "");
+    const clientId = Deno.env.get("INTER_CLIENT_ID")?.trim() ?? "";
+    const clientSecret = Deno.env.get("INTER_CLIENT_SECRET")?.trim() ?? "";
+    const certRaw = Deno.env.get("INTER_CERT") ?? "";
+    const keyRaw = Deno.env.get("INTER_KEY") ?? "";
 
-    if (!clientId || !clientSecret || !cert || !key) {
+    const cert = rebuildPEM(certRaw, "CERTIFICATE");
+    const key = rebuildPEM(keyRaw, "PRIVATE KEY");
+
+    if (!clientId || !clientSecret) {
       return new Response(
-        JSON.stringify({
-          error: "INTER_NOT_CONFIGURED",
-          message:
-            "Certificados mTLS não configurados. Configure INTER_CLIENT_ID, INTER_CLIENT_SECRET, INTER_CERT e INTER_KEY.",
-        }),
-        {
-          status: 503,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        JSON.stringify({ error: "INTER_NOT_CONFIGURED", message: "INTER_CLIENT_ID ou INTER_CLIENT_SECRET ausentes." }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const body = await req.json();
-    const { path, method = "GET", payload } = body as {
+    if (!cert.includes("-----BEGIN CERTIFICATE-----")) {
+      return new Response(
+        JSON.stringify({ error: "INTER_CERT inválido ou ausente", raw_length: certRaw.length }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!key.includes("PRIVATE KEY")) {
+      return new Response(
+        JSON.stringify({ error: "INTER_KEY inválido ou ausente", raw_length: keyRaw.length }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const reqBody = await req.json();
+    const { path, method = "GET", payload } = reqBody as {
       path: string;
       method?: string;
       payload?: Record<string, unknown>;
@@ -124,14 +122,11 @@ serve(async (req) => {
     if (!path) {
       return new Response(
         JSON.stringify({ error: "Missing 'path' parameter" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const token = await getAccessToken(clientId, clientSecret, cert, key);
+    const token = await getToken(clientId, clientSecret, cert, key);
 
     // @ts-ignore
     const client = Deno.createHttpClient({ certChain: cert, privateKey: key });
@@ -147,10 +142,7 @@ serve(async (req) => {
       client,
     };
 
-    if (
-      payload &&
-      ["POST", "PUT", "PATCH"].includes(method.toUpperCase())
-    ) {
+    if (payload && ["POST", "PUT", "PATCH"].includes(method.toUpperCase())) {
       fetchOptions.body = JSON.stringify(payload);
     }
 
@@ -167,23 +159,13 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({
-        status: response.status,
-        data: responseData,
-        duration_ms: duration,
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify({ status: response.status, data: responseData, duration_ms: duration }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
     return new Response(
       JSON.stringify({ error: error.message }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
