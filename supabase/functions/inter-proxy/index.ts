@@ -52,6 +52,7 @@ async function getAccessToken(
 
   if (!response.ok) {
     const text = await response.text();
+    console.error("OAuth error:", response.status, text, "clientId:", clientId?.substring(0, 8) + "...");
     throw new Error(`OAuth failed: ${response.status} - ${text}`);
   }
 
