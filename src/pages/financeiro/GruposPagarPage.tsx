@@ -103,9 +103,9 @@ export default function GruposPagarPage() {
         </SheetContent>
       </Sheet>
 
-      <ConfirmarBaixaModal open={showBaixa} onClose={() => { setShowBaixa(false); queryClient.invalidateQueries({ queryKey: ["fin-grupos-pagar"] }); }}
-        titulo="Baixa do Grupo no GC" itens={grupoItens?.map((i: any) => ({ descricao: i.fin_pagamentos?.descricao || "", valor: Number(i.valor || i.fin_pagamentos?.valor), gc_baixado: i.gc_baixado })) || []}
-        valorTotal={Number(selectedGrupo?.valor_total || grupos?.find((g: any) => g.id === baixaGrupoId)?.valor_total || 0)}
+      <ConfirmarBaixaModal open={showBaixa} onOpenChange={(o) => { if (!o) { setShowBaixa(false); queryClient.invalidateQueries({ queryKey: ["fin-grupos-pagar"] }); } }}
+        titulo="Baixa do Grupo no GC" tipoLancamento="pagamento"
+        itens={grupoItens?.map((i: any) => ({ id: i.id, descricao: i.fin_pagamentos?.descricao || "", valor: Number(i.valor || i.fin_pagamentos?.valor), gc_id: i.fin_pagamentos?.gc_id || "", gc_payload_raw: i.fin_pagamentos?.gc_payload_raw, gc_baixado: i.gc_baixado })) || []}
         onConfirmar={async (dataLiq) => { await baixarGrupoPagarNoGC(baixaGrupoId || selectedGrupo?.id, dataLiq); }} />
     </div>
   );

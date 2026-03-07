@@ -1,8 +1,10 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "react-hot-toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
+import { Loader2 } from "lucide-react";
 import Dashboard from "@/pages/Dashboard";
 import Picking from "@/pages/Picking";
 import Recebimentos from "@/pages/Recebimentos";
@@ -13,22 +15,30 @@ import SyncLog from "@/pages/SyncLog";
 import Configuracoes from "@/pages/Configuracoes";
 import NotFound from "@/pages/NotFound";
 
-// Financeiro pages
-import FinDashboard from "@/pages/financeiro/DashboardPage";
-import FinReceber from "@/pages/financeiro/RecebimentosPage";
-import FinPagar from "@/pages/financeiro/PagamentosPage";
-import FinGrpReceber from "@/pages/financeiro/GruposReceberPage";
-import FinGrpPagar from "@/pages/financeiro/GruposPagarPage";
-import FinAgenda from "@/pages/financeiro/AgendaPage";
-import FinExtrato from "@/pages/financeiro/ExtratoBancoPage";
-import FinConciliacao from "@/pages/financeiro/ConciliacaoPage";
-import FinDRE from "@/pages/financeiro/DREPage";
-import FinFluxo from "@/pages/financeiro/FluxoCaixaPage";
-import FinPlanoContas from "@/pages/financeiro/PlanoContasPage";
-import FinConfigBanco from "@/pages/financeiro/ConfigBancoPage";
-import FinLog from "@/pages/financeiro/LogPage";
+// Financeiro pages (lazy loaded)
+const FinDashboard = lazy(() => import("@/pages/financeiro/DashboardPage"));
+const FinReceber = lazy(() => import("@/pages/financeiro/RecebimentosPage"));
+const FinPagar = lazy(() => import("@/pages/financeiro/PagamentosPage"));
+const FinGrpReceber = lazy(() => import("@/pages/financeiro/GruposReceberPage"));
+const FinGrpPagar = lazy(() => import("@/pages/financeiro/GruposPagarPage"));
+const FinAgenda = lazy(() => import("@/pages/financeiro/AgendaPage"));
+const FinExtrato = lazy(() => import("@/pages/financeiro/ExtratoBancoPage"));
+const FinConciliacao = lazy(() => import("@/pages/financeiro/ConciliacaoPage"));
+const FinDRE = lazy(() => import("@/pages/financeiro/DREPage"));
+const FinFluxo = lazy(() => import("@/pages/financeiro/FluxoCaixaPage"));
+const FinPlanoContas = lazy(() => import("@/pages/financeiro/PlanoContasPage"));
+const FinConfigBanco = lazy(() => import("@/pages/financeiro/ConfigBancoPage"));
+const FinLog = lazy(() => import("@/pages/financeiro/LogPage"));
 
 const queryClient = new QueryClient();
+
+function LazyFallback() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -55,21 +65,21 @@ const App = () => (
             <Route path="/log" element={<SyncLog />} />
             <Route path="/configuracoes" element={<Configuracoes />} />
 
-            {/* Financeiro */}
+            {/* Financeiro Hub */}
             <Route path="/financeiro" element={<Navigate to="/financeiro/dashboard" replace />} />
-            <Route path="/financeiro/dashboard" element={<FinDashboard />} />
-            <Route path="/financeiro/recebimentos" element={<FinReceber />} />
-            <Route path="/financeiro/pagamentos" element={<FinPagar />} />
-            <Route path="/financeiro/grupos-receber" element={<FinGrpReceber />} />
-            <Route path="/financeiro/grupos-pagar" element={<FinGrpPagar />} />
-            <Route path="/financeiro/agenda" element={<FinAgenda />} />
-            <Route path="/financeiro/extrato" element={<FinExtrato />} />
-            <Route path="/financeiro/conciliacao" element={<FinConciliacao />} />
-            <Route path="/financeiro/dre" element={<FinDRE />} />
-            <Route path="/financeiro/fluxo-caixa" element={<FinFluxo />} />
-            <Route path="/financeiro/plano-contas" element={<FinPlanoContas />} />
-            <Route path="/financeiro/config-banco" element={<FinConfigBanco />} />
-            <Route path="/financeiro/log" element={<FinLog />} />
+            <Route path="/financeiro/dashboard" element={<Suspense fallback={<LazyFallback />}><FinDashboard /></Suspense>} />
+            <Route path="/financeiro/recebimentos" element={<Suspense fallback={<LazyFallback />}><FinReceber /></Suspense>} />
+            <Route path="/financeiro/pagamentos" element={<Suspense fallback={<LazyFallback />}><FinPagar /></Suspense>} />
+            <Route path="/financeiro/grupos-receber" element={<Suspense fallback={<LazyFallback />}><FinGrpReceber /></Suspense>} />
+            <Route path="/financeiro/grupos-pagar" element={<Suspense fallback={<LazyFallback />}><FinGrpPagar /></Suspense>} />
+            <Route path="/financeiro/agenda" element={<Suspense fallback={<LazyFallback />}><FinAgenda /></Suspense>} />
+            <Route path="/financeiro/extrato" element={<Suspense fallback={<LazyFallback />}><FinExtrato /></Suspense>} />
+            <Route path="/financeiro/conciliacao" element={<Suspense fallback={<LazyFallback />}><FinConciliacao /></Suspense>} />
+            <Route path="/financeiro/dre" element={<Suspense fallback={<LazyFallback />}><FinDRE /></Suspense>} />
+            <Route path="/financeiro/fluxo-caixa" element={<Suspense fallback={<LazyFallback />}><FinFluxo /></Suspense>} />
+            <Route path="/financeiro/plano-contas" element={<Suspense fallback={<LazyFallback />}><FinPlanoContas /></Suspense>} />
+            <Route path="/financeiro/config-banco" element={<Suspense fallback={<LazyFallback />}><FinConfigBanco /></Suspense>} />
+            <Route path="/financeiro/log" element={<Suspense fallback={<LazyFallback />}><FinLog /></Suspense>} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

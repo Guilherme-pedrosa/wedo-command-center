@@ -174,9 +174,10 @@ export default function PagamentosPage() {
         </DialogContent>
       </Dialog>
 
-      <ConfirmarBaixaModal open={showBaixa} onClose={() => { setShowBaixa(false); queryClient.invalidateQueries({ queryKey: ["fin-pagamentos"] }); }}
-        titulo="Baixa de Pagamentos no GC" itens={selectedItems.map((p: any) => ({ descricao: p.descricao, valor: Number(p.valor), gc_baixado: p.gc_baixado }))} valorTotal={selectedTotal}
-        onConfirmar={async (dataLiq) => { for (const p of selectedItems as any[]) { if (p.gc_id && p.gc_payload_raw && !p.gc_baixado) { await baixarPagamentoNoGC(p.gc_id, p.gc_payload_raw, dataLiq); await supabase.from("fin_pagamentos").update({ gc_baixado: true, gc_baixado_em: new Date().toISOString(), liquidado: true, status: "pago", data_liquidacao: dataLiq }).eq("id", p.id); } } }} />
+      <ConfirmarBaixaModal open={showBaixa} onOpenChange={(o) => { if (!o) { setShowBaixa(false); queryClient.invalidateQueries({ queryKey: ["fin-pagamentos"] }); } }}
+        titulo="Baixa de Pagamentos no GC" tipoLancamento="pagamento"
+        itens={selectedItems.map((p: any) => ({ id: p.id, descricao: p.descricao, valor: Number(p.valor), gc_id: p.gc_id || "", gc_payload_raw: p.gc_payload_raw, gc_baixado: p.gc_baixado }))}
+        onConfirmar={async () => {}} />
     </div>
   );
 }

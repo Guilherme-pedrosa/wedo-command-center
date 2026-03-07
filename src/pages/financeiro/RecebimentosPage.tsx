@@ -263,18 +263,11 @@ export default function RecebimentosPage() {
       {/* Baixa Modal */}
       <ConfirmarBaixaModal
         open={showBaixa}
-        onClose={() => { setShowBaixa(false); queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] }); }}
+        onOpenChange={(o) => { if (!o) { setShowBaixa(false); queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] }); } }}
         titulo="Baixa Irreversível no GestãoClick"
-        itens={selectedItems.map((r: any) => ({ descricao: r.descricao, valor: Number(r.valor), gc_baixado: r.gc_baixado }))}
-        valorTotal={selectedTotal}
-        onConfirmar={async (dataLiq) => {
-          for (const r of selectedItems as any[]) {
-            if (r.gc_id && r.gc_payload_raw && !r.gc_baixado) {
-              await baixarRecebimentoNoGC(r.gc_id, r.gc_payload_raw, dataLiq);
-              await supabase.from("fin_recebimentos").update({ gc_baixado: true, gc_baixado_em: new Date().toISOString(), liquidado: true, status: "pago", data_liquidacao: dataLiq }).eq("id", r.id);
-            }
-          }
-        }}
+        tipoLancamento="recebimento"
+        itens={selectedItems.map((r: any) => ({ id: r.id, descricao: r.descricao, valor: Number(r.valor), gc_id: r.gc_id || "", gc_payload_raw: r.gc_payload_raw, gc_baixado: r.gc_baixado }))}
+        onConfirmar={async () => {}}
       />
     </div>
   );
