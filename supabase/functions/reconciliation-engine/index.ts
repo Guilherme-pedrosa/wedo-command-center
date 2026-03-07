@@ -18,6 +18,16 @@ function cleanDoc(d: string | null | undefined): string {
   return (d ?? "").replace(/\D/g, "");
 }
 
+function docMatches(a: string | null | undefined, b: string | null | undefined): boolean {
+  const cleanA = cleanDoc(a);
+  const cleanB = cleanDoc(b);
+  if (!cleanA || !cleanB) return false;
+  if (cleanA === cleanB) return true;
+  if (cleanA.length >= 8 && cleanB.startsWith(cleanA)) return true;
+  if (cleanB.length >= 8 && cleanA.startsWith(cleanB)) return true;
+  return false;
+}
+
 function dateDiffDays(a: string, b: string): number {
   return Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 86400000);
 }
@@ -74,10 +84,13 @@ function scoreMatch(
     else if (diff <= 10) { score += 4; reasons.push("Data ±10d"); }
   }
 
-  // CPF/CNPJ (20 pts)
+  // CPF/CNPJ (20 pts) — now with partial matching
   const txDoc = cleanDoc(extrato.cpf_cnpj);
   const fDoc = cleanDoc(finCpfCnpj);
-  if (txDoc && fDoc && txDoc === fDoc) { score += 20; reasons.push("CPF/CNPJ idêntico"); }
+  if (txDoc && fDoc) {
+    if (txDoc === fDoc) { score += 20; reasons.push("CPF/CNPJ idêntico"); }
+    else if (docMatches(txDoc, fDoc)) { score += 14; reasons.push("CPF/CNPJ parcial"); }
+  }
 
   // NOME (15 pts)
   const txName = normalizeText(extrato.contrapartida ?? extractedName ?? "");
@@ -85,6 +98,16 @@ function scoreMatch(
   if (txName && finName) {
     if (txName === finName) { score += 15; reasons.push("Nome exato"); }
     else if (txName.includes(finName) || finName.includes(txName)) { score += 8; reasons.push("Nome parcial"); }
+  }
+
+  // CHAVE PIX (10 pts)
+  const txPix = (extrato.chave_pix ?? "").trim().toLowerCase();
+  if (txPix && finCpfCnpj) {
+    // Compare pix key against document (common pattern: pix key IS the CNPJ/CPF)
+    const pixClean = txPix.replace(/\D/g, "");
+    if (pixClean && fDoc && (pixClean === fDoc || docMatches(pixClean, fDoc))) {
+      score += 10; reasons.push("Chave PIX = Doc");
+    }
   }
 
   return { score: Math.min(score, 100), reasons };
@@ -176,30 +199,46 @@ serve(async (req) => {
       );
 
       if (colliding.length > 1) {
-        // Try CPF/CNPJ tiebreaker
-        const withCpf = colliding.filter(c => c.reasons.includes("CPF/CNPJ idêntico"));
+        // Try CPF/CNPJ tiebreaker (exact or partial)
+        const withCpf = colliding.filter(c =>
+          c.reasons.includes("CPF/CNPJ idêntico") || c.reasons.includes("CPF/CNPJ parcial")
+        );
 
         if (withCpf.length === 1) {
-          // Clean tiebreak
           try {
             await vincular(supabase, ext, withCpf[0], [...withCpf[0].reasons, "Desempate CPF/CNPJ"]);
             usedIds.add(withCpf[0].fin.id);
             stats.auto++;
           } catch { stats.errors++; }
         } else {
-          // Unresolved collision → review
-          reviewItems.push({
-            extrato_id: ext.id,
-            descricao_extrato: ext.descricao,
-            valor: ext.valor,
-            candidatos: colliding.map(c => ({
-              id: c.fin.id, valor: c.fin.valor, descricao: c.fin.descricao,
-              nome: c.fin.nome_fornecedor ?? c.fin.nome_cliente ?? "—",
-              score: c.score, reasons: c.reasons,
-            })),
-            motivo: `Colisão: ${colliding.length} lançamentos mesmo valor`,
+          // Try name tiebreaker
+          const txName = normalizeText(ext.contrapartida ?? extractedName ?? "");
+          const withName = colliding.filter(c => {
+            const fName = normalizeText(c.fin.nome_fornecedor ?? c.fin.nome_cliente ?? "");
+            return txName && fName && (fName.startsWith(txName) || txName.startsWith(fName));
           });
-          stats.review++;
+
+          if (withName.length === 1) {
+            try {
+              await vincular(supabase, ext, withName[0], [...withName[0].reasons, "Desempate Nome"]);
+              usedIds.add(withName[0].fin.id);
+              stats.auto++;
+            } catch { stats.errors++; }
+          } else {
+            // Unresolved collision → review
+            reviewItems.push({
+              extrato_id: ext.id,
+              descricao_extrato: ext.descricao,
+              valor: ext.valor,
+              candidatos: colliding.map(c => ({
+                id: c.fin.id, valor: c.fin.valor, descricao: c.fin.descricao,
+                nome: c.fin.nome_fornecedor ?? c.fin.nome_cliente ?? "—",
+                score: c.score, reasons: c.reasons,
+              })),
+              motivo: `Colisão: ${colliding.length} lançamentos mesmo valor`,
+            });
+            stats.review++;
+          }
         }
         continue;
       }
