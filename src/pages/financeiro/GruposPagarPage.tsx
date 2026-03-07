@@ -25,7 +25,6 @@ export default function GruposPagarPage() {
       let q = supabase.from("fin_grupos_pagar").select("*").order("created_at", { ascending: false });
       if (statusFilter !== "todos") q = q.eq("status", statusFilter as any);
       const { data } = await q;
-      const { data } = await q;
       return data || [];
     },
   });
