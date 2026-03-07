@@ -2,3 +2,6 @@ project_id = "mgiebypxhnmpktljrzjq"
 
 [functions.gc-proxy]
 verify_jwt = false
+
+[functions.inter-proxy]
+verify_jwt = false
