@@ -128,6 +128,7 @@ serve(async (req) => {
     const usedIds = new Set<string>();
     const stats = { auto: 0, review: 0, unmatched: 0, errors: 0 };
     const reviewItems: any[] = [];
+    const unmatchedItems: any[] = [];
 
     for (const ext of (extratos ?? [])) {
       const isDebito = ext.tipo === "DEBITO";
@@ -153,7 +154,19 @@ serve(async (req) => {
         .filter(c => c.score >= REVIEW_THRESHOLD)
         .sort((a, b) => b.score - a.score);
 
-      if (candidates.length === 0) { stats.unmatched++; continue; }
+      if (candidates.length === 0) {
+        stats.unmatched++;
+        unmatchedItems.push({
+          extrato_id: ext.id,
+          descricao_extrato: ext.descricao ?? ext.contrapartida ?? "—",
+          contrapartida: ext.contrapartida ?? "",
+          cpf_cnpj: ext.cpf_cnpj ?? "",
+          valor: ext.valor,
+          tipo: ext.tipo,
+          data_hora: ext.data_hora,
+        });
+        continue;
+      }
 
       const best = candidates[0];
 
@@ -218,7 +231,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, stats, review: reviewItems }),
+      JSON.stringify({ success: true, stats, review: reviewItems, unmatched: unmatchedItems }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: any) {
