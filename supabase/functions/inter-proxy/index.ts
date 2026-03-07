@@ -137,8 +137,12 @@ async function getToken(cert: string, key: string): Promise<string> {
     grant_type: "client_credentials",
     client_id: clientId,
     client_secret: clientSecret,
-    scope: "extrato.read cobv.write cobv.read pagamento-pix.write pagamento-pix.read",
+    scope: "extrato.read cobv.write cobv.read pix.write pix.read pagamento-pix.write pagamento-pix.read",
   }).toString();
+
+  console.log("[inter] OAuth body:", body);
+  console.log("[inter] cert preview:", cert.slice(0, 80));
+  console.log("[inter] key preview:", key.slice(0, 80));
 
   console.log("[inter] OAuth via Deno.connectTls, client_id:", clientId.slice(0, 8) + "...");
 
