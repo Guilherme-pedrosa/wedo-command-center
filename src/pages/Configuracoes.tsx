@@ -3,26 +3,48 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Accordion, AccordionContent, AccordionItem, AccordionTrigger,
 } from "@/components/ui/accordion";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Settings, TestTube, Save, RefreshCw, Database } from "lucide-react";
+import { Settings, TestTube, Save, RefreshCw, Database, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
+import { testGCConnection } from "@/lib/gc-client";
 
 export default function Configuracoes() {
-  const [gcAccess, setGcAccess] = useState("");
-  const [gcSecret, setGcSecret] = useState("");
-  const [interClientId, setInterClientId] = useState("");
-  const [interClientSecret, setInterClientSecret] = useState("");
-  const [interPixKey, setInterPixKey] = useState("");
   const [syncEnabled, setSyncEnabled] = useState(true);
   const [syncInterval, setSyncInterval] = useState("5");
   const [pickingTtl, setPickingTtl] = useState("5");
   const [confirmMode, setConfirmMode] = useState("texto");
+  const [interClientId, setInterClientId] = useState("");
+  const [interClientSecret, setInterClientSecret] = useState("");
+  const [interPixKey, setInterPixKey] = useState("");
+
+  // GC test state
+  const [gcTesting, setGcTesting] = useState(false);
+  const [gcTestResult, setGcTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const handleTestGC = async () => {
+    setGcTesting(true);
+    setGcTestResult(null);
+    try {
+      const result = await testGCConnection();
+      setGcTestResult(result);
+      if (result.ok) {
+        toast.success(result.message);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      setGcTestResult({ ok: false, message: msg });
+      toast.error(msg);
+    } finally {
+      setGcTesting(false);
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -38,24 +60,21 @@ export default function Configuracoes() {
             API GestãoClick
           </AccordionTrigger>
           <AccordionContent className="space-y-4 pb-4">
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Access Token</Label>
-              <Input type="password" value={gcAccess} onChange={(e) => setGcAccess(e.target.value)} placeholder="Cole seu access-token" />
+            <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
+              As credenciais do GestãoClick estão armazenadas como <strong>Cloud Secrets</strong> (GC_ACCESS_TOKEN, GC_SECRET_TOKEN). Para alterá-las, atualize os secrets no painel do Lovable Cloud.
             </div>
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Secret Access Token</Label>
-              <Input type="password" value={gcSecret} onChange={(e) => setGcSecret(e.target.value)} placeholder="Cole seu secret-access-token" />
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline">
-                <TestTube className="h-3.5 w-3.5 mr-1.5" />
-                Testar conexão
-              </Button>
-              <Button size="sm">
-                <Save className="h-3.5 w-3.5 mr-1.5" />
-                Salvar
-              </Button>
-            </div>
+
+            {gcTestResult && (
+              <div className={`flex items-center gap-2 rounded-md p-3 text-sm ${gcTestResult.ok ? "bg-wedo-green/10 text-wedo-green" : "bg-wedo-red/10 text-wedo-red"}`}>
+                {gcTestResult.ok ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                {gcTestResult.message}
+              </div>
+            )}
+
+            <Button size="sm" variant="outline" onClick={handleTestGC} disabled={gcTesting}>
+              {gcTesting ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <TestTube className="h-3.5 w-3.5 mr-1.5" />}
+              {gcTesting ? "Testando..." : "Testar conexão"}
+            </Button>
           </AccordionContent>
         </AccordionItem>
 
@@ -65,24 +84,19 @@ export default function Configuracoes() {
             API Banco Inter
           </AccordionTrigger>
           <AccordionContent className="space-y-4 pb-4">
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Client ID</Label>
-              <Input value={interClientId} onChange={(e) => setInterClientId(e.target.value)} placeholder="Client ID" />
+            <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
+              A integração com Banco Inter requer certificados mTLS. Configure os secrets INTER_CLIENT_ID, INTER_CLIENT_SECRET, INTER_CERT e INTER_KEY no Lovable Cloud.
             </div>
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Client Secret</Label>
-              <Input type="password" value={interClientSecret} onChange={(e) => setInterClientSecret(e.target.value)} placeholder="Client Secret" />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Chave PIX</Label>
+              <Label className="text-xs text-muted-foreground">Chave PIX (para cobranças)</Label>
               <Input value={interPixKey} onChange={(e) => setInterPixKey(e.target.value)} placeholder="Chave PIX para cobranças" />
             </div>
             <div className="flex gap-2">
-              <Button size="sm" variant="outline">
+              <Button size="sm" variant="outline" disabled>
                 <TestTube className="h-3.5 w-3.5 mr-1.5" />
                 Testar conexão
               </Button>
-              <Button size="sm">
+              <Button size="sm" disabled>
                 <Save className="h-3.5 w-3.5 mr-1.5" />
                 Salvar
               </Button>

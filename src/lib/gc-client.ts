@@ -13,6 +13,20 @@ interface GCProxyResponse<T = unknown> {
   duration_ms: number;
 }
 
+// GC API wraps responses in { code, data, meta, status }
+interface GCApiResponse<T> {
+  code: number;
+  data: T[];
+  meta: {
+    limite_por_pagina: number;
+    pagina_atual: number;
+    total_paginas: number;
+    total_registros: number;
+    total_registros_pagina: number;
+  };
+  status: string;
+}
+
 export async function callGC<T = unknown>(request: GCProxyRequest): Promise<GCProxyResponse<T>> {
   const { data, error } = await supabase.functions.invoke("gc-proxy", {
     body: request,
@@ -22,7 +36,7 @@ export async function callGC<T = unknown>(request: GCProxyRequest): Promise<GCPr
   return data as GCProxyResponse<T>;
 }
 
-// Paginated fetch helper — fetches ALL pages
+// Paginated fetch helper — fetches ALL pages from GC
 export async function fetchAllGCPages<T>(
   endpoint: string,
   onProgress?: (current: number, total: number) => void
@@ -32,12 +46,7 @@ export async function fetchAllGCPages<T>(
   let totalPages = 1;
 
   while (page <= totalPages) {
-    const res = await callGC<{
-      data?: T[];
-      pagina_atual?: number;
-      total_paginas?: number;
-      total_registros?: number;
-    }>({
+    const res = await callGC<GCApiResponse<T>>({
       endpoint,
       params: { limite: "100", pagina: String(page) },
     });
@@ -49,11 +58,10 @@ export async function fetchAllGCPages<T>(
     }
     if (res.status >= 500) throw new Error(`GC server error: ${res.status}`);
 
-    const body = res.data;
-    if (body && typeof body === "object" && "data" in body) {
-      const gcBody = body as { data: T[]; total_paginas: number; pagina_atual: number };
-      allRecords.push(...(gcBody.data || []));
-      totalPages = gcBody.total_paginas || 1;
+    const gcResponse = res.data;
+    if (gcResponse?.data) {
+      allRecords.push(...gcResponse.data);
+      totalPages = gcResponse.meta?.total_paginas || 1;
       onProgress?.(page, totalPages);
     }
 
@@ -61,4 +69,26 @@ export async function fetchAllGCPages<T>(
   }
 
   return allRecords;
+}
+
+// Test GC connection — fetches 1 receivable
+export async function testGCConnection(): Promise<{ ok: boolean; total: number; message: string }> {
+  try {
+    const res = await callGC<GCApiResponse<unknown>>({
+      endpoint: "/api/recebimentos",
+      params: { limite: "1", pagina: "1" },
+    });
+
+    if (res.status === 401) {
+      return { ok: false, total: 0, message: "Credenciais inválidas (HTTP 401)" };
+    }
+    if (res.status !== 200) {
+      return { ok: false, total: 0, message: `Erro HTTP ${res.status}` };
+    }
+
+    const total = res.data?.meta?.total_registros || 0;
+    return { ok: true, total, message: `Conectado — ${total} recebimentos encontrados (${res.duration_ms}ms)` };
+  } catch (err: unknown) {
+    return { ok: false, total: 0, message: `Erro: ${err instanceof Error ? err.message : String(err)}` };
+  }
 }
