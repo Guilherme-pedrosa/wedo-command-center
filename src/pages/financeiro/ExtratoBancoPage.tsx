@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/EmptyState";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { buscarExtratoInter } from "@/api/financeiro";
+import { buscarExtratoInter, extrairNomeDaDescricao } from "@/api/financeiro";
 import { Building2, RefreshCw, Loader2 } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -92,7 +92,7 @@ export default function ExtratoBancoPage() {
                 <td className="p-3 text-right font-semibold">{formatCurrency(Number(e.valor))}</td>
                 <td className="p-3">
                   <div className="flex flex-col">
-                    <span className="font-medium text-foreground">{e.contrapartida || "—"}</span>
+                    <span className="font-medium text-foreground">{e.contrapartida || extrairNomeDaDescricao(e.descricao) || "—"}</span>
                     {e.cpf_cnpj && <span className="text-[10px] text-muted-foreground">{e.cpf_cnpj}</span>}
                   </div>
                 </td>

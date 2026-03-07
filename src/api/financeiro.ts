@@ -91,8 +91,38 @@ export function inferirOrigem(
   if (/contrato/i.test(descricao)) return "gc_contrato";
   return "outro";
 }
+/**
+ * Extrai o nome do remetente/destinatário da descrição do extrato Inter.
+ * Exemplos:
+ *   "PIX ENVIADO INTERNO - 00019 82218404 FRED SILVA" → "FRED SILVA"
+ *   "TED RECEBIDA - 376 1 1035698 CARGILL AGRICOLA S A" → "CARGILL AGRICOLA S A"
+ *   "PIX RECEBIDO - Cp :60701190-WD COMERCIO E IMPORTACAO LTDA" → "WD COMERCIO E IMPORTACAO LTDA"
+ *   "TED RECEBIDA - 341 912 49681 AMBEV S A" → "AMBEV S A"
+ */
+export function extrairNomeDaDescricao(descricao: string | null | undefined): string | null {
+  if (!descricao) return null;
 
-// ─── GC Paginated Fetch ──────────────────────────────────────────────
+  // Padrão "Cp :CNPJ-NOME"
+  const cpMatch = descricao.match(/Cp\s*:\d+-(.+)$/i);
+  if (cpMatch?.[1]) return cpMatch[1].trim();
+
+  // Padrão com números seguidos de nome: "- 00019 82218404 FRED SILVA"
+  // ou "- 341 912 49681 AMBEV S A"
+  // Captura: depois de "- " seguido de sequências numéricas, o texto restante é o nome
+  const dashMatch = descricao.match(/-\s+(?:[\d\s]+?\s)([A-Z][A-Z\s.&]+[A-Z.])$/);
+  if (dashMatch?.[1]) return dashMatch[1].trim();
+
+  // Padrão com CPF/CNPJ formatado no meio: "62 084 399 DANIEL BEAN"
+  const docMatch = descricao.match(/\d{2}\s*\.?\d{3}\s*\.?\d{3}\s+([A-Z][A-Z\s.]+)$/);
+  if (docMatch?.[1]) return docMatch[1].trim();
+
+  // Fallback genérico: última sequência de letras maiúsculas com 3+ chars
+  const fallback = descricao.match(/\d\s+([A-Z][A-Z\s.&]{2,})\s*$/);
+  if (fallback?.[1]) return fallback[1].trim();
+
+  return null;
+}
+
 
 async function fetchPaginatedGC<T>(
   endpoint: string,
@@ -702,15 +732,19 @@ export async function buscarExtratoInter(
   const transacoes = resp.transacoes ?? resp.data ?? [];
 
   for (const t of transacoes) {
-    // Extrair nome do remetente/destinatário de vários formatos da API Inter
     const tipoOp = (t.tipoOperacao ?? t.tipo) === "D" ? "DEBITO" : "CREDITO";
-    const contrapartida = t.detalhes?.pagador?.nome 
+    const descricaoRaw = t.descricao ?? (typeof t.titulo === "string" ? t.titulo : "") ?? "";
+    
+    // Extrair nome do remetente/destinatário da descrição
+    // Padrões comuns: "PIX ENVIADO INTERNO - 00019 82218404 FRED SILVA"
+    //                 "TED RECEBIDA - 376 1 1035698 CARGILL AGRICOLA S A"
+    //                 "PIX RECEBIDO - 00019 471609153 62 084 399 DANIEL BEAN"
+    const contrapartida = extrairNomeDaDescricao(descricaoRaw)
+      ?? t.detalhes?.pagador?.nome 
       ?? t.detalhes?.recebedor?.nome 
       ?? t.detalhes?.nomeFavorecido
       ?? t.nomeOrigem 
       ?? t.nomeDestino 
-      ?? (typeof t.titulo === "string" ? t.titulo : t.titulo?.nomeTitulo)
-      ?? t.detalhe 
       ?? "";
     const cpfCnpj = t.detalhes?.pagador?.cpfCnpj
       ?? t.detalhes?.recebedor?.cpfCnpj
@@ -725,12 +759,12 @@ export async function buscarExtratoInter(
         tipo: tipoOp,
         valor: parseFloat(t.valor ?? "0"),
         data_hora: t.dataHora ?? t.dataEntrada,
-        descricao: t.descricao ?? (typeof t.titulo === "string" ? t.titulo : "") ?? "",
+        descricao: descricaoRaw,
         contrapartida,
         cpf_cnpj: cpfCnpj,
         payload_raw: t,
       },
-      { onConflict: "end_to_end_id", ignoreDuplicates: true }
+      { onConflict: "end_to_end_id", ignoreDuplicates: false }
     );
   }
 
