@@ -1,0 +1,1 @@
+ALTER TABLE public.fin_extrato_inter ADD COLUMN IF NOT EXISTS chave_pix TEXT;

@@ -275,6 +275,7 @@ export type Database = {
       fin_extrato_inter: {
         Row: {
           agenda_id: string | null
+          chave_pix: string | null
           contrapartida: string | null
           cpf_cnpj: string | null
           created_at: string | null
@@ -293,6 +294,7 @@ export type Database = {
         }
         Insert: {
           agenda_id?: string | null
+          chave_pix?: string | null
           contrapartida?: string | null
           cpf_cnpj?: string | null
           created_at?: string | null
@@ -311,6 +313,7 @@ export type Database = {
         }
         Update: {
           agenda_id?: string | null
+          chave_pix?: string | null
           contrapartida?: string | null
           cpf_cnpj?: string | null
           created_at?: string | null

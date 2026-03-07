@@ -173,11 +173,9 @@ export default function ConciliacaoPage() {
                     <p className="text-[10px] text-muted-foreground uppercase font-semibold">Candidatos ({item.candidatos.length})</p>
                     {item.candidatos.map((c: any) => (
                       <div key={c.id} className="flex items-center justify-between text-xs p-1.5 rounded hover:bg-muted/30 cursor-pointer group" onClick={() => {
-                        // Find the extrato in the list and select it + this candidate
                         const ext = extratoNR?.find((e: any) => e.id === item.extrato_id);
                         if (ext) {
                           setSelectedExtrato(ext);
-                          // Determine tipo based on extrato type
                           const tipo = ext.tipo === "DEBITO" ? "pagar" : "receber";
                           setSelectedLanc({ id: c.id, descricao: c.descricao, valor: c.valor, nome_fornecedor: c.nome, nome_cliente: c.nome, _tipo: tipo });
                           setShowConfirm(true);
@@ -232,6 +230,31 @@ export default function ConciliacaoPage() {
         </div>
       )}
 
+      {/* Unmatched Section */}
+      {autoResult?.unmatched?.length > 0 && (
+        <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+          <h3 className="text-sm font-semibold flex items-center gap-2">❓ Sem Match ({autoResult.unmatched.length})</h3>
+          <p className="text-[10px] text-muted-foreground">Transações do extrato que não encontraram nenhum lançamento compatível. Vincule manualmente selecionando o item e um lançamento ao lado.</p>
+          <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+            {autoResult.unmatched.map((item: any, idx: number) => (
+              <div key={idx} onClick={() => {
+                const ext = extratoNR?.find((e: any) => e.id === item.extrato_id);
+                if (ext) { setSelectedExtrato(ext); }
+              }} className={`p-3 rounded-md border cursor-pointer transition-colors ${selectedExtrato?.id === item.extrato_id ? "border-primary bg-primary/10" : "border-border hover:bg-muted/30"}`}>
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className={`text-[10px] ${item.tipo === "CREDITO" ? "text-wedo-green" : "text-wedo-red"}`}>{item.tipo}</Badge>
+                    <span className="text-xs font-medium truncate">{item.contrapartida || item.descricao_extrato || "—"}</span>
+                  </div>
+                  <span className="font-semibold text-sm">{formatCurrency(Number(item.valor))}</span>
+                </div>
+                {item.cpf_cnpj && <p className="text-[10px] text-muted-foreground mt-1">Doc: {item.cpf_cnpj}</p>}
+                <p className="text-[10px] text-muted-foreground">{item.data_hora ? formatDateTime(item.data_hora) : ""}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Confirm dialog */}
       <Dialog open={showConfirm} onOpenChange={o => { if (!o) { setShowConfirm(false); } }}>
         <DialogContent><DialogHeader><DialogTitle>Vincular transação</DialogTitle></DialogHeader>
