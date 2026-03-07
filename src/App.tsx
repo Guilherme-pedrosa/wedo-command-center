@@ -24,6 +24,7 @@ const FinGrpPagar = lazy(() => import("@/pages/financeiro/GruposPagarPage"));
 const FinAgenda = lazy(() => import("@/pages/financeiro/AgendaPage"));
 const FinExtrato = lazy(() => import("@/pages/financeiro/ExtratoBancoPage"));
 const FinConciliacao = lazy(() => import("@/pages/financeiro/ConciliacaoPage"));
+const FinConciliacaoHist = lazy(() => import("@/pages/financeiro/ConciliacaoHistoricoPage"));
 const FinDRE = lazy(() => import("@/pages/financeiro/DREPage"));
 const FinFluxo = lazy(() => import("@/pages/financeiro/FluxoCaixaPage"));
 const FinPlanoContas = lazy(() => import("@/pages/financeiro/PlanoContasPage"));
@@ -76,6 +77,7 @@ const App = () => (
             <Route path="/financeiro/agenda" element={<Suspense fallback={<LazyFallback />}><FinAgenda /></Suspense>} />
             <Route path="/financeiro/extrato" element={<Suspense fallback={<LazyFallback />}><FinExtrato /></Suspense>} />
             <Route path="/financeiro/conciliacao" element={<Suspense fallback={<LazyFallback />}><FinConciliacao /></Suspense>} />
+            <Route path="/financeiro/conciliacao-historico" element={<Suspense fallback={<LazyFallback />}><FinConciliacaoHist /></Suspense>} />
             <Route path="/financeiro/dre" element={<Suspense fallback={<LazyFallback />}><FinDRE /></Suspense>} />
             <Route path="/financeiro/fluxo-caixa" element={<Suspense fallback={<LazyFallback />}><FinFluxo /></Suspense>} />
             <Route path="/financeiro/plano-contas" element={<Suspense fallback={<LazyFallback />}><FinPlanoContas /></Suspense>} />
