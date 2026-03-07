@@ -32,6 +32,1031 @@ export type Database = {
         }
         Relationships: []
       }
+      fin_agenda_pagamentos: {
+        Row: {
+          centro_custo_id: string | null
+          chave_pix_destino: string | null
+          conta_bancaria_id: string | null
+          created_at: string | null
+          created_by: string | null
+          data_vencimento: string
+          descricao: string
+          executado_em: string | null
+          fornecedor_gc_id: string | null
+          gc_baixado: boolean | null
+          gc_pagamento_id: string | null
+          id: string
+          inter_pagamento_id: string | null
+          nome_fornecedor: string | null
+          observacao: string | null
+          plano_contas_id: string | null
+          recorrencia: Database["public"]["Enums"]["fin_recorrencia"] | null
+          recorrencia_pai_id: string | null
+          status: string | null
+          tipo_chave: string | null
+          ultimo_erro: string | null
+          updated_at: string | null
+          valor: number
+        }
+        Insert: {
+          centro_custo_id?: string | null
+          chave_pix_destino?: string | null
+          conta_bancaria_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          data_vencimento: string
+          descricao: string
+          executado_em?: string | null
+          fornecedor_gc_id?: string | null
+          gc_baixado?: boolean | null
+          gc_pagamento_id?: string | null
+          id?: string
+          inter_pagamento_id?: string | null
+          nome_fornecedor?: string | null
+          observacao?: string | null
+          plano_contas_id?: string | null
+          recorrencia?: Database["public"]["Enums"]["fin_recorrencia"] | null
+          recorrencia_pai_id?: string | null
+          status?: string | null
+          tipo_chave?: string | null
+          ultimo_erro?: string | null
+          updated_at?: string | null
+          valor: number
+        }
+        Update: {
+          centro_custo_id?: string | null
+          chave_pix_destino?: string | null
+          conta_bancaria_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          data_vencimento?: string
+          descricao?: string
+          executado_em?: string | null
+          fornecedor_gc_id?: string | null
+          gc_baixado?: boolean | null
+          gc_pagamento_id?: string | null
+          id?: string
+          inter_pagamento_id?: string | null
+          nome_fornecedor?: string | null
+          observacao?: string | null
+          plano_contas_id?: string | null
+          recorrencia?: Database["public"]["Enums"]["fin_recorrencia"] | null
+          recorrencia_pai_id?: string | null
+          status?: string | null
+          tipo_chave?: string | null
+          ultimo_erro?: string | null
+          updated_at?: string | null
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_agenda_pagamentos_centro_custo_id_fkey"
+            columns: ["centro_custo_id"]
+            isOneToOne: false
+            referencedRelation: "fin_centros_custo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_agenda_pagamentos_conta_bancaria_id_fkey"
+            columns: ["conta_bancaria_id"]
+            isOneToOne: false
+            referencedRelation: "fin_contas_bancarias"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_agenda_pagamentos_gc_pagamento_id_fkey"
+            columns: ["gc_pagamento_id"]
+            isOneToOne: false
+            referencedRelation: "fin_pagamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_agenda_pagamentos_plano_contas_id_fkey"
+            columns: ["plano_contas_id"]
+            isOneToOne: false
+            referencedRelation: "fin_plano_contas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_agenda_pagamentos_recorrencia_pai_id_fkey"
+            columns: ["recorrencia_pai_id"]
+            isOneToOne: false
+            referencedRelation: "fin_agenda_pagamentos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fin_centros_custo: {
+        Row: {
+          ativo: boolean | null
+          codigo: string | null
+          created_at: string | null
+          id: string
+          nome: string
+        }
+        Insert: {
+          ativo?: boolean | null
+          codigo?: string | null
+          created_at?: string | null
+          id?: string
+          nome: string
+        }
+        Update: {
+          ativo?: boolean | null
+          codigo?: string | null
+          created_at?: string | null
+          id?: string
+          nome?: string
+        }
+        Relationships: []
+      }
+      fin_clientes: {
+        Row: {
+          cpf_cnpj: string | null
+          email: string | null
+          gc_id: string
+          id: string
+          last_synced: string | null
+          nome: string
+          telefone: string | null
+        }
+        Insert: {
+          cpf_cnpj?: string | null
+          email?: string | null
+          gc_id: string
+          id?: string
+          last_synced?: string | null
+          nome: string
+          telefone?: string | null
+        }
+        Update: {
+          cpf_cnpj?: string | null
+          email?: string | null
+          gc_id?: string
+          id?: string
+          last_synced?: string | null
+          nome?: string
+          telefone?: string | null
+        }
+        Relationships: []
+      }
+      fin_configuracoes: {
+        Row: {
+          chave: string
+          descricao: string | null
+          id: string
+          updated_at: string | null
+          valor: string | null
+        }
+        Insert: {
+          chave: string
+          descricao?: string | null
+          id?: string
+          updated_at?: string | null
+          valor?: string | null
+        }
+        Update: {
+          chave?: string
+          descricao?: string | null
+          id?: string
+          updated_at?: string | null
+          valor?: string | null
+        }
+        Relationships: []
+      }
+      fin_contas_bancarias: {
+        Row: {
+          agencia: string | null
+          ativa: boolean | null
+          banco: string | null
+          conta: string | null
+          created_at: string | null
+          gc_id: string | null
+          id: string
+          is_inter: boolean | null
+          nome: string
+          saldo_atual: number | null
+          saldo_inicial: number | null
+          tipo: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          agencia?: string | null
+          ativa?: boolean | null
+          banco?: string | null
+          conta?: string | null
+          created_at?: string | null
+          gc_id?: string | null
+          id?: string
+          is_inter?: boolean | null
+          nome: string
+          saldo_atual?: number | null
+          saldo_inicial?: number | null
+          tipo?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          agencia?: string | null
+          ativa?: boolean | null
+          banco?: string | null
+          conta?: string | null
+          created_at?: string | null
+          gc_id?: string | null
+          id?: string
+          is_inter?: boolean | null
+          nome?: string
+          saldo_atual?: number | null
+          saldo_inicial?: number | null
+          tipo?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      fin_extrato_inter: {
+        Row: {
+          agenda_id: string | null
+          contrapartida: string | null
+          cpf_cnpj: string | null
+          created_at: string | null
+          data_hora: string | null
+          descricao: string | null
+          end_to_end_id: string | null
+          grupo_pagar_id: string | null
+          grupo_receber_id: string | null
+          id: string
+          lancamento_id: string | null
+          payload_raw: Json | null
+          reconciliado: boolean | null
+          reconciliado_em: string | null
+          tipo: string | null
+          valor: number | null
+        }
+        Insert: {
+          agenda_id?: string | null
+          contrapartida?: string | null
+          cpf_cnpj?: string | null
+          created_at?: string | null
+          data_hora?: string | null
+          descricao?: string | null
+          end_to_end_id?: string | null
+          grupo_pagar_id?: string | null
+          grupo_receber_id?: string | null
+          id?: string
+          lancamento_id?: string | null
+          payload_raw?: Json | null
+          reconciliado?: boolean | null
+          reconciliado_em?: string | null
+          tipo?: string | null
+          valor?: number | null
+        }
+        Update: {
+          agenda_id?: string | null
+          contrapartida?: string | null
+          cpf_cnpj?: string | null
+          created_at?: string | null
+          data_hora?: string | null
+          descricao?: string | null
+          end_to_end_id?: string | null
+          grupo_pagar_id?: string | null
+          grupo_receber_id?: string | null
+          id?: string
+          lancamento_id?: string | null
+          payload_raw?: Json | null
+          reconciliado?: boolean | null
+          reconciliado_em?: string | null
+          tipo?: string | null
+          valor?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_extrato_inter_agenda_id_fkey"
+            columns: ["agenda_id"]
+            isOneToOne: false
+            referencedRelation: "fin_agenda_pagamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_extrato_inter_grupo_pagar_id_fkey"
+            columns: ["grupo_pagar_id"]
+            isOneToOne: false
+            referencedRelation: "fin_grupos_pagar"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_extrato_inter_grupo_receber_id_fkey"
+            columns: ["grupo_receber_id"]
+            isOneToOne: false
+            referencedRelation: "fin_grupos_receber"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fin_formas_pagamento: {
+        Row: {
+          ativo: boolean | null
+          created_at: string | null
+          gc_id: string | null
+          id: string
+          nome: string
+          tipo: string | null
+        }
+        Insert: {
+          ativo?: boolean | null
+          created_at?: string | null
+          gc_id?: string | null
+          id?: string
+          nome: string
+          tipo?: string | null
+        }
+        Update: {
+          ativo?: boolean | null
+          created_at?: string | null
+          gc_id?: string | null
+          id?: string
+          nome?: string
+          tipo?: string | null
+        }
+        Relationships: []
+      }
+      fin_fornecedores: {
+        Row: {
+          chave_pix: string | null
+          cpf_cnpj: string | null
+          email: string | null
+          gc_id: string
+          id: string
+          last_synced: string | null
+          nome: string
+          telefone: string | null
+        }
+        Insert: {
+          chave_pix?: string | null
+          cpf_cnpj?: string | null
+          email?: string | null
+          gc_id: string
+          id?: string
+          last_synced?: string | null
+          nome: string
+          telefone?: string | null
+        }
+        Update: {
+          chave_pix?: string | null
+          cpf_cnpj?: string | null
+          email?: string | null
+          gc_id?: string
+          id?: string
+          last_synced?: string | null
+          nome?: string
+          telefone?: string | null
+        }
+        Relationships: []
+      }
+      fin_grupo_pagar_itens: {
+        Row: {
+          created_at: string | null
+          gc_baixado: boolean | null
+          gc_baixado_em: string | null
+          grupo_id: string
+          id: string
+          pagamento_id: string
+          tentativas: number | null
+          ultimo_erro: string | null
+          valor: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          gc_baixado?: boolean | null
+          gc_baixado_em?: string | null
+          grupo_id: string
+          id?: string
+          pagamento_id: string
+          tentativas?: number | null
+          ultimo_erro?: string | null
+          valor?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          gc_baixado?: boolean | null
+          gc_baixado_em?: string | null
+          grupo_id?: string
+          id?: string
+          pagamento_id?: string
+          tentativas?: number | null
+          ultimo_erro?: string | null
+          valor?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_grupo_pagar_itens_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "fin_grupos_pagar"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_grupo_pagar_itens_pagamento_id_fkey"
+            columns: ["pagamento_id"]
+            isOneToOne: false
+            referencedRelation: "fin_pagamentos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fin_grupo_receber_itens: {
+        Row: {
+          created_at: string | null
+          gc_baixado: boolean | null
+          gc_baixado_em: string | null
+          grupo_id: string
+          id: string
+          recebimento_id: string
+          tentativas: number | null
+          ultimo_erro: string | null
+          valor: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          gc_baixado?: boolean | null
+          gc_baixado_em?: string | null
+          grupo_id: string
+          id?: string
+          recebimento_id: string
+          tentativas?: number | null
+          ultimo_erro?: string | null
+          valor?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          gc_baixado?: boolean | null
+          gc_baixado_em?: string | null
+          grupo_id?: string
+          id?: string
+          recebimento_id?: string
+          tentativas?: number | null
+          ultimo_erro?: string | null
+          valor?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_grupo_receber_itens_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "fin_grupos_receber"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_grupo_receber_itens_recebimento_id_fkey"
+            columns: ["recebimento_id"]
+            isOneToOne: false
+            referencedRelation: "fin_recebimentos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fin_grupos_pagar: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          data_pagamento: string | null
+          data_vencimento: string | null
+          fornecedor_gc_id: string | null
+          gc_baixado: boolean | null
+          gc_baixado_em: string | null
+          gc_baixado_por: string | null
+          id: string
+          inter_favorecido: string | null
+          inter_pagamento_id: string | null
+          inter_pago_em: string | null
+          itens_baixados: number | null
+          itens_total: number | null
+          nome: string
+          nome_fornecedor: string | null
+          observacao: string | null
+          status: Database["public"]["Enums"]["fin_status_grupo"] | null
+          updated_at: string | null
+          valor_pago: number | null
+          valor_total: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          data_pagamento?: string | null
+          data_vencimento?: string | null
+          fornecedor_gc_id?: string | null
+          gc_baixado?: boolean | null
+          gc_baixado_em?: string | null
+          gc_baixado_por?: string | null
+          id?: string
+          inter_favorecido?: string | null
+          inter_pagamento_id?: string | null
+          inter_pago_em?: string | null
+          itens_baixados?: number | null
+          itens_total?: number | null
+          nome: string
+          nome_fornecedor?: string | null
+          observacao?: string | null
+          status?: Database["public"]["Enums"]["fin_status_grupo"] | null
+          updated_at?: string | null
+          valor_pago?: number | null
+          valor_total?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          data_pagamento?: string | null
+          data_vencimento?: string | null
+          fornecedor_gc_id?: string | null
+          gc_baixado?: boolean | null
+          gc_baixado_em?: string | null
+          gc_baixado_por?: string | null
+          id?: string
+          inter_favorecido?: string | null
+          inter_pagamento_id?: string | null
+          inter_pago_em?: string | null
+          itens_baixados?: number | null
+          itens_total?: number | null
+          nome?: string
+          nome_fornecedor?: string | null
+          observacao?: string | null
+          status?: Database["public"]["Enums"]["fin_status_grupo"] | null
+          updated_at?: string | null
+          valor_pago?: number | null
+          valor_total?: number | null
+        }
+        Relationships: []
+      }
+      fin_grupos_receber: {
+        Row: {
+          cliente_gc_id: string | null
+          created_at: string | null
+          created_by: string | null
+          data_pagamento: string | null
+          data_vencimento: string | null
+          gc_baixado: boolean | null
+          gc_baixado_em: string | null
+          gc_baixado_por: string | null
+          id: string
+          inter_copia_cola: string | null
+          inter_pagador: string | null
+          inter_pago_em: string | null
+          inter_qrcode: string | null
+          inter_txid: string | null
+          itens_baixados: number | null
+          itens_total: number | null
+          nome: string
+          nome_cliente: string | null
+          observacao: string | null
+          status: Database["public"]["Enums"]["fin_status_grupo"] | null
+          updated_at: string | null
+          valor_recebido: number | null
+          valor_total: number | null
+        }
+        Insert: {
+          cliente_gc_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          data_pagamento?: string | null
+          data_vencimento?: string | null
+          gc_baixado?: boolean | null
+          gc_baixado_em?: string | null
+          gc_baixado_por?: string | null
+          id?: string
+          inter_copia_cola?: string | null
+          inter_pagador?: string | null
+          inter_pago_em?: string | null
+          inter_qrcode?: string | null
+          inter_txid?: string | null
+          itens_baixados?: number | null
+          itens_total?: number | null
+          nome: string
+          nome_cliente?: string | null
+          observacao?: string | null
+          status?: Database["public"]["Enums"]["fin_status_grupo"] | null
+          updated_at?: string | null
+          valor_recebido?: number | null
+          valor_total?: number | null
+        }
+        Update: {
+          cliente_gc_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          data_pagamento?: string | null
+          data_vencimento?: string | null
+          gc_baixado?: boolean | null
+          gc_baixado_em?: string | null
+          gc_baixado_por?: string | null
+          id?: string
+          inter_copia_cola?: string | null
+          inter_pagador?: string | null
+          inter_pago_em?: string | null
+          inter_qrcode?: string | null
+          inter_txid?: string | null
+          itens_baixados?: number | null
+          itens_total?: number | null
+          nome?: string
+          nome_cliente?: string | null
+          observacao?: string | null
+          status?: Database["public"]["Enums"]["fin_status_grupo"] | null
+          updated_at?: string | null
+          valor_recebido?: number | null
+          valor_total?: number | null
+        }
+        Relationships: []
+      }
+      fin_pagamentos: {
+        Row: {
+          centro_custo_id: string | null
+          conta_bancaria_id: string | null
+          created_at: string | null
+          created_by: string | null
+          data_competencia: string | null
+          data_emissao: string | null
+          data_liquidacao: string | null
+          data_vencimento: string | null
+          desconto: number | null
+          descricao: string
+          forma_pagamento_id: string | null
+          fornecedor_gc_id: string | null
+          gc_baixado: boolean | null
+          gc_baixado_em: string | null
+          gc_codigo: string | null
+          gc_id: string | null
+          gc_payload_raw: Json | null
+          grupo_id: string | null
+          id: string
+          last_synced_at: string | null
+          liquidado: boolean | null
+          nf_numero: string | null
+          nome_fornecedor: string | null
+          observacao: string | null
+          origem: Database["public"]["Enums"]["fin_origem"] | null
+          os_codigo: string | null
+          pago_sistema: boolean | null
+          pago_sistema_em: string | null
+          plano_contas_id: string | null
+          recorrencia: Database["public"]["Enums"]["fin_recorrencia"] | null
+          recorrencia_pai_id: string | null
+          status: Database["public"]["Enums"]["fin_status_lancamento"] | null
+          tipo: string | null
+          updated_at: string | null
+          valor: number
+        }
+        Insert: {
+          centro_custo_id?: string | null
+          conta_bancaria_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          data_competencia?: string | null
+          data_emissao?: string | null
+          data_liquidacao?: string | null
+          data_vencimento?: string | null
+          desconto?: number | null
+          descricao: string
+          forma_pagamento_id?: string | null
+          fornecedor_gc_id?: string | null
+          gc_baixado?: boolean | null
+          gc_baixado_em?: string | null
+          gc_codigo?: string | null
+          gc_id?: string | null
+          gc_payload_raw?: Json | null
+          grupo_id?: string | null
+          id?: string
+          last_synced_at?: string | null
+          liquidado?: boolean | null
+          nf_numero?: string | null
+          nome_fornecedor?: string | null
+          observacao?: string | null
+          origem?: Database["public"]["Enums"]["fin_origem"] | null
+          os_codigo?: string | null
+          pago_sistema?: boolean | null
+          pago_sistema_em?: string | null
+          plano_contas_id?: string | null
+          recorrencia?: Database["public"]["Enums"]["fin_recorrencia"] | null
+          recorrencia_pai_id?: string | null
+          status?: Database["public"]["Enums"]["fin_status_lancamento"] | null
+          tipo?: string | null
+          updated_at?: string | null
+          valor: number
+        }
+        Update: {
+          centro_custo_id?: string | null
+          conta_bancaria_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          data_competencia?: string | null
+          data_emissao?: string | null
+          data_liquidacao?: string | null
+          data_vencimento?: string | null
+          desconto?: number | null
+          descricao?: string
+          forma_pagamento_id?: string | null
+          fornecedor_gc_id?: string | null
+          gc_baixado?: boolean | null
+          gc_baixado_em?: string | null
+          gc_codigo?: string | null
+          gc_id?: string | null
+          gc_payload_raw?: Json | null
+          grupo_id?: string | null
+          id?: string
+          last_synced_at?: string | null
+          liquidado?: boolean | null
+          nf_numero?: string | null
+          nome_fornecedor?: string | null
+          observacao?: string | null
+          origem?: Database["public"]["Enums"]["fin_origem"] | null
+          os_codigo?: string | null
+          pago_sistema?: boolean | null
+          pago_sistema_em?: string | null
+          plano_contas_id?: string | null
+          recorrencia?: Database["public"]["Enums"]["fin_recorrencia"] | null
+          recorrencia_pai_id?: string | null
+          status?: Database["public"]["Enums"]["fin_status_lancamento"] | null
+          tipo?: string | null
+          updated_at?: string | null
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_pagamentos_centro_custo_id_fkey"
+            columns: ["centro_custo_id"]
+            isOneToOne: false
+            referencedRelation: "fin_centros_custo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_pagamentos_conta_bancaria_id_fkey"
+            columns: ["conta_bancaria_id"]
+            isOneToOne: false
+            referencedRelation: "fin_contas_bancarias"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_pagamentos_forma_pagamento_id_fkey"
+            columns: ["forma_pagamento_id"]
+            isOneToOne: false
+            referencedRelation: "fin_formas_pagamento"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_pagamentos_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "fin_grupos_pagar"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_pagamentos_plano_contas_id_fkey"
+            columns: ["plano_contas_id"]
+            isOneToOne: false
+            referencedRelation: "fin_plano_contas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_pagamentos_recorrencia_pai_id_fkey"
+            columns: ["recorrencia_pai_id"]
+            isOneToOne: false
+            referencedRelation: "fin_pagamentos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fin_plano_contas: {
+        Row: {
+          ativo: boolean | null
+          codigo: string | null
+          created_at: string | null
+          gc_id: string | null
+          id: string
+          nome: string
+          pai_id: string | null
+          tipo: Database["public"]["Enums"]["fin_tipo_lancamento"]
+          updated_at: string | null
+        }
+        Insert: {
+          ativo?: boolean | null
+          codigo?: string | null
+          created_at?: string | null
+          gc_id?: string | null
+          id?: string
+          nome: string
+          pai_id?: string | null
+          tipo: Database["public"]["Enums"]["fin_tipo_lancamento"]
+          updated_at?: string | null
+        }
+        Update: {
+          ativo?: boolean | null
+          codigo?: string | null
+          created_at?: string | null
+          gc_id?: string | null
+          id?: string
+          nome?: string
+          pai_id?: string | null
+          tipo?: Database["public"]["Enums"]["fin_tipo_lancamento"]
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_plano_contas_pai_id_fkey"
+            columns: ["pai_id"]
+            isOneToOne: false
+            referencedRelation: "fin_plano_contas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fin_recebimentos: {
+        Row: {
+          centro_custo_id: string | null
+          cliente_gc_id: string | null
+          conta_bancaria_id: string | null
+          created_at: string | null
+          created_by: string | null
+          data_competencia: string | null
+          data_emissao: string | null
+          data_liquidacao: string | null
+          data_vencimento: string | null
+          desconto: number | null
+          descricao: string
+          forma_pagamento_id: string | null
+          gc_baixado: boolean | null
+          gc_baixado_em: string | null
+          gc_codigo: string | null
+          gc_id: string | null
+          gc_payload_raw: Json | null
+          grupo_id: string | null
+          id: string
+          last_synced_at: string | null
+          liquidado: boolean | null
+          nf_numero: string | null
+          nome_cliente: string | null
+          observacao: string | null
+          origem: Database["public"]["Enums"]["fin_origem"] | null
+          os_codigo: string | null
+          pago_sistema: boolean | null
+          pago_sistema_em: string | null
+          plano_contas_id: string | null
+          recorrencia: Database["public"]["Enums"]["fin_recorrencia"] | null
+          recorrencia_pai_id: string | null
+          status: Database["public"]["Enums"]["fin_status_lancamento"] | null
+          tipo: string | null
+          updated_at: string | null
+          valor: number
+        }
+        Insert: {
+          centro_custo_id?: string | null
+          cliente_gc_id?: string | null
+          conta_bancaria_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          data_competencia?: string | null
+          data_emissao?: string | null
+          data_liquidacao?: string | null
+          data_vencimento?: string | null
+          desconto?: number | null
+          descricao: string
+          forma_pagamento_id?: string | null
+          gc_baixado?: boolean | null
+          gc_baixado_em?: string | null
+          gc_codigo?: string | null
+          gc_id?: string | null
+          gc_payload_raw?: Json | null
+          grupo_id?: string | null
+          id?: string
+          last_synced_at?: string | null
+          liquidado?: boolean | null
+          nf_numero?: string | null
+          nome_cliente?: string | null
+          observacao?: string | null
+          origem?: Database["public"]["Enums"]["fin_origem"] | null
+          os_codigo?: string | null
+          pago_sistema?: boolean | null
+          pago_sistema_em?: string | null
+          plano_contas_id?: string | null
+          recorrencia?: Database["public"]["Enums"]["fin_recorrencia"] | null
+          recorrencia_pai_id?: string | null
+          status?: Database["public"]["Enums"]["fin_status_lancamento"] | null
+          tipo?: string | null
+          updated_at?: string | null
+          valor: number
+        }
+        Update: {
+          centro_custo_id?: string | null
+          cliente_gc_id?: string | null
+          conta_bancaria_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          data_competencia?: string | null
+          data_emissao?: string | null
+          data_liquidacao?: string | null
+          data_vencimento?: string | null
+          desconto?: number | null
+          descricao?: string
+          forma_pagamento_id?: string | null
+          gc_baixado?: boolean | null
+          gc_baixado_em?: string | null
+          gc_codigo?: string | null
+          gc_id?: string | null
+          gc_payload_raw?: Json | null
+          grupo_id?: string | null
+          id?: string
+          last_synced_at?: string | null
+          liquidado?: boolean | null
+          nf_numero?: string | null
+          nome_cliente?: string | null
+          observacao?: string | null
+          origem?: Database["public"]["Enums"]["fin_origem"] | null
+          os_codigo?: string | null
+          pago_sistema?: boolean | null
+          pago_sistema_em?: string | null
+          plano_contas_id?: string | null
+          recorrencia?: Database["public"]["Enums"]["fin_recorrencia"] | null
+          recorrencia_pai_id?: string | null
+          status?: Database["public"]["Enums"]["fin_status_lancamento"] | null
+          tipo?: string | null
+          updated_at?: string | null
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_recebimentos_centro_custo_id_fkey"
+            columns: ["centro_custo_id"]
+            isOneToOne: false
+            referencedRelation: "fin_centros_custo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_recebimentos_conta_bancaria_id_fkey"
+            columns: ["conta_bancaria_id"]
+            isOneToOne: false
+            referencedRelation: "fin_contas_bancarias"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_recebimentos_forma_pagamento_id_fkey"
+            columns: ["forma_pagamento_id"]
+            isOneToOne: false
+            referencedRelation: "fin_formas_pagamento"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_recebimentos_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "fin_grupos_receber"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_recebimentos_plano_contas_id_fkey"
+            columns: ["plano_contas_id"]
+            isOneToOne: false
+            referencedRelation: "fin_plano_contas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_recebimentos_recorrencia_pai_id_fkey"
+            columns: ["recorrencia_pai_id"]
+            isOneToOne: false
+            referencedRelation: "fin_recebimentos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fin_sync_log: {
+        Row: {
+          created_at: string | null
+          duracao_ms: number | null
+          erro: string | null
+          id: string
+          payload: Json | null
+          referencia_id: string | null
+          resposta: Json | null
+          status: string
+          tipo: string
+        }
+        Insert: {
+          created_at?: string | null
+          duracao_ms?: number | null
+          erro?: string | null
+          id?: string
+          payload?: Json | null
+          referencia_id?: string | null
+          resposta?: Json | null
+          status: string
+          tipo: string
+        }
+        Update: {
+          created_at?: string | null
+          duracao_ms?: number | null
+          erro?: string | null
+          id?: string
+          payload?: Json | null
+          referencia_id?: string | null
+          resposta?: Json | null
+          status?: string
+          tipo?: string
+        }
+        Relationships: []
+      }
       gc_pagamentos: {
         Row: {
           centro_custo_id: string | null
@@ -631,7 +1656,31 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      fin_origem:
+        | "gc_os"
+        | "gc_venda"
+        | "gc_contrato"
+        | "manual"
+        | "inter"
+        | "outro"
+      fin_recorrencia:
+        | "nenhuma"
+        | "diaria"
+        | "semanal"
+        | "quinzenal"
+        | "mensal"
+        | "bimestral"
+        | "trimestral"
+        | "semestral"
+        | "anual"
+      fin_status_grupo:
+        | "aberto"
+        | "aguardando_pagamento"
+        | "pago"
+        | "pago_parcial"
+        | "cancelado"
+      fin_status_lancamento: "pendente" | "pago" | "vencido" | "cancelado"
+      fin_tipo_lancamento: "receita" | "despesa"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -758,6 +1807,35 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      fin_origem: [
+        "gc_os",
+        "gc_venda",
+        "gc_contrato",
+        "manual",
+        "inter",
+        "outro",
+      ],
+      fin_recorrencia: [
+        "nenhuma",
+        "diaria",
+        "semanal",
+        "quinzenal",
+        "mensal",
+        "bimestral",
+        "trimestral",
+        "semestral",
+        "anual",
+      ],
+      fin_status_grupo: [
+        "aberto",
+        "aguardando_pagamento",
+        "pago",
+        "pago_parcial",
+        "cancelado",
+      ],
+      fin_status_lancamento: ["pendente", "pago", "vencido", "cancelado"],
+      fin_tipo_lancamento: ["receita", "despesa"],
+    },
   },
 } as const

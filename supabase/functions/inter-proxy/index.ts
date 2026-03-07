@@ -11,7 +11,12 @@ const INTER_BASE_URL = "https://cdpj.partners.bancointer.com.br";
 // In-memory token cache
 let cachedToken: { access_token: string; expires_at: number } | null = null;
 
-async function getAccessToken(clientId: string, clientSecret: string, cert: string, key: string): Promise<string> {
+async function getAccessToken(
+  clientId: string,
+  clientSecret: string,
+  cert: string,
+  key: string
+): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expires_at) {
     return cachedToken.access_token;
   }
@@ -20,18 +25,19 @@ async function getAccessToken(clientId: string, clientSecret: string, cert: stri
     grant_type: "client_credentials",
     client_id: clientId,
     client_secret: clientSecret,
-    scope: "extrato.read cobv.write cobv.read pagamento-pix.write pagamento-pix.read",
+    scope:
+      "extrato.read cobv.write cobv.read cobv.cancel pagamento-pix.write pagamento-pix.read",
   });
+
+  // @ts-ignore - Deno supports createHttpClient
+  const client = Deno.createHttpClient({ certChain: cert, privateKey: key });
 
   const response = await fetch(`${INTER_BASE_URL}/oauth/v2/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: params.toString(),
-    // @ts-ignore - Deno supports client certificates
-    client: {
-      certChain: cert,
-      privateKey: key,
-    },
+    // @ts-ignore
+    client,
   });
 
   if (!response.ok) {
@@ -61,8 +67,15 @@ serve(async (req) => {
 
     if (!clientId || !clientSecret || !cert || !key) {
       return new Response(
-        JSON.stringify({ error: "Inter não configurado. Configure INTER_CLIENT_ID, INTER_CLIENT_SECRET, INTER_CERT e INTER_KEY." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          error: "INTER_NOT_CONFIGURED",
+          message:
+            "Certificados mTLS não configurados. Configure INTER_CLIENT_ID, INTER_CLIENT_SECRET, INTER_CERT e INTER_KEY.",
+        }),
+        {
+          status: 503,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
       );
     }
 
@@ -76,23 +89,33 @@ serve(async (req) => {
     if (!path) {
       return new Response(
         JSON.stringify({ error: "Missing 'path' parameter" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
       );
     }
 
     const token = await getAccessToken(clientId, clientSecret, cert, key);
 
-    const fetchOptions: RequestInit = {
+    // @ts-ignore
+    const client = Deno.createHttpClient({ certChain: cert, privateKey: key });
+
+    const fetchOptions: RequestInit & { client?: unknown } = {
       method: method.toUpperCase(),
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
+        "x-conta-corrente": Deno.env.get("INTER_NUMERO_CONTA") ?? "",
       },
       // @ts-ignore
-      client: { certChain: cert, privateKey: key },
+      client,
     };
 
-    if (payload && ["POST", "PUT", "PATCH"].includes(method.toUpperCase())) {
+    if (
+      payload &&
+      ["POST", "PUT", "PATCH"].includes(method.toUpperCase())
+    ) {
       fetchOptions.body = JSON.stringify(payload);
     }
 
@@ -105,7 +128,7 @@ serve(async (req) => {
     try {
       responseData = JSON.parse(responseText);
     } catch {
-      responseData = responseText;
+      responseData = { raw: responseText };
     }
 
     return new Response(
@@ -122,7 +145,10 @@ serve(async (req) => {
   } catch (error) {
     return new Response(
       JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
     );
   }
 });
