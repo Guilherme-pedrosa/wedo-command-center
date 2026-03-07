@@ -696,7 +696,7 @@ export async function buscarExtratoInter(
   dataFim: string
 ): Promise<any[]> {
   const resp = await interRequest<any>(
-    `/banking/v3/extrato?dataInicio=${dataInicio}&dataFim=${dataFim}`,
+    `/banking/v2/extrato?dataInicio=${dataInicio}&dataFim=${dataFim}`,
     "GET"
   );
   const transacoes = resp.transacoes ?? resp.data ?? [];
@@ -704,12 +704,12 @@ export async function buscarExtratoInter(
   for (const t of transacoes) {
     await supabase.from("fin_extrato_inter" as any).upsert(
       {
-        end_to_end_id: t.endToEndId ?? t.id ?? `${t.dataHora}-${t.valor}`,
-        tipo: t.tipoOperacao === "D" ? "DEBITO" : "CREDITO",
+        end_to_end_id: t.endToEndId ?? t.id ?? `${t.dataHora ?? t.dataEntrada}-${t.valor}`,
+        tipo: (t.tipoOperacao ?? t.tipo) === "D" ? "DEBITO" : "CREDITO",
         valor: parseFloat(t.valor ?? "0"),
-        data_hora: t.dataHora,
-        descricao: t.descricao ?? "",
-        contrapartida: t.nomeOrigem ?? t.nomeDestino ?? "",
+        data_hora: t.dataHora ?? t.dataEntrada,
+        descricao: t.descricao ?? t.titulo ?? "",
+        contrapartida: t.titulo?.nomeTitulo ?? t.nomeOrigem ?? t.nomeDestino ?? t.detalhe ?? "",
         payload_raw: t,
       },
       { onConflict: "end_to_end_id", ignoreDuplicates: true }
@@ -746,7 +746,7 @@ export async function enviarPagamentoPix(
     },
   };
 
-  const resp = await interRequest<any>("/banking/v3/pix", "POST", payload);
+  const resp = await interRequest<any>("/banking/v2/pix", "POST", payload);
   const endToEndId = resp.endToEndId ?? resp.codigoTransacao ?? "";
 
   await supabase
@@ -778,7 +778,7 @@ export async function testInterConnection(): Promise<{
   try {
     const today = new Date().toISOString().split("T")[0];
     await interRequest(
-      `/banking/v3/extrato?dataInicio=${today}&dataFim=${today}`,
+      `/banking/v2/extrato?dataInicio=${today}&dataFim=${today}`,
       "GET"
     );
     return { ok: true, message: "Conexão Inter OK" };
