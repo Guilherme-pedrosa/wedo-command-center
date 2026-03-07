@@ -1,8 +1,6 @@
 // @ts-nocheck
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import * as https from "node:https";
-import { Buffer } from "node:buffer";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -22,7 +20,7 @@ let tokenExpiry = 0;
 function buildPEM(raw: string, type: "CERTIFICATE" | "PRIVATE KEY"): string {
   if (!raw?.trim()) throw new Error(`PEM ${type} vazio`);
   if (raw.includes(`-----BEGIN ${type}-----`)) {
-    return raw.replace(/\\n/g, "\n");
+    return raw.replace(/\\n/g, "\n").trim() + "\n";
   }
   const b64 = raw
     .replace(/-----BEGIN[^-]*-----/g, "")
@@ -39,11 +37,11 @@ async function loadCerts(): Promise<{ cert: string; key: string }> {
   if (cachedCert && cachedKey) return { cert: cachedCert, key: cachedKey };
 
   const certSecret = (Deno.env.get("INTER_CERT") ?? "").trim();
-  const keySecret = (Deno.env.get("INTER_KEY") ?? "").trim();
+  const keySecret  = (Deno.env.get("INTER_KEY")  ?? "").trim();
 
   if (certSecret && keySecret) {
     cachedCert = buildPEM(certSecret, "CERTIFICATE");
-    cachedKey = buildPEM(keySecret, "PRIVATE KEY");
+    cachedKey  = buildPEM(keySecret,  "PRIVATE KEY");
     console.log("[inter] Certs das Secrets ✅ cert_len:", cachedCert.length, "key_len:", cachedKey.length);
     return { cert: cachedCert, key: cachedKey };
   }
@@ -53,18 +51,36 @@ async function loadCerts(): Promise<{ cert: string; key: string }> {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
-  const { data: certData, error: certErr } = await supabase.storage.from("inter-certs").download("cert.pem");
+  const { data: certData, error: certErr } = await supabase.storage
+    .from("inter-certs").download("cert.pem");
   if (certErr || !certData) throw new Error(`cert.pem não encontrado: ${certErr?.message}`);
-  const { data: keyData, error: keyErr } = await supabase.storage.from("inter-certs").download("key.pem");
+  const { data: keyData, error: keyErr } = await supabase.storage
+    .from("inter-certs").download("key.pem");
   if (keyErr || !keyData) throw new Error(`key.pem não encontrado: ${keyErr?.message}`);
+
   cachedCert = await certData.text();
-  cachedKey = await keyData.text();
+  cachedKey  = await keyData.text();
   console.log("[inter] Certs do Storage ✅");
   return { cert: cachedCert, key: cachedKey };
 }
 
-// ─── mTLS via node:https (OpenSSL) ────────────────────────────
-function nodeHttpsRequest(opts: {
+// ─── dechunk ────────────────────────────────────────────────────
+function dechunk(raw: string): string {
+  const lines = raw.split("\r\n");
+  let out = "";
+  let i = 0;
+  while (i < lines.length) {
+    const size = parseInt(lines[i], 16);
+    if (isNaN(size) || size === 0) break;
+    i++;
+    out += lines[i] ?? "";
+    i++;
+  }
+  return out || raw;
+}
+
+// ─── mTLS via Deno.connectTls ────────────────────────────────────
+async function mTlsRequest(opts: {
   path: string;
   method: string;
   headers: Record<string, string>;
@@ -72,69 +88,102 @@ function nodeHttpsRequest(opts: {
   cert: string;
   key: string;
 }): Promise<{ status: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const reqOpts = {
-      hostname: INTER_HOST,
-      port: 443,
-      path: opts.path,
-      method: opts.method,
-      headers: opts.headers,
-      cert: opts.cert,
-      key: opts.key,
-      rejectUnauthorized: true,
-    };
-
-    const req = https.request(reqOpts, (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (chunk: Buffer) => chunks.push(chunk));
-      res.on("end", () => {
-        const body = Buffer.concat(chunks).toString("utf-8");
-        resolve({ status: res.statusCode ?? 0, body });
-      });
-    });
-
-    req.on("error", (err) => reject(err));
-
-    if (opts.body) {
-      req.write(opts.body);
-    }
-    req.end();
+  const conn = await Deno.connectTls({
+    hostname: INTER_HOST,
+    port: 443,
+    certChain: opts.cert,
+    privateKey: opts.key,
   });
+
+  const bodyBytes = opts.body ? new TextEncoder().encode(opts.body) : null;
+
+  const headerLines = Object.entries(opts.headers)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\r\n");
+
+  const requestStr =
+    `${opts.method} ${opts.path} HTTP/1.1\r\n` +
+    `Host: ${INTER_HOST}\r\n` +
+    `Connection: close\r\n` +
+    (bodyBytes ? `Content-Length: ${bodyBytes.length}\r\n` : "") +
+    headerLines + "\r\n\r\n";
+
+  const reqBytes = new TextEncoder().encode(requestStr);
+
+  if (bodyBytes) {
+    const full = new Uint8Array(reqBytes.length + bodyBytes.length);
+    full.set(reqBytes, 0);
+    full.set(bodyBytes, reqBytes.length);
+    await conn.write(full);
+  } else {
+    await conn.write(reqBytes);
+  }
+
+  const chunks: Uint8Array[] = [];
+  const buf = new Uint8Array(16384);
+  while (true) {
+    const n = await conn.read(buf);
+    if (n === null || n === 0) break;
+    chunks.push(buf.slice(0, n));
+  }
+  conn.close();
+
+  const rawResponse = new TextDecoder().decode(
+    chunks.reduce((a, b) => {
+      const merged = new Uint8Array(a.length + b.length);
+      merged.set(a, 0);
+      merged.set(b, a.length);
+      return merged;
+    }, new Uint8Array())
+  );
+
+  const statusMatch = rawResponse.match(/^HTTP\/1\.\d (\d+)/);
+  const status = statusMatch ? parseInt(statusMatch[1]) : 0;
+
+  const headerBodySplit = rawResponse.indexOf("\r\n\r\n");
+  const responseHeaders = rawResponse.substring(0, headerBodySplit).toLowerCase();
+  let responseBody = rawResponse.substring(headerBodySplit + 4);
+
+  if (responseHeaders.includes("transfer-encoding: chunked")) {
+    responseBody = dechunk(responseBody);
+  }
+
+  console.log("[inter] response status:", status, "| body_len:", responseBody.trim().length);
+
+  return { status, body: responseBody.trim() };
 }
 
 // ─── OAuth Token ──────────────────────────────────────────────
 async function getToken(cert: string, key: string): Promise<string> {
   if (cachedToken && Date.now() < tokenExpiry - 30_000) return cachedToken;
 
-  const clientId = (Deno.env.get("INTER_CLIENT_ID") ?? "").trim();
+  const clientId     = (Deno.env.get("INTER_CLIENT_ID")     ?? "").trim();
   const clientSecret = (Deno.env.get("INTER_CLIENT_SECRET") ?? "").trim();
-  if (!clientId || !clientSecret) throw new Error("INTER_CLIENT_ID ou INTER_CLIENT_SECRET ausentes");
+  if (!clientId || !clientSecret)
+    throw new Error("INTER_CLIENT_ID ou INTER_CLIENT_SECRET ausentes");
 
   const scope = "extrato.read cobv.write cobv.read pagamento-pix.write pagamento-pix.read";
-  const body = new URLSearchParams({
+  const bodyStr = new URLSearchParams({
     grant_type: "client_credentials",
     client_id: clientId,
     client_secret: clientSecret,
     scope,
   }).toString();
 
-  console.log("[inter] OAuth via node:https, client_id:", clientId.slice(0, 8) + "...");
+  console.log("[inter] OAuth via Deno.connectTls, client_id:", clientId.slice(0, 8) + "...");
 
-  const { status, body: resBody } = await nodeHttpsRequest({
+  const { status, body: resBody } = await mTlsRequest({
     path: "/oauth/v2/token",
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Content-Length": String(Buffer.byteLength(body)),
-    },
-    body,
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: bodyStr,
     cert,
     key,
   });
 
   console.log("[inter] OAuth status:", status, "| body:", resBody.slice(0, 300));
 
-  if (status !== 200) throw new Error(`OAuth failed: ${status} - ${resBody}`);
+  if (status !== 200) throw new Error(`OAuth failed (${status}): ${resBody}`);
 
   const data = JSON.parse(resBody);
   cachedToken = data.access_token;
@@ -164,6 +213,7 @@ serve(async (req) => {
           key_ok: key.includes("PRIVATE KEY"),
           cert_len: cert.length,
           key_len: key.length,
+          method: "Deno.connectTls",
         }),
         { status: 200, headers: { ...CORS, "Content-Type": "application/json" } }
       );
@@ -172,7 +222,7 @@ serve(async (req) => {
     if (path === "/test-auth") {
       const token = await getToken(cert, key);
       return new Response(
-        JSON.stringify({ ok: true, preview: token.slice(0, 20) + "..." }),
+        JSON.stringify({ ok: true, preview: token.slice(0, 20) + "...", method: "Deno.connectTls" }),
         { status: 200, headers: { ...CORS, "Content-Type": "application/json" } }
       );
     }
@@ -187,9 +237,8 @@ serve(async (req) => {
       Accept: "application/json",
     };
     if (numeroConta) reqHeaders["x-conta-corrente"] = numeroConta;
-    if (bodyStr) reqHeaders["Content-Length"] = String(Buffer.byteLength(bodyStr));
 
-    const { status, body } = await nodeHttpsRequest({
+    const { status, body } = await mTlsRequest({
       path,
       method,
       headers: reqHeaders,
