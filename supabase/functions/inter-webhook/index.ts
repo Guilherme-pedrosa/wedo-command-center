@@ -40,7 +40,8 @@ serve(async (req) => {
             valor: valorNum,
             data_hora: dataHora,
             contrapartida: pagador?.nome ?? "",
-            cpf_cnpj: pagador?.cpf ?? "",
+            cpf_cnpj: pagador?.cnpj ?? pagador?.cpf ?? "",
+            chave_pix: pix.chave ?? null,
             payload_raw: pix,
           },
           { onConflict: "end_to_end_id", ignoreDuplicates: true }
@@ -163,7 +164,8 @@ serve(async (req) => {
           valor: valorNum,
           data_hora: dataHora,
           contrapartida: favorecido?.nome ?? "",
-          cpf_cnpj: favorecido?.cpf ?? favorecido?.cnpj ?? "",
+          cpf_cnpj: favorecido?.cnpj ?? favorecido?.cpf ?? "",
+          chave_pix: body.chave ?? null,
           payload_raw: body,
         },
         { onConflict: "end_to_end_id", ignoreDuplicates: true }
