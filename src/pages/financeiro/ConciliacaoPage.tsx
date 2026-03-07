@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { ArrowLeftRight, CheckCircle, Loader2 } from "lucide-react";
+import { ArrowLeftRight, CheckCircle, Loader2, Wand2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function ConciliacaoPage() {
