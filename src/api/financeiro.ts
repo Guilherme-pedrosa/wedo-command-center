@@ -96,26 +96,29 @@ export function inferirOrigem(
  * Exemplos:
  *   "PIX ENVIADO INTERNO - 00019 82218404 FRED SILVA" → "FRED SILVA"
  *   "TED RECEBIDA - 376 1 1035698 CARGILL AGRICOLA S A" → "CARGILL AGRICOLA S A"
- *   "PIX RECEBIDO - 00019 471609153 62 084 399 DANIEL BEAN ALVES DA SIL" → "DANIEL BEAN ALVES DA SIL"
+ *   "PIX RECEBIDO - Cp :60701190-WD COMERCIO E IMPORTACAO LTDA" → "WD COMERCIO E IMPORTACAO LTDA"
+ *   "TED RECEBIDA - 341 912 49681 AMBEV S A" → "AMBEV S A"
  */
 export function extrairNomeDaDescricao(descricao: string | null | undefined): string | null {
   if (!descricao) return null;
 
-  // Padrão: "TIPO OPERACAO - números e depois o NOME EM MAIÚSCULAS"
-  // Remove o prefixo (PIX ENVIADO, TED RECEBIDA, etc.) e os números (agência, conta, doc)
-  // O nome é a parte final depois dos números
-  const match = descricao.match(
-    /(?:PIX|TED|DOC|TRANSF)[A-Z\s]*-\s*[\d\s]+?([A-Z][A-Z\s.]+[A-Z.])\s*$/i
-  );
-  if (match?.[1]) {
-    return match[1].trim();
-  }
+  // Padrão "Cp :CNPJ-NOME"
+  const cpMatch = descricao.match(/Cp\s*:\d+-(.+)$/i);
+  if (cpMatch?.[1]) return cpMatch[1].trim();
 
-  // Fallback: tentar pegar tudo depois do último número seguido de espaço e letras
-  const fallback = descricao.match(/\d\s+([A-Z][A-Z\s.]{2,})\s*$/);
-  if (fallback?.[1]) {
-    return fallback[1].trim();
-  }
+  // Padrão com números seguidos de nome: "- 00019 82218404 FRED SILVA"
+  // ou "- 341 912 49681 AMBEV S A"
+  // Captura: depois de "- " seguido de sequências numéricas, o texto restante é o nome
+  const dashMatch = descricao.match(/-\s+(?:[\d\s]+?\s)([A-Z][A-Z\s.&]+[A-Z.])$/);
+  if (dashMatch?.[1]) return dashMatch[1].trim();
+
+  // Padrão com CPF/CNPJ formatado no meio: "62 084 399 DANIEL BEAN"
+  const docMatch = descricao.match(/\d{2}\s*\.?\d{3}\s*\.?\d{3}\s+([A-Z][A-Z\s.]+)$/);
+  if (docMatch?.[1]) return docMatch[1].trim();
+
+  // Fallback genérico: última sequência de letras maiúsculas com 3+ chars
+  const fallback = descricao.match(/\d\s+([A-Z][A-Z\s.&]{2,})\s*$/);
+  if (fallback?.[1]) return fallback[1].trim();
 
   return null;
 }
