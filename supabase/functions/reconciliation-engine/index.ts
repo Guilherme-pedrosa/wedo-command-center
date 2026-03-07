@@ -18,6 +18,16 @@ function cleanDoc(d: string | null | undefined): string {
   return (d ?? "").replace(/\D/g, "");
 }
 
+function docMatches(a: string | null | undefined, b: string | null | undefined): boolean {
+  const cleanA = cleanDoc(a);
+  const cleanB = cleanDoc(b);
+  if (!cleanA || !cleanB) return false;
+  if (cleanA === cleanB) return true;
+  if (cleanA.length >= 8 && cleanB.startsWith(cleanA)) return true;
+  if (cleanB.length >= 8 && cleanA.startsWith(cleanB)) return true;
+  return false;
+}
+
 function dateDiffDays(a: string, b: string): number {
   return Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 86400000);
 }
