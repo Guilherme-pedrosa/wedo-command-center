@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -25,7 +26,8 @@ export default function GruposReceberPage() {
     queryKey: ["fin-grupos-receber", statusFilter],
     queryFn: async () => {
       let q = supabase.from("fin_grupos_receber").select("*").order("created_at", { ascending: false });
-      if (statusFilter !== "todos") q = q.eq("status", statusFilter);
+      if (statusFilter !== "todos") q = q.eq("status", statusFilter as any);
+      const { data } = await q;
       const { data } = await q;
       return data || [];
     },
