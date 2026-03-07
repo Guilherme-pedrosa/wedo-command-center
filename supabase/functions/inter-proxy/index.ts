@@ -53,12 +53,8 @@ async function getToken(): Promise<string> {
     httpClient = Deno.createHttpClient({ cert, key });
   }
 
-  const scope = [
-    "extrato.read",
-    "cobv.write", "cobv.read",
-    "pix.write", "pix.read",
-    "pagamento-pix.write", "pagamento-pix.read",
-  ].join(" ");
+  // Scopes mínimos — apenas os que existem na API Inter CDPJ
+  const scope = "extrato.read cobv.write cobv.read pagamento-pix.write pagamento-pix.read";
 
   const body = new URLSearchParams({
     grant_type: "client_credentials",
@@ -66,6 +62,14 @@ async function getToken(): Promise<string> {
     client_secret: clientSecret,
     scope,
   });
+
+  // Diagnóstico extra: primeiros 40 chars do base64 do cert e key
+  const certB64 = certRaw.replace(/-----BEGIN[^-]+-----/g, "").replace(/-----END[^-]+-----/g, "").replace(/\s+/g, "").replace(/\\n/g, "");
+  const keyB64 = keyRaw.replace(/-----BEGIN[^-]+-----/g, "").replace(/-----END[^-]+-----/g, "").replace(/\s+/g, "").replace(/\\n/g, "");
+  console.log("[inter-proxy] cert b64 prefix:", certB64.substring(0, 40));
+  console.log("[inter-proxy] key b64 prefix:", keyB64.substring(0, 40));
+  console.log("[inter-proxy] cert b64 length:", certB64.length);
+  console.log("[inter-proxy] key b64 length:", keyB64.length);
 
   console.log("[inter-proxy] POST /oauth/v2/token scope:", scope);
 
