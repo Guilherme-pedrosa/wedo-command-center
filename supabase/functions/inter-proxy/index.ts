@@ -11,6 +11,16 @@ const INTER_BASE_URL = "https://cdpj.partners.bancointer.com.br";
 // In-memory token cache
 let cachedToken: { access_token: string; expires_at: number } | null = null;
 
+/** Normalize PEM: secrets often arrive with literal "\n" instead of newlines */
+function normalizePem(pem: string): string {
+  // Replace literal \n with real newlines
+  let normalized = pem.replace(/\\n/g, "\n");
+  // Ensure proper PEM structure with newlines after header and before footer
+  normalized = normalized.replace(/-----BEGIN ([A-Z ]+)-----\s*/g, "-----BEGIN $1-----\n");
+  normalized = normalized.replace(/\s*-----END ([A-Z ]+)-----/g, "\n-----END $1-----\n");
+  return normalized.trim();
+}
+
 async function getAccessToken(
   clientId: string,
   clientSecret: string,
@@ -42,6 +52,7 @@ async function getAccessToken(
 
   if (!response.ok) {
     const text = await response.text();
+    console.error("OAuth error:", response.status, text, "clientId:", clientId?.substring(0, 8) + "...");
     throw new Error(`OAuth failed: ${response.status} - ${text}`);
   }
 
@@ -60,10 +71,10 @@ serve(async (req) => {
   }
 
   try {
-    const clientId = Deno.env.get("INTER_CLIENT_ID");
-    const clientSecret = Deno.env.get("INTER_CLIENT_SECRET");
-    const cert = Deno.env.get("INTER_CERT");
-    const key = Deno.env.get("INTER_KEY");
+    const clientId = Deno.env.get("INTER_CLIENT_ID")?.trim();
+    const clientSecret = Deno.env.get("INTER_CLIENT_SECRET")?.trim();
+    const cert = normalizePem(Deno.env.get("INTER_CERT") ?? "");
+    const key = normalizePem(Deno.env.get("INTER_KEY") ?? "");
 
     if (!clientId || !clientSecret || !cert || !key) {
       return new Response(
