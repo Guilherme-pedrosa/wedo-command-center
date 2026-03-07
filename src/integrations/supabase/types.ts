@@ -663,6 +663,75 @@ export type Database = {
         }
         Relationships: []
       }
+      fin_metas: {
+        Row: {
+          alerta_pct: number | null
+          ativo: boolean | null
+          centro_custo_id: string | null
+          created_at: string | null
+          id: string
+          nome: string
+          observacao: string | null
+          periodo_ano: number
+          periodo_mes: number | null
+          periodo_tipo: string
+          periodo_trimestre: number | null
+          plano_contas_id: string | null
+          tipo: string
+          updated_at: string | null
+          valor_meta: number
+        }
+        Insert: {
+          alerta_pct?: number | null
+          ativo?: boolean | null
+          centro_custo_id?: string | null
+          created_at?: string | null
+          id?: string
+          nome: string
+          observacao?: string | null
+          periodo_ano: number
+          periodo_mes?: number | null
+          periodo_tipo: string
+          periodo_trimestre?: number | null
+          plano_contas_id?: string | null
+          tipo: string
+          updated_at?: string | null
+          valor_meta: number
+        }
+        Update: {
+          alerta_pct?: number | null
+          ativo?: boolean | null
+          centro_custo_id?: string | null
+          created_at?: string | null
+          id?: string
+          nome?: string
+          observacao?: string | null
+          periodo_ano?: number
+          periodo_mes?: number | null
+          periodo_tipo?: string
+          periodo_trimestre?: number | null
+          plano_contas_id?: string | null
+          tipo?: string
+          updated_at?: string | null
+          valor_meta?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_metas_centro_custo_id_fkey"
+            columns: ["centro_custo_id"]
+            isOneToOne: false
+            referencedRelation: "fin_centros_custo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_metas_plano_contas_id_fkey"
+            columns: ["plano_contas_id"]
+            isOneToOne: false
+            referencedRelation: "fin_plano_contas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fin_pagamentos: {
         Row: {
           centro_custo_id: string | null
