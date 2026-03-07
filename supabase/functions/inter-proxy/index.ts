@@ -114,7 +114,9 @@ async function mTlsRequest(params: {
     }
 
     const m = headers.match(/HTTP\/\S+ (\d+)/);
-    return { status: m ? parseInt(m[1]) : 0, body: bodyText.trim() };
+    const status = m ? parseInt(m[1]) : 0;
+    console.log("[inter] raw response status:", status, "| headers length:", headers.length, "| body length:", bodyText.length, "| body preview:", bodyText.slice(0, 500));
+    return { status, body: bodyText.trim() };
   } finally {
     try { conn.close(); } catch { /* já fechado */ }
   }
