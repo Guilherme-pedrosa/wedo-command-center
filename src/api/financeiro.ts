@@ -449,10 +449,10 @@ export async function baixarGrupoPagarNoGC(
           status: "pago",
           data_liquidacao: dataLiquidacao,
         })
-        .eq("gc_id", pag.gc_id);
+        .eq("gc_id", pagData.gc_id);
 
       sucesso++;
-      onItemDone?.(true, pag.gc_id as string);
+      onItemDone?.(true, pagData.gc_id as string);
     } catch (e) {
       const erro = e instanceof Error ? e.message : String(e);
       await supabase
@@ -463,7 +463,7 @@ export async function baixarGrupoPagarNoGC(
         })
         .eq("id", item.id);
       falha++;
-      onItemDone?.(false, pag.gc_id as string, erro);
+      onItemDone?.(false, pagData.gc_id as string, erro);
     }
     await gcDelay();
   }
