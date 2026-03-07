@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { ArrowLeftRight, CheckCircle, Loader2, Wand2 } from "lucide-react";
+import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function ConciliacaoPage() {
@@ -16,6 +16,7 @@ export default function ConciliacaoPage() {
   const [linking, setLinking] = useState(false);
   const [autoRunning, setAutoRunning] = useState(false);
   const [autoResult, setAutoResult] = useState<any>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const { data: extratoNR } = useQuery({
     queryKey: ["conc-extrato"],
@@ -94,10 +95,29 @@ export default function ConciliacaoPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-bold text-foreground">Conciliação</h1><p className="text-sm text-muted-foreground">Vincule transações do extrato a lançamentos do sistema</p></div>
-        <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" className="gap-2">
-          {autoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-          Conciliação Automática
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={async () => {
+            setSyncing(true);
+            try {
+              const { data, error } = await supabase.functions.invoke("inter-extrato", { body: { days: 7 } });
+              if (error) throw new Error(error.message);
+              if (!data?.success) throw new Error(data?.error ?? "Erro");
+              toast.success(`Extrato: ${data.extrato.inserted} transações. Conciliação: ${data.reconciliacao?.stats?.auto ?? 0} auto-vinculados`);
+              setAutoResult(data.reconciliacao);
+              queryClient.invalidateQueries({ queryKey: ["conc-extrato"] });
+              queryClient.invalidateQueries({ queryKey: ["conc-recebimentos"] });
+              queryClient.invalidateQueries({ queryKey: ["conc-pagamentos"] });
+            } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+            finally { setSyncing(false); }
+          }} disabled={syncing} variant="outline" className="gap-2">
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Sincronizar Extrato
+          </Button>
+          <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" className="gap-2">
+            {autoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+            Conciliação Automática
+          </Button>
+        </div>
       </div>
 
       {autoResult && (
