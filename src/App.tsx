@@ -29,6 +29,7 @@ const FinFluxo = lazy(() => import("@/pages/financeiro/FluxoCaixaPage"));
 const FinPlanoContas = lazy(() => import("@/pages/financeiro/PlanoContasPage"));
 const FinConfigBanco = lazy(() => import("@/pages/financeiro/ConfigBancoPage"));
 const FinLog = lazy(() => import("@/pages/financeiro/LogPage"));
+const FinMetas = lazy(() => import("@/pages/financeiro/MetasFinanceirasPage"));
 
 const queryClient = new QueryClient();
 
@@ -80,6 +81,7 @@ const App = () => (
             <Route path="/financeiro/plano-contas" element={<Suspense fallback={<LazyFallback />}><FinPlanoContas /></Suspense>} />
             <Route path="/financeiro/config-banco" element={<Suspense fallback={<LazyFallback />}><FinConfigBanco /></Suspense>} />
             <Route path="/financeiro/log" element={<Suspense fallback={<LazyFallback />}><FinLog /></Suspense>} />
+            <Route path="/financeiro/metas" element={<Suspense fallback={<LazyFallback />}><FinMetas /></Suspense>} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

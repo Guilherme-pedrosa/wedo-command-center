@@ -49,6 +49,7 @@ const finBanco = [
 const finRelatorios = [
   { title: "📈 DRE", url: "/financeiro/dre", icon: BarChart3 },
   { title: "📉 Fluxo Caixa", url: "/financeiro/fluxo-caixa", icon: LineChart },
+  { title: "🎯 Metas", url: "/financeiro/metas", icon: FileText },
 ];
 
 const finAdmin = [
