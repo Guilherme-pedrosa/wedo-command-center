@@ -415,9 +415,10 @@ export async function baixarGrupoPagarNoGC(
       .from("fin_pagamentos" as any)
       .select("gc_id, gc_payload_raw")
       .eq("id", item.pagamento_id)
-      .single();
+      .single() as any;
 
-    if (!pag?.gc_id || !pag?.gc_payload_raw) {
+    const pagData = pag as any;
+    if (!pagData?.gc_id || !pagData?.gc_payload_raw) {
       falha++;
       onItemDone?.(false, "unknown", "Dados GC ausentes");
       continue;
@@ -425,8 +426,8 @@ export async function baixarGrupoPagarNoGC(
 
     try {
       await baixarPagamentoNoGC(
-        pag.gc_id as string,
-        pag.gc_payload_raw as Record<string, unknown>,
+        pagData.gc_id as string,
+        pagData.gc_payload_raw as Record<string, unknown>,
         dataLiquidacao
       );
 
