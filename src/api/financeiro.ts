@@ -699,8 +699,6 @@ export async function buscarExtratoInter(
     `/banking/v2/extrato?dataInicio=${dataInicio}&dataFim=${dataFim}`,
     "GET"
   );
-    "GET"
-  );
   const transacoes = resp.transacoes ?? resp.data ?? [];
 
   for (const t of transacoes) {
