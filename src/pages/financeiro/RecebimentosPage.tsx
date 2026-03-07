@@ -125,7 +125,7 @@ export default function RecebimentosPage() {
     setSyncing(true);
     try {
       const result = await syncRecebimentosGC();
-      toast.success(`Importados: ${result.ok} recebimentos`);
+      toast.success(`Importados: ${result.importados} recebimentos`);
       queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");

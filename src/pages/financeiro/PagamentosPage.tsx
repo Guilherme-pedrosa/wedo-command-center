@@ -109,7 +109,7 @@ export default function PagamentosPage() {
     setSyncing(true);
     try {
       const r = await syncPagamentosGC();
-      toast.success(`Importados: ${r.ok} pagamentos`);
+      toast.success(`Importados: ${r.importados} pagamentos`);
       queryClient.invalidateQueries({ queryKey: ["fin-pagamentos"] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");

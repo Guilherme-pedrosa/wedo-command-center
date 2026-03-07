@@ -111,7 +111,7 @@ export default function FinDashboardPage() {
     setSyncing(true);
     try {
       const [r, p] = await Promise.all([syncRecebimentosGC(), syncPagamentosGC()]);
-      toast.success(`Sync: ${r.ok} recebimentos, ${p.ok} pagamentos`);
+      toast.success(`Sync: ${r.importados} recebimentos, ${p.importados} pagamentos`);
       queryClient.invalidateQueries({ queryKey: ["fin-dash"] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao sincronizar");
