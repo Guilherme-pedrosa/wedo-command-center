@@ -69,6 +69,27 @@ export default function ConciliacaoPage() {
 
   const diff = selectedExtrato && selectedLanc ? Math.abs(Number(selectedExtrato.valor) - Number(selectedLanc.valor)) : 0;
 
+  const handleAutoReconcile = async () => {
+    setAutoRunning(true);
+    setAutoResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("reconciliation-engine", {
+        body: {},
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error ?? "Erro desconhecido");
+      setAutoResult(data);
+      toast.success(`Conciliação automática: ${data.stats.auto} vinculados, ${data.stats.review} para revisão`);
+      queryClient.invalidateQueries({ queryKey: ["conc-extrato"] });
+      queryClient.invalidateQueries({ queryKey: ["conc-recebimentos"] });
+      queryClient.invalidateQueries({ queryKey: ["conc-pagamentos"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro na conciliação automática");
+    } finally {
+      setAutoRunning(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div><h1 className="text-2xl font-bold text-foreground">Conciliação</h1><p className="text-sm text-muted-foreground">Vincule transações do extrato a lançamentos do sistema</p></div>
