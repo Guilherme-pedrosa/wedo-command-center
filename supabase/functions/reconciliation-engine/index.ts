@@ -199,30 +199,46 @@ serve(async (req) => {
       );
 
       if (colliding.length > 1) {
-        // Try CPF/CNPJ tiebreaker
-        const withCpf = colliding.filter(c => c.reasons.includes("CPF/CNPJ idêntico"));
+        // Try CPF/CNPJ tiebreaker (exact or partial)
+        const withCpf = colliding.filter(c =>
+          c.reasons.includes("CPF/CNPJ idêntico") || c.reasons.includes("CPF/CNPJ parcial")
+        );
 
         if (withCpf.length === 1) {
-          // Clean tiebreak
           try {
             await vincular(supabase, ext, withCpf[0], [...withCpf[0].reasons, "Desempate CPF/CNPJ"]);
             usedIds.add(withCpf[0].fin.id);
             stats.auto++;
           } catch { stats.errors++; }
         } else {
-          // Unresolved collision → review
-          reviewItems.push({
-            extrato_id: ext.id,
-            descricao_extrato: ext.descricao,
-            valor: ext.valor,
-            candidatos: colliding.map(c => ({
-              id: c.fin.id, valor: c.fin.valor, descricao: c.fin.descricao,
-              nome: c.fin.nome_fornecedor ?? c.fin.nome_cliente ?? "—",
-              score: c.score, reasons: c.reasons,
-            })),
-            motivo: `Colisão: ${colliding.length} lançamentos mesmo valor`,
+          // Try name tiebreaker
+          const txName = normalizeText(ext.contrapartida ?? extractedName ?? "");
+          const withName = colliding.filter(c => {
+            const fName = normalizeText(c.fin.nome_fornecedor ?? c.fin.nome_cliente ?? "");
+            return txName && fName && (fName.startsWith(txName) || txName.startsWith(fName));
           });
-          stats.review++;
+
+          if (withName.length === 1) {
+            try {
+              await vincular(supabase, ext, withName[0], [...withName[0].reasons, "Desempate Nome"]);
+              usedIds.add(withName[0].fin.id);
+              stats.auto++;
+            } catch { stats.errors++; }
+          } else {
+            // Unresolved collision → review
+            reviewItems.push({
+              extrato_id: ext.id,
+              descricao_extrato: ext.descricao,
+              valor: ext.valor,
+              candidatos: colliding.map(c => ({
+                id: c.fin.id, valor: c.fin.valor, descricao: c.fin.descricao,
+                nome: c.fin.nome_fornecedor ?? c.fin.nome_cliente ?? "—",
+                score: c.score, reasons: c.reasons,
+              })),
+              motivo: `Colisão: ${colliding.length} lançamentos mesmo valor`,
+            });
+            stats.review++;
+          }
         }
         continue;
       }
