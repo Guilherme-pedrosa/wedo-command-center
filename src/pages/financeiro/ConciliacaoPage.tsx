@@ -152,6 +152,86 @@ export default function ConciliacaoPage() {
         </div>
       </div>
 
+      {/* Review Section */}
+      {autoResult?.review?.length > 0 && (
+        <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+          <h3 className="text-sm font-semibold flex items-center gap-2">🔍 Itens para Revisão ({autoResult.review.length})</h3>
+          <div className="space-y-3 max-h-[50vh] overflow-y-auto">
+            {autoResult.review.map((item: any, idx: number) => (
+              <div key={idx} className="rounded-md border border-border p-3 space-y-2">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-xs font-semibold">{item.descricao_extrato}</p>
+                    <p className="text-[10px] text-muted-foreground">{item.motivo}</p>
+                  </div>
+                  <span className="font-semibold text-sm">{formatCurrency(Number(item.valor))}</span>
+                </div>
+
+                {/* Collision candidates */}
+                {item.candidatos && (
+                  <div className="space-y-1 pl-2 border-l-2 border-muted">
+                    <p className="text-[10px] text-muted-foreground uppercase font-semibold">Candidatos ({item.candidatos.length})</p>
+                    {item.candidatos.map((c: any) => (
+                      <div key={c.id} className="flex items-center justify-between text-xs p-1.5 rounded hover:bg-muted/30 cursor-pointer group" onClick={() => {
+                        // Find the extrato in the list and select it + this candidate
+                        const ext = extratoNR?.find((e: any) => e.id === item.extrato_id);
+                        if (ext) {
+                          setSelectedExtrato(ext);
+                          // Determine tipo based on extrato type
+                          const tipo = ext.tipo === "DEBITO" ? "pagar" : "receber";
+                          setSelectedLanc({ id: c.id, descricao: c.descricao, valor: c.valor, nome_fornecedor: c.nome, nome_cliente: c.nome, _tipo: tipo });
+                          setShowConfirm(true);
+                        }
+                      }}>
+                        <div>
+                          <span className="font-medium">{c.nome}</span>
+                          <span className="text-muted-foreground ml-2">{c.descricao}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold">{formatCurrency(Number(c.valor))}</span>
+                          <Badge variant="outline" className="text-[10px]">Score {c.score}</Badge>
+                          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] opacity-0 group-hover:opacity-100">Vincular</Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Single best match */}
+                {item.melhor && !item.candidatos && (
+                  <div className="pl-2 border-l-2 border-muted">
+                    <div className="flex items-center justify-between text-xs p-1.5 rounded hover:bg-muted/30 cursor-pointer" onClick={() => {
+                      const ext = extratoNR?.find((e: any) => e.id === item.extrato_id);
+                      if (ext) {
+                        setSelectedExtrato(ext);
+                        const tipo = ext.tipo === "DEBITO" ? "pagar" : "receber";
+                        setSelectedLanc({ id: item.melhor.id, descricao: item.melhor.descricao, valor: item.melhor.valor, nome_fornecedor: item.melhor.nome, nome_cliente: item.melhor.nome, _tipo: tipo });
+                        setShowConfirm(true);
+                      }
+                    }}>
+                      <div>
+                        <span className="font-medium">{item.melhor.nome}</span>
+                        <span className="text-muted-foreground ml-2">{item.melhor.descricao}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">{formatCurrency(Number(item.melhor.valor))}</span>
+                        <Badge variant="outline" className="text-[10px]">Score {item.melhor.score}</Badge>
+                        <div className="flex flex-wrap gap-1">
+                          {item.melhor.reasons?.map((r: string, i: number) => (
+                            <Badge key={i} variant="secondary" className="text-[9px]">{r}</Badge>
+                          ))}
+                        </div>
+                        <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]">Vincular</Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Confirm dialog */}
       <Dialog open={showConfirm} onOpenChange={o => { if (!o) { setShowConfirm(false); } }}>
         <DialogContent><DialogHeader><DialogTitle>Vincular transação</DialogTitle></DialogHeader>
