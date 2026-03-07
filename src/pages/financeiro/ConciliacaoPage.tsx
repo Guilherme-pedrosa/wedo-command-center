@@ -92,7 +92,22 @@ export default function ConciliacaoPage() {
 
   return (
     <div className="space-y-6">
-      <div><h1 className="text-2xl font-bold text-foreground">Conciliação</h1><p className="text-sm text-muted-foreground">Vincule transações do extrato a lançamentos do sistema</p></div>
+      <div className="flex items-center justify-between">
+        <div><h1 className="text-2xl font-bold text-foreground">Conciliação</h1><p className="text-sm text-muted-foreground">Vincule transações do extrato a lançamentos do sistema</p></div>
+        <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" className="gap-2">
+          {autoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+          Conciliação Automática
+        </Button>
+      </div>
+
+      {autoResult && (
+        <div className="rounded-lg border border-border bg-card p-3 text-sm flex flex-wrap gap-4">
+          <span className="text-wedo-green font-semibold">✅ {autoResult.stats.auto} vinculados</span>
+          <span className="text-wedo-orange font-semibold">⏳ {autoResult.stats.review} revisão</span>
+          <span className="text-muted-foreground">{autoResult.stats.unmatched} sem match</span>
+          {autoResult.stats.errors > 0 && <span className="text-wedo-red">{autoResult.stats.errors} erros</span>}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: Extrato */}
