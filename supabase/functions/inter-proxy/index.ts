@@ -53,8 +53,8 @@ async function getToken(): Promise<string> {
     httpClient = Deno.createHttpClient({ cert, key });
   }
 
-  // Scopes mínimos — apenas os que existem na API Inter CDPJ
-  const scope = "extrato.read cobv.write cobv.read pagamento-pix.write pagamento-pix.read";
+  // Teste com scope mínimo para isolar o problema
+  const scope = "extrato.read";
 
   const body = new URLSearchParams({
     grant_type: "client_credentials",
