@@ -1,0 +1,13 @@
+export { default as DashboardPage } from "./DashboardPage";
+export { default as RecebimentosPage } from "./RecebimentosPage";
+export { default as PagamentosPage } from "./PagamentosPage";
+export { default as GruposReceberPage } from "./GruposReceberPage";
+export { default as GruposPagarPage } from "./GruposPagarPage";
+export { default as AgendaPage } from "./AgendaPage";
+export { default as ExtratoBancoPage } from "./ExtratoBancoPage";
+export { default as ConciliacaoPage } from "./ConciliacaoPage";
+export { default as DREPage } from "./DREPage";
+export { default as FluxoCaixaPage } from "./FluxoCaixaPage";
+export { default as PlanoContasPage } from "./PlanoContasPage";
+export { default as ConfigBancoPage } from "./ConfigBancoPage";
+export { default as LogPage } from "./LogPage";
