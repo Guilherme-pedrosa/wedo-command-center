@@ -11,14 +11,35 @@ const INTER_BASE_URL = "https://cdpj.partners.bancointer.com.br";
 // In-memory token cache
 let cachedToken: { access_token: string; expires_at: number } | null = null;
 
-/** Normalize PEM: secrets often arrive with literal "\n" instead of newlines */
+/** Normalize PEM: secrets often arrive with literal "\n" instead of newlines, or as a single line */
 function normalizePem(pem: string): string {
-  // Replace literal \n with real newlines
+  if (!pem) return pem;
+  // Step 1: Replace literal \n (escaped) with real newlines
   let normalized = pem.replace(/\\n/g, "\n");
-  // Ensure proper PEM structure with newlines after header and before footer
-  normalized = normalized.replace(/-----BEGIN ([A-Z ]+)-----\s*/g, "-----BEGIN $1-----\n");
-  normalized = normalized.replace(/\s*-----END ([A-Z ]+)-----/g, "\n-----END $1-----\n");
-  return normalized.trim();
+  // Step 2: Replace \r\n with \n
+  normalized = normalized.replace(/\r\n/g, "\n");
+  // Step 3: If it's all on one line (no real newlines between BEGIN and END), 
+  // split the base64 content into 64-char lines
+  const lines = normalized.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  if (lines.length <= 2) {
+    // Everything is on one or two lines - need to restructure
+    const fullText = lines.join("");
+    const beginMatch = fullText.match(/(-----BEGIN [A-Z ]+-----)/);
+    const endMatch = fullText.match(/(-----END [A-Z ]+-----)/);
+    if (beginMatch && endMatch) {
+      const header = beginMatch[1];
+      const footer = endMatch[1];
+      const b64 = fullText.replace(header, "").replace(footer, "").replace(/\s/g, "");
+      const chunks: string[] = [];
+      for (let i = 0; i < b64.length; i += 64) {
+        chunks.push(b64.substring(i, i + 64));
+      }
+      return `${header}\n${chunks.join("\n")}\n${footer}\n`;
+    }
+  }
+  // Ensure header/footer have their own lines
+  normalized = lines.join("\n") + "\n";
+  return normalized;
 }
 
 async function getAccessToken(
