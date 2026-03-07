@@ -10,31 +10,55 @@ const CORS = {
 
 const INTER_HOST = "cdpj.partners.bancointer.com.br";
 
+// ─── PEM builder ──────────────────────────────────────────────
+function buildPEM(raw: string, type: "CERTIFICATE" | "PRIVATE KEY"): string {
+  if (!raw?.trim()) throw new Error(`PEM ${type} vazio`);
+  const b64 = raw
+    .replace(/-----BEGIN[^-]*-----/g, "")
+    .replace(/-----END[^-]*-----/g, "")
+    .replace(/\\n/g, "")
+    .replace(/\s+/g, "");
+  if (!b64) throw new Error(`Base64 de ${type} vazio após limpeza`);
+  const lines = b64.match(/.{1,64}/g)?.join("\n") ?? b64;
+  return `-----BEGIN ${type}-----\n${lines}\n-----END ${type}-----\n`;
+}
+
 // ─── Cache ─────────────────────────────────────────────────────
 let cachedCert: string | null = null;
 let cachedKey: string | null = null;
 let cachedToken = "";
 let tokenExpiry = 0;
 
-// ─── Carregar certs do Storage ─────────────────────────────────
+// ─── Carregar certs: Secrets primeiro, Storage como fallback ──
 async function loadCerts(): Promise<{ cert: string; key: string }> {
   if (cachedCert && cachedKey) return { cert: cachedCert, key: cachedKey };
 
+  // Tenta Secrets primeiro
+  const certSecret = Deno.env.get("INTER_CERT");
+  const keySecret = Deno.env.get("INTER_KEY");
+
+  if (certSecret && keySecret) {
+    cachedCert = buildPEM(certSecret, "CERTIFICATE");
+    cachedKey = buildPEM(keySecret, "PRIVATE KEY");
+    console.log("[inter] Certs carregados das Secrets");
+    return { cert: cachedCert, key: cachedKey };
+  }
+
+  // Fallback: Supabase Storage
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
   const { data: certData, error: certErr } = await supabase.storage.from("inter-certs").download("cert.pem");
-  if (certErr || !certData) throw new Error(`Erro cert.pem: ${certErr?.message}`);
+  if (certErr || !certData) throw new Error(`Cert não encontrado em Secrets nem Storage: ${certErr?.message}`);
 
   const { data: keyData, error: keyErr } = await supabase.storage.from("inter-certs").download("key.pem");
-  if (keyErr || !keyData) throw new Error(`Erro key.pem: ${keyErr?.message}`);
+  if (keyErr || !keyData) throw new Error(`Key não encontrada: ${keyErr?.message}`);
 
   cachedCert = await certData.text();
   cachedKey = await keyData.text();
-
-  console.log("[inter] Certs carregados, cert valid:", cachedCert.includes("BEGIN CERTIFICATE"), "key valid:", cachedKey.includes("PRIVATE KEY"));
+  console.log("[inter] Certs carregados do Storage");
   return { cert: cachedCert, key: cachedKey };
 }
 
