@@ -327,8 +327,8 @@ export async function baixarGrupoReceberNoGC(
 
     try {
       await baixarRecebimentoNoGC(
-        rec.gc_id as string,
-        rec.gc_payload_raw as Record<string, unknown>,
+        recData.gc_id as string,
+        recData.gc_payload_raw as Record<string, unknown>,
         dataLiquidacao
       );
 
@@ -350,10 +350,10 @@ export async function baixarGrupoReceberNoGC(
           status: "pago",
           data_liquidacao: dataLiquidacao,
         })
-        .eq("gc_id", rec.gc_id);
+        .eq("gc_id", recData.gc_id);
 
       sucesso++;
-      onItemDone?.(true, rec.gc_id as string);
+      onItemDone?.(true, recData.gc_id as string);
     } catch (e) {
       const erro = e instanceof Error ? e.message : String(e);
       await supabase
@@ -364,7 +364,7 @@ export async function baixarGrupoReceberNoGC(
         })
         .eq("id", item.id);
       falha++;
-      onItemDone?.(false, rec.gc_id as string, erro);
+      onItemDone?.(false, recData.gc_id as string, erro);
     }
     await gcDelay();
   }
