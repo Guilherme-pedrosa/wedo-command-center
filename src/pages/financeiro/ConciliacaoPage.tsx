@@ -14,6 +14,8 @@ export default function ConciliacaoPage() {
   const [selectedLanc, setSelectedLanc] = useState<any>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [linking, setLinking] = useState(false);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const [autoResult, setAutoResult] = useState<any>(null);
 
   const { data: extratoNR } = useQuery({
     queryKey: ["conc-extrato"],
