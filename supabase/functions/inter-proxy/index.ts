@@ -1,4 +1,7 @@
+// @ts-nocheck
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import * as https from "node:https";
+import * as querystring from "node:querystring";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -6,159 +9,150 @@ const CORS = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ─── Reconstrução de PEM à prova de formatação ─────────────────
+const INTER_BASE = "cdpj.partners.bancointer.com.br";
+
+// ─── Reconstrução de PEM ───────────────────────────────────────
 function buildPEM(raw: string, type: "CERTIFICATE" | "PRIVATE KEY"): string {
   if (!raw) return "";
   const stripped = raw
     .replace(/-----BEGIN[^-]+-----/g, "")
     .replace(/-----END[^-]+-----/g, "")
-    .replace(/\s+/g, "")
-    .replace(/\\n/g, "");
+    .replace(/\\n/g, "")
+    .replace(/\s+/g, "");
   const lines = stripped.match(/.{1,64}/g)?.join("\n") ?? stripped;
   return `-----BEGIN ${type}-----\n${lines}\n-----END ${type}-----\n`;
+}
+
+// ─── HTTPS com mTLS via node:https ─────────────────────────────
+function nodeRequest(
+  path: string,
+  method: string,
+  headers: Record<string, string>,
+  body: string,
+  cert: string,
+  key: string
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: INTER_BASE,
+      path,
+      method,
+      cert,
+      key,
+      headers: { ...headers, "Content-Length": Buffer.byteLength(body) },
+      rejectUnauthorized: true,
+    };
+
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk.toString()));
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, body: data }));
+    });
+
+    req.on("error", (e) => reject(e));
+    if (body) req.write(body);
+    req.end();
+  });
 }
 
 // ─── Cache de token ────────────────────────────────────────────
 let cachedToken: string | null = null;
 let tokenExpiry = 0;
 
-async function getToken(): Promise<string> {
+async function getToken(cert: string, key: string): Promise<string> {
   const now = Date.now();
   if (cachedToken && now < tokenExpiry - 30_000) return cachedToken;
 
   const clientId     = (Deno.env.get("INTER_CLIENT_ID") ?? "").trim();
   const clientSecret = (Deno.env.get("INTER_CLIENT_SECRET") ?? "").trim();
-  const certRaw      = Deno.env.get("INTER_CERT") ?? "";
-  const keyRaw       = Deno.env.get("INTER_KEY") ?? "";
 
-  if (!clientId || !clientSecret) throw new Error("INTER_CLIENT_ID ou INTER_CLIENT_SECRET não configurados");
-  if (!certRaw || !keyRaw) throw new Error("INTER_CERT ou INTER_KEY não configurados");
+  if (!clientId || !clientSecret) throw new Error("INTER_CLIENT_ID ou INTER_CLIENT_SECRET ausentes");
+  if (!cert || !key) throw new Error("INTER_CERT ou INTER_KEY ausentes");
 
-  const cert = buildPEM(certRaw, "CERTIFICATE");
-  const key  = buildPEM(keyRaw, "PRIVATE KEY");
+  const scope = "extrato.read cobv.write cobv.read pagamento-pix.write pagamento-pix.read";
 
-  console.log("[inter-proxy] cert lines:", cert.split("\n").length, "key lines:", key.split("\n").length);
-  console.log("[inter-proxy] cert valid:", cert.startsWith("-----BEGIN CERTIFICATE-----"));
-  console.log("[inter-proxy] key valid:", key.startsWith("-----BEGIN PRIVATE KEY-----"));
-  console.log("[inter-proxy] client_id prefix:", clientId.substring(0, 8));
-
-  // @ts-ignore - Deno 1.x (Supabase edge runtime)
-  let httpClient: Deno.HttpClient;
-  try {
-    // @ts-ignore
-    httpClient = Deno.createHttpClient({ certChain: cert, privateKey: key });
-  } catch (e) {
-    console.warn("[inter-proxy] certChain falhou, tentando cert/key:", e.message);
-    // @ts-ignore - fallback Deno 2.x
-    httpClient = Deno.createHttpClient({ cert, key });
-  }
-
-  // Teste com scope mínimo para isolar o problema
-  const scope = "extrato.read";
-
-  const body = new URLSearchParams({
+  const bodyStr = querystring.stringify({
     grant_type: "client_credentials",
     client_id: clientId,
     client_secret: clientSecret,
     scope,
   });
 
-  // Diagnóstico extra: primeiros 40 chars do base64 do cert e key
-  const certB64 = certRaw.replace(/-----BEGIN[^-]+-----/g, "").replace(/-----END[^-]+-----/g, "").replace(/\s+/g, "").replace(/\\n/g, "");
-  const keyB64 = keyRaw.replace(/-----BEGIN[^-]+-----/g, "").replace(/-----END[^-]+-----/g, "").replace(/\s+/g, "").replace(/\\n/g, "");
-  console.log("[inter-proxy] cert b64 prefix:", certB64.substring(0, 40));
-  console.log("[inter-proxy] key b64 prefix:", keyB64.substring(0, 40));
-  console.log("[inter-proxy] cert b64 length:", certB64.length);
-  console.log("[inter-proxy] key b64 length:", keyB64.length);
+  console.log("[inter-proxy] OAuth → POST /oauth/v2/token");
+  console.log("[inter-proxy] cert_ok:", cert.includes("BEGIN CERTIFICATE"));
+  console.log("[inter-proxy] key_ok:", key.includes("PRIVATE KEY"));
+  console.log("[inter-proxy] client_id:", clientId.substring(0, 8) + "...");
 
-  console.log("[inter-proxy] POST /oauth/v2/token scope:", scope);
+  const { status, body } = await nodeRequest(
+    "/oauth/v2/token",
+    "POST",
+    { "Content-Type": "application/x-www-form-urlencoded" },
+    bodyStr,
+    cert,
+    key
+  );
 
-  const res = await fetch("https://cdpj.partners.bancointer.com.br/oauth/v2/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-    // @ts-ignore
-    client: httpClient,
-  });
+  console.log("[inter-proxy] OAuth status:", status);
+  console.log("[inter-proxy] OAuth body:", body.substring(0, 300));
 
-  const responseText = await res.text();
-  console.log("[inter-proxy] OAuth status:", res.status);
-  console.log("[inter-proxy] OAuth body:", responseText.substring(0, 500));
+  if (status !== 200) throw new Error(`OAuth failed: ${status} - ${body}`);
 
-  if (!res.ok) {
-    throw new Error(`OAuth failed: ${res.status} - ${responseText}`);
-  }
-
-  const data = JSON.parse(responseText);
+  const data = JSON.parse(body);
   cachedToken = data.access_token;
   tokenExpiry = now + (data.expires_in ?? 3600) * 1_000;
   return cachedToken!;
 }
 
 // ─── Handler principal ─────────────────────────────────────────
-serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: CORS });
-  }
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   try {
     const { path, method = "GET", payload } = await req.json();
-
     if (!path) {
       return new Response(
-        JSON.stringify({ error: "Campo 'path' é obrigatório" }),
+        JSON.stringify({ error: "Campo 'path' obrigatório" }),
         { status: 400, headers: { ...CORS, "Content-Type": "application/json" } }
       );
     }
 
-    // Rota especial: testar autenticação
+    const cert = buildPEM(Deno.env.get("INTER_CERT") ?? "", "CERTIFICATE");
+    const key  = buildPEM(Deno.env.get("INTER_KEY") ?? "", "PRIVATE KEY");
+
+    // Rota de diagnóstico
     if (path === "/test-auth") {
-      const token = await getToken();
+      const token = await getToken(cert, key);
       return new Response(
-        JSON.stringify({ ok: true, token_preview: token.substring(0, 20) + "..." }),
+        JSON.stringify({ ok: true, preview: token.substring(0, 20) + "..." }),
         { status: 200, headers: { ...CORS, "Content-Type": "application/json" } }
       );
     }
 
-    const token = await getToken();
-    const BASE = "https://cdpj.partners.bancointer.com.br";
+    const token   = await getToken(cert, key);
+    const bodyStr = payload ? JSON.stringify(payload) : "";
 
-    const certRaw = Deno.env.get("INTER_CERT") ?? "";
-    const keyRaw  = Deno.env.get("INTER_KEY") ?? "";
-    const cert = buildPEM(certRaw, "CERTIFICATE");
-    const key  = buildPEM(keyRaw, "PRIVATE KEY");
-
-    // @ts-ignore
-    const apiClient = Deno.createHttpClient({ certChain: cert, privateKey: key });
-
-    const fetchOptions: RequestInit & { client?: unknown } = {
+    const { status, body } = await nodeRequest(
+      path,
       method,
-      headers: {
+      {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
         Accept: "application/json",
         "x-conta-corrente": Deno.env.get("INTER_NUMERO_CONTA") ?? "",
       },
-      // @ts-ignore
-      client: apiClient,
-    };
+      bodyStr,
+      cert,
+      key
+    );
 
-    if (payload && method !== "GET") {
-      fetchOptions.body = JSON.stringify(payload);
-    }
-
-    const apiRes = await fetch(`${BASE}${path}`, fetchOptions);
-    const apiBody = await apiRes.text();
-
-    let parsed: unknown;
-    try { parsed = JSON.parse(apiBody); }
-    catch { parsed = { raw: apiBody }; }
+    let parsed;
+    try { parsed = JSON.parse(body); } catch { parsed = { raw: body }; }
 
     return new Response(JSON.stringify(parsed), {
-      status: apiRes.status,
+      status,
       headers: { ...CORS, "Content-Type": "application/json" },
     });
-  } catch (err: unknown) {
+  } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[inter-proxy] ERRO:", msg);
     return new Response(
