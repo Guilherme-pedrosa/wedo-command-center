@@ -600,6 +600,7 @@ export async function syncPagamentosGC(
 ): Promise<{ importados: number; atualizados: number; erros: number }> {
   const inicio = Date.now();
   const raws = await importarPagamentosPendentes(onProgress);
+  const { pcMap, ccMap } = await buildPcCcMaps();
   let importados = 0;
   let atualizados = 0;
   let erros = 0;
@@ -617,6 +618,8 @@ export async function syncPagamentosGC(
       valor: parseFloat(raw.valor_total ?? "0"),
       fornecedor_gc_id: raw.fornecedor_id ?? null,
       nome_fornecedor: raw.nome_fornecedor ?? null,
+      plano_contas_id: raw.plano_contas_id ? (pcMap[raw.plano_contas_id] ?? null) : null,
+      centro_custo_id: raw.centro_custo_id ? (ccMap[raw.centro_custo_id] ?? null) : null,
       data_vencimento: raw.data_vencimento || null,
       data_competencia: raw.data_competencia || null,
       data_liquidacao: raw.data_liquidacao || null,
