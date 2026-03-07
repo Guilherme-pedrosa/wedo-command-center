@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { ArrowLeftRight, CheckCircle, Loader2 } from "lucide-react";
+import { ArrowLeftRight, CheckCircle, Loader2, Wand2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function ConciliacaoPage() {
@@ -14,6 +14,8 @@ export default function ConciliacaoPage() {
   const [selectedLanc, setSelectedLanc] = useState<any>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [linking, setLinking] = useState(false);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const [autoResult, setAutoResult] = useState<any>(null);
 
   const { data: extratoNR } = useQuery({
     queryKey: ["conc-extrato"],
@@ -67,9 +69,45 @@ export default function ConciliacaoPage() {
 
   const diff = selectedExtrato && selectedLanc ? Math.abs(Number(selectedExtrato.valor) - Number(selectedLanc.valor)) : 0;
 
+  const handleAutoReconcile = async () => {
+    setAutoRunning(true);
+    setAutoResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("reconciliation-engine", {
+        body: {},
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error ?? "Erro desconhecido");
+      setAutoResult(data);
+      toast.success(`Conciliação automática: ${data.stats.auto} vinculados, ${data.stats.review} para revisão`);
+      queryClient.invalidateQueries({ queryKey: ["conc-extrato"] });
+      queryClient.invalidateQueries({ queryKey: ["conc-recebimentos"] });
+      queryClient.invalidateQueries({ queryKey: ["conc-pagamentos"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro na conciliação automática");
+    } finally {
+      setAutoRunning(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div><h1 className="text-2xl font-bold text-foreground">Conciliação</h1><p className="text-sm text-muted-foreground">Vincule transações do extrato a lançamentos do sistema</p></div>
+      <div className="flex items-center justify-between">
+        <div><h1 className="text-2xl font-bold text-foreground">Conciliação</h1><p className="text-sm text-muted-foreground">Vincule transações do extrato a lançamentos do sistema</p></div>
+        <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" className="gap-2">
+          {autoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+          Conciliação Automática
+        </Button>
+      </div>
+
+      {autoResult && (
+        <div className="rounded-lg border border-border bg-card p-3 text-sm flex flex-wrap gap-4">
+          <span className="text-wedo-green font-semibold">✅ {autoResult.stats.auto} vinculados</span>
+          <span className="text-wedo-orange font-semibold">⏳ {autoResult.stats.review} revisão</span>
+          <span className="text-muted-foreground">{autoResult.stats.unmatched} sem match</span>
+          {autoResult.stats.errors > 0 && <span className="text-wedo-red">{autoResult.stats.errors} erros</span>}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: Extrato */}
