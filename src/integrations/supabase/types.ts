@@ -46,6 +46,7 @@ export type Database = {
           fornecedor_id: string | null
           gc_codigo: string | null
           gc_id: string
+          gc_payload_raw: Json | null
           id: string
           last_synced_at: string | null
           liquidado: boolean | null
@@ -55,6 +56,7 @@ export type Database = {
           nome_fornecedor: string | null
           nome_plano_conta: string | null
           plano_contas_id: string | null
+          updated_at: string | null
           valor: number
           valor_total: number | null
         }
@@ -71,6 +73,7 @@ export type Database = {
           fornecedor_id?: string | null
           gc_codigo?: string | null
           gc_id: string
+          gc_payload_raw?: Json | null
           id?: string
           last_synced_at?: string | null
           liquidado?: boolean | null
@@ -80,6 +83,7 @@ export type Database = {
           nome_fornecedor?: string | null
           nome_plano_conta?: string | null
           plano_contas_id?: string | null
+          updated_at?: string | null
           valor: number
           valor_total?: number | null
         }
@@ -96,6 +100,7 @@ export type Database = {
           fornecedor_id?: string | null
           gc_codigo?: string | null
           gc_id?: string
+          gc_payload_raw?: Json | null
           id?: string
           last_synced_at?: string | null
           liquidado?: boolean | null
@@ -105,6 +110,7 @@ export type Database = {
           nome_fornecedor?: string | null
           nome_plano_conta?: string | null
           plano_contas_id?: string | null
+          updated_at?: string | null
           valor?: number
           valor_total?: number | null
         }
@@ -125,6 +131,7 @@ export type Database = {
           fornecedor_id: string | null
           gc_codigo: string | null
           gc_id: string
+          gc_payload_raw: Json | null
           grupo_id: string | null
           id: string
           juros: number | null
@@ -138,6 +145,7 @@ export type Database = {
           os_codigo: string | null
           plano_contas_id: string | null
           tipo: string | null
+          updated_at: string | null
           valor: number
           valor_total: number | null
         }
@@ -155,6 +163,7 @@ export type Database = {
           fornecedor_id?: string | null
           gc_codigo?: string | null
           gc_id: string
+          gc_payload_raw?: Json | null
           grupo_id?: string | null
           id?: string
           juros?: number | null
@@ -168,6 +177,7 @@ export type Database = {
           os_codigo?: string | null
           plano_contas_id?: string | null
           tipo?: string | null
+          updated_at?: string | null
           valor: number
           valor_total?: number | null
         }
@@ -185,6 +195,7 @@ export type Database = {
           fornecedor_id?: string | null
           gc_codigo?: string | null
           gc_id?: string
+          gc_payload_raw?: Json | null
           grupo_id?: string | null
           id?: string
           juros?: number | null
@@ -198,6 +209,7 @@ export type Database = {
           os_codigo?: string | null
           plano_contas_id?: string | null
           tipo?: string | null
+          updated_at?: string | null
           valor?: number
           valor_total?: number | null
         }
@@ -263,6 +275,59 @@ export type Database = {
             columns: ["grupo_id"]
             isOneToOne: false
             referencedRelation: "grupos_financeiros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      grupo_pagamento_itens: {
+        Row: {
+          baixado_gc: boolean | null
+          baixado_gc_em: string | null
+          created_at: string | null
+          descricao: string | null
+          erro_baixa: string | null
+          gc_codigo: string | null
+          gc_pagamento_id: string
+          grupo_id: string
+          id: string
+          os_codigo: string | null
+          tentativas: number | null
+          valor: number | null
+        }
+        Insert: {
+          baixado_gc?: boolean | null
+          baixado_gc_em?: string | null
+          created_at?: string | null
+          descricao?: string | null
+          erro_baixa?: string | null
+          gc_codigo?: string | null
+          gc_pagamento_id: string
+          grupo_id: string
+          id?: string
+          os_codigo?: string | null
+          tentativas?: number | null
+          valor?: number | null
+        }
+        Update: {
+          baixado_gc?: boolean | null
+          baixado_gc_em?: string | null
+          created_at?: string | null
+          descricao?: string | null
+          erro_baixa?: string | null
+          gc_codigo?: string | null
+          gc_pagamento_id?: string
+          grupo_id?: string
+          id?: string
+          os_codigo?: string | null
+          tentativas?: number | null
+          valor?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grupo_pagamento_itens_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "grupos_pagamentos"
             referencedColumns: ["id"]
           },
         ]
@@ -333,6 +398,63 @@ export type Database = {
           updated_at?: string | null
           valor_recebido?: number | null
           valor_total?: number
+        }
+        Relationships: []
+      }
+      grupos_pagamentos: {
+        Row: {
+          baixado_gc: boolean | null
+          baixado_gc_em: string | null
+          created_at: string | null
+          criado_por: string | null
+          data_pagamento: string | null
+          data_vencimento: string | null
+          fornecedor_id: string | null
+          id: string
+          inter_pagamento_id: string | null
+          nome: string
+          nome_fornecedor: string | null
+          observacao: string | null
+          status: string
+          updated_at: string | null
+          valor_pago: number | null
+          valor_total: number | null
+        }
+        Insert: {
+          baixado_gc?: boolean | null
+          baixado_gc_em?: string | null
+          created_at?: string | null
+          criado_por?: string | null
+          data_pagamento?: string | null
+          data_vencimento?: string | null
+          fornecedor_id?: string | null
+          id?: string
+          inter_pagamento_id?: string | null
+          nome: string
+          nome_fornecedor?: string | null
+          observacao?: string | null
+          status?: string
+          updated_at?: string | null
+          valor_pago?: number | null
+          valor_total?: number | null
+        }
+        Update: {
+          baixado_gc?: boolean | null
+          baixado_gc_em?: string | null
+          created_at?: string | null
+          criado_por?: string | null
+          data_pagamento?: string | null
+          data_vencimento?: string | null
+          fornecedor_id?: string | null
+          id?: string
+          inter_pagamento_id?: string | null
+          nome?: string
+          nome_fornecedor?: string | null
+          observacao?: string | null
+          status?: string
+          updated_at?: string | null
+          valor_pago?: number | null
+          valor_total?: number | null
         }
         Relationships: []
       }
@@ -408,11 +530,13 @@ export type Database = {
           descricao: string
           erro: string | null
           fornecedor_id: string | null
+          frequencia: string | null
           gc_pagamento_id: string | null
           id: string
           inter_pagamento_id: string | null
           nome_fornecedor: string | null
           observacao: string | null
+          recorrente: boolean | null
           status: string | null
           tipo_chave_pix: string | null
           updated_at: string | null
@@ -426,11 +550,13 @@ export type Database = {
           descricao: string
           erro?: string | null
           fornecedor_id?: string | null
+          frequencia?: string | null
           gc_pagamento_id?: string | null
           id?: string
           inter_pagamento_id?: string | null
           nome_fornecedor?: string | null
           observacao?: string | null
+          recorrente?: boolean | null
           status?: string | null
           tipo_chave_pix?: string | null
           updated_at?: string | null
@@ -444,11 +570,13 @@ export type Database = {
           descricao?: string
           erro?: string | null
           fornecedor_id?: string | null
+          frequencia?: string | null
           gc_pagamento_id?: string | null
           id?: string
           inter_pagamento_id?: string | null
           nome_fornecedor?: string | null
           observacao?: string | null
+          recorrente?: boolean | null
           status?: string | null
           tipo_chave_pix?: string | null
           updated_at?: string | null
