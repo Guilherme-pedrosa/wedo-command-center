@@ -78,7 +78,7 @@ export default function ExtratoBancoPage() {
             <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Data/Hora</th>
             <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Tipo</th>
             <th className="p-3 text-right text-xs font-medium text-muted-foreground uppercase">Valor</th>
-            <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Contrapartida</th>
+            <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Remetente / Destinatário</th>
             <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Descrição</th>
             <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Reconciliado</th>
           </tr></thead>
@@ -90,7 +90,12 @@ export default function ExtratoBancoPage() {
                 <td className="p-3 text-xs">{e.data_hora ? formatDateTime(e.data_hora) : "—"}</td>
                 <td className="p-3 text-center"><Badge variant="outline" className={`text-[10px] ${e.tipo === "CREDITO" ? "bg-wedo-green/10 text-wedo-green" : "bg-wedo-red/10 text-wedo-red"}`}>{e.tipo}</Badge></td>
                 <td className="p-3 text-right font-semibold">{formatCurrency(Number(e.valor))}</td>
-                <td className="p-3">{e.contrapartida || "—"}</td>
+                <td className="p-3">
+                  <div className="flex flex-col">
+                    <span className="font-medium text-foreground">{e.contrapartida || "—"}</span>
+                    {e.cpf_cnpj && <span className="text-[10px] text-muted-foreground">{e.cpf_cnpj}</span>}
+                  </div>
+                </td>
                 <td className="p-3 text-muted-foreground truncate max-w-[200px]">{e.descricao || "—"}</td>
                 <td className="p-3 text-center">{e.reconciliado ? <span className="text-wedo-green">✅</span> : <span className="text-muted-foreground">❌</span>}</td>
               </tr>
