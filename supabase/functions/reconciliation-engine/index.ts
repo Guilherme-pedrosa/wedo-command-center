@@ -84,10 +84,13 @@ function scoreMatch(
     else if (diff <= 10) { score += 4; reasons.push("Data ±10d"); }
   }
 
-  // CPF/CNPJ (20 pts)
+  // CPF/CNPJ (20 pts) — now with partial matching
   const txDoc = cleanDoc(extrato.cpf_cnpj);
   const fDoc = cleanDoc(finCpfCnpj);
-  if (txDoc && fDoc && txDoc === fDoc) { score += 20; reasons.push("CPF/CNPJ idêntico"); }
+  if (txDoc && fDoc) {
+    if (txDoc === fDoc) { score += 20; reasons.push("CPF/CNPJ idêntico"); }
+    else if (docMatches(txDoc, fDoc)) { score += 14; reasons.push("CPF/CNPJ parcial"); }
+  }
 
   // NOME (15 pts)
   const txName = normalizeText(extrato.contrapartida ?? extractedName ?? "");
@@ -95,6 +98,16 @@ function scoreMatch(
   if (txName && finName) {
     if (txName === finName) { score += 15; reasons.push("Nome exato"); }
     else if (txName.includes(finName) || finName.includes(txName)) { score += 8; reasons.push("Nome parcial"); }
+  }
+
+  // CHAVE PIX (10 pts)
+  const txPix = (extrato.chave_pix ?? "").trim().toLowerCase();
+  if (txPix && finCpfCnpj) {
+    // Compare pix key against document (common pattern: pix key IS the CNPJ/CPF)
+    const pixClean = txPix.replace(/\D/g, "");
+    if (pixClean && fDoc && (pixClean === fDoc || docMatches(pixClean, fDoc))) {
+      score += 10; reasons.push("Chave PIX = Doc");
+    }
   }
 
   return { score: Math.min(score, 100), reasons };
