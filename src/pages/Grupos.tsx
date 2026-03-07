@@ -157,7 +157,7 @@ export default function Grupos() {
   const handleCancelar = async (grupo: Grupo) => {
     await supabase.from("grupos_financeiros").update({ status: "cancelado" }).eq("id", grupo.id);
     // Release recebimentos
-    await supabase.from("gc_recebimentos").update({ grupo_id: null }).eq("grupo_id" as any, grupo.id);
+    await (supabase.from("gc_recebimentos").update({ grupo_id: null }) as any).eq("grupo_id", grupo.id);
     toast.success("Grupo cancelado");
     queryClient.invalidateQueries({ queryKey: ["grupos-financeiros"] });
     setSelectedGrupo(null);
