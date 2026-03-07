@@ -7,52 +7,75 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { EmptyState } from "@/components/EmptyState";
-import { formatCurrency, formatDate } from "@/lib/format";
-import { syncRecebimentosGC } from "@/api/financeiro";
-import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
-import { baixarRecebimentoNoGC } from "@/api/financeiro";
-import { Receipt, Search, RefreshCw, Plus, Loader2, Zap } from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon } from "lucide-react";
+import { EmptyState } from "@/components/EmptyState";
+import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
+import { syncRecebimentosGC } from "@/api/financeiro";
+import { cn } from "@/lib/utils";
+import {
+  Receipt, Search, RefreshCw, Plus, Loader2, Zap, CalendarIcon,
+  Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight,
+} from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
+
+const PAGE_SIZE = 50;
 
 export default function RecebimentosPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+
+  // Filters
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("todos");
   const [tipoFilter, setTipoFilter] = useState("todos");
+  const [origemFilter, setOrigemFilter] = useState("todos");
   const [pendenteBaixaGC, setPendenteBaixaGC] = useState(false);
   const [semGrupo, setSemGrupo] = useState(false);
+
+  // Selection
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // UI state
   const [syncing, setSyncing] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showBaixa, setShowBaixa] = useState(false);
+  const [showNewDrawer, setShowNewDrawer] = useState(false);
+  const [showDetailDrawer, setShowDetailDrawer] = useState(false);
+  const [detailItem, setDetailItem] = useState<any>(null);
+  const [page, setPage] = useState(0);
+
+  // Group creation
   const [groupName, setGroupName] = useState("");
   const [groupObs, setGroupObs] = useState("");
   const [groupDate, setGroupDate] = useState<Date | undefined>(undefined);
   const [creating, setCreating] = useState(false);
+
+  // New recebimento form
+  const [newForm, setNewForm] = useState({
+    descricao: "", valor: "", nome_cliente: "", data_vencimento: "",
+    data_emissao: format(new Date(), "yyyy-MM-dd"), observacao: "",
+  });
+  const [saving, setSaving] = useState(false);
 
   const hoje = new Date().toISOString().split("T")[0];
 
   const { data: recebimentos, isLoading } = useQuery({
     queryKey: ["fin-recebimentos"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("fin_recebimentos")
         .select("*")
         .order("data_vencimento", { ascending: true })
-        .limit(500);
-      if (error) throw error;
+        .limit(1000);
       return data || [];
     },
   });
@@ -62,34 +85,53 @@ export default function RecebimentosPage() {
     return recebimentos.filter((r: any) => {
       if (statusFilter !== "todos" && r.status !== statusFilter) return false;
       if (tipoFilter !== "todos" && r.tipo !== tipoFilter) return false;
+      if (origemFilter !== "todos") {
+        if (origemFilter === "gc" && r.origem === "manual") return false;
+        if (origemFilter === "manual" && r.origem !== "manual") return false;
+      }
       if (pendenteBaixaGC && !(r.pago_sistema && !r.gc_baixado)) return false;
       if (semGrupo && r.grupo_id) return false;
       if (search) {
         const s = search.toLowerCase();
-        if (!(r.nome_cliente?.toLowerCase().includes(s) || r.descricao?.toLowerCase().includes(s) || r.gc_codigo?.includes(s) || r.os_codigo?.includes(s))) return false;
+        if (!(
+          r.nome_cliente?.toLowerCase().includes(s) ||
+          r.descricao?.toLowerCase().includes(s) ||
+          r.gc_codigo?.includes(s) ||
+          r.os_codigo?.includes(s)
+        )) return false;
       }
       return true;
     });
-  }, [recebimentos, search, statusFilter, tipoFilter, pendenteBaixaGC, semGrupo]);
+  }, [recebimentos, search, statusFilter, tipoFilter, origemFilter, pendenteBaixaGC, semGrupo]);
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   const selectedItems = filtered.filter((r: any) => selected.has(r.id));
-  const selectedTotal = selectedItems.reduce((s, r: any) => s + Number(r.valor || 0), 0);
+  const selectedTotal = selectedItems.reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
 
   const canSelect = (r: any) => !r.liquidado && !r.grupo_id;
   const toggleAll = () => {
-    const sel = filtered.filter(canSelect);
+    const sel = paged.filter(canSelect);
     setSelected(selected.size === sel.length ? new Set() : new Set(sel.map((r: any) => r.id)));
   };
-  const toggle = (id: string) => { const n = new Set(selected); n.has(id) ? n.delete(id) : n.add(id); setSelected(n); };
+  const toggle = (id: string) => {
+    const n = new Set(selected);
+    n.has(id) ? n.delete(id) : n.add(id);
+    setSelected(n);
+  };
 
   const handleSync = async () => {
     setSyncing(true);
     try {
       const result = await syncRecebimentosGC();
-      toast.success(`Importados: ${result.importados} recebimentos`);
+      toast.success(`Importados: ${result.ok} recebimentos`);
       queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
-    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
-    finally { setSyncing(false); }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro");
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const handleCreateGroup = async () => {
@@ -97,58 +139,115 @@ export default function RecebimentosPage() {
     setCreating(true);
     try {
       const items = selectedItems;
-      const total = items.reduce((s, r: any) => s + Number(r.valor || 0), 0);
+      const total = items.reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
       const { data: grupo, error: gErr } = await supabase.from("fin_grupos_receber").insert({
-        nome: groupName, nome_cliente: (items[0] as any)?.nome_cliente, valor_total: total,
-        itens_total: items.length, data_vencimento: groupDate ? format(groupDate, "yyyy-MM-dd") : null, observacao: groupObs || null,
+        nome: groupName,
+        nome_cliente: (items[0] as any)?.nome_cliente,
+        valor_total: total,
+        itens_total: items.length,
+        data_vencimento: groupDate ? format(groupDate, "yyyy-MM-dd") : null,
+        observacao: groupObs || null,
       }).select().single();
       if (gErr) throw gErr;
 
-      const grupoItens = items.map((r: any) => ({ grupo_id: (grupo as any).id, recebimento_id: r.id, valor: Number(r.valor) }));
+      const grupoItens = items.map((r: any) => ({
+        grupo_id: (grupo as any).id,
+        recebimento_id: r.id,
+        valor: Number(r.valor),
+      }));
       await supabase.from("fin_grupo_receber_itens").insert(grupoItens);
       await supabase.from("fin_recebimentos").update({ grupo_id: (grupo as any).id }).in("id", items.map((r: any) => r.id));
 
       toast.success(`Grupo criado com ${items.length} itens · ${formatCurrency(total)}`);
-      setSelected(new Set()); setShowCreateGroup(false); setGroupName(""); setGroupObs(""); setGroupDate(undefined);
+      setSelected(new Set());
+      setShowCreateGroup(false);
+      setGroupName("");
+      setGroupObs("");
+      setGroupDate(undefined);
       queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
-    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
-    finally { setCreating(false); }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleSaveNew = async () => {
+    if (!newForm.descricao || !newForm.valor) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from("fin_recebimentos").insert({
+        descricao: newForm.descricao,
+        valor: parseFloat(newForm.valor),
+        nome_cliente: newForm.nome_cliente || null,
+        data_vencimento: newForm.data_vencimento || null,
+        data_emissao: newForm.data_emissao || null,
+        observacao: newForm.observacao || null,
+        origem: "manual" as any,
+        tipo: "outro",
+        status: "pendente" as any,
+      });
+      if (error) throw error;
+      toast.success("Recebimento criado");
+      setShowNewDrawer(false);
+      setNewForm({ descricao: "", valor: "", nome_cliente: "", data_vencimento: "", data_emissao: format(new Date(), "yyyy-MM-dd"), observacao: "" });
+      queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao salvar");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const statusBadge = (r: any) => {
     const s = r.status;
-    if (s === "pago") return <Badge variant="outline" className="bg-wedo-green/10 text-wedo-green border-wedo-green/30 text-[10px]">Pago</Badge>;
-    if (s === "vencido" || (!r.liquidado && r.data_vencimento && r.data_vencimento < hoje)) return <Badge variant="outline" className="bg-wedo-red/10 text-wedo-red border-wedo-red/30 text-[10px]">Vencido</Badge>;
+    if (s === "pago") return <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30 text-[10px]">Pago</Badge>;
+    if (s === "vencido" || (!r.liquidado && r.data_vencimento && r.data_vencimento < hoje))
+      return <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30 text-[10px]">Vencido</Badge>;
     if (s === "cancelado") return <Badge variant="outline" className="text-[10px]">Cancelado</Badge>;
-    return <Badge variant="outline" className="bg-wedo-yellow/10 text-wedo-yellow border-wedo-yellow/30 text-[10px]">Pendente</Badge>;
+    return <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/30 text-[10px]">Pendente</Badge>;
   };
 
   const baixaGCBadge = (r: any) => {
-    if (r.gc_baixado) return <span className="text-wedo-green text-[10px]">✅ Baixado</span>;
-    if (r.pago_sistema && !r.gc_baixado) return <Badge variant="outline" className="bg-wedo-orange/10 text-wedo-orange border-wedo-orange/30 text-[10px] animate-pulse">⚡ Baixar GC</Badge>;
+    if (r.gc_baixado) return <span className="text-emerald-500 text-[10px]">✅ Baixado</span>;
+    if (r.pago_sistema && !r.gc_baixado)
+      return <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/30 text-[10px] animate-pulse">⚡ Baixar GC</Badge>;
     return <span className="text-muted-foreground text-[10px]">—</span>;
+  };
+
+  const openDetail = (r: any) => {
+    setDetailItem(r);
+    setShowDetailDrawer(true);
   };
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Recebimentos</h1>
-          <p className="text-sm text-muted-foreground">Lançamentos a receber (fin_recebimentos)</p>
+          <p className="text-sm text-muted-foreground">
+            {filtered.length} lançamento{filtered.length !== 1 ? "s" : ""} encontrado{filtered.length !== 1 ? "s" : ""}
+          </p>
         </div>
-        <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing}>
-          {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
-          Sincronizar GC
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing}>
+            {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+            Sync GC
+          </Button>
+          <Button size="sm" onClick={() => setShowNewDrawer(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> Novo
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-4">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Buscar cliente, descrição, OS..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Buscar cliente, descrição, OS..." value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} className="pl-9" />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setPage(0); }}>
           <SelectTrigger className="w-[130px]"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="todos">Todos</SelectItem>
@@ -158,21 +257,29 @@ export default function RecebimentosPage() {
             <SelectItem value="cancelado">Cancelado</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={tipoFilter} onValueChange={setTipoFilter}>
+        <Select value={tipoFilter} onValueChange={v => { setTipoFilter(v); setPage(0); }}>
           <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="todos">Todos</SelectItem>
+            <SelectItem value="todos">Tipo: Todos</SelectItem>
             <SelectItem value="os">OS</SelectItem>
             <SelectItem value="venda">Venda</SelectItem>
             <SelectItem value="contrato">Contrato</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={origemFilter} onValueChange={v => { setOrigemFilter(v); setPage(0); }}>
+          <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Origem: Todos</SelectItem>
+            <SelectItem value="gc">GestãoClick</SelectItem>
+            <SelectItem value="manual">Manual</SelectItem>
+          </SelectContent>
+        </Select>
         <div className="flex items-center gap-2">
-          <Switch id="baixa-gc" checked={pendenteBaixaGC} onCheckedChange={setPendenteBaixaGC} />
+          <Switch id="baixa-gc" checked={pendenteBaixaGC} onCheckedChange={v => { setPendenteBaixaGC(v); setPage(0); }} />
           <Label htmlFor="baixa-gc" className="text-xs text-muted-foreground">Pendente baixa GC</Label>
         </div>
         <div className="flex items-center gap-2">
-          <Switch id="sem-grupo" checked={semGrupo} onCheckedChange={setSemGrupo} />
+          <Switch id="sem-grupo" checked={semGrupo} onCheckedChange={v => { setSemGrupo(v); setPage(0); }} />
           <Label htmlFor="sem-grupo" className="text-xs text-muted-foreground">Sem grupo</Label>
         </div>
       </div>
@@ -183,7 +290,12 @@ export default function RecebimentosPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/50">
-                <th className="p-3 text-left w-10"><Checkbox checked={filtered.filter(canSelect).length > 0 && selected.size === filtered.filter(canSelect).length} onCheckedChange={toggleAll} /></th>
+                <th className="p-3 text-left w-10">
+                  <Checkbox
+                    checked={paged.filter(canSelect).length > 0 && paged.filter(canSelect).every((r: any) => selected.has(r.id))}
+                    onCheckedChange={toggleAll}
+                  />
+                </th>
                 <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Cód GC</th>
                 <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">OS</th>
                 <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Descrição</th>
@@ -192,41 +304,69 @@ export default function RecebimentosPage() {
                 <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Vencimento</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Status</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Baixa GC</th>
-                <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Grupo</th>
+                <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Ações</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr><td colSpan={10} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></td></tr>
-              ) : filtered.length === 0 ? (
-                <tr><td colSpan={10}><EmptyState icon={Receipt} title="Nenhum recebimento" description="Sincronize os dados do GC." action={{ label: "Sincronizar", onClick: handleSync }} /></td></tr>
-              ) : filtered.map((r: any) => (
+              ) : paged.length === 0 ? (
+                <tr><td colSpan={10}><EmptyState icon={Receipt} title="Nenhum recebimento" description="Sincronize os dados do GC ou crie manualmente." action={{ label: "Sincronizar", onClick: handleSync }} /></td></tr>
+              ) : paged.map((r: any) => (
                 <tr key={r.id} className="border-b border-border hover:bg-muted/30 transition-colors">
-                  <td className="p-3">{canSelect(r) ? <Checkbox checked={selected.has(r.id)} onCheckedChange={() => toggle(r.id)} /> : <Checkbox disabled checked={false} />}</td>
+                  <td className="p-3">
+                    {canSelect(r) ? <Checkbox checked={selected.has(r.id)} onCheckedChange={() => toggle(r.id)} /> : <Checkbox disabled checked={false} />}
+                  </td>
                   <td className="p-3 font-mono text-xs text-foreground">{r.gc_codigo || "—"}</td>
-                  <td className="p-3 font-semibold text-wedo-blue">{r.os_codigo || "—"}</td>
+                  <td className="p-3 font-semibold text-primary">{r.os_codigo || "—"}</td>
                   <td className="p-3 text-foreground max-w-[200px] truncate">{r.descricao}</td>
                   <td className="p-3 text-foreground">{r.nome_cliente || "—"}</td>
                   <td className="p-3 text-right font-semibold text-foreground">{formatCurrency(Number(r.valor))}</td>
                   <td className="p-3 text-foreground">{r.data_vencimento ? formatDate(r.data_vencimento) : "—"}</td>
                   <td className="p-3 text-center">{statusBadge(r)}</td>
                   <td className="p-3 text-center">{baixaGCBadge(r)}</td>
-                  <td className="p-3 text-center">{r.grupo_id ? <Badge variant="outline" className="cursor-pointer text-[10px] bg-wedo-orange/10 text-wedo-orange border-wedo-orange/30" onClick={() => navigate("/financeiro/grupos-receber")}>Em grupo</Badge> : "—"}</td>
+                  <td className="p-3 text-center">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openDetail(r)}>
+                      <Eye className="h-3.5 w-3.5" />
+                    </Button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-border px-4 py-3">
+            <span className="text-xs text-muted-foreground">
+              Página {page + 1} de {totalPages} · {filtered.length} resultados
+            </span>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Selection bar */}
       {selected.size > 0 && (
         <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border p-4 flex items-center justify-between z-50">
-          <span className="text-sm text-foreground">{selected.size} selecionados · <span className="font-semibold">{formatCurrency(selectedTotal)}</span></span>
+          <span className="text-sm text-foreground">
+            {selected.size} selecionados · <span className="font-semibold">{formatCurrency(selectedTotal)}</span>
+          </span>
           <div className="flex gap-2">
             <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Limpar</Button>
             {selectedItems.every((r: any) => !r.grupo_id) && (
-              <Button size="sm" onClick={() => { setGroupName(`${(selectedItems[0] as any)?.nome_cliente || "Grupo"} — ${format(new Date(), "dd/MM/yyyy")}`); setShowCreateGroup(true); }}>
+              <Button size="sm" onClick={() => {
+                setGroupName(`${(selectedItems[0] as any)?.nome_cliente || "Grupo"} — ${format(new Date(), "dd/MM/yyyy")}`);
+                setShowCreateGroup(true);
+              }}>
                 <Plus className="h-3.5 w-3.5 mr-1.5" /> Criar Grupo
               </Button>
             )}
@@ -247,15 +387,29 @@ export default function RecebimentosPage() {
             <div className="space-y-2"><Label>Nome *</Label><Input value={groupName} onChange={e => setGroupName(e.target.value)} /></div>
             <div className="space-y-2">
               <Label>Vencimento</Label>
-              <Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start"><CalendarIcon className="mr-2 h-4 w-4" />{groupDate ? format(groupDate, "dd/MM/yyyy") : "Selecionar"}</Button></PopoverTrigger>
-              <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={groupDate} onSelect={setGroupDate} locale={ptBR} className={cn("p-3 pointer-events-auto")} /></PopoverContent></Popover>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {groupDate ? format(groupDate, "dd/MM/yyyy") : "Selecionar"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar mode="single" selected={groupDate} onSelect={setGroupDate} locale={ptBR} className={cn("p-3 pointer-events-auto")} />
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="space-y-2"><Label>Observação</Label><Textarea value={groupObs} onChange={e => setGroupObs(e.target.value)} /></div>
-            <div className="bg-muted/50 rounded-md p-3 text-sm font-semibold text-foreground flex justify-between"><span>{selected.size} itens</span><span>{formatCurrency(selectedTotal)}</span></div>
+            <div className="bg-muted/50 rounded-md p-3 text-sm font-semibold text-foreground flex justify-between">
+              <span>{selected.size} itens</span>
+              <span>{formatCurrency(selectedTotal)}</span>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setShowCreateGroup(false)}>Cancelar</Button>
-            <Button onClick={handleCreateGroup} disabled={creating || !groupName.trim()}>{creating && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}Criar Grupo</Button>
+            <Button onClick={handleCreateGroup} disabled={creating || !groupName.trim()}>
+              {creating && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}Criar Grupo
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -266,9 +420,142 @@ export default function RecebimentosPage() {
         onOpenChange={(o) => { if (!o) { setShowBaixa(false); queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] }); } }}
         titulo="Baixa Irreversível no GestãoClick"
         tipoLancamento="recebimento"
-        itens={selectedItems.map((r: any) => ({ id: r.id, descricao: r.descricao, valor: Number(r.valor), gc_id: r.gc_id || "", gc_payload_raw: r.gc_payload_raw, gc_baixado: r.gc_baixado }))}
+        itens={selectedItems.map((r: any) => ({
+          id: r.id, descricao: r.descricao, valor: Number(r.valor),
+          gc_id: r.gc_id || "", gc_payload_raw: r.gc_payload_raw, gc_baixado: r.gc_baixado,
+        }))}
         onConfirmar={async () => {}}
       />
+
+      {/* New Recebimento Drawer */}
+      <Sheet open={showNewDrawer} onOpenChange={setShowNewDrawer}>
+        <SheetContent className="w-[400px] sm:w-[480px] overflow-y-auto">
+          <SheetHeader><SheetTitle>Novo Recebimento Manual</SheetTitle></SheetHeader>
+          <div className="mt-6 space-y-4">
+            <div className="space-y-2">
+              <Label>Descrição *</Label>
+              <Input value={newForm.descricao} onChange={e => setNewForm(f => ({ ...f, descricao: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Valor *</Label>
+              <Input type="number" step="0.01" value={newForm.valor} onChange={e => setNewForm(f => ({ ...f, valor: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Cliente</Label>
+              <Input value={newForm.nome_cliente} onChange={e => setNewForm(f => ({ ...f, nome_cliente: e.target.value }))} placeholder="Nome do cliente" />
+            </div>
+            <div className="space-y-2">
+              <Label>Data de vencimento</Label>
+              <Input type="date" value={newForm.data_vencimento} onChange={e => setNewForm(f => ({ ...f, data_vencimento: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Data de emissão</Label>
+              <Input type="date" value={newForm.data_emissao} onChange={e => setNewForm(f => ({ ...f, data_emissao: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Observação</Label>
+              <Textarea value={newForm.observacao} onChange={e => setNewForm(f => ({ ...f, observacao: e.target.value }))} />
+            </div>
+            <Button className="w-full" onClick={handleSaveNew} disabled={saving || !newForm.descricao || !newForm.valor}>
+              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Salvar Recebimento
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Detail Drawer */}
+      <Sheet open={showDetailDrawer} onOpenChange={setShowDetailDrawer}>
+        <SheetContent className="w-[450px] sm:w-[550px] overflow-y-auto">
+          {detailItem && (
+            <>
+              <SheetHeader><SheetTitle>Detalhe do Recebimento</SheetTitle></SheetHeader>
+              <div className="mt-6 space-y-5">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground text-xs">Código GC</span>
+                    <p className="font-mono font-medium text-foreground">{detailItem.gc_codigo || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-xs">OS</span>
+                    <p className="font-semibold text-primary">{detailItem.os_codigo || "—"}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-muted-foreground text-xs">Descrição</span>
+                    <p className="text-foreground">{detailItem.descricao}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-xs">Cliente</span>
+                    <p className="text-foreground">{detailItem.nome_cliente || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-xs">Valor</span>
+                    <p className="font-semibold text-foreground">{formatCurrency(Number(detailItem.valor))}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-xs">Vencimento</span>
+                    <p className="text-foreground">{detailItem.data_vencimento ? formatDate(detailItem.data_vencimento) : "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-xs">Status</span>
+                    <div className="mt-1">{statusBadge(detailItem)}</div>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-xs">Origem</span>
+                    <p className="text-foreground">{detailItem.origem || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-xs">Tipo</span>
+                    <p className="text-foreground">{detailItem.tipo || "—"}</p>
+                  </div>
+                </div>
+
+                {/* GC Baixa status */}
+                <div className="rounded-lg border border-border p-4 space-y-2">
+                  <h4 className="text-sm font-semibold text-foreground">Baixa GestãoClick</h4>
+                  {detailItem.gc_baixado ? (
+                    <div className="flex items-center gap-2 text-emerald-500 text-sm">
+                      <CheckCircle className="h-4 w-4" />
+                      Baixado em {detailItem.gc_baixado_em ? formatDateTime(detailItem.gc_baixado_em) : "—"}
+                    </div>
+                  ) : detailItem.pago_sistema ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-amber-500 text-sm">
+                        <Zap className="h-4 w-4" />
+                        Inter confirmou pagamento. Baixa no GC pendente.
+                      </div>
+                      <Button variant="destructive" size="sm" onClick={() => {
+                        setShowDetailDrawer(false);
+                        setSelected(new Set([detailItem.id]));
+                        setTimeout(() => setShowBaixa(true), 200);
+                      }}>
+                        <Zap className="h-3.5 w-3.5 mr-1.5" /> Baixar no GC
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                      <XCircle className="h-4 w-4" /> Aguardando pagamento
+                    </div>
+                  )}
+                </div>
+
+                {detailItem.observacao && (
+                  <div>
+                    <span className="text-muted-foreground text-xs">Observação</span>
+                    <p className="text-foreground text-sm mt-1">{detailItem.observacao}</p>
+                  </div>
+                )}
+
+                {detailItem.grupo_id && (
+                  <Button variant="outline" size="sm" onClick={() => { setShowDetailDrawer(false); navigate("/financeiro/grupos-receber"); }}>
+                    Ver Grupo
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
