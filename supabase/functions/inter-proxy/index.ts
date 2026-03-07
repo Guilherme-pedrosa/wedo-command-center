@@ -70,10 +70,10 @@ serve(async (req) => {
   }
 
   try {
-    const clientId = Deno.env.get("INTER_CLIENT_ID");
-    const clientSecret = Deno.env.get("INTER_CLIENT_SECRET");
-    const cert = Deno.env.get("INTER_CERT");
-    const key = Deno.env.get("INTER_KEY");
+    const clientId = Deno.env.get("INTER_CLIENT_ID")?.trim();
+    const clientSecret = Deno.env.get("INTER_CLIENT_SECRET")?.trim();
+    const cert = normalizePem(Deno.env.get("INTER_CERT") ?? "");
+    const key = normalizePem(Deno.env.get("INTER_KEY") ?? "");
 
     if (!clientId || !clientSecret || !cert || !key) {
       return new Response(
