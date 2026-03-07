@@ -1,1 +1,4 @@
 project_id = "mgiebypxhnmpktljrzjq"
+
+[functions.gc-proxy]
+verify_jwt = false
