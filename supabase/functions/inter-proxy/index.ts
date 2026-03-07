@@ -60,6 +60,9 @@ async function getAccessToken(
       "extrato.read cobv.write cobv.read cobv.cancel pagamento-pix.write pagamento-pix.read",
   });
 
+  console.log("PEM cert starts with:", cert.substring(0, 30), "lines:", cert.split("\n").length);
+  console.log("PEM key starts with:", key.substring(0, 30), "lines:", key.split("\n").length);
+
   // @ts-ignore - Deno supports createHttpClient
   const client = Deno.createHttpClient({ certChain: cert, privateKey: key });
 
