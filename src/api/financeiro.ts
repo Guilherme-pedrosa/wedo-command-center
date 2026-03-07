@@ -316,9 +316,10 @@ export async function baixarGrupoReceberNoGC(
       .from("fin_recebimentos" as any)
       .select("gc_id, gc_payload_raw")
       .eq("id", item.recebimento_id)
-      .single();
+      .single() as any;
 
-    if (!rec?.gc_id || !rec?.gc_payload_raw) {
+    const recData = rec as any;
+    if (!recData?.gc_id || !recData?.gc_payload_raw) {
       falha++;
       onItemDone?.(false, "unknown", "Dados GC ausentes");
       continue;
