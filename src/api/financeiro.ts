@@ -522,6 +522,23 @@ export async function baixarGrupoPagarNoGC(
   return { sucesso, falha };
 }
 
+// ─── Helpers: Map GC IDs to local UUIDs ─────────────────────────────
+
+async function buildPcCcMaps(): Promise<{
+  pcMap: Record<string, string>;
+  ccMap: Record<string, string>;
+}> {
+  const [{ data: pcs }, { data: ccs }] = await Promise.all([
+    supabase.from("fin_plano_contas").select("id, gc_id").not("gc_id", "is", null),
+    supabase.from("fin_centros_custo").select("id, codigo").not("codigo", "is", null),
+  ]);
+  const pcMap: Record<string, string> = {};
+  for (const pc of pcs ?? []) { if (pc.gc_id) pcMap[pc.gc_id] = pc.id; }
+  const ccMap: Record<string, string> = {};
+  for (const cc of ccs ?? []) { if (cc.codigo) ccMap[cc.codigo] = cc.id; }
+  return { pcMap, ccMap };
+}
+
 // ─── Sync Service (GC → fin_* tables) ───────────────────────────────
 
 export async function syncRecebimentosGC(
@@ -529,6 +546,7 @@ export async function syncRecebimentosGC(
 ): Promise<{ importados: number; atualizados: number; erros: number }> {
   const inicio = Date.now();
   const raws = await importarRecebimentosPendentes(onProgress);
+  const { pcMap, ccMap } = await buildPcCcMaps();
   let importados = 0;
   let atualizados = 0;
   let erros = 0;
@@ -546,6 +564,8 @@ export async function syncRecebimentosGC(
       valor: parseFloat(raw.valor_total ?? "0"),
       cliente_gc_id: raw.cliente_id ?? null,
       nome_cliente: raw.nome_cliente ?? null,
+      plano_contas_id: raw.plano_contas_id ? (pcMap[raw.plano_contas_id] ?? null) : null,
+      centro_custo_id: raw.centro_custo_id ? (ccMap[raw.centro_custo_id] ?? null) : null,
       data_vencimento: raw.data_vencimento || null,
       data_competencia: raw.data_competencia || null,
       data_liquidacao: raw.data_liquidacao || null,
