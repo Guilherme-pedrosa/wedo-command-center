@@ -178,9 +178,9 @@ export default function GruposReceberPage() {
         </SheetContent>
       </Sheet>
 
-      <ConfirmarBaixaModal open={showBaixa} onClose={() => { setShowBaixa(false); queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] }); }}
-        titulo="Baixa do Grupo no GestãoClick" itens={grupoItens?.map((i: any) => ({ descricao: i.fin_recebimentos?.descricao || "", valor: Number(i.valor || i.fin_recebimentos?.valor), gc_baixado: i.gc_baixado })) || []}
-        valorTotal={Number(selectedGrupo?.valor_total || grupos?.find((g: any) => g.id === baixaGrupoId)?.valor_total || 0)}
+      <ConfirmarBaixaModal open={showBaixa} onOpenChange={(o) => { if (!o) { setShowBaixa(false); queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] }); } }}
+        titulo="Baixa do Grupo no GestãoClick" tipoLancamento="recebimento"
+        itens={grupoItens?.map((i: any) => ({ id: i.id, descricao: i.fin_recebimentos?.descricao || "", valor: Number(i.valor || i.fin_recebimentos?.valor), gc_id: i.fin_recebimentos?.gc_id || "", gc_payload_raw: i.fin_recebimentos?.gc_payload_raw, gc_baixado: i.gc_baixado })) || []}
         onConfirmar={async (dataLiq) => { await baixarGrupoReceberNoGC(baixaGrupoId || selectedGrupo?.id, dataLiq); }} />
     </div>
   );
