@@ -1,7 +1,8 @@
 import {
   LayoutDashboard, ShoppingCart, DollarSign, Receipt,
   Layers, CreditCard, CalendarClock, ScrollText, Settings,
-  ChevronDown,
+  ChevronDown, TrendingUp, Building2, ArrowLeftRight, FileText,
+  BarChart3, LineChart, BookOpen, Landmark, Search,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -18,14 +19,42 @@ const mainItems = [
   { title: "Picking", url: "/picking", icon: ShoppingCart },
 ];
 
-const financeItems = [
+const oldFinanceItems = [
   { title: "Recebimentos", url: "/recebimentos", icon: Receipt },
   { title: "Grupos", url: "/grupos", icon: Layers },
 ];
 
-const payItems = [
+const oldPayItems = [
   { title: "A Pagar", url: "/pagamentos", icon: CreditCard },
   { title: "Agendamentos", url: "/agendamentos", icon: CalendarClock },
+];
+
+const finLancamentos = [
+  { title: "📊 Dashboard", url: "/financeiro/dashboard", icon: LayoutDashboard },
+  { title: "💰 A Receber", url: "/financeiro/recebimentos", icon: Receipt },
+  { title: "💸 A Pagar", url: "/financeiro/pagamentos", icon: CreditCard },
+];
+
+const finGrupos = [
+  { title: "🗂️ Grupos Receber", url: "/financeiro/grupos-receber", icon: Layers },
+  { title: "🗂️ Grupos Pagar", url: "/financeiro/grupos-pagar", icon: Layers },
+];
+
+const finBanco = [
+  { title: "📅 Agenda Pgto", url: "/financeiro/agenda", icon: CalendarClock },
+  { title: "🏦 Extrato Inter", url: "/financeiro/extrato", icon: Building2 },
+  { title: "🔄 Conciliação", url: "/financeiro/conciliacao", icon: ArrowLeftRight },
+];
+
+const finRelatorios = [
+  { title: "📈 DRE", url: "/financeiro/dre", icon: BarChart3 },
+  { title: "📉 Fluxo Caixa", url: "/financeiro/fluxo-caixa", icon: LineChart },
+];
+
+const finAdmin = [
+  { title: "📋 Plano Contas", url: "/financeiro/plano-contas", icon: BookOpen },
+  { title: "⚙️ Config Inter", url: "/financeiro/config-banco", icon: Landmark },
+  { title: "🔍 Log API", url: "/financeiro/log", icon: Search },
 ];
 
 const bottomItems = [
@@ -38,8 +67,7 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const isActive = (path: string) => location.pathname === path;
-  const financeOpen = financeItems.some(i => isActive(i.url));
-  const payOpen = payItems.some(i => isActive(i.url));
+  const finOpen = location.pathname.startsWith("/financeiro");
 
   const renderItems = (items: typeof mainItems) =>
     items.map((item) => (
@@ -79,31 +107,46 @@ export function AppSidebar() {
 
         {!collapsed && (
           <>
+            {/* Old finance sections */}
             <SidebarGroup>
-              <Collapsible defaultOpen={financeOpen || true}>
+              <Collapsible defaultOpen={false}>
                 <CollapsibleTrigger className="flex items-center w-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground">
                   <DollarSign className="h-3 w-3 mr-1.5" />
-                  Financeiro
+                  Legado
                   <ChevronDown className="ml-auto h-3 w-3" />
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <SidebarGroupContent>
-                    <SidebarMenu>{renderItems(financeItems)}</SidebarMenu>
+                    <SidebarMenu>
+                      {renderItems(oldFinanceItems)}
+                      {renderItems(oldPayItems)}
+                    </SidebarMenu>
                   </SidebarGroupContent>
                 </CollapsibleContent>
               </Collapsible>
             </SidebarGroup>
 
+            {/* New Financeiro Hub */}
             <SidebarGroup>
-              <Collapsible defaultOpen={payOpen || true}>
+              <Collapsible defaultOpen={finOpen}>
                 <CollapsibleTrigger className="flex items-center w-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground">
-                  <CreditCard className="h-3 w-3 mr-1.5" />
-                  Pagamentos
+                  <TrendingUp className="h-3 w-3 mr-1.5" />
+                  Financeiro Hub
                   <ChevronDown className="ml-auto h-3 w-3" />
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <SidebarGroupContent>
-                    <SidebarMenu>{renderItems(payItems)}</SidebarMenu>
+                    <SidebarMenu>
+                      {renderItems(finLancamentos)}
+                      <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase text-muted-foreground/60">Grupos</div>
+                      {renderItems(finGrupos)}
+                      <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase text-muted-foreground/60">Banco</div>
+                      {renderItems(finBanco)}
+                      <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase text-muted-foreground/60">Relatórios</div>
+                      {renderItems(finRelatorios)}
+                      <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase text-muted-foreground/60">Admin</div>
+                      {renderItems(finAdmin)}
+                    </SidebarMenu>
                   </SidebarGroupContent>
                 </CollapsibleContent>
               </Collapsible>
