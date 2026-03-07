@@ -93,31 +93,28 @@ export function inferirOrigem(
 }
 /**
  * Extrai o nome do remetente/destinatário da descrição do extrato Inter.
- * Exemplos:
- *   "PIX ENVIADO INTERNO - 00019 82218404 FRED SILVA" → "FRED SILVA"
- *   "TED RECEBIDA - 376 1 1035698 CARGILL AGRICOLA S A" → "CARGILL AGRICOLA S A"
- *   "PIX RECEBIDO - Cp :60701190-WD COMERCIO E IMPORTACAO LTDA" → "WD COMERCIO E IMPORTACAO LTDA"
- *   "TED RECEBIDA - 341 912 49681 AMBEV S A" → "AMBEV S A"
  */
 export function extrairNomeDaDescricao(descricao: string | null | undefined): string | null {
   if (!descricao) return null;
 
-  // Padrão "Cp :CNPJ-NOME"
+  // "PAGAMENTO DE TITULO - NOME" ou "RECEBIMENTO TITULO - NOME"
+  const tituloMatch = descricao.match(/(?:PAGAMENTO|RECEBIMENTO)\s+(?:DE\s+)?TITULO\s*-\s*(.+)$/i);
+  if (tituloMatch?.[1]) return tituloMatch[1].trim();
+
+  // "Cp :CNPJ-NOME"
   const cpMatch = descricao.match(/Cp\s*:\d+-(.+)$/i);
   if (cpMatch?.[1]) return cpMatch[1].trim();
 
-  // Padrão com números seguidos de nome: "- 00019 82218404 FRED SILVA"
-  // ou "- 341 912 49681 AMBEV S A"
-  // Captura: depois de "- " seguido de sequências numéricas, o texto restante é o nome
-  const dashMatch = descricao.match(/-\s+(?:[\d\s]+?\s)([A-Z][A-Z\s.&]+[A-Z.])$/);
+  // "- números NOME" (PIX/TED com agência/conta)
+  const dashMatch = descricao.match(/-\s+(?:[\d\s]+?\s)([A-Za-z][A-Za-z\s.&]+[A-Za-z.])$/);
   if (dashMatch?.[1]) return dashMatch[1].trim();
 
-  // Padrão com CPF/CNPJ formatado no meio: "62 084 399 DANIEL BEAN"
-  const docMatch = descricao.match(/\d{2}\s*\.?\d{3}\s*\.?\d{3}\s+([A-Z][A-Z\s.]+)$/);
+  // CPF/CNPJ formatado seguido de nome
+  const docMatch = descricao.match(/\d{2}\s*\.?\d{3}\s*\.?\d{3}\s+([A-Za-z][A-Za-z\s.]+)$/);
   if (docMatch?.[1]) return docMatch[1].trim();
 
-  // Fallback genérico: última sequência de letras maiúsculas com 3+ chars
-  const fallback = descricao.match(/\d\s+([A-Z][A-Z\s.&]{2,})\s*$/);
+  // Fallback: texto após último número
+  const fallback = descricao.match(/\d\s+([A-Za-z][A-Za-z\s.&]{2,})\s*$/);
   if (fallback?.[1]) return fallback[1].trim();
 
   return null;
