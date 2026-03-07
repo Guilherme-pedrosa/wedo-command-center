@@ -114,7 +114,10 @@ async function mTlsRequest(params: {
     }
 
     const m = headers.match(/HTTP\/\S+ (\d+)/);
-    return { status: m ? parseInt(m[1]) : 0, body: bodyText.trim() };
+    const status = m ? parseInt(m[1]) : 0;
+    console.log("[inter] raw response headers:", headers);
+    console.log("[inter] raw response status:", status, "| body length:", bodyText.length, "| body preview:", bodyText.slice(0, 500));
+    return { status, body: bodyText.trim() };
   } finally {
     try { conn.close(); } catch { /* já fechado */ }
   }
@@ -135,8 +138,12 @@ async function getToken(cert: string, key: string): Promise<string> {
     grant_type: "client_credentials",
     client_id: clientId,
     client_secret: clientSecret,
-    scope: "extrato.read cobv.write cobv.read pagamento-pix.write pagamento-pix.read",
+    scope: "extrato.read cobv.write cobv.read pix.write pix.read pagamento-pix.write pagamento-pix.read",
   }).toString();
+
+  console.log("[inter] OAuth body:", body);
+  console.log("[inter] cert preview:", cert.slice(0, 80));
+  console.log("[inter] key preview:", key.slice(0, 80));
 
   console.log("[inter] OAuth via Deno.connectTls, client_id:", clientId.slice(0, 8) + "...");
 
