@@ -1,7 +1,6 @@
 // @ts-nocheck
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import * as https from "node:https";
-import * as querystring from "node:querystring";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -9,106 +8,107 @@ const CORS = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const INTER_BASE = "cdpj.partners.bancointer.com.br";
+const INTER_BASE_URL = "https://cdpj.partners.bancointer.com.br";
 
-// ─── Reconstrução de PEM ───────────────────────────────────────
-function buildPEM(raw: string, type: "CERTIFICATE" | "PRIVATE KEY"): string {
-  if (!raw) return "";
-  const stripped = raw
-    .replace(/-----BEGIN[^-]+-----/g, "")
-    .replace(/-----END[^-]+-----/g, "")
-    .replace(/\\n/g, "")
-    .replace(/\s+/g, "");
-  const lines = stripped.match(/.{1,64}/g)?.join("\n") ?? stripped;
-  return `-----BEGIN ${type}-----\n${lines}\n-----END ${type}-----\n`;
+// ─── Cache ─────────────────────────────────────────────────────
+let cachedToken: { access_token: string; expires_at: number } | null = null;
+let cachedCert: string | null = null;
+let cachedKey: string | null = null;
+
+// ─── Baixar certificados do Storage ────────────────────────────
+async function loadCerts(): Promise<{ cert: string; key: string }> {
+  if (cachedCert && cachedKey) return { cert: cachedCert, key: cachedKey };
+
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  );
+
+  const { data: certData, error: certError } = await supabase.storage
+    .from("inter-certs")
+    .download("cert.pem");
+
+  if (certError || !certData) {
+    throw new Error(`Erro ao baixar cert.pem do storage: ${certError?.message ?? "arquivo não encontrado"}`);
+  }
+
+  const { data: keyData, error: keyError } = await supabase.storage
+    .from("inter-certs")
+    .download("key.pem");
+
+  if (keyError || !keyData) {
+    throw new Error(`Erro ao baixar key.pem do storage: ${keyError?.message ?? "arquivo não encontrado"}`);
+  }
+
+  cachedCert = await certData.text();
+  cachedKey = await keyData.text();
+
+  console.log("[inter-proxy] Certificados carregados do storage");
+  console.log("[inter-proxy] cert lines:", cachedCert.split("\n").length);
+  console.log("[inter-proxy] key lines:", cachedKey.split("\n").length);
+  console.log("[inter-proxy] cert valid:", cachedCert.includes("BEGIN CERTIFICATE"));
+  console.log("[inter-proxy] key valid:", cachedKey.includes("PRIVATE KEY"));
+
+  return { cert: cachedCert, key: cachedKey };
 }
 
-// ─── HTTPS com mTLS via node:https ─────────────────────────────
-function nodeRequest(
-  path: string,
-  method: string,
-  headers: Record<string, string>,
-  body: string,
-  cert: string,
-  key: string
-): Promise<{ status: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: INTER_BASE,
-      path,
-      method,
-      cert,
-      key,
-      headers: { ...headers, "Content-Length": Buffer.byteLength(body) },
-      rejectUnauthorized: true,
-    };
-
-    const req = https.request(options, (res) => {
-      let data = "";
-      res.on("data", (chunk) => (data += chunk.toString()));
-      res.on("end", () => resolve({ status: res.statusCode ?? 0, body: data }));
-    });
-
-    req.on("error", (e) => reject(e));
-    if (body) req.write(body);
-    req.end();
-  });
-}
-
-// ─── Cache de token ────────────────────────────────────────────
-let cachedToken: string | null = null;
-let tokenExpiry = 0;
-
+// ─── OAuth Token ───────────────────────────────────────────────
 async function getToken(cert: string, key: string): Promise<string> {
-  const now = Date.now();
-  if (cachedToken && now < tokenExpiry - 30_000) return cachedToken;
+  if (cachedToken && Date.now() < cachedToken.expires_at) {
+    return cachedToken.access_token;
+  }
 
-  const clientId     = (Deno.env.get("INTER_CLIENT_ID") ?? "").trim();
+  const clientId = (Deno.env.get("INTER_CLIENT_ID") ?? "").trim();
   const clientSecret = (Deno.env.get("INTER_CLIENT_SECRET") ?? "").trim();
 
-  if (!clientId || !clientSecret) throw new Error("INTER_CLIENT_ID ou INTER_CLIENT_SECRET ausentes");
-  if (!cert || !key) throw new Error("INTER_CERT ou INTER_KEY ausentes");
+  if (!clientId || !clientSecret) {
+    throw new Error("INTER_CLIENT_ID ou INTER_CLIENT_SECRET não configurados");
+  }
 
-  const scope = "extrato.read cobv.write cobv.read pagamento-pix.write pagamento-pix.read";
-
-  const bodyStr = querystring.stringify({
+  const params = new URLSearchParams({
     grant_type: "client_credentials",
     client_id: clientId,
     client_secret: clientSecret,
-    scope,
+    scope: "extrato.read cobv.write cobv.read pagamento-pix.write pagamento-pix.read",
   });
 
   console.log("[inter-proxy] OAuth → POST /oauth/v2/token");
-  console.log("[inter-proxy] cert_ok:", cert.includes("BEGIN CERTIFICATE"));
-  console.log("[inter-proxy] key_ok:", key.includes("PRIVATE KEY"));
   console.log("[inter-proxy] client_id:", clientId.substring(0, 8) + "...");
 
-  const { status, body } = await nodeRequest(
-    "/oauth/v2/token",
-    "POST",
-    { "Content-Type": "application/x-www-form-urlencoded" },
-    bodyStr,
-    cert,
-    key
-  );
+  const httpClient = Deno.createHttpClient({ certChain: cert, privateKey: key });
 
-  console.log("[inter-proxy] OAuth status:", status);
-  console.log("[inter-proxy] OAuth body:", body.substring(0, 300));
+  const res = await fetch(`${INTER_BASE_URL}/oauth/v2/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+    client: httpClient,
+  });
 
-  if (status !== 200) throw new Error(`OAuth failed: ${status} - ${body}`);
+  const responseText = await res.text();
+  console.log("[inter-proxy] OAuth status:", res.status);
+  console.log("[inter-proxy] OAuth body:", responseText.substring(0, 300));
 
-  const data = JSON.parse(body);
-  cachedToken = data.access_token;
-  tokenExpiry = now + (data.expires_in ?? 3600) * 1_000;
-  return cachedToken!;
+  if (!res.ok) {
+    throw new Error(`OAuth failed: ${res.status} - ${responseText}`);
+  }
+
+  const data = JSON.parse(responseText);
+  cachedToken = {
+    access_token: data.access_token,
+    expires_at: Date.now() + (data.expires_in - 60) * 1000,
+  };
+  return cachedToken.access_token;
 }
 
-// ─── Handler principal ─────────────────────────────────────────
+// ─── Handler ───────────────────────────────────────────────────
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: CORS });
+  }
 
   try {
     const { path, method = "GET", payload } = await req.json();
+
     if (!path) {
       return new Response(
         JSON.stringify({ error: "Campo 'path' obrigatório" }),
@@ -116,8 +116,7 @@ serve(async (req) => {
       );
     }
 
-    const cert = buildPEM(Deno.env.get("INTER_CERT") ?? "", "CERTIFICATE");
-    const key  = buildPEM(Deno.env.get("INTER_KEY") ?? "", "PRIVATE KEY");
+    const { cert, key } = await loadCerts();
 
     // Rota de diagnóstico
     if (path === "/test-auth") {
@@ -128,28 +127,34 @@ serve(async (req) => {
       );
     }
 
-    const token   = await getToken(cert, key);
-    const bodyStr = payload ? JSON.stringify(payload) : "";
+    const token = await getToken(cert, key);
 
-    const { status, body } = await nodeRequest(
-      path,
-      method,
-      {
+    const httpClient = Deno.createHttpClient({ certChain: cert, privateKey: key });
+
+    const fetchOptions = {
+      method: method.toUpperCase(),
+      headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
         Accept: "application/json",
         "x-conta-corrente": Deno.env.get("INTER_NUMERO_CONTA") ?? "",
       },
-      bodyStr,
-      cert,
-      key
-    );
+      client: httpClient,
+    };
 
-    let parsed;
-    try { parsed = JSON.parse(body); } catch { parsed = { raw: body }; }
+    if (payload && ["POST", "PUT", "PATCH"].includes(method.toUpperCase())) {
+      fetchOptions.body = JSON.stringify(payload);
+    }
 
-    return new Response(JSON.stringify(parsed), {
-      status,
+    const response = await fetch(`${INTER_BASE_URL}${path}`, fetchOptions);
+    const responseText = await response.text();
+
+    let responseData;
+    try { responseData = JSON.parse(responseText); }
+    catch { responseData = { raw: responseText }; }
+
+    return new Response(JSON.stringify(responseData), {
+      status: response.status,
       headers: { ...CORS, "Content-Type": "application/json" },
     });
   } catch (err) {
