@@ -299,7 +299,7 @@ serve(async (req) => {
     ]);
 
     // Pool secundário: lançamentos já pagos (para rastreabilidade retroativa)
-    const cutoff90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    const cutoff90 = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     const [{ data: pagamentosJaPagos }, { data: recebimentosJaPagos }] = await Promise.all([
       supabase.from("fin_pagamentos").select("id, valor, recipient_document, fornecedor_gc_id, nome_fornecedor, descricao, data_vencimento, data_liquidacao, gc_codigo")
         .eq("status", "pago")
@@ -488,17 +488,32 @@ serve(async (req) => {
 
           const extNomeRast = ext.nome_contraparte ?? ext.contrapartida ?? "";
 
+          const extDateRast = ext.data_hora?.substring(0, 10) ?? "";
+
+          // Filter out already-linked IDs
+          const poolDisponivel = poolJaPago.filter((fin: any) => !alreadyLinked.has(fin.id));
+
           // Tentar por CNPJ + valor exato
-          const matchJaPago = poolJaPago.find((fin: any) => {
+          const matchJaPago = poolDisponivel.find((fin: any) => {
             const gcId  = isDebitoExt ? fin.fornecedor_gc_id : fin.cliente_gc_id;
             const lkp   = isDebitoExt ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
             const finDoc = cleanDoc(fin.recipient_document) || lkp?.cpf_cnpj || "";
             return docMatches(extDoc, finDoc) && valorExato(extValor, Number(fin.valor));
-          }) ?? (extNomeRast ? poolJaPago.find((fin: any) => {
-            // Fallback: nome similar + valor exato (para TEDs/boletos sem CNPJ)
+          })
+          // Fallback 2: nome similar + valor exato (para TEDs/boletos sem CNPJ)
+          ?? (extNomeRast ? poolDisponivel.find((fin: any) => {
             const finNome = isDebitoExt ? fin.nome_fornecedor : fin.nome_cliente;
             return nomeSimilar(extNomeRast, finNome) && valorExato(extValor, Number(fin.valor));
-          }) : null);
+          }) : null)
+          // Fallback 3: valor exato único no pool (TEDs sem CNPJ e nome genérico)
+          // Seguro para rastreabilidade: não altera o lançamento, apenas vincula
+          ?? (() => {
+            if (extDoc) return null; // Se tem CNPJ e não matchou, não arriscar
+            const valorMatches = poolDisponivel.filter((fin: any) =>
+              valorExato(extValor, Number(fin.valor))
+            );
+            return valorMatches.length === 1 ? valorMatches[0] : null;
+          })();
 
           if (matchJaPago) {
             try {
