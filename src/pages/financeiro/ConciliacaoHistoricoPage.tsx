@@ -366,7 +366,7 @@ export default function ConciliacaoHistoricoPage() {
                 </h4>
                 <div className="grid grid-cols-2 gap-2">
                   <Field label="Tipo" value={detail.item.tipo} />
-                  <Field label="Valor" value={formatCurrency(Math.abs(Number(detail.item.valor)))} className="font-semibold" />
+                  <Field label="Valor" value={formatCurrency(Math.abs(Number(detail.item.valor_extrato ?? detail.item.valor)))} className="font-semibold" />
                   <Field label="Contrapartida" value={detail.item.contrapartida} />
                   <Field label="CPF/CNPJ" value={detail.item.cpf_cnpj} mono />
                   <Field label="Chave PIX" value={detail.item.chave_pix} mono />
