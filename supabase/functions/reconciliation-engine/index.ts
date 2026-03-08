@@ -121,12 +121,12 @@ serve(async (req) => {
       supabase.from("fin_pagamentos").select("*")
         .eq("liquidado", false)
         .eq("pago_sistema", false)
-        .not("status", "eq", "cancelado")
+        .not("status", "in", '("pago","liquidado","cancelado","baixado")')
         .limit(500),
       supabase.from("fin_recebimentos").select("*")
         .eq("liquidado", false)
         .eq("pago_sistema", false)
-        .not("status", "eq", "cancelado")
+        .not("status", "in", '("pago","liquidado","cancelado","baixado")')
         .limit(500),
       supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj, chave_pix, nome"),
       supabase.from("fin_clientes").select("gc_id, cpf_cnpj, nome"),
@@ -312,6 +312,7 @@ async function vincular(supabase: any, ext: any, match: Candidato, rule: string)
   const { error: finErr } = await supabase.from(table).update({
     pago_sistema: true,
     pago_sistema_em: now,
+    status: "pago",
   }).eq("id", match.fin.id);
 
   if (finErr) {
