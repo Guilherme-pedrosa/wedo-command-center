@@ -402,6 +402,13 @@ export type Database = {
             referencedRelation: "fin_extrato_inter"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "fin_extrato_lancamentos_extrato_id_fkey"
+            columns: ["extrato_id"]
+            isOneToOne: false
+            referencedRelation: "vw_conciliacao_extrato"
+            referencedColumns: ["id"]
+          },
         ]
       }
       fin_formas_pagamento: {
@@ -1778,7 +1785,112 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      vw_conciliacao_extrato: {
+        Row: {
+          agenda_id: string | null
+          chave_pix: string | null
+          codigo_barras: string | null
+          contrapartida: string | null
+          cpf_cnpj: string | null
+          created_at: string | null
+          data_hora: string | null
+          descricao: string | null
+          diferenca: number | null
+          end_to_end_id: string | null
+          exato: boolean | null
+          grupo_pagar_id: string | null
+          grupo_receber_id: string | null
+          id: string | null
+          lancamento_id: string | null
+          nome_contraparte: string | null
+          payload_raw: Json | null
+          qtd_parcelas: number | null
+          reconciliado: boolean | null
+          reconciliado_em: string | null
+          reconciliation_rule: string | null
+          tipo: string | null
+          tipo_transacao: string | null
+          valor_extrato: number | null
+          valor_gc: number | null
+        }
+        Insert: {
+          agenda_id?: string | null
+          chave_pix?: string | null
+          codigo_barras?: string | null
+          contrapartida?: string | null
+          cpf_cnpj?: string | null
+          created_at?: string | null
+          data_hora?: string | null
+          descricao?: string | null
+          diferenca?: never
+          end_to_end_id?: string | null
+          exato?: never
+          grupo_pagar_id?: string | null
+          grupo_receber_id?: string | null
+          id?: string | null
+          lancamento_id?: string | null
+          nome_contraparte?: string | null
+          payload_raw?: Json | null
+          qtd_parcelas?: never
+          reconciliado?: boolean | null
+          reconciliado_em?: string | null
+          reconciliation_rule?: string | null
+          tipo?: string | null
+          tipo_transacao?: string | null
+          valor_extrato?: number | null
+          valor_gc?: never
+        }
+        Update: {
+          agenda_id?: string | null
+          chave_pix?: string | null
+          codigo_barras?: string | null
+          contrapartida?: string | null
+          cpf_cnpj?: string | null
+          created_at?: string | null
+          data_hora?: string | null
+          descricao?: string | null
+          diferenca?: never
+          end_to_end_id?: string | null
+          exato?: never
+          grupo_pagar_id?: string | null
+          grupo_receber_id?: string | null
+          id?: string | null
+          lancamento_id?: string | null
+          nome_contraparte?: string | null
+          payload_raw?: Json | null
+          qtd_parcelas?: never
+          reconciliado?: boolean | null
+          reconciliado_em?: string | null
+          reconciliation_rule?: string | null
+          tipo?: string | null
+          tipo_transacao?: string | null
+          valor_extrato?: number | null
+          valor_gc?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_extrato_inter_agenda_id_fkey"
+            columns: ["agenda_id"]
+            isOneToOne: false
+            referencedRelation: "fin_agenda_pagamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_extrato_inter_grupo_pagar_id_fkey"
+            columns: ["grupo_pagar_id"]
+            isOneToOne: false
+            referencedRelation: "fin_grupos_pagar"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_extrato_inter_grupo_receber_id_fkey"
+            columns: ["grupo_receber_id"]
+            isOneToOne: false
+            referencedRelation: "fin_grupos_receber"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       [_ in never]: never
