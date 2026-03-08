@@ -4,7 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 serve(async (req) => {
@@ -19,7 +19,7 @@ serve(async (req) => {
   const body = await req.json().catch(() => ({}));
 
   const now = new Date();
-  const dataFim = body.dataFim ?? body.dataFim ?? now.toISOString().substring(0, 10);
+  const dataFim = body.dataFim ?? now.toISOString().substring(0, 10);
   const dataInicio = body.dataInicio ?? (() => {
     const days = body.days ?? 7;
     const d = new Date(now.getTime() - days * 86400000);
@@ -50,11 +50,23 @@ serve(async (req) => {
       throw new Error(`inter-proxy error: ${proxyData.error}`);
     }
 
-    // The Inter API v3 returns { transacoes: [...] } or directly an array
-    const transacoes: any[] = proxyData.transacoes ?? proxyData.resultado ?? proxyData ?? [];
+    // Handle raw error responses (e.g. "404 page not found")
+    if (proxyData.raw && typeof proxyData.raw === "string" && proxyData.raw.includes("404")) {
+      throw new Error(`Inter API retornou 404: ${proxyData.raw}`);
+    }
 
-    if (!Array.isArray(transacoes)) {
+    // The Inter API v3 returns { transacoes: [...] } or directly an array
+    const transacoes: any[] = proxyData.transacoes ?? proxyData.resultado ?? (Array.isArray(proxyData) ? proxyData : []);
+
+    if (!Array.isArray(transacoes) || transacoes.length === 0) {
       console.log("[inter-extrato] Resposta inesperada:", JSON.stringify(proxyData).substring(0, 500));
+      // If no transactions, still return success with 0
+      if (Array.isArray(transacoes) && transacoes.length === 0) {
+        return new Response(
+          JSON.stringify({ success: true, extrato: { total: 0, inserted: 0, skipped: 0, errors: 0, duracao_ms: Date.now() - startMs } }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       throw new Error("Resposta do Inter não contém array de transações");
     }
 
@@ -71,10 +83,11 @@ serve(async (req) => {
         const tipoOp = tx.tipoOperacao ?? "";
         const tipoTx = tx.tipoTransacao ?? tx.tipo ?? "";
 
+        // BUG E3 FIX: tipoOperacao do Inter v3: "C" = Crédito, "D" = Débito
+        // Prioridade: tipoOperacao (campo explícito) > tipoTransacao (string descritiva)
         const isCredito =
           tipoOp === "C" ||
-          tipoTx.includes("CREDITO") ||
-          tipoTx.includes("C");
+          (tipoOp !== "D" && tipoTx.toUpperCase() === "CREDITO");
         const tipo = isCredito ? "CREDITO" : "DEBITO";
 
         // Extract CPF/CNPJ from enriched detalhe
@@ -98,19 +111,38 @@ serve(async (req) => {
         const valor = Math.abs(parseFloat(String(tx.valor ?? "0").replace(",", ".")));
         const dataHora = tx.dataHora ?? tx.dataInclusao ?? tx.dataEntrada ?? tx.dataMovimento ?? now.toISOString();
 
-        // Dedup: if no real ID, skip if same valor+tipo+date already exists
+        // BUG E2 FIX: Dedup sem endToEndId usa janela ±2 dias
         if (!realEndToEndId) {
-          const dateOnly = String(dataHora).substring(0, 10);
+          const baseDate = new Date(dataHora);
+          const dateFrom = new Date(baseDate.getTime() - 2 * 86400000).toISOString().substring(0, 10);
+          const dateTo = new Date(baseDate.getTime() + 2 * 86400000).toISOString().substring(0, 10);
+
           const { data: existing } = await supabase
             .from("fin_extrato_inter")
-            .select("id")
+            .select("id, nome_contraparte, cpf_cnpj")
             .eq("valor", valor)
             .eq("tipo", tipo)
-            .gte("data_hora", `${dateOnly}T00:00:00`)
-            .lte("data_hora", `${dateOnly}T23:59:59`)
+            .gte("data_hora", `${dateFrom}T00:00:00`)
+            .lte("data_hora", `${dateTo}T23:59:59`)
             .limit(1);
 
           if (existing && existing.length > 0) {
+            // BUG E4 FIX: enriquecer o registro existente se nome/cpf estão vazios
+            const ex = existing[0] as any;
+            const precisaEnriquecer = (!ex.nome_contraparte && nomeContraparte) || (!ex.cpf_cnpj && cpfCnpj);
+            if (precisaEnriquecer) {
+              await supabase
+                .from("fin_extrato_inter")
+                .update({
+                  nome_contraparte: nomeContraparte ?? ex.nome_contraparte,
+                  contrapartida: nomeContraparte ?? ex.nome_contraparte,
+                  cpf_cnpj: cpfCnpj ?? ex.cpf_cnpj,
+                  tipo_transacao: tx.tipoTransacao ?? null,
+                  chave_pix: chavePix ?? null,
+                  payload_raw: tx,
+                })
+                .eq("id", ex.id);
+            }
             skipped++;
             continue;
           }
@@ -119,7 +151,6 @@ serve(async (req) => {
         // Dedup: if we HAVE a real ID, delete any fallback duplicate for same valor+tipo+date
         if (realEndToEndId) {
           const dateOnly = String(dataHora).substring(0, 10);
-          const fallbackPattern = `${dateOnly}-${valor}`;
           const { data: phantoms } = await supabase
             .from("fin_extrato_inter")
             .select("id, end_to_end_id")
@@ -131,7 +162,7 @@ serve(async (req) => {
 
           if (phantoms && phantoms.length > 0) {
             const fallbackIds = phantoms
-              .filter((p: any) => /^\d{4}-\d{2}-\d{2}-/.test(p.end_to_end_id))
+              .filter((p: any) => /^\d{4}-\d{2}-\d{2}-/.test(p.end_to_end_id) || /^webhook-/.test(p.end_to_end_id))
               .map((p: any) => p.id);
             if (fallbackIds.length > 0) {
               await supabase.from("fin_extrato_inter").delete().in("id", fallbackIds);
@@ -157,9 +188,11 @@ serve(async (req) => {
           payload_raw: tx,
         };
 
+        // BUG E1 FIX: ignoreDuplicates: false → atualiza dados enriquecidos quando webhook já inseriu dados básicos
+        // O objeto 'record' NÃO contém reconciliado/lancamento_id/reconciliado_em, então nunca reseta conciliação
         const { error: upsertErr } = await supabase
           .from("fin_extrato_inter")
-          .upsert(record, { onConflict: "end_to_end_id", ignoreDuplicates: true });
+          .upsert(record, { onConflict: "end_to_end_id", ignoreDuplicates: false });
 
         if (upsertErr) {
           console.error(`[inter-extrato] Upsert error:`, upsertErr.message);
@@ -176,13 +209,14 @@ serve(async (req) => {
     const duracao = Date.now() - startMs;
 
     // Log to fin_sync_log
-    await supabase.from("fin_sync_log").insert({
+    const { error: logErr } = await supabase.from("fin_sync_log").insert({
       tipo: "inter_extrato_sync",
       status: errors > 0 ? "partial" : "success",
       duracao_ms: duracao,
       payload: { dataInicio, dataFim },
       resposta: { total: transacoes.length, inserted, skipped, errors },
     });
+    if (logErr) console.error("[inter-extrato] Log error:", logErr.message);
 
     // Trigger reconciliation engine
     console.log("[inter-extrato] Disparando reconciliation-engine...");
@@ -194,7 +228,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({}),
     });
-    const reconData = await reconRes.json();
+    const reconData = await reconRes.json().catch(() => ({ error: "parse error" }));
 
     return new Response(
       JSON.stringify({
@@ -208,12 +242,17 @@ serve(async (req) => {
     const msg = (err as Error).message;
     console.error("[inter-extrato] ERRO:", msg);
 
-    await supabase.from("fin_sync_log").insert({
-      tipo: "inter_extrato_sync",
-      status: "error",
-      duracao_ms: Date.now() - startMs,
-      erro: msg,
-    }).catch(() => {});
+    // Fix: don't use .catch() on supabase insert — use try/catch instead
+    try {
+      await supabase.from("fin_sync_log").insert({
+        tipo: "inter_extrato_sync",
+        status: "error",
+        duracao_ms: Date.now() - startMs,
+        erro: msg,
+      });
+    } catch (logErr) {
+      console.error("[inter-extrato] Log error:", (logErr as Error).message);
+    }
 
     return new Response(
       JSON.stringify({ success: false, error: msg }),

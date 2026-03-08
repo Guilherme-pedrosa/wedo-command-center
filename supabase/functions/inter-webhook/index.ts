@@ -32,18 +32,23 @@ serve(async (req) => {
         const valorNum = parseFloat(valor ?? "0");
         const dataHora = horario ?? new Date().toISOString();
 
+        // BUG W4 FIX: fallback key quando endToEndId e txid são ambos null
+        const endToEndKey = endToEndId ?? txid ?? `webhook-credito-${dataHora}-${valorNum}`;
+
         // 1. Gravar no extrato local
         await supabase.from("fin_extrato_inter").upsert(
           {
-            end_to_end_id: endToEndId ?? txid,
+            end_to_end_id: endToEndKey,
             tipo: "CREDITO",
             valor: valorNum,
             data_hora: dataHora,
             contrapartida: pagador?.nome ?? "",
-            cpf_cnpj: pagador?.cnpj ?? pagador?.cpf ?? "",
+            nome_contraparte: pagador?.nome ?? null,   // BUG W1 FIX
+            cpf_cnpj: (pagador?.cnpj ?? pagador?.cpf ?? "").replace(/\D/g, "") || null,
             chave_pix: pix.chave ?? null,
             payload_raw: pix,
           },
+          // ignoreDuplicates: true no webhook está CORRETO — dados básicos não sobrescrevem dados ricos
           { onConflict: "end_to_end_id", ignoreDuplicates: true }
         );
 
@@ -101,7 +106,7 @@ serve(async (req) => {
               grupo_receber_id: grupoId,
               reconciliado_em: new Date().toISOString(),
             })
-            .eq("end_to_end_id", endToEndId ?? txid);
+            .eq("end_to_end_id", endToEndKey);
 
           // 6. Marcar recebimentos como pago_sistema
           const { data: itens } = await supabase
@@ -115,6 +120,7 @@ serve(async (req) => {
               .update({
                 pago_sistema: true,
                 pago_sistema_em: dataHora,
+                status: "pago",   // BUG W3 FIX — motor usa status para excluir já pagos
               })
               .in(
                 "id",
@@ -152,19 +158,24 @@ serve(async (req) => {
     }
 
     // ━━━ PIX ENVIADO (débito) ━━━
-    if (body.tipo === "PAGAMENTO" || body.endToEndId) {
+    // BUG W5 FIX: garantir que só processa débito real
+    if (body.tipo === "PAGAMENTO" || (body.endToEndId && !body.pix)) {
       const { endToEndId, valor, horario, favorecido } = body;
       const valorNum = parseFloat(valor ?? "0");
       const dataHora = horario ?? new Date().toISOString();
 
+      // BUG W4 FIX: fallback key quando endToEndId é null
+      const endToEndKeyDebito = endToEndId ?? `webhook-debito-${dataHora}-${valorNum}`;
+
       await supabase.from("fin_extrato_inter").upsert(
         {
-          end_to_end_id: endToEndId,
+          end_to_end_id: endToEndKeyDebito,
           tipo: "DEBITO",
           valor: valorNum,
           data_hora: dataHora,
           contrapartida: favorecido?.nome ?? "",
-          cpf_cnpj: favorecido?.cnpj ?? favorecido?.cpf ?? "",
+          nome_contraparte: favorecido?.nome ?? null,   // BUG W2 FIX
+          cpf_cnpj: (favorecido?.cnpj ?? favorecido?.cpf ?? "").replace(/\D/g, "") || null,
           chave_pix: body.chave ?? null,
           payload_raw: body,
         },
@@ -174,7 +185,7 @@ serve(async (req) => {
       const { data: grupoPagar } = await supabase
         .from("fin_grupos_pagar")
         .select("id, status")
-        .eq("inter_pagamento_id", endToEndId)
+        .eq("inter_pagamento_id", endToEndKeyDebito)
         .maybeSingle();
 
       if (grupoPagar) {
@@ -200,6 +211,7 @@ serve(async (req) => {
             .update({
               pago_sistema: true,
               pago_sistema_em: dataHora,
+              status: "pago",   // BUG W3 FIX
             })
             .in(
               "id",
@@ -214,7 +226,7 @@ serve(async (req) => {
             grupo_pagar_id: grupoPagar.id,
             reconciliado_em: new Date().toISOString(),
           })
-          .eq("end_to_end_id", endToEndId);
+          .eq("end_to_end_id", endToEndKeyDebito);
 
         await supabase.from("fin_sync_log").insert({
           ...logBase,
@@ -222,7 +234,7 @@ serve(async (req) => {
           referencia_id: grupoPagar.id,
           status: "pendente_aprovacao",
           resposta: {
-            endToEndId,
+            endToEndId: endToEndKeyDebito,
             valor: valorNum,
             grupo_id: grupoPagar.id,
             mensagem:
@@ -232,29 +244,31 @@ serve(async (req) => {
       }
 
       // Verificar agenda
-      const { data: agenda } = await supabase
-        .from("fin_agenda_pagamentos")
-        .select("id")
-        .eq("inter_pagamento_id", endToEndId)
-        .maybeSingle();
-
-      if (agenda) {
-        await supabase
+      if (endToEndId) {
+        const { data: agenda } = await supabase
           .from("fin_agenda_pagamentos")
-          .update({
-            status: "executado",
-            executado_em: dataHora,
-          })
-          .eq("id", agenda.id);
+          .select("id")
+          .eq("inter_pagamento_id", endToEndId)
+          .maybeSingle();
 
-        await supabase
-          .from("fin_extrato_inter")
-          .update({
-            reconciliado: true,
-            agenda_id: agenda.id,
-            reconciliado_em: new Date().toISOString(),
-          })
-          .eq("end_to_end_id", endToEndId);
+        if (agenda) {
+          await supabase
+            .from("fin_agenda_pagamentos")
+            .update({
+              status: "executado",
+              executado_em: dataHora,
+            })
+            .eq("id", agenda.id);
+
+          await supabase
+            .from("fin_extrato_inter")
+            .update({
+              reconciliado: true,
+              agenda_id: agenda.id,
+              reconciliado_em: new Date().toISOString(),
+            })
+            .eq("end_to_end_id", endToEndId);
+        }
       }
     }
 
@@ -264,15 +278,14 @@ serve(async (req) => {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await supabase
-      .from("fin_sync_log")
-      .insert({
+    try {
+      await supabase.from("fin_sync_log").insert({
         ...logBase,
         tipo: "inter_webhook_erro",
         status: "error",
         erro: msg,
-      })
-      .catch(() => {});
+      });
+    } catch { /* ignore log errors */ }
 
     // Always 200 so Inter doesn't retry
     return new Response(JSON.stringify({ ok: false, error: msg }), {
