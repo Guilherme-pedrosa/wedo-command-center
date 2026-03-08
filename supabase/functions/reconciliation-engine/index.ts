@@ -425,25 +425,47 @@ serve(async (req) => {
             }
           }
 
-          // Unresolved collision → review
-          reviewItems.push({
-            extrato_id: ext.id,
-            descricao_extrato: ext.descricao ?? "—",
-            contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
-            cpf_cnpj: ext.cpf_cnpj ?? "",
-            valor: ext.valor,
-            tipo: ext.tipo,
-            data_hora: ext.data_hora,
-            motivo: `Colisão: ${mesmoValor.length} lançamentos com mesmo valor`,
-            candidatos: mesmoValor.map(c => ({
-              id: c.fin.id,
-              valor: c.fin.valor,
-              descricao: c.fin.descricao,
-              nome: c.fin.nome_fornecedor ?? c.fin.nome_cliente ?? "—",
-              doc: c.doc,
-            })),
-          });
-          stats.review++;
+          // Filter collision candidates: discard those with no name similarity
+          // If extract has a name, only keep candidates whose name matches minimally
+          const extNomeColisao = ext.nome_contraparte ?? ext.contrapartida ?? "";
+          let candidatosValidos = mesmoValor;
+          if (extNomeColisao) {
+            candidatosValidos = mesmoValor.filter(c => nomeSimilar(extNomeColisao, c.nome, 0.3));
+          }
+
+          if (candidatosValidos.length === 0) {
+            // No valid collision candidates — fall through to já-pagos pool below
+            // (handled by mesmoValor.length === 0 equivalent path)
+          } else if (candidatosValidos.length === 1) {
+            // After filtering, single valid candidate — auto-link
+            try {
+              await vincular(supabase, ext, candidatosValidos[0], "NOME_VALOR_EXATO");
+              usedIds.add(candidatosValidos[0].fin.id);
+              stats.auto++;
+              continue;
+            } catch { stats.errors++; continue; }
+          } else {
+            // Real collision with 2+ name-matching candidates → review
+            reviewItems.push({
+              extrato_id: ext.id,
+              descricao_extrato: ext.descricao ?? "—",
+              contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
+              cpf_cnpj: ext.cpf_cnpj ?? "",
+              valor: ext.valor,
+              tipo: ext.tipo,
+              data_hora: ext.data_hora,
+              motivo: `Colisão real: ${candidatosValidos.length} lançamentos com mesmo valor e nome similar`,
+              candidatos: candidatosValidos.map(c => ({
+                id: c.fin.id,
+                valor: c.fin.valor,
+                descricao: c.fin.descricao,
+                nome: c.fin.nome_fornecedor ?? c.fin.nome_cliente ?? "—",
+                doc: c.doc,
+              })),
+            });
+            stats.review++;
+            continue;
+          }
         } else if (mesmoValor.length === 1) {
           // Valor único com data próxima → auto-baixar
           const candidatoUnico = mesmoValor[0];
