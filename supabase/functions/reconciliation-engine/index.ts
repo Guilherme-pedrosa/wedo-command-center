@@ -61,7 +61,9 @@ type MatchRule =
   | "VALOR_DATA_EXATO"
   | "VALOR_DATA_7DIAS"
   | "VALOR_DATA_7DIAS_NOME"
-  | "VALOR_UNICO";
+  | "VALOR_UNICO"
+  | "SOMA_PARCELAS"
+  | "SOMA_PARCELAS_DESCONTO";
 
 interface Candidato {
   fin: any;
