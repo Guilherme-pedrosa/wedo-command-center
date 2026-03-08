@@ -76,13 +76,13 @@ serve(async (req) => {
         const det = tx.detalhes ?? tx.detalhe ?? {};
         const cpfCnpj = isCredito
           ? det.cpfCnpjPagador ?? det.cpfCnpjRemetente ?? tx.cpfCnpjContraparte ?? null
-          : det.cpfCnpjBeneficiario ?? det.cpfCnpjDestinatario ?? tx.cpfCnpjContraparte ?? null;
+          : det.cpfCnpjRecebedor ?? det.cpfCnpjBeneficiario ?? det.cpfCnpjDestinatario ?? tx.cpfCnpjContraparte ?? null;
 
         const nomeContraparte = isCredito
           ? det.nomePagador ?? det.nomeRemetente ?? tx.nomeContraparte ?? null
-          : det.nomeBeneficiario ?? det.nomeDestinatario ?? tx.nomeContraparte ?? null;
+          : det.nomeRecebedor ?? det.nomeBeneficiario ?? det.nomeDestinatario ?? tx.nomeContraparte ?? null;
 
-        const chavePix = det.chavePixBeneficiario ?? det.chavePixPagador ?? det.chave ?? null;
+        const chavePix = det.chavePixRecebedor ?? det.chavePixBeneficiario ?? det.chavePixPagador ?? det.chave ?? null;
 
         // Build unique ID for upsert dedup
         const endToEndId =
