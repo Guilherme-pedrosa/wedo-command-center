@@ -505,12 +505,15 @@ serve(async (req) => {
             const finNome = isDebitoExt ? fin.nome_fornecedor : fin.nome_cliente;
             return nomeSimilar(extNomeRast, finNome) && valorExato(extValor, Number(fin.valor));
           }) : null)
-          // Fallback 3: valor exato + data ±30 dias (TEDs sem CNPJ e nome genérico)
-          // Seguro: valores altos raramente se repetem no mesmo período
-          ?? (!extDoc && extDateRast ? poolDisponivel.find((fin: any) => {
-            const finDate = fin.data_vencimento ?? fin.data_liquidacao;
-            return valorExato(extValor, Number(fin.valor)) && finDate && dataProxima(extDateRast, finDate, 30);
-          }) : null);
+          // Fallback 3: valor exato único no pool (TEDs sem CNPJ e nome genérico)
+          // Seguro para rastreabilidade: não altera o lançamento, apenas vincula
+          ?? (() => {
+            if (extDoc) return null; // Se tem CNPJ e não matchou, não arriscar
+            const valorMatches = poolDisponivel.filter((fin: any) =>
+              valorExato(extValor, Number(fin.valor))
+            );
+            return valorMatches.length === 1 ? valorMatches[0] : null;
+          })();
 
           if (matchJaPago) {
             try {
