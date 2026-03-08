@@ -219,6 +219,26 @@ async function vincular(supabase: any, ext: any, match: Candidato, rule: string)
   });
 }
 
+// Vincula extrato a lançamento JÁ PAGO — apenas rastreabilidade, sem alterar o lançamento
+async function vincularRastreabilidade(supabase: any, ext: any, lancamentoId: string, rule: string) {
+  const now = new Date().toISOString();
+  const { error } = await supabase.from("fin_extrato_inter").update({
+    reconciliado: true,
+    lancamento_id: lancamentoId,
+    reconciliado_em: now,
+    reconciliation_rule: rule,
+  }).eq("id", ext.id);
+
+  if (error) throw new Error(`Erro rastreabilidade: ${error.message}`);
+
+  await supabase.from("fin_sync_log").insert({
+    tipo: "conciliacao_rastreabilidade",
+    referencia_id: ext.id,
+    status: "success",
+    payload: { extrato_id: ext.id, lancamento_id: lancamentoId, rule },
+  });
+}
+
 // ═══════════════════════════════════════════════════════════
 // HANDLER PRINCIPAL
 // ═══════════════════════════════════════════════════════════
@@ -256,6 +276,16 @@ serve(async (req) => {
         .limit(500),
       supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj, chave_pix, nome"),
       supabase.from("fin_clientes").select("gc_id, cpf_cnpj, nome"),
+    ]);
+
+    // Pool secundário: lançamentos já pagos (para rastreabilidade retroativa)
+    const [{ data: pagamentosJaPagos }, { data: recebimentosJaPagos }] = await Promise.all([
+      supabase.from("fin_pagamentos").select("id, valor, recipient_document, fornecedor_gc_id, nome_fornecedor, descricao, data_vencimento, data_liquidacao, gc_codigo")
+        .eq("status", "pago")
+        .limit(1000),
+      supabase.from("fin_recebimentos").select("id, valor, recipient_document, cliente_gc_id, nome_cliente, descricao, data_vencimento, data_liquidacao, gc_codigo")
+        .eq("status", "pago")
+        .limit(1000),
     ]);
 
     // IDs já vinculados para evitar duplicatas
@@ -427,16 +457,48 @@ serve(async (req) => {
             stats.review++;
           }
         } else {
-          stats.unmatched++;
-          unmatchedItems.push({
-            extrato_id: ext.id,
-            descricao_extrato: ext.descricao ?? "—",
-            contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
-            cpf_cnpj: ext.cpf_cnpj ?? "",
-            valor: ext.valor,
-            tipo: ext.tipo,
-            data_hora: ext.data_hora,
+          // Segundo passo: tentar rastreabilidade em lançamentos já pagos
+          const isDebitoExt = ext.tipo === "DEBITO";
+          const poolJaPago = isDebitoExt ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? []);
+          const extDoc   = cleanDoc(ext.cpf_cnpj);
+          const extValor = Math.abs(Number(ext.valor));
+
+          const matchJaPago = poolJaPago.find((fin: any) => {
+            const gcId  = isDebitoExt ? fin.fornecedor_gc_id : fin.cliente_gc_id;
+            const lkp   = isDebitoExt ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
+            const finDoc = cleanDoc(fin.recipient_document) || lkp?.cpf_cnpj || "";
+            return docMatches(extDoc, finDoc) && valorExato(extValor, Number(fin.valor));
           });
+
+          if (matchJaPago) {
+            try {
+              await vincularRastreabilidade(supabase, ext, matchJaPago.id, "LINK_JA_PAGO_GC");
+              stats.auto++;
+            } catch (e) {
+              console.error("Erro rastreabilidade:", (e as Error).message);
+              stats.errors++;
+              unmatchedItems.push({
+                extrato_id: ext.id,
+                descricao_extrato: ext.descricao ?? "—",
+                contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
+                cpf_cnpj: ext.cpf_cnpj ?? "",
+                valor: ext.valor,
+                tipo: ext.tipo,
+                data_hora: ext.data_hora,
+              });
+            }
+          } else {
+            stats.unmatched++;
+            unmatchedItems.push({
+              extrato_id: ext.id,
+              descricao_extrato: ext.descricao ?? "—",
+              contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
+              cpf_cnpj: ext.cpf_cnpj ?? "",
+              valor: ext.valor,
+              tipo: ext.tipo,
+              data_hora: ext.data_hora,
+            });
+          }
         }
       }
     }
