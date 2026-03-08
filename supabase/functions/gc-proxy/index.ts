@@ -102,30 +102,56 @@ serve(async (req) => {
 
         const lista: any[] = Array.isArray(responseData)
           ? responseData
-          : (responseData as any)?.data ?? [];
+          : (responseData as any)?.data ??
+            (responseData as any)?.registros ??
+            (responseData as any)?.dados ??
+            (responseData as any)?.items ??
+            [];
 
         for (const item of lista) {
           const codigoGc = item.codigo ?? item.id;
-          const contatoId = item.contato_id ?? item.fornecedor_id ?? item.cliente_id;
+          const contatoId =
+            item.contato_codigo ??
+            item.contato_id ??
+            item.fornecedor_codigo ??
+            item.fornecedor_id ??
+            item.cliente_codigo ??
+            item.cliente_id ??
+            null;
           if (!codigoGc || !contatoId) continue;
+          console.log(`[gc-proxy] Enriquecendo codigoGc=${codigoGc} contatoId=${contatoId}`);
 
           // BUG G2 FIX: tentar múltiplos endpoints do GestãoClick
           let contatoResp: any = null;
-          for (const ep of [`/api/contatos/${contatoId}`, `/api/clientes/${contatoId}`, `/api/fornecedores/${contatoId}`]) {
+          for (const ep of [
+            `/contatos/${contatoId}`,
+            `/clientes/${contatoId}`,
+            `/fornecedores/${contatoId}`,
+          ]) {
             const resp = await rateLimitedFetch(
               `${GC_BASE_URL}${ep}`,
               { headers: gcHeaders }
             ).then(r => r.ok ? r.json() : null).catch(() => null);
 
-            if (resp && (resp.cnpj || resp.cpf_cnpj || resp.cpf)) {
+            if (resp && (resp.cnpj || resp.cpf_cnpj || resp.cpf || resp.documento || resp.nr_cnpj || resp.nr_cpf)) {
               contatoResp = resp;
               break;
             }
           }
 
-          if (!contatoResp) continue;
+          if (!contatoResp) {
+            console.warn(`[gc-proxy] Contato ${contatoId} não encontrado em nenhum endpoint`);
+            continue;
+          }
 
-          const cnpjRaw = contatoResp.cnpj ?? contatoResp.cpf_cnpj ?? contatoResp.cpf ?? null;
+          const cnpjRaw =
+            contatoResp.cnpj ??
+            contatoResp.cpf_cnpj ??
+            contatoResp.cpf ??
+            contatoResp.documento ??
+            contatoResp.nr_cnpj ??
+            contatoResp.nr_cpf ??
+            null;
           if (!cnpjRaw) continue;
 
           const cnpj = String(cnpjRaw).replace(/\D/g, "");
