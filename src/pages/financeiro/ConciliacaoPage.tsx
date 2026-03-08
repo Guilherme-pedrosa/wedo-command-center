@@ -29,7 +29,7 @@ export default function ConciliacaoPage() {
   const { data: recebimentosNL } = useQuery({
     queryKey: ["conc-recebimentos"],
     queryFn: async () => {
-      const { data } = await supabase.from("fin_recebimentos").select("id, descricao, valor, nome_cliente, data_vencimento, status").eq("liquidado", false).order("data_vencimento").limit(50);
+      const { data } = await supabase.from("fin_recebimentos").select("id, descricao, valor, nome_cliente, data_vencimento, status").eq("liquidado", false).eq("pago_sistema", false).not("status", "eq", "cancelado").order("data_vencimento").limit(50);
       return data || [];
     },
   });
@@ -37,7 +37,7 @@ export default function ConciliacaoPage() {
   const { data: pagamentosNL } = useQuery({
     queryKey: ["conc-pagamentos"],
     queryFn: async () => {
-      const { data } = await supabase.from("fin_pagamentos").select("id, descricao, valor, nome_fornecedor, data_vencimento, status").eq("liquidado", false).order("data_vencimento").limit(50);
+      const { data } = await supabase.from("fin_pagamentos").select("id, descricao, valor, nome_fornecedor, data_vencimento, status").eq("liquidado", false).eq("pago_sistema", false).not("status", "eq", "cancelado").order("data_vencimento").limit(50);
       return data || [];
     },
   });
@@ -52,18 +52,22 @@ export default function ConciliacaoPage() {
     if (selectedExtrato) setShowConfirm(true);
   };
 
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ["conc-extrato"] });
+    queryClient.invalidateQueries({ queryKey: ["conc-recebimentos"] });
+    queryClient.invalidateQueries({ queryKey: ["conc-pagamentos"] });
+  };
+
   const handleVincular = async () => {
     if (!selectedExtrato || !selectedLanc) return;
     setLinking(true);
     try {
-      await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: selectedLanc.id, reconciliado_em: new Date().toISOString() }).eq("id", selectedExtrato.id);
+      await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: selectedLanc.id, reconciliado_em: new Date().toISOString(), reconciliation_rule: "MANUAL" }).eq("id", selectedExtrato.id);
       const table = selectedLanc._tipo === "receber" ? "fin_recebimentos" : "fin_pagamentos";
       await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: new Date().toISOString() }).eq("id", selectedLanc.id);
       toast.success("Vinculado com sucesso");
       setSelectedExtrato(null); setSelectedLanc(null); setShowConfirm(false);
-      queryClient.invalidateQueries({ queryKey: ["conc-extrato"] });
-      queryClient.invalidateQueries({ queryKey: ["conc-recebimentos"] });
-      queryClient.invalidateQueries({ queryKey: ["conc-pagamentos"] });
+      invalidateAll();
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
     finally { setLinking(false); }
   };
@@ -74,21 +78,26 @@ export default function ConciliacaoPage() {
     setAutoRunning(true);
     setAutoResult(null);
     try {
-      const { data, error } = await supabase.functions.invoke("reconciliation-engine", {
-        body: {},
-      });
+      const { data, error } = await supabase.functions.invoke("reconciliation-engine", { body: {} });
       if (error) throw new Error(error.message);
       if (!data?.success) throw new Error(data?.error ?? "Erro desconhecido");
       setAutoResult(data);
-      toast.success(`Conciliação automática: ${data.stats.auto} vinculados, ${data.stats.review} para revisão`);
-      queryClient.invalidateQueries({ queryKey: ["conc-extrato"] });
-      queryClient.invalidateQueries({ queryKey: ["conc-recebimentos"] });
-      queryClient.invalidateQueries({ queryKey: ["conc-pagamentos"] });
+      toast.success(`Conciliação: ${data.stats.auto} auto-baixas, ${data.stats.review} para revisão`);
+      invalidateAll();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro na conciliação automática");
     } finally {
       setAutoRunning(false);
     }
+  };
+
+  // Helper: build label for extrato counterparty
+  const labelContraparte = (e: any) => {
+    const nome = e.nome_contraparte ?? e.contrapartida ?? null;
+    const tipoTx = e.tipo_transacao ?? e.tipo ?? "";
+    if (nome && nome !== e.descricao) return `${tipoTx} — ${nome}`;
+    if (nome) return nome;
+    return e.descricao ?? tipoTx ?? "Sem identificação";
   };
 
   return (
@@ -104,9 +113,7 @@ export default function ConciliacaoPage() {
               if (!data?.success) throw new Error(data?.error ?? "Erro");
               toast.success(`Extrato: ${data.extrato.inserted} transações. Conciliação: ${data.reconciliacao?.stats?.auto ?? 0} auto-vinculados`);
               setAutoResult(data.reconciliacao);
-              queryClient.invalidateQueries({ queryKey: ["conc-extrato"] });
-              queryClient.invalidateQueries({ queryKey: ["conc-recebimentos"] });
-              queryClient.invalidateQueries({ queryKey: ["conc-pagamentos"] });
+              invalidateAll();
             } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
             finally { setSyncing(false); }
           }} disabled={syncing} variant="outline" className="gap-2">
@@ -122,7 +129,7 @@ export default function ConciliacaoPage() {
 
       {autoResult && (
         <div className="rounded-lg border border-border bg-card p-3 text-sm flex flex-wrap gap-4">
-          <span className="text-wedo-green font-semibold">✅ {autoResult.stats.auto} vinculados</span>
+          <span className="text-wedo-green font-semibold">✅ {autoResult.stats.auto} auto-baixas</span>
           <span className="text-wedo-orange font-semibold">⏳ {autoResult.stats.review} revisão</span>
           <span className="text-muted-foreground">{autoResult.stats.unmatched} sem match</span>
           {autoResult.stats.errors > 0 && <span className="text-wedo-red">{autoResult.stats.errors} erros</span>}
@@ -137,10 +144,11 @@ export default function ConciliacaoPage() {
             {extratoNR?.map((e: any) => (
               <div key={e.id} onClick={() => handleSelectExtrato(e)} className={`p-3 rounded-md border cursor-pointer transition-colors ${selectedExtrato?.id === e.id ? "border-primary bg-primary/10" : "border-border hover:bg-muted/30"}`}>
                 <div className="flex justify-between items-center">
-                  <Badge variant="outline" className={`text-[10px] ${e.tipo === "CREDITO" ? "text-wedo-green" : "text-wedo-red"}`}>{e.tipo}</Badge>
+                  <Badge variant="outline" className={`text-[10px] ${e.tipo === "CREDITO" ? "text-wedo-green" : "text-wedo-red"}`}>{e.tipo_transacao ?? e.tipo}</Badge>
                   <span className="font-semibold text-sm">{formatCurrency(Number(e.valor))}</span>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">{e.contrapartida}</p>
+                <p className="text-xs font-medium text-foreground mt-1">{labelContraparte(e)}</p>
+                {e.cpf_cnpj && <p className="text-[10px] text-muted-foreground">Doc: {e.cpf_cnpj}</p>}
                 <p className="text-[10px] text-muted-foreground">{e.data_hora ? formatDateTime(e.data_hora) : ""}</p>
               </div>
             ))}
@@ -150,7 +158,7 @@ export default function ConciliacaoPage() {
 
         {/* Right: Lançamentos */}
         <div className="rounded-lg border border-border bg-card p-4">
-          <h3 className="text-sm font-semibold mb-3">📋 Lançamentos não liquidados</h3>
+          <h3 className="text-sm font-semibold mb-3">📋 Lançamentos pendentes</h3>
           <div className="space-y-1 max-h-[30vh] overflow-y-auto mb-4">
             <p className="text-[10px] font-semibold text-muted-foreground uppercase px-1">A Receber ({recebimentosNL?.length || 0})</p>
             {recebimentosNL?.map((r: any) => (
@@ -181,13 +189,17 @@ export default function ConciliacaoPage() {
               <div key={idx} className="rounded-md border border-border p-3 space-y-2">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-xs font-semibold">{item.descricao_extrato}</p>
-                    {item.contrapartida && item.contrapartida !== item.descricao_extrato && (
-                      <p className="text-xs text-foreground font-medium">{item.contrapartida}</p>
-                    )}
+                    <p className="text-xs font-semibold text-foreground">
+                      {item.contrapartida || item.descricao_extrato || "—"}
+                    </p>
+                    {item.cpf_cnpj && <p className="text-[10px] text-muted-foreground">Doc: {item.cpf_cnpj}</p>}
                     <p className="text-[10px] text-muted-foreground">{item.motivo}</p>
+                    {item.data_hora && <p className="text-[10px] text-muted-foreground">{formatDateTime(item.data_hora)}</p>}
                   </div>
-                  <span className="font-semibold text-sm">{formatCurrency(Number(item.valor))}</span>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className={`text-[10px] ${item.tipo === "CREDITO" ? "text-wedo-green" : "text-wedo-red"}`}>{item.tipo}</Badge>
+                    <span className="font-semibold text-sm">{formatCurrency(Number(item.valor))}</span>
+                  </div>
                 </div>
 
                 {/* Collision candidates */}
@@ -207,10 +219,10 @@ export default function ConciliacaoPage() {
                         <div>
                           <span className="font-medium">{c.nome}</span>
                           <span className="text-muted-foreground ml-2">{c.descricao}</span>
+                          {c.doc && <span className="text-[10px] text-muted-foreground ml-2">({c.doc})</span>}
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-semibold">{formatCurrency(Number(c.valor))}</span>
-                          <Badge variant="outline" className="text-[10px]">Score {c.score}</Badge>
                           <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] opacity-0 group-hover:opacity-100">Vincular</Button>
                         </div>
                       </div>
@@ -218,7 +230,7 @@ export default function ConciliacaoPage() {
                   </div>
                 )}
 
-                {/* Single best match */}
+                {/* Single best match (suggestion) */}
                 {item.melhor && !item.candidatos && (
                   <div className="pl-2 border-l-2 border-muted">
                     <div className="flex items-center justify-between text-xs p-1.5 rounded hover:bg-muted/30 cursor-pointer" onClick={() => {
@@ -236,12 +248,7 @@ export default function ConciliacaoPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="font-semibold">{formatCurrency(Number(item.melhor.valor))}</span>
-                        <Badge variant="outline" className="text-[10px]">Score {item.melhor.score}</Badge>
-                        <div className="flex flex-wrap gap-1">
-                          {item.melhor.reasons?.map((r: string, i: number) => (
-                            <Badge key={i} variant="secondary" className="text-[9px]">{r}</Badge>
-                          ))}
-                        </div>
+                        {item.melhor.rule && <Badge variant="secondary" className="text-[9px]">{item.melhor.rule}</Badge>}
                         <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]">Vincular</Button>
                       </div>
                     </div>
@@ -257,7 +264,7 @@ export default function ConciliacaoPage() {
       {autoResult?.unmatched?.length > 0 && (
         <div className="rounded-lg border border-border bg-card p-4 space-y-4">
           <h3 className="text-sm font-semibold flex items-center gap-2">❓ Sem Match ({autoResult.unmatched.length})</h3>
-          <p className="text-[10px] text-muted-foreground">Transações do extrato que não encontraram nenhum lançamento compatível. Vincule manualmente selecionando o item e um lançamento ao lado.</p>
+          <p className="text-[10px] text-muted-foreground">Transações do extrato sem lançamento compatível. Vincule manualmente.</p>
           <div className="space-y-2 max-h-[40vh] overflow-y-auto">
             {autoResult.unmatched.map((item: any, idx: number) => (
               <div key={idx} onClick={() => {
@@ -278,11 +285,15 @@ export default function ConciliacaoPage() {
           </div>
         </div>
       )}
+
       {/* Confirm dialog */}
       <Dialog open={showConfirm} onOpenChange={o => { if (!o) { setShowConfirm(false); } }}>
         <DialogContent><DialogHeader><DialogTitle>Vincular transação</DialogTitle></DialogHeader>
           <div className="space-y-4 text-sm">
-            <div className="rounded-md bg-muted/50 p-3"><strong>Extrato:</strong> {selectedExtrato?.tipo} · {formatCurrency(Number(selectedExtrato?.valor))} · {selectedExtrato?.contrapartida}</div>
+            <div className="rounded-md bg-muted/50 p-3">
+              <strong>Extrato:</strong> {selectedExtrato?.tipo} · {formatCurrency(Number(selectedExtrato?.valor))}
+              <p className="text-xs mt-1 font-medium">{selectedExtrato?.nome_contraparte ?? selectedExtrato?.contrapartida ?? selectedExtrato?.descricao}</p>
+            </div>
             <div className="flex justify-center"><ArrowLeftRight className="h-5 w-5 text-muted-foreground" /></div>
             <div className="rounded-md bg-muted/50 p-3"><strong>Lançamento:</strong> {selectedLanc?.descricao} · {formatCurrency(Number(selectedLanc?.valor))}</div>
             {diff <= 0.01 ? <div className="text-wedo-green text-xs flex items-center gap-1"><CheckCircle className="h-3 w-3" />Valores compatíveis</div> : <div className="text-wedo-orange text-xs">⚠️ Diferença de {formatCurrency(diff)}</div>}
