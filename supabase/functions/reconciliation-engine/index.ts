@@ -139,7 +139,7 @@ function aplicarRegras(
       const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
       return valorExato(extValor, Number(c.fin.valor)) && finDate && dataProxima(extDate, finDate, 3);
     });
-    if (matches.length === 1) return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: false };
+    if (matches.length === 1) return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: true };
   }
 
   return { rule: null, candidato: null, auto: false };
@@ -216,14 +216,14 @@ serve(async (req) => {
     // 2. Lançamentos candidatos + lookup tables
     const [{ data: pagamentos }, { data: recebimentos }, { data: fornecedores }, { data: clientes }] = await Promise.all([
       supabase.from("fin_pagamentos").select("*")
-        .eq("liquidado", false)
-        .eq("pago_sistema", false)
-        .not("status", "in", '("pago","vencido","cancelado")')
+        .or("liquidado.eq.false,liquidado.is.null")
+        .or("pago_sistema.eq.false,pago_sistema.is.null")
+        .not("status", "in", '("pago","cancelado")')
         .limit(500),
       supabase.from("fin_recebimentos").select("*")
-        .eq("liquidado", false)
-        .eq("pago_sistema", false)
-        .not("status", "in", '("pago","vencido","cancelado")')
+        .or("liquidado.eq.false,liquidado.is.null")
+        .or("pago_sistema.eq.false,pago_sistema.is.null")
+        .not("status", "in", '("pago","cancelado")')
         .limit(500),
       supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj, chave_pix, nome"),
       supabase.from("fin_clientes").select("gc_id, cpf_cnpj, nome"),
