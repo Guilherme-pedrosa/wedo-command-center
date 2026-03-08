@@ -6,17 +6,27 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, Calendar } from "lucide-react";
+import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+const EXCECAO_RULES = ["SEM_PAR_GC", "TRANSFERENCIA_INTERNA", "PIX_DEVOLVIDO_MANUAL"];
+
+const ruleLabels: Record<string, string> = {
+  SEM_PAR_GC: "Sem Par GC",
+  TRANSFERENCIA_INTERNA: "Transferência Interna",
+  PIX_DEVOLVIDO_MANUAL: "PIX Devolvido",
+};
 
 export default function ConciliacaoHistoricoPage() {
   const [search, setSearch] = useState("");
   const [tipoFilter, setTipoFilter] = useState<string>("todos");
   const [vinculoFilter, setVinculoFilter] = useState<string>("todos");
   const [detail, setDetail] = useState<any>(null);
+  const [tab, setTab] = useState("conciliados");
 
-  // Fetch reconciled extrato
+  // CONCILIADOS REAIS
   const { data: items, isLoading } = useQuery({
     queryKey: ["conciliacao-historico"],
     queryFn: async () => {
@@ -24,8 +34,24 @@ export default function ConciliacaoHistoricoPage() {
         .from("vw_conciliacao_extrato" as any)
         .select("*")
         .eq("reconciliado", true)
+        .not("reconciliation_rule", "in", '("SEM_PAR_GC","TRANSFERENCIA_INTERNA","PIX_DEVOLVIDO_MANUAL")')
         .order("reconciliado_em", { ascending: false })
         .limit(500);
+      return (data as any[]) || [];
+    },
+  });
+
+  // EXCEÇÕES
+  const { data: excecoes, isLoading: isLoadingExc } = useQuery({
+    queryKey: ["conciliacao-excecoes"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("vw_conciliacao_extrato" as any)
+        .select("*")
+        .eq("reconciliado", true)
+        .in("reconciliation_rule", EXCECAO_RULES)
+        .order("reconciliado_em", { ascending: false })
+        .limit(200);
       return (data as any[]) || [];
     },
   });
@@ -153,9 +179,25 @@ export default function ConciliacaoHistoricoPage() {
     return true;
   });
 
-  // Stats
+  const filteredExc = (excecoes || []).filter((i: any) => {
+    if (tipoFilter !== "todos" && i.tipo !== tipoFilter) return false;
+    if (search) {
+      const s = search.toLowerCase();
+      return (
+        (i.contrapartida ?? "").toLowerCase().includes(s) ||
+        (i.cpf_cnpj ?? "").includes(s) ||
+        (i.descricao ?? "").toLowerCase().includes(s) ||
+        (i.nome_contraparte ?? "").toLowerCase().includes(s) ||
+        (i.observacao ?? "").toLowerCase().includes(s)
+      );
+    }
+    return true;
+  });
+
+  // Stats — only from conciliados reais
   const totalCredito = filtered.filter((i: any) => i.tipo === "CREDITO").reduce((s: number, i: any) => s + Math.abs(Number(i.valor_extrato ?? i.valor)), 0);
   const totalDebito = filtered.filter((i: any) => i.tipo === "DEBITO").reduce((s: number, i: any) => s + Math.abs(Number(i.valor_extrato ?? i.valor)), 0);
+  const totalExcecoes = (excecoes || []).reduce((s: number, i: any) => s + Math.abs(Number(i.valor_extrato ?? i.valor)), 0);
 
   return (
     <div className="space-y-6">
@@ -165,9 +207,9 @@ export default function ConciliacaoHistoricoPage() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="rounded-lg border border-border bg-card p-3">
-          <p className="text-[10px] uppercase text-muted-foreground font-semibold">Total Reconciliado</p>
+          <p className="text-[10px] uppercase text-muted-foreground font-semibold">Total Conciliado</p>
           <p className="text-lg font-bold text-foreground">{filtered.length}</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-3">
@@ -195,6 +237,14 @@ export default function ConciliacaoHistoricoPage() {
             {formatCurrency(totalCredito - totalDebito)}
           </p>
         </div>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3 text-wedo-orange" />
+            <p className="text-[10px] uppercase text-muted-foreground font-semibold">Exceções</p>
+          </div>
+          <p className="text-lg font-bold text-wedo-orange">{(excecoes || []).length}</p>
+          <p className="text-[10px] text-muted-foreground">{formatCurrency(totalExcecoes)}</p>
+        </div>
       </div>
 
       {/* Filters */}
@@ -211,142 +261,220 @@ export default function ConciliacaoHistoricoPage() {
             <SelectItem value="DEBITO">Débito</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={vinculoFilter} onValueChange={setVinculoFilter}>
-          <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos vínculos</SelectItem>
-            <SelectItem value="lancamento">Lançamento</SelectItem>
-            <SelectItem value="grupo_receber">Grupo Receber</SelectItem>
-            <SelectItem value="grupo_pagar">Grupo Pagar</SelectItem>
-            <SelectItem value="manual">Manual</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Table */}
-      <div className="rounded-lg border border-border bg-card">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                <th className="px-3 py-3 w-[70px]">Tipo</th>
-                <th className="px-3 py-3">Contrapartida</th>
-                <th className="px-3 py-3">CPF/CNPJ</th>
-                <th className="px-3 py-3 text-right">Valor Extrato</th>
-                <th className="px-3 py-3">Lançamento Vinculado</th>
-                <th className="px-3 py-3 text-right">Valor Lanç.</th>
-                <th className="px-3 py-3">Diferença</th>
-                <th className="px-3 py-3">Data Transação</th>
-                <th className="px-3 py-3">Conciliado em</th>
-                <th className="px-3 py-3">Método</th>
-                <th className="px-3 py-3 w-[50px]"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading && (
-                <tr><td colSpan={11} className="text-center py-8 text-muted-foreground">Carregando...</td></tr>
-              )}
-              {!isLoading && filtered.length === 0 && (
-                <tr><td colSpan={11} className="text-center py-8 text-muted-foreground">Nenhum registro encontrado</td></tr>
-              )}
-              {filtered.map((item: any) => {
-                const lanc = getLancamento(item);
-                const grupo = getGrupo(item);
-                const valorGc = item.valor_gc != null ? Number(item.valor_gc) : (lanc ? Number(lanc.valor) : grupo ? Number(grupo.valor_total) : null);
-                const diff = item.diferenca != null ? Number(item.diferenca) : (valorGc !== null ? Math.abs(Math.abs(Number(item.valor_extrato ?? item.valor)) - valorGc) : null);
-                const isExato = item.exato != null ? item.exato : (diff !== null && diff <= 0.02);
-                const qtdParcelas = item.qtd_parcelas != null ? Number(item.qtd_parcelas) : null;
-                const log = logByRef[item.id];
-                const score = log?.payload?.score;
-                const reasons = log?.payload?.reasons;
-                const metodo = log?.tipo === "conciliacao_auto" ? "Auto" : log?.tipo?.includes("webhook") ? "Webhook" : "Manual";
-                const valorExtrato = item.valor_extrato != null ? item.valor_extrato : item.valor;
-
-                return (
-                  <tr key={item.id} className="border-b border-border/50 hover:bg-muted/20 cursor-pointer" onClick={() => setDetail({ item, lanc, grupo, log, score, reasons, metodo, valorGc, diff, isExato, qtdParcelas })}>
-                    <td className="px-3 py-2.5">
-                      <Badge variant="outline" className={`text-[10px] ${item.tipo === "CREDITO" ? "text-wedo-green" : "text-wedo-red"}`}>
-                        {item.tipo}
-                      </Badge>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <p className="font-medium text-xs">{item.contrapartida || "—"}</p>
-                      {item.chave_pix && <p className="text-[10px] text-muted-foreground">PIX: {item.chave_pix}</p>}
-                    </td>
-                    <td className="px-3 py-2.5 text-muted-foreground text-[11px] font-mono">{item.cpf_cnpj || "—"}</td>
-                    <td className="px-3 py-2.5 text-right font-semibold">{formatCurrency(Math.abs(Number(valorExtrato)))}</td>
-                    <td className="px-3 py-2.5">
-                      {lanc && (
-                        <div>
-                          <p className="text-xs font-medium truncate max-w-[200px]">{lanc.descricao}</p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {lanc.nome_cliente || lanc.nome_fornecedor || ""}
-                            {lanc.gc_codigo && <span className="ml-1">· GC {lanc.gc_codigo}</span>}
-                            {lanc.os_codigo && <span className="ml-1">· OS {lanc.os_codigo}</span>}
-                          </p>
-                        </div>
-                      )}
-                      {grupo && (
-                        <div>
-                          <p className="text-xs font-medium truncate max-w-[200px]">{grupo.nome}</p>
-                          <p className="text-[10px] text-muted-foreground">{grupo.nome_cliente || grupo.nome_fornecedor || ""}</p>
-                        </div>
-                      )}
-                      {!lanc && !grupo && <span className="text-xs text-muted-foreground">—</span>}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-xs">
-                      {valorGc !== null ? formatCurrency(valorGc) : "—"}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      {diff !== null && (
-                        qtdParcelas != null && qtdParcelas > 1 ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Badge variant={isExato ? "default" : "destructive"} className="text-[10px] cursor-help">
-                                {isExato ? "✓ Exato" : formatCurrency(diff)}
-                              </Badge>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="text-xs">{qtdParcelas} parcelas — total GC {formatCurrency(valorGc ?? 0)}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          <Badge variant={isExato ? "default" : "destructive"} className="text-[10px]">
-                            {isExato ? "✓ Exato" : formatCurrency(diff)}
-                          </Badge>
-                        )
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-[11px] text-muted-foreground whitespace-nowrap">
-                      {item.data_hora ? formatDateTime(item.data_hora) : "—"}
-                    </td>
-                    <td className="px-3 py-2.5 text-[11px] text-muted-foreground whitespace-nowrap">
-                      {item.reconciliado_em ? formatDateTime(item.reconciliado_em) : "—"}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-1.5">
-                        <Badge variant="outline" className={`text-[10px] ${metodo === "Auto" ? "text-wedo-green border-wedo-green/30" : metodo === "Webhook" ? "text-primary border-primary/30" : "text-muted-foreground"}`}>
-                          {metodo}
-                        </Badge>
-                        {score && <span className="text-[10px] text-muted-foreground">S:{score}</span>}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0"><Eye className="h-3.5 w-3.5" /></Button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {filtered.length > 0 && (
-          <div className="px-4 py-2 text-xs text-muted-foreground border-t border-border flex justify-between">
-            <span>{filtered.length} registro(s)</span>
-            <span>Créditos: {formatCurrency(totalCredito)} · Débitos: {formatCurrency(totalDebito)}</span>
-          </div>
+        {tab === "conciliados" && (
+          <Select value={vinculoFilter} onValueChange={setVinculoFilter}>
+            <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos vínculos</SelectItem>
+              <SelectItem value="lancamento">Lançamento</SelectItem>
+              <SelectItem value="grupo_receber">Grupo Receber</SelectItem>
+              <SelectItem value="grupo_pagar">Grupo Pagar</SelectItem>
+            </SelectContent>
+          </Select>
         )}
       </div>
+
+      {/* Tabs */}
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="conciliados">Conciliados ({filtered.length})</TabsTrigger>
+          <TabsTrigger value="excecoes">Exceções ({filteredExc.length})</TabsTrigger>
+        </TabsList>
+
+        {/* === CONCILIADOS TAB === */}
+        <TabsContent value="conciliados">
+          <div className="rounded-lg border border-border bg-card">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                    <th className="px-3 py-3 w-[70px]">Tipo</th>
+                    <th className="px-3 py-3">Contrapartida</th>
+                    <th className="px-3 py-3">CPF/CNPJ</th>
+                    <th className="px-3 py-3 text-right">Valor Extrato</th>
+                    <th className="px-3 py-3">Lançamento Vinculado</th>
+                    <th className="px-3 py-3 text-right">Valor Lanç.</th>
+                    <th className="px-3 py-3">Diferença</th>
+                    <th className="px-3 py-3">Data Transação</th>
+                    <th className="px-3 py-3">Conciliado em</th>
+                    <th className="px-3 py-3">Método</th>
+                    <th className="px-3 py-3 w-[50px]"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isLoading && (
+                    <tr><td colSpan={11} className="text-center py-8 text-muted-foreground">Carregando...</td></tr>
+                  )}
+                  {!isLoading && filtered.length === 0 && (
+                    <tr><td colSpan={11} className="text-center py-8 text-muted-foreground">Nenhum registro encontrado</td></tr>
+                  )}
+                  {filtered.map((item: any) => {
+                    const lanc = getLancamento(item);
+                    const grupo = getGrupo(item);
+                    const valorGc = item.valor_gc != null ? Number(item.valor_gc) : (lanc ? Number(lanc.valor) : grupo ? Number(grupo.valor_total) : null);
+                    const diff = item.diferenca != null ? Number(item.diferenca) : (valorGc !== null ? Math.abs(Math.abs(Number(item.valor_extrato ?? item.valor)) - valorGc) : null);
+                    const isExato = item.exato != null ? item.exato : (diff !== null && diff <= 0.02);
+                    const qtdParcelas = item.qtd_parcelas != null ? Number(item.qtd_parcelas) : null;
+                    const log = logByRef[item.id];
+                    const score = log?.payload?.score;
+                    const reasons = log?.payload?.reasons;
+                    const metodo = log?.tipo === "conciliacao_auto" ? "Auto" : log?.tipo?.includes("webhook") ? "Webhook" : "Manual";
+                    const valorExtrato = item.valor_extrato != null ? item.valor_extrato : item.valor;
+
+                    return (
+                      <tr key={item.id} className="border-b border-border/50 hover:bg-muted/20 cursor-pointer" onClick={() => setDetail({ item, lanc, grupo, log, score, reasons, metodo, valorGc, diff, isExato, qtdParcelas })}>
+                        <td className="px-3 py-2.5">
+                          <Badge variant="outline" className={`text-[10px] ${item.tipo === "CREDITO" ? "text-wedo-green" : "text-wedo-red"}`}>
+                            {item.tipo}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <p className="font-medium text-xs">{item.contrapartida || "—"}</p>
+                          {item.chave_pix && <p className="text-[10px] text-muted-foreground">PIX: {item.chave_pix}</p>}
+                        </td>
+                        <td className="px-3 py-2.5 text-muted-foreground text-[11px] font-mono">{item.cpf_cnpj || "—"}</td>
+                        <td className="px-3 py-2.5 text-right font-semibold">{formatCurrency(Math.abs(Number(valorExtrato)))}</td>
+                        <td className="px-3 py-2.5">
+                          {lanc && (
+                            <div>
+                              <p className="text-xs font-medium truncate max-w-[200px]">{lanc.descricao}</p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {lanc.nome_cliente || lanc.nome_fornecedor || ""}
+                                {lanc.gc_codigo && <span className="ml-1">· GC {lanc.gc_codigo}</span>}
+                                {lanc.os_codigo && <span className="ml-1">· OS {lanc.os_codigo}</span>}
+                              </p>
+                            </div>
+                          )}
+                          {grupo && (
+                            <div>
+                              <p className="text-xs font-medium truncate max-w-[200px]">{grupo.nome}</p>
+                              <p className="text-[10px] text-muted-foreground">{grupo.nome_cliente || grupo.nome_fornecedor || ""}</p>
+                            </div>
+                          )}
+                          {!lanc && !grupo && <span className="text-xs text-muted-foreground">—</span>}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-xs">
+                          {valorGc !== null ? formatCurrency(valorGc) : "—"}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {diff !== null && (
+                            qtdParcelas != null && qtdParcelas > 1 ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant={isExato ? "default" : "destructive"} className="text-[10px] cursor-help">
+                                    {isExato ? "✓ Exato" : formatCurrency(diff)}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p className="text-xs">{qtdParcelas} parcelas — total GC {formatCurrency(valorGc ?? 0)}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <Badge variant={isExato ? "default" : "destructive"} className="text-[10px]">
+                                {isExato ? "✓ Exato" : formatCurrency(diff)}
+                              </Badge>
+                            )
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px] text-muted-foreground whitespace-nowrap">
+                          {item.data_hora ? formatDateTime(item.data_hora) : "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px] text-muted-foreground whitespace-nowrap">
+                          {item.reconciliado_em ? formatDateTime(item.reconciliado_em) : "—"}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-1.5">
+                            <Badge variant="outline" className={`text-[10px] ${metodo === "Auto" ? "text-wedo-green border-wedo-green/30" : metodo === "Webhook" ? "text-primary border-primary/30" : "text-muted-foreground"}`}>
+                              {metodo}
+                            </Badge>
+                            {score && <span className="text-[10px] text-muted-foreground">S:{score}</span>}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0"><Eye className="h-3.5 w-3.5" /></Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {filtered.length > 0 && (
+              <div className="px-4 py-2 text-xs text-muted-foreground border-t border-border flex justify-between">
+                <span>{filtered.length} registro(s)</span>
+                <span>Créditos: {formatCurrency(totalCredito)} · Débitos: {formatCurrency(totalDebito)}</span>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* === EXCEÇÕES TAB === */}
+        <TabsContent value="excecoes">
+          <div className="rounded-lg border border-border bg-card">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                    <th className="px-3 py-3 w-[70px]">Tipo</th>
+                    <th className="px-3 py-3">Contrapartida</th>
+                    <th className="px-3 py-3">CPF/CNPJ</th>
+                    <th className="px-3 py-3 text-right">Valor Extrato</th>
+                    <th className="px-3 py-3">Motivo</th>
+                    <th className="px-3 py-3">Observação</th>
+                    <th className="px-3 py-3">Data Transação</th>
+                    <th className="px-3 py-3">Conciliado em</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isLoadingExc && (
+                    <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">Carregando...</td></tr>
+                  )}
+                  {!isLoadingExc && filteredExc.length === 0 && (
+                    <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">Nenhuma exceção encontrada</td></tr>
+                  )}
+                  {filteredExc.map((item: any) => {
+                    const valorExtrato = item.valor_extrato != null ? item.valor_extrato : item.valor;
+                    return (
+                      <tr key={item.id} className="border-b border-border/50 hover:bg-muted/20">
+                        <td className="px-3 py-2.5">
+                          <Badge variant="outline" className={`text-[10px] ${item.tipo === "CREDITO" ? "text-wedo-green" : "text-wedo-red"}`}>
+                            {item.tipo}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <p className="font-medium text-xs">{item.contrapartida || item.nome_contraparte || "—"}</p>
+                          {item.chave_pix && <p className="text-[10px] text-muted-foreground">PIX: {item.chave_pix}</p>}
+                        </td>
+                        <td className="px-3 py-2.5 text-muted-foreground text-[11px] font-mono">{item.cpf_cnpj || "—"}</td>
+                        <td className="px-3 py-2.5 text-right font-semibold">{formatCurrency(Math.abs(Number(valorExtrato)))}</td>
+                        <td className="px-3 py-2.5">
+                          <Badge variant="outline" className="text-[10px] text-wedo-orange border-wedo-orange/30">
+                            {ruleLabels[item.reconciliation_rule] || item.reconciliation_rule || "—"}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-muted-foreground max-w-[250px] truncate">
+                          {item.observacao || "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px] text-muted-foreground whitespace-nowrap">
+                          {item.data_hora ? formatDateTime(item.data_hora) : "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px] text-muted-foreground whitespace-nowrap">
+                          {item.reconciliado_em ? formatDateTime(item.reconciliado_em) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {filteredExc.length > 0 && (
+              <div className="px-4 py-2 text-xs text-muted-foreground border-t border-border">
+                {filteredExc.length} exceção(ões) · Total: {formatCurrency(filteredExc.reduce((s: number, i: any) => s + Math.abs(Number(i.valor_extrato ?? i.valor)), 0))}
+              </div>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Detail Modal */}
       <Dialog open={!!detail} onOpenChange={o => { if (!o) setDetail(null); }}>
