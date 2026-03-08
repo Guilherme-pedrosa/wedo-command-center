@@ -299,7 +299,7 @@ serve(async (req) => {
     ]);
 
     // Pool secundário: lançamentos já pagos (para rastreabilidade retroativa)
-    const cutoff90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    const cutoff90 = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     const [{ data: pagamentosJaPagos }, { data: recebimentosJaPagos }] = await Promise.all([
       supabase.from("fin_pagamentos").select("id, valor, recipient_document, fornecedor_gc_id, nome_fornecedor, descricao, data_vencimento, data_liquidacao, gc_codigo")
         .eq("status", "pago")
