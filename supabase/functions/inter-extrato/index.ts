@@ -29,38 +29,60 @@ serve(async (req) => {
   const startMs = Date.now();
 
   try {
-    // Call inter-proxy to fetch enriched statement (v3)
     const proxyUrl = `${supabaseUrl}/functions/v1/inter-proxy`;
-    const path = `/banking/v3/extrato/enriquecido?dataInicio=${dataInicio}&dataFim=${dataFim}`;
+    const proxyHeaders = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${serviceKey}`,
+    };
 
-    console.log(`[inter-extrato] Buscando extrato enriquecido v3 ${dataInicio} → ${dataFim}`);
+    // Try multiple endpoints — v2/extrato is the most widely supported
+    const endpoints = [
+      `/banking/v2/extrato?dataInicio=${dataInicio}&dataFim=${dataFim}`,
+      `/banking/v3/extrato/enriquecido?dataInicio=${dataInicio}&dataFim=${dataFim}`,
+      `/banking/v2/extrato/completo?dataInicio=${dataInicio}&dataFim=${dataFim}`,
+    ];
 
-    const proxyRes = await fetch(proxyUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${serviceKey}`,
-      },
-      body: JSON.stringify({ path, method: "GET" }),
-    });
+    let proxyData: any = null;
+    let usedEndpoint = "";
 
-    const proxyData = await proxyRes.json();
+    for (const ep of endpoints) {
+      console.log(`[inter-extrato] Tentando ${ep}`);
+      const res = await fetch(proxyUrl, {
+        method: "POST",
+        headers: proxyHeaders,
+        body: JSON.stringify({ path: ep, method: "GET" }),
+      });
 
-    if (proxyData.error) {
-      throw new Error(`inter-proxy error: ${proxyData.error}`);
+      const data = await res.json();
+
+      // Check for 404 or error — try next endpoint
+      const is404 = (data.raw && typeof data.raw === "string" && data.raw.includes("404")) ||
+                     (typeof data === "string" && data.includes("404"));
+      if (is404) {
+        console.log(`[inter-extrato] ${ep} → 404, tentando próximo...`);
+        continue;
+      }
+      if (data.error) {
+        console.log(`[inter-extrato] ${ep} → erro: ${data.error}, tentando próximo...`);
+        continue;
+      }
+
+      proxyData = data;
+      usedEndpoint = ep;
+      break;
     }
 
-    // Handle raw error responses (e.g. "404 page not found")
-    if (proxyData.raw && typeof proxyData.raw === "string" && proxyData.raw.includes("404")) {
-      throw new Error(`Inter API retornou 404: ${proxyData.raw}`);
+    if (!proxyData) {
+      throw new Error("Nenhum endpoint do Inter retornou dados válidos. Verifique se o escopo 'extrato.read' está configurado no certificado Inter.");
     }
 
-    // The Inter API v3 returns { transacoes: [...] } or directly an array
+    console.log(`[inter-extrato] Sucesso via ${usedEndpoint}`);
+
+    // v2 returns { transacoes: [...] } or direct array
     const transacoes: any[] = proxyData.transacoes ?? proxyData.resultado ?? (Array.isArray(proxyData) ? proxyData : []);
 
     if (!Array.isArray(transacoes) || transacoes.length === 0) {
-      console.log("[inter-extrato] Resposta inesperada:", JSON.stringify(proxyData).substring(0, 500));
-      // If no transactions, still return success with 0
+      console.log("[inter-extrato] Resposta:", JSON.stringify(proxyData).substring(0, 500));
       if (Array.isArray(transacoes) && transacoes.length === 0) {
         return new Response(
           JSON.stringify({ success: true, extrato: { total: 0, inserted: 0, skipped: 0, errors: 0, duracao_ms: Date.now() - startMs } }),
@@ -78,33 +100,32 @@ serve(async (req) => {
 
     for (const tx of transacoes) {
       try {
-        // v3 enriched fields
+        // Works for both v2 and v3 — v2 has fewer fields, v3 has detalhe object
         const detalhe = tx.detalhe ?? tx.detalhes ?? {};
         const tipoOp = tx.tipoOperacao ?? "";
         const tipoTx = tx.tipoTransacao ?? tx.tipo ?? "";
 
-        // BUG E3 FIX: tipoOperacao do Inter v3: "C" = Crédito, "D" = Débito
-        // Prioridade: tipoOperacao (campo explícito) > tipoTransacao (string descritiva)
+        // BUG E3 FIX: tipoOperacao do Inter: "C" = Crédito, "D" = Débito
         const isCredito =
           tipoOp === "C" ||
           (tipoOp !== "D" && tipoTx.toUpperCase() === "CREDITO");
         const tipo = isCredito ? "CREDITO" : "DEBITO";
 
-        // Extract CPF/CNPJ from enriched detalhe
+        // Extract CPF/CNPJ — try enriched detalhe first, then top-level
         const cpfCnpjRaw = isCredito
           ? (detalhe.cpfCnpjPagador ?? detalhe.cpfCnpjRemetente ?? detalhe.cpfCnpj ?? tx.cpfCnpjContraparte)
           : (detalhe.cpfCnpjBeneficiario ?? detalhe.cpfCnpjRecebedor ?? detalhe.cpfCnpjDestinatario ?? detalhe.cpfCnpj ?? tx.cpfCnpjContraparte);
         const cpfCnpj = cpfCnpjRaw ? String(cpfCnpjRaw).replace(/\D/g, "") : null;
 
-        // Extract counterparty name from enriched detalhe
+        // Extract counterparty name
         const nomeContraparte = isCredito
-          ? (detalhe.nomePagador ?? detalhe.nomeRemetente ?? detalhe.nome ?? tx.nomeContraparte)
-          : (detalhe.nomeBeneficiario ?? detalhe.nomeRecebedor ?? detalhe.nomeDestinatario ?? detalhe.nome ?? tx.nomeContraparte);
+          ? (detalhe.nomePagador ?? detalhe.nomeRemetente ?? detalhe.nome ?? tx.nomeContraparte ?? tx.titulo)
+          : (detalhe.nomeBeneficiario ?? detalhe.nomeRecebedor ?? detalhe.nomeDestinatario ?? detalhe.nome ?? tx.nomeContraparte ?? tx.titulo);
 
         const chavePix = detalhe.chavePixRecebedor ?? detalhe.chavePixBeneficiario ?? detalhe.chavePixPagador ?? detalhe.chave ?? null;
         const codigoBarras = detalhe.codigoBarras ?? null;
 
-        // Real unique ID (endToEndId for PIX, codigoBarras for boleto)
+        // Real unique ID
         const realEndToEndId =
           detalhe.endToEndId ?? tx.endToEndId ?? tx.codigoTransacao ?? codigoBarras ?? null;
 
@@ -148,7 +169,7 @@ serve(async (req) => {
           }
         }
 
-        // Dedup: if we HAVE a real ID, delete any fallback duplicate for same valor+tipo+date
+        // Dedup: if we HAVE a real ID, delete any fallback duplicate
         if (realEndToEndId) {
           const dateOnly = String(dataHora).substring(0, 10);
           const { data: phantoms } = await supabase
@@ -188,8 +209,7 @@ serve(async (req) => {
           payload_raw: tx,
         };
 
-        // BUG E1 FIX: ignoreDuplicates: false → atualiza dados enriquecidos quando webhook já inseriu dados básicos
-        // O objeto 'record' NÃO contém reconciliado/lancamento_id/reconciliado_em, então nunca reseta conciliação
+        // BUG E1 FIX: ignoreDuplicates: false → atualiza dados enriquecidos
         const { error: upsertErr } = await supabase
           .from("fin_extrato_inter")
           .upsert(record, { onConflict: "end_to_end_id", ignoreDuplicates: false });
@@ -209,14 +229,17 @@ serve(async (req) => {
     const duracao = Date.now() - startMs;
 
     // Log to fin_sync_log
-    const { error: logErr } = await supabase.from("fin_sync_log").insert({
-      tipo: "inter_extrato_sync",
-      status: errors > 0 ? "partial" : "success",
-      duracao_ms: duracao,
-      payload: { dataInicio, dataFim },
-      resposta: { total: transacoes.length, inserted, skipped, errors },
-    });
-    if (logErr) console.error("[inter-extrato] Log error:", logErr.message);
+    try {
+      await supabase.from("fin_sync_log").insert({
+        tipo: "inter_extrato_sync",
+        status: errors > 0 ? "partial" : "success",
+        duracao_ms: duracao,
+        payload: { dataInicio, dataFim, endpoint: usedEndpoint },
+        resposta: { total: transacoes.length, inserted, skipped, errors },
+      });
+    } catch (logErr) {
+      console.error("[inter-extrato] Log error:", (logErr as Error).message);
+    }
 
     // Trigger reconciliation engine
     console.log("[inter-extrato] Disparando reconciliation-engine...");
@@ -242,7 +265,6 @@ serve(async (req) => {
     const msg = (err as Error).message;
     console.error("[inter-extrato] ERRO:", msg);
 
-    // Fix: don't use .catch() on supabase insert — use try/catch instead
     try {
       await supabase.from("fin_sync_log").insert({
         tipo: "inter_extrato_sync",
