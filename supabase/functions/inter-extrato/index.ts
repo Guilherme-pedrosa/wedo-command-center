@@ -21,6 +21,24 @@ function nomeValido(s: string | null | undefined): string | null {
   return TITULOS_GENERICOS.has(t) ? null : s.trim();
 }
 
+// Extrai nome real de descrições como "PAGAMENTO DE TITULO - INDUCERGEM INDUSTRIAL LTDA"
+const NOMES_GENERICOS_DESC = new Set([
+  "PIX", "TED", "DOC", "BOLETO", "TITULO", "TITULOS",
+  "TRANSFERENCIA", "TRANSFERÊNCIA", "PAGAMENTO", "RECEBIMENTO",
+  "CREDITO", "CRÉDITO", "DEBITO", "DÉBITO"
+]);
+
+function extrairNomeDescricao(descricao: unknown): string | null {
+  if (!descricao || typeof descricao !== "string") return null;
+  const match = descricao.match(/[-–]\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9 .&\/'",-]+)$/);
+  if (!match) return null;
+  const nome = match[1].trim();
+  if (nome.length < 3) return null;
+  const primeira = nome.split(/\s+/)[0].toUpperCase();
+  if (NOMES_GENERICOS_DESC.has(primeira)) return null;
+  return nome;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -156,7 +174,8 @@ serve(async (req) => {
         const nomeRaw = isCredito
           ? (det.nomePagador ?? det.nomeRemetente ?? det.nome ?? tx.nomeContraparte)
           : (det.nomeBeneficiario ?? det.nomeRecebedor ?? det.nomeDestinatario ?? det.nome ?? tx.nomeContraparte);
-        const nomeContraparte = nomeValido(nomeRaw);
+        const nomeContraparte = nomeValido(nomeRaw)
+          ?? extrairNomeDescricao(tx.descricao ?? tx.titulo ?? tx.historico);
 
         const chavePix    = det.chavePixRecebedor ?? det.chavePixBeneficiario ?? det.chavePixPagador ?? det.chave ?? null;
         const codigoBarras= det.codigoBarras ?? null;
