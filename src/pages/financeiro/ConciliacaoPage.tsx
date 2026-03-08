@@ -182,6 +182,9 @@ export default function ConciliacaoPage() {
                 <div className="flex justify-between items-start">
                   <div>
                     <p className="text-xs font-semibold">{item.descricao_extrato}</p>
+                    {item.contrapartida && item.contrapartida !== item.descricao_extrato && (
+                      <p className="text-xs text-foreground font-medium">{item.contrapartida}</p>
+                    )}
                     <p className="text-[10px] text-muted-foreground">{item.motivo}</p>
                   </div>
                   <span className="font-semibold text-sm">{formatCurrency(Number(item.valor))}</span>
