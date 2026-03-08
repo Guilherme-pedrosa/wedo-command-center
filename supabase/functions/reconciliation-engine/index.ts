@@ -22,10 +22,8 @@ function docMatches(a: string | null | undefined, b: string | null | undefined):
   const cleanA = cleanDoc(a);
   const cleanB = cleanDoc(b);
   if (!cleanA || !cleanB) return false;
-  if (cleanA === cleanB) return true;
-  if (cleanA.length >= 8 && cleanB.startsWith(cleanA)) return true;
-  if (cleanB.length >= 8 && cleanA.startsWith(cleanB)) return true;
-  return false;
+  if (cleanA.length < 8 || cleanB.length < 8) return false;
+  return cleanA === cleanB || cleanA.startsWith(cleanB) || cleanB.startsWith(cleanA);
 }
 
 function dateDiffDays(a: string, b: string): number {
@@ -59,6 +57,7 @@ function scoreMatch(
   extrato: any,
   fin: any,
   finCpfCnpj: string | null,
+  finChavePix: string | null,
   extractedName: string
 ): { score: number; reasons: string[] } {
   let score = 0;
@@ -84,7 +83,7 @@ function scoreMatch(
     else if (diff <= 10) { score += 4; reasons.push("Data ±10d"); }
   }
 
-  // CPF/CNPJ (20 pts) — now with partial matching
+  // CPF/CNPJ (20 pts)
   const txDoc = cleanDoc(extrato.cpf_cnpj);
   const fDoc = cleanDoc(finCpfCnpj);
   if (txDoc && fDoc) {
@@ -100,13 +99,19 @@ function scoreMatch(
     else if (txName.includes(finName) || finName.includes(txName)) { score += 8; reasons.push("Nome parcial"); }
   }
 
-  // CHAVE PIX (10 pts)
+  // CHAVE PIX (10 pts) — compare against fornecedor chave_pix AND doc
   const txPix = (extrato.chave_pix ?? "").trim().toLowerCase();
-  if (txPix && finCpfCnpj) {
-    // Compare pix key against document (common pattern: pix key IS the CNPJ/CPF)
-    const pixClean = txPix.replace(/\D/g, "");
-    if (pixClean && fDoc && (pixClean === fDoc || docMatches(pixClean, fDoc))) {
-      score += 10; reasons.push("Chave PIX = Doc");
+  if (txPix) {
+    // Direct match: chave_pix do extrato === chave_pix do fornecedor
+    if (finChavePix && txPix === finChavePix.trim().toLowerCase()) {
+      score += 10; reasons.push("Chave PIX idêntica");
+    }
+    // Fallback: chave_pix do extrato é o CPF/CNPJ do fornecedor
+    else if (fDoc) {
+      const pixClean = txPix.replace(/\D/g, "");
+      if (pixClean && (pixClean === fDoc || docMatches(pixClean, fDoc))) {
+        score += 10; reasons.push("Chave PIX = Doc");
+      }
     }
   }
 
@@ -134,17 +139,37 @@ serve(async (req) => {
     if (date_to) q = q.lte("data_hora", date_to);
     const { data: extratos } = await q;
 
-    // 2. Lançamentos não liquidados + CPF dos fornecedores/clientes
+    // 2. Lançamentos candidatos: não liquidados, não cancelados, não já conciliados
     const [{ data: pagamentos }, { data: recebimentos }, { data: fornecedores }, { data: clientes }] = await Promise.all([
-      supabase.from("fin_pagamentos").select("*").eq("liquidado", false).limit(500),
-      supabase.from("fin_recebimentos").select("*").eq("liquidado", false).limit(500),
-      supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj"),
+      supabase.from("fin_pagamentos").select("*")
+        .eq("liquidado", false)
+        .eq("pago_sistema", false)
+        .not("status", "eq", "cancelado")
+        .limit(500),
+      supabase.from("fin_recebimentos").select("*")
+        .eq("liquidado", false)
+        .eq("pago_sistema", false)
+        .not("status", "eq", "cancelado")
+        .limit(500),
+      supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj, chave_pix"),
       supabase.from("fin_clientes").select("gc_id, cpf_cnpj"),
     ]);
 
-    // Index fornecedor/cliente CPF por gc_id
+    // Also exclude lançamentos already linked by another extrato
+    const { data: linkedLancs } = await supabase
+      .from("fin_extrato_inter")
+      .select("lancamento_id")
+      .eq("reconciliado", true)
+      .not("lancamento_id", "is", null);
+    const alreadyLinked = new Set((linkedLancs ?? []).map((l: any) => l.lancamento_id));
+
+    // Index fornecedor/cliente CPF + chave_pix por gc_id
     const fornCpf: Record<string, string> = {};
-    for (const f of (fornecedores ?? [])) { if (f.cpf_cnpj) fornCpf[f.gc_id] = f.cpf_cnpj; }
+    const fornPix: Record<string, string> = {};
+    for (const f of (fornecedores ?? [])) {
+      if (f.cpf_cnpj) fornCpf[f.gc_id] = f.cpf_cnpj;
+      if (f.chave_pix) fornPix[f.gc_id] = f.chave_pix;
+    }
     const cliCpf: Record<string, string> = {};
     for (const c of (clientes ?? [])) { if (c.cpf_cnpj) cliCpf[c.gc_id] = c.cpf_cnpj; }
 
@@ -159,7 +184,7 @@ serve(async (req) => {
       const extractedName = extrairNomeDaDescricao(ext.descricao);
 
       const candidates: ScoredMatch[] = pool
-        .filter((fin: any) => !usedIds.has(fin.id))
+        .filter((fin: any) => !usedIds.has(fin.id) && !alreadyLinked.has(fin.id))
         .filter((fin: any) => {
           const finDate = fin.data_vencimento ?? fin.data_emissao;
           if (!finDate || !ext.data_hora) return false;
@@ -168,10 +193,10 @@ serve(async (req) => {
           return dayDiff <= 10 && amtDiff <= 0.10;
         })
         .map((fin: any) => {
-          const cpf = isDebito
-            ? (fin.fornecedor_gc_id ? fornCpf[fin.fornecedor_gc_id] : null)
-            : (fin.cliente_gc_id ? cliCpf[fin.cliente_gc_id] : null);
-          const { score, reasons } = scoreMatch(ext, fin, cpf ?? null, extractedName);
+          const gcId = isDebito ? fin.fornecedor_gc_id : fin.cliente_gc_id;
+          const cpf = gcId ? (isDebito ? fornCpf[gcId] : cliCpf[gcId]) : null;
+          const chavePix = (isDebito && gcId) ? (fornPix[gcId] ?? null) : null;
+          const { score, reasons } = scoreMatch(ext, fin, cpf ?? null, chavePix, extractedName);
           return { fin, tipo: (isDebito ? "pagar" : "receber") as "pagar" | "receber", score, reasons };
         })
         .filter(c => c.score >= REVIEW_THRESHOLD)
@@ -199,19 +224,29 @@ serve(async (req) => {
       );
 
       if (colliding.length > 1) {
-        // Try CPF/CNPJ tiebreaker (exact or partial)
-        const withCpf = colliding.filter(c =>
-          c.reasons.includes("CPF/CNPJ idêntico") || c.reasons.includes("CPF/CNPJ parcial")
-        );
+        // Tiebreaker 1: CPF/CNPJ match with extrato
+        const txDoc = cleanDoc(ext.cpf_cnpj);
+        let resolved = false;
 
-        if (withCpf.length === 1) {
-          try {
-            await vincular(supabase, ext, withCpf[0], [...withCpf[0].reasons, "Desempate CPF/CNPJ"]);
-            usedIds.add(withCpf[0].fin.id);
-            stats.auto++;
-          } catch { stats.errors++; }
-        } else {
-          // Try name tiebreaker
+        if (txDoc) {
+          const withDoc = colliding.filter(c => {
+            const gcId = isDebito ? c.fin.fornecedor_gc_id : c.fin.cliente_gc_id;
+            const fDoc = gcId ? cleanDoc(isDebito ? fornCpf[gcId] : cliCpf[gcId]) : "";
+            return fDoc && docMatches(txDoc, fDoc);
+          });
+
+          if (withDoc.length === 1) {
+            try {
+              await vincular(supabase, ext, withDoc[0], [...withDoc[0].reasons, "Desempate CPF/CNPJ"]);
+              usedIds.add(withDoc[0].fin.id);
+              stats.auto++;
+              resolved = true;
+            } catch { stats.errors++; resolved = true; }
+          }
+        }
+
+        // Tiebreaker 2: Name match
+        if (!resolved) {
           const txName = normalizeText(ext.contrapartida ?? extractedName ?? "");
           const withName = colliding.filter(c => {
             const fName = normalizeText(c.fin.nome_fornecedor ?? c.fin.nome_cliente ?? "");
@@ -223,23 +258,47 @@ serve(async (req) => {
               await vincular(supabase, ext, withName[0], [...withName[0].reasons, "Desempate Nome"]);
               usedIds.add(withName[0].fin.id);
               stats.auto++;
-            } catch { stats.errors++; }
-          } else {
-            // Unresolved collision → review
-            reviewItems.push({
-              extrato_id: ext.id,
-              descricao_extrato: ext.descricao,
-              contrapartida: ext.contrapartida ?? "",
-              valor: ext.valor,
-              candidatos: colliding.map(c => ({
-                id: c.fin.id, valor: c.fin.valor, descricao: c.fin.descricao,
-                nome: c.fin.nome_fornecedor ?? c.fin.nome_cliente ?? "—",
-                score: c.score, reasons: c.reasons,
-              })),
-              motivo: `Colisão: ${colliding.length} lançamentos mesmo valor`,
-            });
-            stats.review++;
+              resolved = true;
+            } catch { stats.errors++; resolved = true; }
           }
+        }
+
+        // Tiebreaker 3: Chave PIX
+        if (!resolved) {
+          const txPix = (ext.chave_pix ?? "").trim().toLowerCase();
+          if (txPix) {
+            const withPix = colliding.filter(c => {
+              const gcId = isDebito ? c.fin.fornecedor_gc_id : null;
+              const fPix = gcId ? (fornPix[gcId] ?? "").trim().toLowerCase() : "";
+              return fPix && fPix === txPix;
+            });
+
+            if (withPix.length === 1) {
+              try {
+                await vincular(supabase, ext, withPix[0], [...withPix[0].reasons, "Desempate Chave PIX"]);
+                usedIds.add(withPix[0].fin.id);
+                stats.auto++;
+                resolved = true;
+              } catch { stats.errors++; resolved = true; }
+            }
+          }
+        }
+
+        if (!resolved) {
+          // Unresolved collision → review
+          reviewItems.push({
+            extrato_id: ext.id,
+            descricao_extrato: ext.descricao,
+            contrapartida: ext.contrapartida ?? "",
+            valor: ext.valor,
+            candidatos: colliding.map(c => ({
+              id: c.fin.id, valor: c.fin.valor, descricao: c.fin.descricao,
+              nome: c.fin.nome_fornecedor ?? c.fin.nome_cliente ?? "—",
+              score: c.score, reasons: c.reasons,
+            })),
+            motivo: `Colisão: ${colliding.length} lançamentos mesmo valor`,
+          });
+          stats.review++;
         }
         continue;
       }
@@ -287,14 +346,32 @@ async function vincular(supabase: any, ext: any, match: ScoredMatch, reasons: st
   const table = match.tipo === "pagar" ? "fin_pagamentos" : "fin_recebimentos";
   const now = new Date().toISOString();
 
-  // Apenas vincula extrato ao lançamento — NÃO altera status de pagamento/liquidação
-  // Baixa no GC será feita manualmente quando o sistema estiver 100%
-  await supabase.from("fin_extrato_inter").update({
+  // 1. Marcar extrato como reconciliado
+  const { error: extErr } = await supabase.from("fin_extrato_inter").update({
     reconciliado: true,
     lancamento_id: match.fin.id,
     reconciliado_em: now,
   }).eq("id", ext.id);
 
+  if (extErr) throw new Error(`Erro ao atualizar extrato: ${extErr.message}`);
+
+  // 2. Marcar lançamento como pago pelo sistema (NÃO faz baixa no GC)
+  const { error: finErr } = await supabase.from(table).update({
+    pago_sistema: true,
+    pago_sistema_em: now,
+  }).eq("id", match.fin.id);
+
+  if (finErr) {
+    // Rollback extrato
+    await supabase.from("fin_extrato_inter").update({
+      reconciliado: false,
+      lancamento_id: null,
+      reconciliado_em: null,
+    }).eq("id", ext.id);
+    throw new Error(`Erro ao atualizar lançamento: ${finErr.message}`);
+  }
+
+  // 3. Log
   await supabase.from("fin_sync_log").insert({
     tipo: "conciliacao_auto",
     referencia_id: ext.id,
