@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,12 +21,12 @@ export default function ConciliacaoHistoricoPage() {
     queryKey: ["conciliacao-historico"],
     queryFn: async () => {
       const { data } = await supabase
-        .from("fin_extrato_inter")
+        .from("vw_conciliacao_extrato" as any)
         .select("*")
         .eq("reconciliado", true)
         .order("reconciliado_em", { ascending: false })
         .limit(500);
-      return data || [];
+      return (data as any[]) || [];
     },
   });
 
@@ -153,8 +154,8 @@ export default function ConciliacaoHistoricoPage() {
   });
 
   // Stats
-  const totalCredito = filtered.filter((i: any) => i.tipo === "CREDITO").reduce((s: number, i: any) => s + Math.abs(Number(i.valor)), 0);
-  const totalDebito = filtered.filter((i: any) => i.tipo === "DEBITO").reduce((s: number, i: any) => s + Math.abs(Number(i.valor)), 0);
+  const totalCredito = filtered.filter((i: any) => i.tipo === "CREDITO").reduce((s: number, i: any) => s + Math.abs(Number(i.valor_extrato ?? i.valor)), 0);
+  const totalDebito = filtered.filter((i: any) => i.tipo === "DEBITO").reduce((s: number, i: any) => s + Math.abs(Number(i.valor_extrato ?? i.valor)), 0);
 
   return (
     <div className="space-y-6">
@@ -251,15 +252,18 @@ export default function ConciliacaoHistoricoPage() {
               {filtered.map((item: any) => {
                 const lanc = getLancamento(item);
                 const grupo = getGrupo(item);
-                const lancValor = lanc ? Number(lanc.valor) : grupo ? Number(grupo.valor_total) : null;
-                const diff = lancValor !== null ? Math.abs(Math.abs(Number(item.valor)) - lancValor) : null;
+                const valorGc = item.valor_gc != null ? Number(item.valor_gc) : (lanc ? Number(lanc.valor) : grupo ? Number(grupo.valor_total) : null);
+                const diff = item.diferenca != null ? Number(item.diferenca) : (valorGc !== null ? Math.abs(Math.abs(Number(item.valor_extrato ?? item.valor)) - valorGc) : null);
+                const isExato = item.exato != null ? item.exato : (diff !== null && diff <= 0.02);
+                const qtdParcelas = item.qtd_parcelas != null ? Number(item.qtd_parcelas) : null;
                 const log = logByRef[item.id];
                 const score = log?.payload?.score;
                 const reasons = log?.payload?.reasons;
                 const metodo = log?.tipo === "conciliacao_auto" ? "Auto" : log?.tipo?.includes("webhook") ? "Webhook" : "Manual";
+                const valorExtrato = item.valor_extrato != null ? item.valor_extrato : item.valor;
 
                 return (
-                  <tr key={item.id} className="border-b border-border/50 hover:bg-muted/20 cursor-pointer" onClick={() => setDetail({ item, lanc, grupo, log, score, reasons, metodo })}>
+                  <tr key={item.id} className="border-b border-border/50 hover:bg-muted/20 cursor-pointer" onClick={() => setDetail({ item, lanc, grupo, log, score, reasons, metodo, valorGc, diff, isExato, qtdParcelas })}>
                     <td className="px-3 py-2.5">
                       <Badge variant="outline" className={`text-[10px] ${item.tipo === "CREDITO" ? "text-wedo-green" : "text-wedo-red"}`}>
                         {item.tipo}
@@ -270,7 +274,7 @@ export default function ConciliacaoHistoricoPage() {
                       {item.chave_pix && <p className="text-[10px] text-muted-foreground">PIX: {item.chave_pix}</p>}
                     </td>
                     <td className="px-3 py-2.5 text-muted-foreground text-[11px] font-mono">{item.cpf_cnpj || "—"}</td>
-                    <td className="px-3 py-2.5 text-right font-semibold">{formatCurrency(Math.abs(Number(item.valor)))}</td>
+                    <td className="px-3 py-2.5 text-right font-semibold">{formatCurrency(Math.abs(Number(valorExtrato)))}</td>
                     <td className="px-3 py-2.5">
                       {lanc && (
                         <div>
@@ -291,13 +295,26 @@ export default function ConciliacaoHistoricoPage() {
                       {!lanc && !grupo && <span className="text-xs text-muted-foreground">—</span>}
                     </td>
                     <td className="px-3 py-2.5 text-right text-xs">
-                      {lancValor !== null ? formatCurrency(lancValor) : "—"}
+                      {valorGc !== null ? formatCurrency(valorGc) : "—"}
                     </td>
                     <td className="px-3 py-2.5">
                       {diff !== null && (
-                        <Badge variant={diff <= 0.01 ? "default" : "destructive"} className="text-[10px]">
-                          {diff <= 0.01 ? "✓ Exato" : formatCurrency(diff)}
-                        </Badge>
+                        qtdParcelas != null && qtdParcelas > 1 ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge variant={isExato ? "default" : "destructive"} className="text-[10px] cursor-help">
+                                {isExato ? "✓ Exato" : formatCurrency(diff)}
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p className="text-xs">{qtdParcelas} parcelas — total GC {formatCurrency(valorGc ?? 0)}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <Badge variant={isExato ? "default" : "destructive"} className="text-[10px]">
+                            {isExato ? "✓ Exato" : formatCurrency(diff)}
+                          </Badge>
+                        )
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-[11px] text-muted-foreground whitespace-nowrap">
@@ -349,7 +366,7 @@ export default function ConciliacaoHistoricoPage() {
                 </h4>
                 <div className="grid grid-cols-2 gap-2">
                   <Field label="Tipo" value={detail.item.tipo} />
-                  <Field label="Valor" value={formatCurrency(Math.abs(Number(detail.item.valor)))} className="font-semibold" />
+                  <Field label="Valor" value={formatCurrency(Math.abs(Number(detail.item.valor_extrato ?? detail.item.valor)))} className="font-semibold" />
                   <Field label="Contrapartida" value={detail.item.contrapartida} />
                   <Field label="CPF/CNPJ" value={detail.item.cpf_cnpj} mono />
                   <Field label="Chave PIX" value={detail.item.chave_pix} mono />
@@ -412,12 +429,12 @@ export default function ConciliacaoHistoricoPage() {
               </div>
 
               {/* Diferença */}
-              {detail.lanc && (
-                <div className={`rounded-md p-3 text-xs flex items-center gap-2 ${Math.abs(Math.abs(Number(detail.item.valor)) - Number(detail.lanc.valor)) <= 0.01 ? "bg-wedo-green/10 text-wedo-green" : "bg-wedo-orange/10 text-wedo-orange"}`}>
+              {(detail.lanc || detail.valorGc != null) && (
+                <div className={`rounded-md p-3 text-xs flex items-center gap-2 ${detail.isExato ? "bg-wedo-green/10 text-wedo-green" : "bg-wedo-orange/10 text-wedo-orange"}`}>
                   <CheckCircle className="h-4 w-4" />
-                  {Math.abs(Math.abs(Number(detail.item.valor)) - Number(detail.lanc.valor)) <= 0.01
-                    ? "Valores idênticos — match exato"
-                    : `Diferença de ${formatCurrency(Math.abs(Math.abs(Number(detail.item.valor)) - Number(detail.lanc.valor)))}`
+                  {detail.isExato
+                    ? `Valores idênticos — match exato${detail.qtdParcelas > 1 ? ` (${detail.qtdParcelas} parcelas)` : ""}`
+                    : `Diferença de ${formatCurrency(detail.diff)}${detail.qtdParcelas > 1 ? ` (${detail.qtdParcelas} parcelas, total GC ${formatCurrency(detail.valorGc)})` : ""}`
                   }
                 </div>
               )}
