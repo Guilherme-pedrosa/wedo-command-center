@@ -85,6 +85,54 @@ serve(async (req) => {
       responseData = responseText;
     }
 
+    // ── ENRIQUECIMENTO DE CNPJ para contas a pagar ──
+    if (
+      method.toUpperCase() === "GET" &&
+      (endpoint.includes("contasapagar") ||
+       endpoint.includes("contas_a_pagar") ||
+       endpoint.includes("financeiro"))
+    ) {
+      try {
+        const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+        const supabase = createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+        );
+
+        const lista: any[] = Array.isArray(responseData)
+          ? responseData
+          : (responseData as any)?.data ?? [];
+
+        for (const item of lista) {
+          const codigoGc = item.codigo ?? item.id;
+          const contatoId = item.contato_id ?? item.fornecedor_id ?? item.cliente_id;
+          if (!codigoGc || !contatoId) continue;
+
+          const contatoResp = await rateLimitedFetch(
+            `${GC_BASE_URL}/contatos/${contatoId}`,
+            { headers: gcHeaders }
+          ).then(r => r.json()).catch(() => null);
+
+          const cnpjRaw = contatoResp?.cnpj ?? contatoResp?.cpf_cnpj ?? contatoResp?.cpf ?? null;
+          if (!cnpjRaw) continue;
+
+          const cnpj = String(cnpjRaw).replace(/\D/g, "");
+          if (cnpj.length < 11) continue;
+
+          await supabase
+            .from("fin_pagamentos")
+            .update({ recipient_document: cnpj })
+            .eq("gc_codigo", String(codigoGc))
+            .is("recipient_document", null)
+            .then(({ error }: any) => {
+              if (error) console.error(`[gc-proxy] Erro enriquecer ${codigoGc}:`, error.message);
+            });
+        }
+      } catch (enrichErr: any) {
+        console.error("[gc-proxy] Erro no enriquecimento CNPJ:", enrichErr.message);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         status: response.status,
