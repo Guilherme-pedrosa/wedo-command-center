@@ -84,12 +84,33 @@ serve(async (req) => {
 
         const chavePix = det.chavePixRecebedor ?? det.chavePixBeneficiario ?? det.chavePixPagador ?? det.chave ?? null;
 
-        // Build unique ID for upsert dedup
-        const endToEndId =
-          det.endToEndId ?? tx.endToEndId ?? tx.codigoTransacao ?? `${tx.dataEntrada}-${tx.valor}-${tipo}`;
-
         const valor = Math.abs(parseFloat(String(tx.valor ?? "0").replace(",", ".")));
         const dataHora = tx.dataInclusao ?? tx.dataEntrada ?? tx.dataMovimento ?? now.toISOString();
+
+        // Build unique ID for upsert dedup
+        const realEndToEndId = det.endToEndId ?? tx.endToEndId ?? tx.codigoTransacao ?? null;
+        
+        // If no real end_to_end_id, check if a record already exists for same value+date+type
+        // This prevents phantoms when webhook already inserted the real transaction
+        if (!realEndToEndId) {
+          const dateOnly = String(dataHora).substring(0, 10);
+          const { data: existing } = await supabase
+            .from("fin_extrato_inter")
+            .select("id")
+            .eq("valor", valor)
+            .eq("tipo", tipo)
+            .gte("data_hora", `${dateOnly}T00:00:00`)
+            .lte("data_hora", `${dateOnly}T23:59:59`)
+            .limit(1);
+          
+          if (existing && existing.length > 0) {
+            console.log(`[inter-extrato] Skipping duplicate (val=${valor}, date=${dateOnly}, tipo=${tipo})`);
+            skipped++;
+            continue;
+          }
+        }
+
+        const endToEndId = realEndToEndId ?? `${String(dataHora).substring(0, 10)}-${valor}-${tipo}`;
 
         const record = {
           end_to_end_id: endToEndId,
