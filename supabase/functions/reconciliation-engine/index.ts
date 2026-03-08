@@ -201,6 +201,7 @@ function aplicarRegras(
 
 async function vincular(supabase: any, ext: any, match: Candidato, rule: string) {
   const table = match.tipo === "pagar" ? "fin_pagamentos" : "fin_recebimentos";
+  const tabela = match.tipo === "pagar" ? "pagamentos" : "recebimentos";
   const now = new Date().toISOString();
 
   // 1. Marcar extrato como reconciliado
@@ -231,6 +232,15 @@ async function vincular(supabase: any, ext: any, match: Candidato, rule: string)
     throw new Error(`Erro ao atualizar lançamento: ${finErr.message}`);
   }
 
+  // 2.5 — Registrar em fin_extrato_lancamentos (valor_alocado = valor do extrato)
+  await supabase.from("fin_extrato_lancamentos").upsert({
+    extrato_id: ext.id,
+    lancamento_id: match.fin.id,
+    tabela,
+    valor_alocado: Math.abs(Number(ext.valor)),
+    reconciliation_rule: rule,
+  }, { onConflict: "extrato_id,lancamento_id,tabela" });
+
   // 3. Log
   await supabase.from("fin_sync_log").insert({
     tipo: "conciliacao_auto",
@@ -243,6 +253,9 @@ async function vincular(supabase: any, ext: any, match: Candidato, rule: string)
 // Vincula extrato a lançamento JÁ PAGO — apenas rastreabilidade, sem alterar o lançamento
 async function vincularRastreabilidade(supabase: any, ext: any, lancamentoId: string, rule: string) {
   const now = new Date().toISOString();
+  const isDebito = ext.tipo === "DEBITO";
+  const tabela = isDebito ? "pagamentos" : "recebimentos";
+
   const { error } = await supabase.from("fin_extrato_inter").update({
     reconciliado: true,
     lancamento_id: lancamentoId,
@@ -251,6 +264,15 @@ async function vincularRastreabilidade(supabase: any, ext: any, lancamentoId: st
   }).eq("id", ext.id);
 
   if (error) throw new Error(`Erro rastreabilidade: ${error.message}`);
+
+  // Registrar em fin_extrato_lancamentos
+  await supabase.from("fin_extrato_lancamentos").upsert({
+    extrato_id: ext.id,
+    lancamento_id: lancamentoId,
+    tabela,
+    valor_alocado: Math.abs(Number(ext.valor)),
+    reconciliation_rule: rule,
+  }, { onConflict: "extrato_id,lancamento_id,tabela" });
 
   await supabase.from("fin_sync_log").insert({
     tipo: "conciliacao_rastreabilidade",
