@@ -35,11 +35,12 @@ serve(async (req) => {
       Authorization: `Bearer ${serviceKey}`,
     };
 
-    // Try multiple endpoints — v2/extrato is the most widely supported
+    // Try enriched endpoint first (has counterparty names), then fallback
     const endpoints = [
-      `/banking/v2/extrato?dataInicio=${dataInicio}&dataFim=${dataFim}`,
       `/banking/v3/extrato/enriquecido?dataInicio=${dataInicio}&dataFim=${dataFim}`,
+      `/banking/v3/extrato?dataInicio=${dataInicio}&dataFim=${dataFim}&pagina=0&tamanhoPagina=500`,
       `/banking/v2/extrato/completo?dataInicio=${dataInicio}&dataFim=${dataFim}`,
+      `/banking/v2/extrato?dataInicio=${dataInicio}&dataFim=${dataFim}`,
     ];
 
     let proxyData: any = null;
@@ -55,11 +56,14 @@ serve(async (req) => {
 
       const data = await res.json();
 
-      // Check for 404 or error — try next endpoint
-      const is404 = (data.raw && typeof data.raw === "string" && data.raw.includes("404")) ||
-                     (typeof data === "string" && data.includes("404"));
+      // Check for 404/403 or error — try next endpoint
+      const is404 =
+        res.status === 404 ||
+        res.status === 403 ||
+        (data.raw && typeof data.raw === "string" && (data.raw.includes("404") || data.raw.includes("403"))) ||
+        (typeof data === "string" && (data.includes("404") || data.includes("403")));
       if (is404) {
-        console.log(`[inter-extrato] ${ep} → 404, tentando próximo...`);
+        console.log(`[inter-extrato] ${ep} → ${res.status}, tentando próximo...`);
         continue;
       }
       if (data.error) {
@@ -194,22 +198,40 @@ serve(async (req) => {
 
         const endToEndId = realEndToEndId ?? `${String(dataHora).substring(0, 10)}-${valor}-${tipo}`;
 
-        const record = {
+        // Títulos genéricos que NÃO devem ser usados como nome de contraparte
+        const TITULOS_GENERICOS = new Set([
+          "pix enviado", "pix recebido", "transferência", "transferencia",
+          "ted enviado", "ted recebido", "doc enviado", "doc recebido",
+          "tarifa", "taxa", "iof", "pagamento", "recebimento",
+        ]);
+
+        const nomeContraparteValido =
+          nomeContraparte &&
+          !TITULOS_GENERICOS.has(nomeContraparte.toLowerCase().trim())
+            ? nomeContraparte
+            : null;
+
+        const record: any = {
           end_to_end_id: endToEndId,
           tipo,
           tipo_transacao: tx.tipoTransacao ?? null,
           valor,
           data_hora: dataHora,
           descricao: tx.titulo ?? tx.descricao ?? tx.historico ?? null,
-          contrapartida: nomeContraparte ?? tx.titulo ?? null,
-          nome_contraparte: nomeContraparte ?? null,
-          cpf_cnpj: cpfCnpj,
-          chave_pix: chavePix,
-          codigo_barras: codigoBarras,
           payload_raw: tx,
         };
 
-        // BUG E1 FIX: ignoreDuplicates: false → atualiza dados enriquecidos
+        // Só incluir campos de enriquecimento se tiverem valor real
+        // Campos ausentes (undefined) → Supabase NÃO sobrescreve o valor existente
+        if (nomeContraparteValido) {
+          record.nome_contraparte = nomeContraparteValido;
+          record.contrapartida = nomeContraparteValido;
+        }
+        if (cpfCnpj) record.cpf_cnpj = cpfCnpj;
+        if (chavePix) record.chave_pix = chavePix;
+        if (codigoBarras) record.codigo_barras = codigoBarras;
+
+        // upsert — campos ausentes do objeto NÃO sobrescrevem valores existentes
         const { error: upsertErr } = await supabase
           .from("fin_extrato_inter")
           .upsert(record, { onConflict: "end_to_end_id", ignoreDuplicates: false });
