@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatTimeAgo, formatDate } from "@/lib/format";
-import { syncRecebimentosGC, syncPagamentosGC } from "@/api/financeiro";
+import { syncRecebimentosGC, syncPagamentosGC, syncFornecedoresGC, syncClientesGC } from "@/api/financeiro";
 import {
   Receipt, AlertTriangle, CheckCircle, CreditCard, RefreshCw,
   TrendingUp, Loader2, ArrowRight, Zap, FileWarning, Eye,
@@ -110,8 +110,10 @@ export default function FinDashboardPage() {
   const handleSyncAll = async () => {
     setSyncing(true);
     try {
+      // Sync fornecedores/clientes first (needed for reconciliation CPF matching)
+      const [f, c] = await Promise.all([syncFornecedoresGC(), syncClientesGC()]);
       const [r, p] = await Promise.all([syncRecebimentosGC(), syncPagamentosGC()]);
-      toast.success(`Sync: ${r.importados} recebimentos, ${p.importados} pagamentos`);
+      toast.success(`Sync: ${r.importados} recebimentos, ${p.importados} pagamentos, ${f.importados} fornecedores, ${c.importados} clientes`);
       queryClient.invalidateQueries({ queryKey: ["fin-dash"] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao sincronizar");
