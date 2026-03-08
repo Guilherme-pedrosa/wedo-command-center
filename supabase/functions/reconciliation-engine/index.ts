@@ -463,7 +463,10 @@ serve(async (req) => {
           const nomeMatch = extNomeCheck && nomeSimilar(extNomeCheck, candidatoUnico.nome);
           const dateWindow = nomeMatch ? 10 : 5;
 
-          if (finDate && extDate && dataProxima(extDate, finDate, dateWindow)) {
+          // If extract has a name and it doesn't match the candidate at all, skip to já-pagos
+          if (extNomeCheck && !nomeSimilar(extNomeCheck, candidatoUnico.nome, 0.2)) {
+            // Name mismatch — don't link to this candidate, fall through to já-pagos
+          } else if (finDate && extDate && dataProxima(extDate, finDate, dateWindow)) {
             try {
               await vincular(supabase, ext, candidatoUnico, nomeMatch ? "NOME_VALOR_EXATO" : "VALOR_UNICO");
               usedIds.add(candidatoUnico.fin.id);
