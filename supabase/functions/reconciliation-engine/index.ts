@@ -229,6 +229,7 @@ serve(async (req) => {
             reviewItems.push({
               extrato_id: ext.id,
               descricao_extrato: ext.descricao,
+              contrapartida: ext.contrapartida ?? "",
               valor: ext.valor,
               candidatos: colliding.map(c => ({
                 id: c.fin.id, valor: c.fin.valor, descricao: c.fin.descricao,
@@ -257,6 +258,7 @@ serve(async (req) => {
         reviewItems.push({
           extrato_id: ext.id,
           descricao_extrato: ext.descricao,
+          contrapartida: ext.contrapartida ?? "",
           valor: ext.valor,
           melhor: {
             id: best.fin.id, valor: best.fin.valor, descricao: best.fin.descricao,
