@@ -649,6 +649,107 @@ export async function syncPagamentosGC(
   return { importados, atualizados, erros };
 }
 
+// ─── Sync Fornecedores (GC → fin_fornecedores) ─────────────────────
+
+export async function syncFornecedoresGC(
+  onProgress?: (atual: number, total: number) => void
+): Promise<{ importados: number; erros: number }> {
+  const inicio = Date.now();
+  const raws = await fetchPaginatedGC<Record<string, any>>(
+    "/api/fornecedores",
+    {},
+    onProgress
+  );
+  let importados = 0;
+  let erros = 0;
+
+  const batchSize = 50;
+  for (let i = 0; i < raws.length; i += batchSize) {
+    const batch = raws.slice(i, i + batchSize).map((raw) => {
+      const cpfCnpj = (raw.cnpj || raw.cpf_cnpj || raw.cpf || "").replace(/\D/g, "") || null;
+      return {
+        gc_id: String(raw.id),
+        nome: raw.nome_fantasia || raw.razao_social || raw.nome || "Sem nome",
+        cpf_cnpj: cpfCnpj,
+        email: raw.email || null,
+        telefone: raw.telefone || raw.celular || null,
+        chave_pix: raw.chave_pix || null,
+        last_synced: new Date().toISOString(),
+      };
+    });
+
+    const { error } = await supabase
+      .from("fin_fornecedores" as any)
+      .upsert(batch, { onConflict: "gc_id" });
+
+    if (error) {
+      console.error("Upsert fornecedores error:", error);
+      erros += batch.length;
+    } else {
+      importados += batch.length;
+    }
+  }
+
+  await supabase.from("fin_sync_log" as any).insert({
+    tipo: "gc_import_fornecedores",
+    status: erros === 0 ? "success" : "partial",
+    resposta: { importados, erros, total: raws.length },
+    duracao_ms: Date.now() - inicio,
+  });
+
+  return { importados, erros };
+}
+
+// ─── Sync Clientes (GC → fin_clientes) ──────────────────────────────
+
+export async function syncClientesGC(
+  onProgress?: (atual: number, total: number) => void
+): Promise<{ importados: number; erros: number }> {
+  const inicio = Date.now();
+  const raws = await fetchPaginatedGC<Record<string, any>>(
+    "/api/clientes",
+    {},
+    onProgress
+  );
+  let importados = 0;
+  let erros = 0;
+
+  const batchSize = 50;
+  for (let i = 0; i < raws.length; i += batchSize) {
+    const batch = raws.slice(i, i + batchSize).map((raw) => {
+      const cpfCnpj = (raw.cnpj || raw.cpf_cnpj || raw.cpf || "").replace(/\D/g, "") || null;
+      return {
+        gc_id: String(raw.id),
+        nome: raw.nome_fantasia || raw.razao_social || raw.nome || "Sem nome",
+        cpf_cnpj: cpfCnpj,
+        email: raw.email || null,
+        telefone: raw.telefone || raw.celular || null,
+        last_synced: new Date().toISOString(),
+      };
+    });
+
+    const { error } = await supabase
+      .from("fin_clientes" as any)
+      .upsert(batch, { onConflict: "gc_id" });
+
+    if (error) {
+      console.error("Upsert clientes error:", error);
+      erros += batch.length;
+    } else {
+      importados += batch.length;
+    }
+  }
+
+  await supabase.from("fin_sync_log" as any).insert({
+    tipo: "gc_import_clientes",
+    status: erros === 0 ? "success" : "partial",
+    resposta: { importados, erros, total: raws.length },
+    duracao_ms: Date.now() - inicio,
+  });
+
+  return { importados, erros };
+}
+
 // ─── Inter: Gerar Cobrança PIX ──────────────────────────────────────
 
 export async function gerarCobrancaPix(grupoId: string): Promise<{
