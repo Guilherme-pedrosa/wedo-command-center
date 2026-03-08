@@ -488,16 +488,28 @@ serve(async (req) => {
 
           const extNomeRast = ext.nome_contraparte ?? ext.contrapartida ?? "";
 
+          const extDateRast = ext.data_hora?.substring(0, 10) ?? "";
+
+          // Filter out already-linked IDs
+          const poolDisponivel = poolJaPago.filter((fin: any) => !alreadyLinked.has(fin.id));
+
           // Tentar por CNPJ + valor exato
-          const matchJaPago = poolJaPago.find((fin: any) => {
+          const matchJaPago = poolDisponivel.find((fin: any) => {
             const gcId  = isDebitoExt ? fin.fornecedor_gc_id : fin.cliente_gc_id;
             const lkp   = isDebitoExt ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
             const finDoc = cleanDoc(fin.recipient_document) || lkp?.cpf_cnpj || "";
             return docMatches(extDoc, finDoc) && valorExato(extValor, Number(fin.valor));
-          }) ?? (extNomeRast ? poolJaPago.find((fin: any) => {
-            // Fallback: nome similar + valor exato (para TEDs/boletos sem CNPJ)
+          })
+          // Fallback 2: nome similar + valor exato (para TEDs/boletos sem CNPJ)
+          ?? (extNomeRast ? poolDisponivel.find((fin: any) => {
             const finNome = isDebitoExt ? fin.nome_fornecedor : fin.nome_cliente;
             return nomeSimilar(extNomeRast, finNome) && valorExato(extValor, Number(fin.valor));
+          }) : null)
+          // Fallback 3: valor exato + data ±30 dias (TEDs sem CNPJ e nome genérico)
+          // Seguro: valores altos raramente se repetem no mesmo período
+          ?? (!extDoc && extDateRast ? poolDisponivel.find((fin: any) => {
+            const finDate = fin.data_vencimento ?? fin.data_liquidacao;
+            return valorExato(extValor, Number(fin.valor)) && finDate && dataProxima(extDateRast, finDate, 30);
           }) : null);
 
           if (matchJaPago) {
