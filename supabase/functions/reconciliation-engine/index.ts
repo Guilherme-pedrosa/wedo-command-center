@@ -688,16 +688,47 @@ serve(async (req) => {
               });
             }
           } else {
-            stats.unmatched++;
-            unmatchedItems.push({
-              extrato_id: ext.id,
-              descricao_extrato: ext.descricao ?? "—",
-              contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
-              cpf_cnpj: ext.cpf_cnpj ?? "",
-              valor: ext.valor,
-              tipo: ext.tipo,
-              data_hora: ext.data_hora,
-            });
+            // Terceiro passo: tentar SOMA_PARCELAS em ambos os pools (pendentes + já pagos)
+            const extNomeSoma = ext.nome_contraparte ?? ext.contrapartida ?? "";
+            const extDocSoma = cleanDoc(ext.cpf_cnpj);
+            const extDateSoma = ext.data_hora?.substring(0, 10) ?? "";
+            const isDebitoSoma = ext.tipo === "DEBITO";
+            const allPool = [
+              ...(isDebitoSoma ? (pagamentos ?? []) : (recebimentos ?? [])),
+              ...(isDebitoSoma ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? [])),
+            ];
+
+            const somaResult = tentarSomaParcelas(
+              extValor, extDocSoma, extNomeSoma, extDateSoma,
+              allPool, isDebitoSoma, fornMap, cliMap, alreadyLinked, usedIds
+            );
+
+            if (somaResult) {
+              try {
+                await saveSomaParcelas(supabase, ext.id, somaResult.parcelas, somaResult.rule);
+                somaResult.parcelas.forEach(p => usedIds.add(p.id));
+                stats.auto++;
+              } catch (e) {
+                console.error("Erro soma parcelas:", (e as Error).message);
+                stats.errors++;
+                unmatchedItems.push({
+                  extrato_id: ext.id, descricao_extrato: ext.descricao ?? "—",
+                  contrapartida: extNomeSoma, cpf_cnpj: ext.cpf_cnpj ?? "",
+                  valor: ext.valor, tipo: ext.tipo, data_hora: ext.data_hora,
+                });
+              }
+            } else {
+              stats.unmatched++;
+              unmatchedItems.push({
+                extrato_id: ext.id,
+                descricao_extrato: ext.descricao ?? "—",
+                contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
+                cpf_cnpj: ext.cpf_cnpj ?? "",
+                valor: ext.valor,
+                tipo: ext.tipo,
+                data_hora: ext.data_hora,
+              });
+            }
           }
         }
       }
