@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
