@@ -59,6 +59,8 @@ type MatchRule =
   | "CNPJ_VALOR_TOLERANCIA"
   | "NOME_VALOR_EXATO"
   | "VALOR_DATA_EXATO"
+  | "VALOR_DATA_7DIAS"
+  | "VALOR_DATA_7DIAS_NOME"
   | "VALOR_UNICO";
 
 interface Candidato {
@@ -162,13 +164,31 @@ function aplicarRegras(
     if (matches.length === 1) return { rule: "NOME_VALOR_EXATO", candidato: matches[0], auto: true };
   }
 
-  // Regra 5: Valor exato + data ±3 dias → sugestão (review)
+  // Regra 5: Valor exato + data ±3 dias → auto
   if (extDate) {
     const matches = candidatos.filter(c => {
       const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
       return valorExato(extValor, Number(c.fin.valor)) && finDate && dataProxima(extDate, finDate, 3);
     });
     if (matches.length === 1) return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: true };
+  }
+
+  // Regra 6: Valor exato + data ±7 dias → fallback ampliado
+  if (extDate) {
+    const fallback7 = candidatos.filter(c => {
+      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
+      return valorExato(extValor, Number(c.fin.valor)) && finDate && dataProxima(extDate, finDate, 7);
+    });
+    if (fallback7.length === 1) return { rule: "VALOR_DATA_7DIAS", candidato: fallback7[0], auto: true };
+    if (fallback7.length > 1) {
+      // Desempate por nome
+      if (extNome) {
+        const comNome = fallback7.filter(c => nomeSimilar(extNome, c.nome, 0.6));
+        if (comNome.length === 1)
+          return { rule: "VALOR_DATA_7DIAS_NOME", candidato: comNome[0], auto: true };
+      }
+      return { rule: "VALOR_DATA_7DIAS" as MatchRule, candidato: fallback7[0], auto: false };
+    }
   }
 
   return { rule: null, candidato: null, auto: false };
@@ -279,13 +299,16 @@ serve(async (req) => {
     ]);
 
     // Pool secundário: lançamentos já pagos (para rastreabilidade retroativa)
+    const cutoff90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     const [{ data: pagamentosJaPagos }, { data: recebimentosJaPagos }] = await Promise.all([
       supabase.from("fin_pagamentos").select("id, valor, recipient_document, fornecedor_gc_id, nome_fornecedor, descricao, data_vencimento, data_liquidacao, gc_codigo")
         .eq("status", "pago")
-        .limit(1000),
+        .gte("data_vencimento", cutoff90)
+        .limit(2000),
       supabase.from("fin_recebimentos").select("id, valor, recipient_document, cliente_gc_id, nome_cliente, descricao, data_vencimento, data_liquidacao, gc_codigo")
         .eq("status", "pago")
-        .limit(1000),
+        .gte("data_vencimento", cutoff90)
+        .limit(2000),
     ]);
 
     // IDs já vinculados para evitar duplicatas
@@ -463,12 +486,19 @@ serve(async (req) => {
           const extDoc   = cleanDoc(ext.cpf_cnpj);
           const extValor = Math.abs(Number(ext.valor));
 
+          const extNomeRast = ext.nome_contraparte ?? ext.contrapartida ?? "";
+
+          // Tentar por CNPJ + valor exato
           const matchJaPago = poolJaPago.find((fin: any) => {
             const gcId  = isDebitoExt ? fin.fornecedor_gc_id : fin.cliente_gc_id;
             const lkp   = isDebitoExt ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
             const finDoc = cleanDoc(fin.recipient_document) || lkp?.cpf_cnpj || "";
             return docMatches(extDoc, finDoc) && valorExato(extValor, Number(fin.valor));
-          });
+          }) ?? (extNomeRast ? poolJaPago.find((fin: any) => {
+            // Fallback: nome similar + valor exato (para TEDs/boletos sem CNPJ)
+            const finNome = isDebitoExt ? fin.nome_fornecedor : fin.nome_cliente;
+            return nomeSimilar(extNomeRast, finNome) && valorExato(extValor, Number(fin.valor));
+          }) : null);
 
           if (matchJaPago) {
             try {
