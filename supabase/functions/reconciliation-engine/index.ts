@@ -390,13 +390,25 @@ serve(async (req) => {
       } else {
         // Check for collisions (multiple with same valor)
         const extValor = Math.abs(Number(ext.valor));
+        const extNomeCheck = ext.nome_contraparte ?? ext.contrapartida ?? "";
         const mesmoValor = candidatos.filter(c => valorExato(extValor, Number(c.fin.valor)));
 
-        if (mesmoValor.length > 1) {
+        // When extract has a name, filter out candidates with no name similarity
+        let candidatosEfetivos = mesmoValor;
+        if (extNomeCheck && mesmoValor.length > 1) {
+          const comNome = mesmoValor.filter(c => nomeSimilar(extNomeCheck, c.nome, 0.3));
+          if (comNome.length < mesmoValor.length) {
+            candidatosEfetivos = comNome;
+          }
+        }
+
+        let handledByPendentes = false;
+
+        if (candidatosEfetivos.length > 1) {
           // Try to resolve collision by document
           const extDoc = cleanDoc(ext.cpf_cnpj);
           if (extDoc) {
-            const withDoc = mesmoValor.filter(c => {
+            const withDoc = candidatosEfetivos.filter(c => {
               const fDocDirect = cleanDoc(c.fin.recipient_document);
               if (fDocDirect && docMatches(extDoc, fDocDirect)) return true;
               return c.doc && docMatches(extDoc, c.doc);
@@ -411,10 +423,9 @@ serve(async (req) => {
             }
           }
 
-          // Try to resolve collision by nome similar
-          const extNome = ext.nome_contraparte ?? ext.contrapartida ?? "";
-          if (extNome) {
-            const withNome = mesmoValor.filter(c => nomeSimilar(extNome, c.nome));
+          // Try to resolve collision by nome similar (stricter threshold)
+          if (extNomeCheck) {
+            const withNome = candidatosEfetivos.filter(c => nomeSimilar(extNomeCheck, c.nome));
             if (withNome.length === 1) {
               try {
                 await vincular(supabase, ext, withNome[0], "NOME_VALOR_EXATO");
@@ -425,62 +436,43 @@ serve(async (req) => {
             }
           }
 
-          // Filter collision candidates: discard those with no name similarity
-          // If extract has a name, only keep candidates whose name matches minimally
-          const extNomeColisao = ext.nome_contraparte ?? ext.contrapartida ?? "";
-          let candidatosValidos = mesmoValor;
-          if (extNomeColisao) {
-            candidatosValidos = mesmoValor.filter(c => nomeSimilar(extNomeColisao, c.nome, 0.3));
-          }
-
-          if (candidatosValidos.length === 0) {
-            // No valid collision candidates — fall through to já-pagos pool below
-            // (handled by mesmoValor.length === 0 equivalent path)
-          } else if (candidatosValidos.length === 1) {
-            // After filtering, single valid candidate — auto-link
-            try {
-              await vincular(supabase, ext, candidatosValidos[0], "NOME_VALOR_EXATO");
-              usedIds.add(candidatosValidos[0].fin.id);
-              stats.auto++;
-              continue;
-            } catch { stats.errors++; continue; }
-          } else {
-            // Real collision with 2+ name-matching candidates → review
-            reviewItems.push({
-              extrato_id: ext.id,
-              descricao_extrato: ext.descricao ?? "—",
-              contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
-              cpf_cnpj: ext.cpf_cnpj ?? "",
-              valor: ext.valor,
-              tipo: ext.tipo,
-              data_hora: ext.data_hora,
-              motivo: `Colisão real: ${candidatosValidos.length} lançamentos com mesmo valor e nome similar`,
-              candidatos: candidatosValidos.map(c => ({
-                id: c.fin.id,
-                valor: c.fin.valor,
-                descricao: c.fin.descricao,
-                nome: c.fin.nome_fornecedor ?? c.fin.nome_cliente ?? "—",
-                doc: c.doc,
-              })),
-            });
-            stats.review++;
-            continue;
-          }
-        } else if (mesmoValor.length === 1) {
-          // Valor único com data próxima → auto-baixar
-          const candidatoUnico = mesmoValor[0];
+          // Unresolved real collision → review
+          reviewItems.push({
+            extrato_id: ext.id,
+            descricao_extrato: ext.descricao ?? "—",
+            contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
+            cpf_cnpj: ext.cpf_cnpj ?? "",
+            valor: ext.valor,
+            tipo: ext.tipo,
+            data_hora: ext.data_hora,
+            motivo: `Colisão real: ${candidatosEfetivos.length} lançamentos com mesmo valor e nome similar`,
+            candidatos: candidatosEfetivos.map(c => ({
+              id: c.fin.id,
+              valor: c.fin.valor,
+              descricao: c.fin.descricao,
+              nome: c.fin.nome_fornecedor ?? c.fin.nome_cliente ?? "—",
+              doc: c.doc,
+            })),
+          });
+          stats.review++;
+          handledByPendentes = true;
+        } else if (candidatosEfetivos.length === 1) {
+          const candidatoUnico = candidatosEfetivos[0];
           const finDate = candidatoUnico.fin.data_vencimento ?? candidatoUnico.fin.data_emissao;
           const extDate = ext.data_hora?.substring(0, 10) ?? "";
+          const nomeMatch = extNomeCheck && nomeSimilar(extNomeCheck, candidatoUnico.nome);
+          const dateWindow = nomeMatch ? 10 : 5;
 
-          if (finDate && extDate && dataProxima(extDate, finDate, 5)) {
+          if (finDate && extDate && dataProxima(extDate, finDate, dateWindow)) {
             try {
-              await vincular(supabase, ext, candidatoUnico, "VALOR_UNICO");
+              await vincular(supabase, ext, candidatoUnico, nomeMatch ? "NOME_VALOR_EXATO" : "VALOR_UNICO");
               usedIds.add(candidatoUnico.fin.id);
               stats.auto++;
             } catch (e) {
               console.error(`Erro vincular valor único:`, (e as Error).message);
               stats.errors++;
             }
+            handledByPendentes = true;
           } else {
             reviewItems.push({
               extrato_id: ext.id,
@@ -500,8 +492,12 @@ serve(async (req) => {
               },
             });
             stats.review++;
+            handledByPendentes = true;
           }
-        } else {
+        }
+        // candidatosEfetivos === 0 → handledByPendentes stays false → fall to já-pagos
+
+        if (!handledByPendentes) {
           // Segundo passo: tentar rastreabilidade em lançamentos já pagos
           const isDebitoExt = ext.tipo === "DEBITO";
           const poolJaPago = isDebitoExt ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? []);
