@@ -17,21 +17,23 @@ serve(async (req) => {
   const supabase = createClient(supabaseUrl, serviceKey);
 
   const body = await req.json().catch(() => ({}));
-  const days = body.days ?? 7;
 
   const now = new Date();
-  const from = new Date(now.getTime() - days * 86400000);
-  const dataInicio = from.toISOString().substring(0, 10);
-  const dataFim = now.toISOString().substring(0, 10);
+  const dataFim = body.dataFim ?? body.dataFim ?? now.toISOString().substring(0, 10);
+  const dataInicio = body.dataInicio ?? (() => {
+    const days = body.days ?? 7;
+    const d = new Date(now.getTime() - days * 86400000);
+    return d.toISOString().substring(0, 10);
+  })();
 
   const startMs = Date.now();
 
   try {
-    // 1. Call inter-proxy to fetch enriched statement
+    // Call inter-proxy to fetch enriched statement (v3)
     const proxyUrl = `${supabaseUrl}/functions/v1/inter-proxy`;
-    const path = `/banking/v2/extrato/completo?dataInicio=${dataInicio}&dataFim=${dataFim}`;
+    const path = `/banking/v3/extrato/enriquecido?dataInicio=${dataInicio}&dataFim=${dataFim}`;
 
-    console.log(`[inter-extrato] Buscando extrato ${dataInicio} → ${dataFim}`);
+    console.log(`[inter-extrato] Buscando extrato enriquecido v3 ${dataInicio} → ${dataFim}`);
 
     const proxyRes = await fetch(proxyUrl, {
       method: "POST",
@@ -48,8 +50,8 @@ serve(async (req) => {
       throw new Error(`inter-proxy error: ${proxyData.error}`);
     }
 
-    // The Inter API returns { transacoes: [...] } or directly an array
-    const transacoes: any[] = proxyData.transacoes ?? proxyData ?? [];
+    // The Inter API v3 returns { transacoes: [...] } or directly an array
+    const transacoes: any[] = proxyData.transacoes ?? proxyData.resultado ?? proxyData ?? [];
 
     if (!Array.isArray(transacoes)) {
       console.log("[inter-extrato] Resposta inesperada:", JSON.stringify(proxyData).substring(0, 500));
@@ -64,34 +66,39 @@ serve(async (req) => {
 
     for (const tx of transacoes) {
       try {
-        // Determine transaction type
+        // v3 enriched fields
+        const detalhe = tx.detalhe ?? tx.detalhes ?? {};
+        const tipoOp = tx.tipoOperacao ?? "";
         const tipoTx = tx.tipoTransacao ?? tx.tipo ?? "";
+
         const isCredito =
+          tipoOp === "C" ||
           tipoTx.includes("CREDITO") ||
-          tipoTx.includes("C") ||
-          (tx.tipoOperacao ?? "").includes("C");
+          tipoTx.includes("C");
         const tipo = isCredito ? "CREDITO" : "DEBITO";
 
-        // Extract counterpart info from detalhes (enriched data)
-        const det = tx.detalhes ?? tx.detalhe ?? {};
-        const cpfCnpj = isCredito
-          ? det.cpfCnpjPagador ?? det.cpfCnpjRemetente ?? tx.cpfCnpjContraparte ?? null
-          : det.cpfCnpjRecebedor ?? det.cpfCnpjBeneficiario ?? det.cpfCnpjDestinatario ?? tx.cpfCnpjContraparte ?? null;
+        // Extract CPF/CNPJ from enriched detalhe
+        const cpfCnpjRaw = isCredito
+          ? (detalhe.cpfCnpjPagador ?? detalhe.cpfCnpjRemetente ?? detalhe.cpfCnpj ?? tx.cpfCnpjContraparte)
+          : (detalhe.cpfCnpjBeneficiario ?? detalhe.cpfCnpjRecebedor ?? detalhe.cpfCnpjDestinatario ?? detalhe.cpfCnpj ?? tx.cpfCnpjContraparte);
+        const cpfCnpj = cpfCnpjRaw ? String(cpfCnpjRaw).replace(/\D/g, "") : null;
 
+        // Extract counterparty name from enriched detalhe
         const nomeContraparte = isCredito
-          ? det.nomePagador ?? det.nomeRemetente ?? tx.nomeContraparte ?? null
-          : det.nomeRecebedor ?? det.nomeBeneficiario ?? det.nomeDestinatario ?? tx.nomeContraparte ?? null;
+          ? (detalhe.nomePagador ?? detalhe.nomeRemetente ?? detalhe.nome ?? tx.nomeContraparte)
+          : (detalhe.nomeBeneficiario ?? detalhe.nomeRecebedor ?? detalhe.nomeDestinatario ?? detalhe.nome ?? tx.nomeContraparte);
 
-        const chavePix = det.chavePixRecebedor ?? det.chavePixBeneficiario ?? det.chavePixPagador ?? det.chave ?? null;
+        const chavePix = detalhe.chavePixRecebedor ?? detalhe.chavePixBeneficiario ?? detalhe.chavePixPagador ?? detalhe.chave ?? null;
+        const codigoBarras = detalhe.codigoBarras ?? null;
+
+        // Real unique ID (endToEndId for PIX, codigoBarras for boleto)
+        const realEndToEndId =
+          detalhe.endToEndId ?? tx.endToEndId ?? tx.codigoTransacao ?? codigoBarras ?? null;
 
         const valor = Math.abs(parseFloat(String(tx.valor ?? "0").replace(",", ".")));
-        const dataHora = tx.dataInclusao ?? tx.dataEntrada ?? tx.dataMovimento ?? now.toISOString();
+        const dataHora = tx.dataHora ?? tx.dataInclusao ?? tx.dataEntrada ?? tx.dataMovimento ?? now.toISOString();
 
-        // Build unique ID for upsert dedup
-        const realEndToEndId = det.endToEndId ?? tx.endToEndId ?? tx.codigoTransacao ?? null;
-        
-        // If no real end_to_end_id, check if a record already exists for same value+date+type
-        // This prevents phantoms when webhook already inserted the real transaction
+        // If no real ID, check if record already exists for same value+date+type (dedup against webhook)
         if (!realEndToEndId) {
           const dateOnly = String(dataHora).substring(0, 10);
           const { data: existing } = await supabase
@@ -102,9 +109,8 @@ serve(async (req) => {
             .gte("data_hora", `${dateOnly}T00:00:00`)
             .lte("data_hora", `${dateOnly}T23:59:59`)
             .limit(1);
-          
+
           if (existing && existing.length > 0) {
-            console.log(`[inter-extrato] Skipping duplicate (val=${valor}, date=${dateOnly}, tipo=${tipo})`);
             skipped++;
             continue;
           }
@@ -115,12 +121,15 @@ serve(async (req) => {
         const record = {
           end_to_end_id: endToEndId,
           tipo,
+          tipo_transacao: tx.tipoTransacao ?? null,
           valor,
           data_hora: dataHora,
           descricao: tx.titulo ?? tx.descricao ?? tx.historico ?? null,
           contrapartida: nomeContraparte ?? tx.titulo ?? null,
-          cpf_cnpj: cpfCnpj ? String(cpfCnpj).replace(/\D/g, "") : null,
+          nome_contraparte: nomeContraparte ?? null,
+          cpf_cnpj: cpfCnpj,
           chave_pix: chavePix,
+          codigo_barras: codigoBarras,
           payload_raw: tx,
         };
 
@@ -147,11 +156,11 @@ serve(async (req) => {
       tipo: "inter_extrato_sync",
       status: errors > 0 ? "partial" : "success",
       duracao_ms: duracao,
-      payload: { days, dataInicio, dataFim },
+      payload: { dataInicio, dataFim },
       resposta: { total: transacoes.length, inserted, skipped, errors },
     });
 
-    // 2. Trigger reconciliation engine
+    // Trigger reconciliation engine
     console.log("[inter-extrato] Disparando reconciliation-engine...");
     const reconRes = await fetch(`${supabaseUrl}/functions/v1/reconciliation-engine`, {
       method: "POST",

@@ -639,6 +639,39 @@ export async function syncPagamentosGC(
     }
   }
 
+  // Backfill recipient_document from fin_fornecedores for records missing it
+  try {
+    const { data: fornecedores } = await supabase
+      .from("fin_fornecedores" as any)
+      .select("gc_id, cpf_cnpj")
+      .not("cpf_cnpj", "is", null) as any;
+
+    if (fornecedores?.length) {
+      const fornMap: Record<string, string> = {};
+      for (const f of fornecedores as any[]) {
+        if (f.cpf_cnpj) fornMap[f.gc_id] = f.cpf_cnpj;
+      }
+
+      const { data: missing } = await supabase
+        .from("fin_pagamentos" as any)
+        .select("id, fornecedor_gc_id")
+        .is("recipient_document" as any, null)
+        .not("fornecedor_gc_id", "is", null)
+        .limit(500) as any;
+
+      for (const p of (missing ?? []) as any[]) {
+        const doc = fornMap[p.fornecedor_gc_id];
+        if (doc) {
+          await supabase.from("fin_pagamentos" as any)
+            .update({ recipient_document: doc } as any)
+            .eq("id", p.id);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Backfill recipient_document error:", e);
+  }
+
   await supabase.from("fin_sync_log" as any).insert({
     tipo: "gc_import_pagamentos",
     status: erros === 0 ? "success" : "partial",

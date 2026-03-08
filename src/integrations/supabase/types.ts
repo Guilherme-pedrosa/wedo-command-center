@@ -276,6 +276,7 @@ export type Database = {
         Row: {
           agenda_id: string | null
           chave_pix: string | null
+          codigo_barras: string | null
           contrapartida: string | null
           cpf_cnpj: string | null
           created_at: string | null
@@ -286,15 +287,19 @@ export type Database = {
           grupo_receber_id: string | null
           id: string
           lancamento_id: string | null
+          nome_contraparte: string | null
           payload_raw: Json | null
           reconciliado: boolean | null
           reconciliado_em: string | null
+          reconciliation_rule: string | null
           tipo: string | null
+          tipo_transacao: string | null
           valor: number | null
         }
         Insert: {
           agenda_id?: string | null
           chave_pix?: string | null
+          codigo_barras?: string | null
           contrapartida?: string | null
           cpf_cnpj?: string | null
           created_at?: string | null
@@ -305,15 +310,19 @@ export type Database = {
           grupo_receber_id?: string | null
           id?: string
           lancamento_id?: string | null
+          nome_contraparte?: string | null
           payload_raw?: Json | null
           reconciliado?: boolean | null
           reconciliado_em?: string | null
+          reconciliation_rule?: string | null
           tipo?: string | null
+          tipo_transacao?: string | null
           valor?: number | null
         }
         Update: {
           agenda_id?: string | null
           chave_pix?: string | null
+          codigo_barras?: string | null
           contrapartida?: string | null
           cpf_cnpj?: string | null
           created_at?: string | null
@@ -324,10 +333,13 @@ export type Database = {
           grupo_receber_id?: string | null
           id?: string
           lancamento_id?: string | null
+          nome_contraparte?: string | null
           payload_raw?: Json | null
           reconciliado?: boolean | null
           reconciliado_em?: string | null
+          reconciliation_rule?: string | null
           tipo?: string | null
+          tipo_transacao?: string | null
           valor?: number | null
         }
         Relationships: [
@@ -766,6 +778,7 @@ export type Database = {
           pago_sistema: boolean | null
           pago_sistema_em: string | null
           plano_contas_id: string | null
+          recipient_document: string | null
           recorrencia: Database["public"]["Enums"]["fin_recorrencia"] | null
           recorrencia_pai_id: string | null
           status: Database["public"]["Enums"]["fin_status_lancamento"] | null
@@ -803,6 +816,7 @@ export type Database = {
           pago_sistema?: boolean | null
           pago_sistema_em?: string | null
           plano_contas_id?: string | null
+          recipient_document?: string | null
           recorrencia?: Database["public"]["Enums"]["fin_recorrencia"] | null
           recorrencia_pai_id?: string | null
           status?: Database["public"]["Enums"]["fin_status_lancamento"] | null
@@ -840,6 +854,7 @@ export type Database = {
           pago_sistema?: boolean | null
           pago_sistema_em?: string | null
           plano_contas_id?: string | null
+          recipient_document?: string | null
           recorrencia?: Database["public"]["Enums"]["fin_recorrencia"] | null
           recorrencia_pai_id?: string | null
           status?: Database["public"]["Enums"]["fin_status_lancamento"] | null
@@ -967,6 +982,7 @@ export type Database = {
           pago_sistema: boolean | null
           pago_sistema_em: string | null
           plano_contas_id: string | null
+          recipient_document: string | null
           recorrencia: Database["public"]["Enums"]["fin_recorrencia"] | null
           recorrencia_pai_id: string | null
           status: Database["public"]["Enums"]["fin_status_lancamento"] | null
@@ -1004,6 +1020,7 @@ export type Database = {
           pago_sistema?: boolean | null
           pago_sistema_em?: string | null
           plano_contas_id?: string | null
+          recipient_document?: string | null
           recorrencia?: Database["public"]["Enums"]["fin_recorrencia"] | null
           recorrencia_pai_id?: string | null
           status?: Database["public"]["Enums"]["fin_status_lancamento"] | null
@@ -1041,6 +1058,7 @@ export type Database = {
           pago_sistema?: boolean | null
           pago_sistema_em?: string | null
           plano_contas_id?: string | null
+          recipient_document?: string | null
           recorrencia?: Database["public"]["Enums"]["fin_recorrencia"] | null
           recorrencia_pai_id?: string | null
           status?: Database["public"]["Enums"]["fin_status_lancamento"] | null
