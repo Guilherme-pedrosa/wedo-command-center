@@ -285,17 +285,13 @@ async function vincular(supabase: any, ext: any, match: ScoredMatch, reasons: st
   const table = match.tipo === "pagar" ? "fin_pagamentos" : "fin_recebimentos";
   const now = new Date().toISOString();
 
-  await Promise.all([
-    supabase.from("fin_extrato_inter").update({
-      reconciliado: true,
-      lancamento_id: match.fin.id,
-      reconciliado_em: now,
-    }).eq("id", ext.id),
-    supabase.from(table).update({
-      pago_sistema: true,
-      pago_sistema_em: now,
-    }).eq("id", match.fin.id),
-  ]);
+  // Apenas vincula extrato ao lançamento — NÃO altera status de pagamento/liquidação
+  // Baixa no GC será feita manualmente quando o sistema estiver 100%
+  await supabase.from("fin_extrato_inter").update({
+    reconciliado: true,
+    lancamento_id: match.fin.id,
+    reconciliado_em: now,
+  }).eq("id", ext.id);
 
   await supabase.from("fin_sync_log").insert({
     tipo: "conciliacao_auto",
