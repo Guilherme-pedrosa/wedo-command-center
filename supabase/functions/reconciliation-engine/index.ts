@@ -486,12 +486,19 @@ serve(async (req) => {
           const extDoc   = cleanDoc(ext.cpf_cnpj);
           const extValor = Math.abs(Number(ext.valor));
 
+          const extNomeRast = ext.nome_contraparte ?? ext.contrapartida ?? "";
+
+          // Tentar por CNPJ + valor exato
           const matchJaPago = poolJaPago.find((fin: any) => {
             const gcId  = isDebitoExt ? fin.fornecedor_gc_id : fin.cliente_gc_id;
             const lkp   = isDebitoExt ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
             const finDoc = cleanDoc(fin.recipient_document) || lkp?.cpf_cnpj || "";
             return docMatches(extDoc, finDoc) && valorExato(extValor, Number(fin.valor));
-          });
+          }) ?? (extNomeRast ? poolJaPago.find((fin: any) => {
+            // Fallback: nome similar + valor exato (para TEDs/boletos sem CNPJ)
+            const finNome = isDebitoExt ? fin.nome_fornecedor : fin.nome_cliente;
+            return nomeSimilar(extNomeRast, finNome) && valorExato(extValor, Number(fin.valor));
+          }) : null);
 
           if (matchJaPago) {
             try {
