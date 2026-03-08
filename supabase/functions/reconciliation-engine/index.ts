@@ -6,17 +6,20 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// ─── Utilitários ────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// UTILITÁRIOS
+// ═══════════════════════════════════════════════════════════
 
 function cleanDoc(d: string | null | undefined): string {
   return (d ?? "").replace(/\D/g, "");
 }
 
 function docMatches(a: string | null | undefined, b: string | null | undefined): boolean {
-  const cleanA = cleanDoc(a);
-  const cleanB = cleanDoc(b);
-  if (cleanA.length < 8 || cleanB.length < 8) return false;
-  return cleanA === cleanB || cleanA.startsWith(cleanB) || cleanB.startsWith(cleanA);
+  const ca = cleanDoc(a);
+  const cb = cleanDoc(b);
+  if (ca.length < 8 || cb.length < 8) return false;
+  // Exact ou prefix-match (CNPJ raiz vs CNPJ completo)
+  return ca === cb || ca.startsWith(cb.substring(0, 8)) || cb.startsWith(ca.substring(0, 8));
 }
 
 function valorExato(a: number, b: number): boolean {
@@ -29,47 +32,86 @@ function valorTolerancia(a: number, b: number, pct = 2): boolean {
 }
 
 function dataProxima(a: string, b: string, dias = 3): boolean {
-  const da = new Date(a).getTime();
-  const db = new Date(b).getTime();
-  return Math.abs(da - db) <= dias * 86400000;
+  if (!a || !b) return false;
+  return Math.abs(new Date(a).getTime() - new Date(b).getTime()) <= dias * 86400000;
 }
 
-type MatchRule = "CNPJ_VALOR_EXATO" | "PIX_CHAVE_VALOR" | "CNPJ_VALOR_TOLERANCIA" | "VALOR_DATA_EXATO" | "SCORE_ALTO" | "VALOR_UNICO";
+// Similaridade de nome por palavras em comum (Jaccard simplificado)
+function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): boolean {
+  if (!a || !b) return false;
+  const normalize = (s: string) =>
+    s.toLowerCase()
+     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+     .replace(/[^a-z0-9\s]/g, "")
+     .split(/\s+/).filter(w => w.length > 2);
+  const wa = normalize(a);
+  const wb = normalize(b);
+  if (!wa.length || !wb.length) return false;
+  const inter = wa.filter(w => wb.includes(w)).length;
+  const union = new Set([...wa, ...wb]).size;
+  return inter / union >= threshold;
+}
+
+type MatchRule =
+  | "CNPJ_VALOR_EXATO"
+  | "PIX_CHAVE_VALOR"
+  | "CNPJ_VALOR_TOLERANCIA"
+  | "NOME_VALOR_EXATO"
+  | "VALOR_DATA_EXATO"
+  | "VALOR_UNICO";
 
 interface Candidato {
   fin: any;
   tipo: "pagar" | "receber";
   doc: string;
   chavePix: string;
+  nome: string;
 }
 
-// ─── Regras Determinísticas em Cascata ──────────────────────
+// ═══════════════════════════════════════════════════════════
+// MOTOR DE REGRAS DETERMINÍSTICO EM CASCATA
+// ═══════════════════════════════════════════════════════════
 
-function aplicarRegras(ext: any, candidatos: Candidato[]): { rule: MatchRule | null; candidato: Candidato | null; auto: boolean } {
+function aplicarRegras(
+  ext: any,
+  candidatos: Candidato[]
+): { rule: MatchRule | null; candidato: Candidato | null; auto: boolean } {
+
   const extValor = Math.abs(Number(ext.valor));
-  const extDoc = cleanDoc(ext.cpf_cnpj);
-  const extPix = (ext.chave_pix ?? "").trim().toLowerCase();
-  const extDate = ext.data_hora?.substring(0, 10) ?? "";
+  const extDoc   = cleanDoc(ext.cpf_cnpj);
+  const extPix   = (ext.chave_pix ?? "").trim().toLowerCase();
+  const extDate  = ext.data_hora?.substring(0, 10) ?? "";
+  const extNome  = ext.nome_contraparte ?? ext.contrapartida ?? "";
 
   // Regra 1: CNPJ/CPF match + valor exato → auto-baixa imediata
   if (extDoc) {
-    const matches = candidatos.filter(c => docMatches(extDoc, c.doc) && valorExato(extValor, Number(c.fin.valor)));
+    const matches = candidatos.filter(c =>
+      docMatches(extDoc, c.doc) && valorExato(extValor, Number(c.fin.valor))
+    );
     if (matches.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: matches[0], auto: true };
     if (matches.length > 1) {
+      // Desempate por data mais próxima
       const byDate = matches.filter(c => {
         const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
         return finDate && dataProxima(extDate, finDate, 5);
       });
       if (byDate.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: byDate[0], auto: true };
+      // Desempate por nome similar
+      if (extNome) {
+        const byNome = matches.filter(c => nomeSimilar(extNome, c.nome));
+        if (byNome.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: byNome[0], auto: true };
+      }
     }
   }
 
   // Regra 2: Chave PIX exata + valor exato → auto-baixa
   if (extPix) {
     const matches = candidatos.filter(c => {
-      if (c.chavePix && c.chavePix.toLowerCase() === extPix) return valorExato(extValor, Number(c.fin.valor));
+      if (c.chavePix && c.chavePix.toLowerCase() === extPix)
+        return valorExato(extValor, Number(c.fin.valor));
       const pixClean = extPix.replace(/\D/g, "");
-      if (pixClean.length >= 8 && docMatches(pixClean, c.doc)) return valorExato(extValor, Number(c.fin.valor));
+      if (pixClean.length >= 8 && docMatches(pixClean, c.doc))
+        return valorExato(extValor, Number(c.fin.valor));
       return false;
     });
     if (matches.length === 1) return { rule: "PIX_CHAVE_VALOR", candidato: matches[0], auto: true };
@@ -77,11 +119,21 @@ function aplicarRegras(ext: any, candidatos: Candidato[]): { rule: MatchRule | n
 
   // Regra 3: CNPJ/CPF match + valor com tolerância ±2%
   if (extDoc) {
-    const matches = candidatos.filter(c => docMatches(extDoc, c.doc) && valorTolerancia(extValor, Number(c.fin.valor), 2));
+    const matches = candidatos.filter(c =>
+      docMatches(extDoc, c.doc) && valorTolerancia(extValor, Number(c.fin.valor), 2)
+    );
     if (matches.length === 1) return { rule: "CNPJ_VALOR_TOLERANCIA", candidato: matches[0], auto: true };
   }
 
-  // Regra 4: Valor exato + data ±3 dias → sugestão
+  // Regra 4: Nome similar + valor exato → auto-baixa
+  if (extNome) {
+    const matches = candidatos.filter(c =>
+      nomeSimilar(extNome, c.nome) && valorExato(extValor, Number(c.fin.valor))
+    );
+    if (matches.length === 1) return { rule: "NOME_VALOR_EXATO", candidato: matches[0], auto: true };
+  }
+
+  // Regra 5: Valor exato + data ±3 dias → sugestão (review)
   if (extDate) {
     const matches = candidatos.filter(c => {
       const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
@@ -93,7 +145,54 @@ function aplicarRegras(ext: any, candidatos: Candidato[]): { rule: MatchRule | n
   return { rule: null, candidato: null, auto: false };
 }
 
-// ─── Handler principal ───────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// VINCULAR (auto-baixa atômica com rollback)
+// ═══════════════════════════════════════════════════════════
+
+async function vincular(supabase: any, ext: any, match: Candidato, rule: string) {
+  const table = match.tipo === "pagar" ? "fin_pagamentos" : "fin_recebimentos";
+  const now = new Date().toISOString();
+
+  // 1. Marcar extrato como reconciliado
+  const { error: extErr } = await supabase.from("fin_extrato_inter").update({
+    reconciliado: true,
+    lancamento_id: match.fin.id,
+    reconciliado_em: now,
+    reconciliation_rule: rule,
+  }).eq("id", ext.id);
+
+  if (extErr) throw new Error(`Erro ao atualizar extrato: ${extErr.message}`);
+
+  // 2. Marcar lançamento como pago pelo sistema (NÃO faz baixa no GC)
+  const { error: finErr } = await supabase.from(table).update({
+    pago_sistema: true,
+    pago_sistema_em: now,
+    status: "pago",
+  }).eq("id", match.fin.id);
+
+  if (finErr) {
+    // Rollback extrato
+    await supabase.from("fin_extrato_inter").update({
+      reconciliado: false,
+      lancamento_id: null,
+      reconciliado_em: null,
+      reconciliation_rule: null,
+    }).eq("id", ext.id);
+    throw new Error(`Erro ao atualizar lançamento: ${finErr.message}`);
+  }
+
+  // 3. Log
+  await supabase.from("fin_sync_log").insert({
+    tipo: "conciliacao_auto",
+    referencia_id: ext.id,
+    status: "success",
+    payload: { extrato_id: ext.id, lancamento_id: match.fin.id, rule },
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// HANDLER PRINCIPAL
+// ═══════════════════════════════════════════════════════════
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -114,7 +213,7 @@ serve(async (req) => {
 
     if (errE) throw new Error(`fin_extrato_inter: ${errE.message}`);
 
-    // 2. Lançamentos candidatos
+    // 2. Lançamentos candidatos + lookup tables
     const [{ data: pagamentos }, { data: recebimentos }, { data: fornecedores }, { data: clientes }] = await Promise.all([
       supabase.from("fin_pagamentos").select("*")
         .eq("liquidado", false)
@@ -130,17 +229,16 @@ serve(async (req) => {
       supabase.from("fin_clientes").select("gc_id, cpf_cnpj, nome"),
     ]);
 
-    // BUG R3 FIX: Proteção se coluna lancamento_id não existir
-    const { data: linkedLancs, error: linkedErr } = await supabase
+    // IDs já vinculados para evitar duplicatas
+    const { data: linkedLancs } = await supabase
       .from("fin_extrato_inter")
       .select("lancamento_id")
       .eq("reconciliado", true)
       .not("lancamento_id", "is", null);
 
-    if (linkedErr) {
-      console.warn("[reconciliation-engine] alreadyLinked query falhou:", linkedErr.message);
-    }
-    const alreadyLinked = new Set((linkedLancs ?? []).map((l: any) => l.lancamento_id).filter(Boolean));
+    const alreadyLinked = new Set(
+      (linkedLancs ?? []).map((l: any) => l.lancamento_id).filter(Boolean)
+    );
 
     // Index fornecedor/cliente por gc_id
     const fornMap: Record<string, { cpf_cnpj: string; chave_pix: string; nome: string }> = {};
@@ -171,10 +269,10 @@ serve(async (req) => {
         .map((fin: any) => {
           const gcId = isDebito ? fin.fornecedor_gc_id : fin.cliente_gc_id;
           const lookup = isDebito ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
-          // Also use recipient_document directly if available
           const doc = cleanDoc(fin.recipient_document) || lookup?.cpf_cnpj || "";
           const chavePix = (isDebito && lookup) ? (lookup as any).chave_pix ?? "" : "";
-          return { fin, tipo: (isDebito ? "pagar" : "receber") as "pagar" | "receber", doc, chavePix };
+          const nome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? lookup?.nome ?? "";
+          return { fin, tipo: (isDebito ? "pagar" : "receber") as "pagar" | "receber", doc, chavePix, nome };
         });
 
       const { rule, candidato, auto } = aplicarRegras(ext, candidatos);
@@ -216,7 +314,6 @@ serve(async (req) => {
           // Try to resolve collision by document
           const extDoc = cleanDoc(ext.cpf_cnpj);
           if (extDoc) {
-            // BUG R2 FIX: also check recipient_document directly
             const withDoc = mesmoValor.filter(c => {
               const fDocDirect = cleanDoc(c.fin.recipient_document);
               if (fDocDirect && docMatches(extDoc, fDocDirect)) return true;
@@ -226,6 +323,20 @@ serve(async (req) => {
               try {
                 await vincular(supabase, ext, withDoc[0], "CNPJ_VALOR_EXATO");
                 usedIds.add(withDoc[0].fin.id);
+                stats.auto++;
+                continue;
+              } catch { stats.errors++; continue; }
+            }
+          }
+
+          // Try to resolve collision by nome similar
+          const extNome = ext.nome_contraparte ?? ext.contrapartida ?? "";
+          if (extNome) {
+            const withNome = mesmoValor.filter(c => nomeSimilar(extNome, c.nome));
+            if (withNome.length === 1) {
+              try {
+                await vincular(supabase, ext, withNome[0], "NOME_VALOR_EXATO");
+                usedIds.add(withNome[0].fin.id);
                 stats.auto++;
                 continue;
               } catch { stats.errors++; continue; }
@@ -252,7 +363,7 @@ serve(async (req) => {
           });
           stats.review++;
         } else if (mesmoValor.length === 1) {
-          // BUG R4 FIX: valor único com data próxima → auto-baixar
+          // Valor único com data próxima → auto-baixar
           const candidatoUnico = mesmoValor[0];
           const finDate = candidatoUnico.fin.data_vencimento ?? candidatoUnico.fin.data_emissao;
           const extDate = ext.data_hora?.substring(0, 10) ?? "";
@@ -312,46 +423,3 @@ serve(async (req) => {
     );
   }
 });
-
-// ─── Vincular (auto-baixa atômica) ──────────────────────────
-
-async function vincular(supabase: any, ext: any, match: Candidato, rule: string) {
-  const table = match.tipo === "pagar" ? "fin_pagamentos" : "fin_recebimentos";
-  const now = new Date().toISOString();
-
-  // 1. Marcar extrato como reconciliado
-  const { error: extErr } = await supabase.from("fin_extrato_inter").update({
-    reconciliado: true,
-    lancamento_id: match.fin.id,
-    reconciliado_em: now,
-    reconciliation_rule: rule,
-  }).eq("id", ext.id);
-
-  if (extErr) throw new Error(`Erro ao atualizar extrato: ${extErr.message}`);
-
-  // 2. Marcar lançamento como pago pelo sistema (NÃO faz baixa no GC)
-  const { error: finErr } = await supabase.from(table).update({
-    pago_sistema: true,
-    pago_sistema_em: now,
-    status: "pago",
-  }).eq("id", match.fin.id);
-
-  if (finErr) {
-    // Rollback extrato
-    await supabase.from("fin_extrato_inter").update({
-      reconciliado: false,
-      lancamento_id: null,
-      reconciliado_em: null,
-      reconciliation_rule: null,
-    }).eq("id", ext.id);
-    throw new Error(`Erro ao atualizar lançamento: ${finErr.message}`);
-  }
-
-  // 3. Log
-  await supabase.from("fin_sync_log").insert({
-    tipo: "conciliacao_auto",
-    referencia_id: ext.id,
-    status: "success",
-    payload: { extrato_id: ext.id, lancamento_id: match.fin.id, rule },
-  });
-}

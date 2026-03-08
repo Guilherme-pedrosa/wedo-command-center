@@ -4,8 +4,22 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-client-info, apikey, content-type",
 };
+
+// Títulos genéricos que NÃO são nomes de contraparte
+const TITULOS_GENERICOS = new Set([
+  "pix enviado","pix recebido","transferência","transferencia",
+  "ted enviado","ted recebido","doc enviado","doc recebido",
+  "tarifa","taxa","iof","pagamento","recebimento","juros",
+  "rendimento","aplicação","aplicacao","resgate","estorno",
+]);
+
+function nomeValido(s: string | null | undefined): string | null {
+  if (!s) return null;
+  const t = s.trim().toLowerCase();
+  return TITULOS_GENERICOS.has(t) ? null : s.trim();
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -13,230 +27,200 @@ serve(async (req) => {
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const supabase = createClient(supabaseUrl, serviceKey);
+  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabase    = createClient(supabaseUrl, serviceKey);
+  const startMs     = Date.now();
 
   const body = await req.json().catch(() => ({}));
-
-  const now = new Date();
-  const dataFim = body.dataFim ?? now.toISOString().substring(0, 10);
+  const now  = new Date();
+  const dataFim    = body.dataFim ?? now.toISOString().substring(0, 10);
   const dataInicio = body.dataInicio ?? (() => {
-    const days = body.days ?? 7;
-    const d = new Date(now.getTime() - days * 86400000);
+    const d = new Date(now.getTime() - (body.days ?? 7) * 86400000);
     return d.toISOString().substring(0, 10);
   })();
 
-  const startMs = Date.now();
-
   try {
-    const proxyUrl = `${supabaseUrl}/functions/v1/inter-proxy`;
+    const proxyUrl     = `${supabaseUrl}/functions/v1/inter-proxy`;
     const proxyHeaders = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${serviceKey}`,
     };
 
-    // Try enriched endpoint first (has counterparty names), then fallback
-    const endpoints = [
-      `/banking/v3/extrato/enriquecido?dataInicio=${dataInicio}&dataFim=${dataFim}`,
-      `/banking/v3/extrato?dataInicio=${dataInicio}&dataFim=${dataFim}&pagina=0&tamanhoPagina=500`,
-      `/banking/v2/extrato/completo?dataInicio=${dataInicio}&dataFim=${dataFim}`,
-      `/banking/v2/extrato?dataInicio=${dataInicio}&dataFim=${dataFim}`,
+    // ── Cascade de endpoints: enriquecido primeiro ──
+    const ENDPOINTS = [
+      {
+        path:    `/banking/v3/extrato/enriquecido?dataInicio=${dataInicio}&dataFim=${dataFim}`,
+        label:   "v3/enriquecido",
+        extract: (d: any) => d.transacoes ?? d.resultado ?? (Array.isArray(d) ? d : null),
+        rich:    true,
+      },
+      {
+        path:    `/banking/v3/extrato?dataInicio=${dataInicio}&dataFim=${dataFim}&pagina=0&tamanhoPagina=500`,
+        label:   "v3/extrato",
+        extract: (d: any) => d.transacoes ?? d.resultado ?? (Array.isArray(d) ? d : null),
+        rich:    true,
+      },
+      {
+        path:    `/banking/v2/extrato/completo?dataInicio=${dataInicio}&dataFim=${dataFim}`,
+        label:   "v2/completo",
+        extract: (d: any) => d.transacoes ?? d.resultado ?? (Array.isArray(d) ? d : null),
+        rich:    false,
+      },
+      {
+        path:    `/banking/v2/extrato?dataInicio=${dataInicio}&dataFim=${dataFim}`,
+        label:   "v2/extrato",
+        extract: (d: any) => d.transacoes ?? d.resultado ?? (Array.isArray(d) ? d : null),
+        rich:    false,
+      },
     ];
 
-    let proxyData: any = null;
-    let usedEndpoint = "";
+    let transacoes: any[] | null = null;
+    let endpointUsado = "";
+    let endpointRich  = false;
 
-    for (let i = 0; i < endpoints.length; i++) {
-      const ep = endpoints[i];
-      console.log(`[inter-extrato] Tentando ${ep}`);
-
-      // Delay between attempts to avoid OAuth rate limiting (429)
-      if (i > 0) {
-        const delayMs = i * 2000; // 2s, 4s, 6s
-        console.log(`[inter-extrato] Aguardando ${delayMs}ms antes da próxima tentativa...`);
-        await new Promise(r => setTimeout(r, delayMs));
-      }
-
-      let res: Response;
-      let data: any;
-
-      // Retry logic for 429 rate limiting
-      for (let attempt = 0; attempt < 3; attempt++) {
-        res = await fetch(proxyUrl, {
-          method: "POST",
-          headers: proxyHeaders,
-          body: JSON.stringify({ path: ep, method: "GET" }),
+    for (const ep of ENDPOINTS) {
+      try {
+        console.log(`[inter-extrato] Tentando ${ep.label}...`);
+        const res  = await fetch(proxyUrl, {
+          method: "POST", headers: proxyHeaders,
+          body: JSON.stringify({ path: ep.path, method: "GET" }),
         });
-        data = await res.json();
+        const data = await res.json().catch(() => ({}));
 
-        // Check if it's a 429 rate limit error
-        const is429 =
-          res.status === 429 ||
-          (data.error && typeof data.error === "string" && data.error.includes("429"));
-        if (is429 && attempt < 2) {
-          const retryDelay = (attempt + 1) * 3000; // 3s, 6s
-          console.log(`[inter-extrato] ${ep} → 429 rate limit, retry em ${retryDelay}ms (tentativa ${attempt + 1}/3)...`);
-          await new Promise(r => setTimeout(r, retryDelay));
+        // Detectar 404/403 tanto no status HTTP quanto no body
+        if (res.status === 404 || res.status === 403 ||
+            res.status === 401 || res.status === 500) {
+          console.warn(`[inter-extrato] ${ep.label} → HTTP ${res.status}, próximo...`);
           continue;
         }
-        break;
-      }
+        if (data?.raw && String(data.raw).match(/40[34]|404|not found/i)) {
+          console.warn(`[inter-extrato] ${ep.label} → body 404, próximo...`);
+          continue;
+        }
+        if (data?.error && String(data.error).match(/40[34]|404|not found/i)) {
+          console.warn(`[inter-extrato] ${ep.label} → error 404, próximo...`);
+          continue;
+        }
 
-      // Check for 404/403 — try next endpoint
-      const isSkippable =
-        res!.status === 404 ||
-        res!.status === 403 ||
-        (data.raw && typeof data.raw === "string" && (data.raw.includes("404") || data.raw.includes("403"))) ||
-        (typeof data === "string" && (data.includes("404") || data.includes("403")));
-      if (isSkippable) {
-        console.log(`[inter-extrato] ${ep} → ${res!.status}, tentando próximo...`);
-        continue;
+        const lista = ep.extract(data);
+        if (Array.isArray(lista)) {
+          transacoes    = lista;
+          endpointUsado = ep.label;
+          endpointRich  = ep.rich;
+          console.log(`[inter-extrato] ✅ ${ep.label} → ${lista.length} transações`);
+          break;
+        }
+        console.warn(`[inter-extrato] ${ep.label} → resposta inesperada, próximo...`);
+      } catch (e) {
+        console.warn(`[inter-extrato] ${ep.label} → exception: ${(e as Error).message}`);
       }
-      if (data.error) {
-        console.log(`[inter-extrato] ${ep} → erro: ${data.error}, tentando próximo...`);
-        continue;
-      }
-
-      proxyData = data;
-      usedEndpoint = ep;
-      break;
     }
 
-    if (!proxyData) {
-      throw new Error("Nenhum endpoint do Inter retornou dados válidos. Verifique se o escopo 'extrato.read' está configurado no certificado Inter.");
+    if (!transacoes) {
+      throw new Error(
+        "Todos os endpoints Inter retornaram erro. " +
+        "Verifique: 1) escopo extrato.read no Portal Inter; " +
+        "2) secret INTER_NUMERO_CONTA no Supabase; " +
+        "3) certificado ativo."
+      );
     }
 
-    console.log(`[inter-extrato] Sucesso via ${usedEndpoint}`);
-
-    // v2 returns { transacoes: [...] } or direct array
-    const transacoes: any[] = proxyData.transacoes ?? proxyData.resultado ?? (Array.isArray(proxyData) ? proxyData : []);
-
-    if (!Array.isArray(transacoes) || transacoes.length === 0) {
-      console.log("[inter-extrato] Resposta:", JSON.stringify(proxyData).substring(0, 500));
-      if (Array.isArray(transacoes) && transacoes.length === 0) {
-        return new Response(
-          JSON.stringify({ success: true, extrato: { total: 0, inserted: 0, skipped: 0, errors: 0, duracao_ms: Date.now() - startMs } }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      throw new Error("Resposta do Inter não contém array de transações");
+    if (transacoes.length === 0) {
+      return new Response(
+        JSON.stringify({ success: true, extrato: { total: 0, inserted: 0, skipped: 0, errors: 0 } }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    console.log(`[inter-extrato] ${transacoes.length} transações recebidas`);
-
-    let inserted = 0;
-    let skipped = 0;
-    let errors = 0;
+    let inserted = 0, skipped = 0, errors = 0;
 
     for (const tx of transacoes) {
       try {
-        // Works for both v2 and v3 — v2 has fewer fields, v3 has detalhe object
-        const detalhe = tx.detalhe ?? tx.detalhes ?? {};
-        const tipoOp = tx.tipoOperacao ?? "";
-        const tipoTx = tx.tipoTransacao ?? tx.tipo ?? "";
+        const det    = tx.detalhe ?? tx.detalhes ?? {};
+        const tipoOp = (tx.tipoOperacao ?? "").toUpperCase();
+        const tipoTx = (tx.tipoTransacao ?? tx.tipo ?? "").toUpperCase();
 
-        // BUG E3 FIX: tipoOperacao do Inter: "C" = Crédito, "D" = Débito
+        // Crédito: tipoOperacao "C" ou tipoTransacao "CREDITO"/"ENTRADA"
         const isCredito =
           tipoOp === "C" ||
-          (tipoOp !== "D" && tipoTx.toUpperCase() === "CREDITO");
+          tipoTx === "CREDITO" ||
+          tipoTx === "ENTRADA";
         const tipo = isCredito ? "CREDITO" : "DEBITO";
 
-        // Extract CPF/CNPJ — try enriched detalhe first, then top-level
+        // ── Extração de campos enriquecidos ──
         const cpfCnpjRaw = isCredito
-          ? (detalhe.cpfCnpjPagador ?? detalhe.cpfCnpjRemetente ?? detalhe.cpfCnpj ?? tx.cpfCnpjContraparte)
-          : (detalhe.cpfCnpjBeneficiario ?? detalhe.cpfCnpjRecebedor ?? detalhe.cpfCnpjDestinatario ?? detalhe.cpfCnpj ?? tx.cpfCnpjContraparte);
-        const cpfCnpj = cpfCnpjRaw ? String(cpfCnpjRaw).replace(/\D/g, "") : null;
+          ? (det.cpfCnpjPagador ?? det.cpfCnpjRemetente ?? det.cpfCnpj ?? tx.cpfCnpjContraparte)
+          : (det.cpfCnpjBeneficiario ?? det.cpfCnpjRecebedor ?? det.cpfCnpjDestinatario ?? det.cpfCnpj ?? tx.cpfCnpjContraparte);
+        const cpfCnpj = cpfCnpjRaw ? String(cpfCnpjRaw).replace(/\D/g, "") || null : null;
 
-        // Extract counterparty name
-        const nomeContraparte = isCredito
-          ? (detalhe.nomePagador ?? detalhe.nomeRemetente ?? detalhe.nome ?? tx.nomeContraparte ?? tx.titulo)
-          : (detalhe.nomeBeneficiario ?? detalhe.nomeRecebedor ?? detalhe.nomeDestinatario ?? detalhe.nome ?? tx.nomeContraparte ?? tx.titulo);
+        const nomeRaw = isCredito
+          ? (det.nomePagador ?? det.nomeRemetente ?? det.nome ?? tx.nomeContraparte)
+          : (det.nomeBeneficiario ?? det.nomeRecebedor ?? det.nomeDestinatario ?? det.nome ?? tx.nomeContraparte);
+        const nomeContraparte = nomeValido(nomeRaw);
 
-        const chavePix = detalhe.chavePixRecebedor ?? detalhe.chavePixBeneficiario ?? detalhe.chavePixPagador ?? detalhe.chave ?? null;
-        const codigoBarras = detalhe.codigoBarras ?? null;
+        const chavePix    = det.chavePixRecebedor ?? det.chavePixBeneficiario ?? det.chavePixPagador ?? det.chave ?? null;
+        const codigoBarras= det.codigoBarras ?? null;
+        const realId      = det.endToEndId ?? tx.endToEndId ?? tx.codigoTransacao ?? codigoBarras ?? null;
+        const valor       = Math.abs(parseFloat(String(tx.valor ?? "0").replace(",", ".")));
+        const dataHora    = tx.dataHora ?? tx.dataInclusao ?? tx.dataEntrada ?? tx.dataMovimento ?? now.toISOString();
 
-        // Real unique ID
-        const realEndToEndId =
-          detalhe.endToEndId ?? tx.endToEndId ?? tx.codigoTransacao ?? codigoBarras ?? null;
-
-        const valor = Math.abs(parseFloat(String(tx.valor ?? "0").replace(",", ".")));
-        const dataHora = tx.dataHora ?? tx.dataInclusao ?? tx.dataEntrada ?? tx.dataMovimento ?? now.toISOString();
-
-        // BUG E2 FIX: Dedup sem endToEndId usa janela ±2 dias
-        if (!realEndToEndId) {
-          const baseDate = new Date(dataHora);
-          const dateFrom = new Date(baseDate.getTime() - 2 * 86400000).toISOString().substring(0, 10);
-          const dateTo = new Date(baseDate.getTime() + 2 * 86400000).toISOString().substring(0, 10);
+        // ── Dedup sem endToEndId: janela ±2 dias ──
+        if (!realId) {
+          const base = new Date(dataHora);
+          const df   = new Date(base.getTime() - 2*86400000).toISOString().substring(0,10);
+          const dt   = new Date(base.getTime() + 2*86400000).toISOString().substring(0,10);
 
           const { data: existing } = await supabase
             .from("fin_extrato_inter")
             .select("id, nome_contraparte, cpf_cnpj")
-            .eq("valor", valor)
-            .eq("tipo", tipo)
-            .gte("data_hora", `${dateFrom}T00:00:00`)
-            .lte("data_hora", `${dateTo}T23:59:59`)
+            .eq("valor", valor).eq("tipo", tipo)
+            .gte("data_hora", `${df}T00:00:00`)
+            .lte("data_hora", `${dt}T23:59:59`)
             .limit(1);
 
-          if (existing && existing.length > 0) {
-            // BUG E4 FIX: enriquecer o registro existente se nome/cpf estão vazios
+          if (existing?.length) {
             const ex = existing[0] as any;
-            const precisaEnriquecer = (!ex.nome_contraparte && nomeContraparte) || (!ex.cpf_cnpj && cpfCnpj);
-            if (precisaEnriquecer) {
-              await supabase
-                .from("fin_extrato_inter")
-                .update({
-                  nome_contraparte: nomeContraparte ?? ex.nome_contraparte,
-                  contrapartida: nomeContraparte ?? ex.nome_contraparte,
-                  cpf_cnpj: cpfCnpj ?? ex.cpf_cnpj,
-                  tipo_transacao: tx.tipoTransacao ?? null,
-                  chave_pix: chavePix ?? null,
-                  payload_raw: tx,
-                })
-                .eq("id", ex.id);
+            // Enriquecer se registro existente tem campos vazios
+            const patch: any = {};
+            if (nomeContraparte && !ex.nome_contraparte) {
+              patch.nome_contraparte = nomeContraparte;
+              patch.contrapartida    = nomeContraparte;
+            }
+            if (cpfCnpj && !ex.cpf_cnpj) patch.cpf_cnpj = cpfCnpj;
+            if (Object.keys(patch).length) {
+              await supabase.from("fin_extrato_inter").update(patch).eq("id", ex.id);
             }
             skipped++;
             continue;
           }
         }
 
-        // Dedup: if we HAVE a real ID, delete any fallback duplicate
-        if (realEndToEndId) {
-          const dateOnly = String(dataHora).substring(0, 10);
+        // ── Remover fantasmas (fallback sem real endToEndId) ──
+        if (realId) {
+          const dateOnly = String(dataHora).substring(0,10);
           const { data: phantoms } = await supabase
             .from("fin_extrato_inter")
             .select("id, end_to_end_id")
-            .eq("valor", valor)
-            .eq("tipo", tipo)
+            .eq("valor", valor).eq("tipo", tipo)
             .gte("data_hora", `${dateOnly}T00:00:00`)
             .lte("data_hora", `${dateOnly}T23:59:59`)
-            .neq("end_to_end_id", realEndToEndId);
+            .neq("end_to_end_id", realId);
 
-          if (phantoms && phantoms.length > 0) {
+          if (phantoms?.length) {
             const fallbackIds = phantoms
-              .filter((p: any) => /^\d{4}-\d{2}-\d{2}-/.test(p.end_to_end_id) || /^webhook-/.test(p.end_to_end_id))
+              .filter((p: any) =>
+                /^\d{4}-\d{2}-\d{2}-/.test(p.end_to_end_id) ||
+                /^webhook-/.test(p.end_to_end_id))
               .map((p: any) => p.id);
-            if (fallbackIds.length > 0) {
+            if (fallbackIds.length)
               await supabase.from("fin_extrato_inter").delete().in("id", fallbackIds);
-              console.log(`[inter-extrato] Removidos ${fallbackIds.length} fantasmas para ${realEndToEndId}`);
-            }
           }
         }
 
-        const endToEndId = realEndToEndId ?? `${String(dataHora).substring(0, 10)}-${valor}-${tipo}`;
+        const endToEndId = realId ?? `${String(dataHora).substring(0,10)}-${valor}-${tipo}`;
 
-        // Títulos genéricos que NÃO devem ser usados como nome de contraparte
-        const TITULOS_GENERICOS = new Set([
-          "pix enviado", "pix recebido", "transferência", "transferencia",
-          "ted enviado", "ted recebido", "doc enviado", "doc recebido",
-          "tarifa", "taxa", "iof", "pagamento", "recebimento",
-        ]);
-
-        const nomeContraparteValido =
-          nomeContraparte &&
-          !TITULOS_GENERICOS.has(nomeContraparte.toLowerCase().trim())
-            ? nomeContraparte
-            : null;
-
+        // ── Montar record sem sobrescrever campos já preenchidos ──
+        // Campos ausentes (undefined) → upsert NÃO sobrescreve o banco
         const record: any = {
           end_to_end_id: endToEndId,
           tipo,
@@ -246,57 +230,42 @@ serve(async (req) => {
           descricao: tx.titulo ?? tx.descricao ?? tx.historico ?? null,
           payload_raw: tx,
         };
-
-        // Só incluir campos de enriquecimento se tiverem valor real
-        // Campos ausentes (undefined) → Supabase NÃO sobrescreve o valor existente
-        if (nomeContraparteValido) {
-          record.nome_contraparte = nomeContraparteValido;
-          record.contrapartida = nomeContraparteValido;
+        if (nomeContraparte) {
+          record.nome_contraparte = nomeContraparte;
+          record.contrapartida    = nomeContraparte;
         }
-        if (cpfCnpj) record.cpf_cnpj = cpfCnpj;
-        if (chavePix) record.chave_pix = chavePix;
-        if (codigoBarras) record.codigo_barras = codigoBarras;
+        if (cpfCnpj)     record.cpf_cnpj      = cpfCnpj;
+        if (chavePix)    record.chave_pix      = chavePix;
+        if (codigoBarras)record.codigo_barras  = codigoBarras;
 
-        // upsert — campos ausentes do objeto NÃO sobrescrevem valores existentes
         const { error: upsertErr } = await supabase
           .from("fin_extrato_inter")
           .upsert(record, { onConflict: "end_to_end_id", ignoreDuplicates: false });
 
-        if (upsertErr) {
-          console.error(`[inter-extrato] Upsert error:`, upsertErr.message);
-          errors++;
-        } else {
-          inserted++;
-        }
+        if (upsertErr) { console.error("[inter-extrato] upsert:", upsertErr.message); errors++; }
+        else inserted++;
+
       } catch (txErr) {
-        console.error(`[inter-extrato] Tx error:`, (txErr as Error).message);
+        console.error("[inter-extrato] tx error:", (txErr as Error).message);
         errors++;
       }
     }
 
     const duracao = Date.now() - startMs;
-
-    // Log to fin_sync_log
     try {
       await supabase.from("fin_sync_log").insert({
         tipo: "inter_extrato_sync",
         status: errors > 0 ? "partial" : "success",
         duracao_ms: duracao,
-        payload: { dataInicio, dataFim, endpoint: usedEndpoint },
+        payload: { dataInicio, dataFim, endpoint: endpointUsado, rich: endpointRich },
         resposta: { total: transacoes.length, inserted, skipped, errors },
       });
-    } catch (logErr) {
-      console.error("[inter-extrato] Log error:", (logErr as Error).message);
-    }
+    } catch { /* não bloquear */ }
 
-    // Trigger reconciliation engine
     console.log("[inter-extrato] Disparando reconciliation-engine...");
-    const reconRes = await fetch(`${supabaseUrl}/functions/v1/reconciliation-engine`, {
+    const reconRes  = await fetch(`${supabaseUrl}/functions/v1/reconciliation-engine`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${serviceKey}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
       body: JSON.stringify({}),
     });
     const reconData = await reconRes.json().catch(() => ({ error: "parse error" }));
@@ -304,26 +273,21 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        extrato: { total: transacoes.length, inserted, skipped, errors, duracao_ms: duracao },
+        extrato: { total: transacoes.length, inserted, skipped, errors, duracao_ms: duracao, endpoint: endpointUsado },
         reconciliacao: reconData,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
+
   } catch (err) {
     const msg = (err as Error).message;
     console.error("[inter-extrato] ERRO:", msg);
-
     try {
       await supabase.from("fin_sync_log").insert({
-        tipo: "inter_extrato_sync",
-        status: "error",
-        duracao_ms: Date.now() - startMs,
-        erro: msg,
+        tipo: "inter_extrato_sync", status: "error",
+        duracao_ms: Date.now() - startMs, erro: msg,
       });
-    } catch (logErr) {
-      console.error("[inter-extrato] Log error:", (logErr as Error).message);
-    }
-
+    } catch { /* ignore */ }
     return new Response(
       JSON.stringify({ success: false, error: msg }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
