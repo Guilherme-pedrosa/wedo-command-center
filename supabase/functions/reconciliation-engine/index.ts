@@ -53,6 +53,7 @@ function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): bool
 }
 
 type MatchRule =
+  | "CNPJ_VALOR_DATA_EXATO"
   | "CNPJ_VALOR_EXATO"
   | "PIX_CHAVE_VALOR"
   | "CNPJ_VALOR_TOLERANCIA"
@@ -82,6 +83,34 @@ function aplicarRegras(
   const extPix   = (ext.chave_pix ?? "").trim().toLowerCase();
   const extDate  = ext.data_hora?.substring(0, 10) ?? "";
   const extNome  = ext.nome_contraparte ?? ext.contrapartida ?? "";
+
+  // Regra 0: CNPJ/CPF + valor exato + data ±3 dias → auto-baixa máxima confiança
+  if (extDoc && extDate) {
+    const matches0 = candidatos.filter(c => {
+      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      return (
+        docMatches(extDoc, c.doc) &&
+        valorExato(extValor, Number(c.fin.valor)) &&
+        finDate &&
+        dataProxima(extDate, finDate, 3)
+      );
+    });
+    if (matches0.length === 1)
+      return { rule: "CNPJ_VALOR_DATA_EXATO", candidato: matches0[0], auto: true };
+    if (matches0.length > 1) {
+      if (extNome) {
+        const byNome = matches0.filter(c => nomeSimilar(extNome, c.nome));
+        if (byNome.length === 1)
+          return { rule: "CNPJ_VALOR_DATA_EXATO", candidato: byNome[0], auto: true };
+      }
+      const sorted = [...matches0].sort((a, b) => {
+        const da = Math.abs(new Date(a.fin.data_vencimento ?? a.fin.data_emissao).getTime() - new Date(extDate).getTime());
+        const db = Math.abs(new Date(b.fin.data_vencimento ?? b.fin.data_emissao).getTime() - new Date(extDate).getTime());
+        return da - db;
+      });
+      return { rule: "CNPJ_VALOR_DATA_EXATO", candidato: sorted[0], auto: true };
+    }
+  }
 
   // Regra 1: CNPJ/CPF match + valor exato → auto-baixa imediata
   if (extDoc) {
