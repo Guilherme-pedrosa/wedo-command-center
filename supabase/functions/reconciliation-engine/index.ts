@@ -34,12 +34,12 @@ function dataProxima(a: string, b: string, dias = 3): boolean {
   return Math.abs(da - db) <= dias * 86400000;
 }
 
-type MatchRule = "CNPJ_VALOR_EXATO" | "PIX_CHAVE_VALOR" | "CNPJ_VALOR_TOLERANCIA" | "VALOR_DATA_EXATO" | "SCORE_ALTO";
+type MatchRule = "CNPJ_VALOR_EXATO" | "PIX_CHAVE_VALOR" | "CNPJ_VALOR_TOLERANCIA" | "VALOR_DATA_EXATO" | "SCORE_ALTO" | "VALOR_UNICO";
 
 interface Candidato {
   fin: any;
   tipo: "pagar" | "receber";
-  doc: string; // cleaned CPF/CNPJ from fornecedor/cliente lookup
+  doc: string;
   chavePix: string;
 }
 
@@ -55,7 +55,6 @@ function aplicarRegras(ext: any, candidatos: Candidato[]): { rule: MatchRule | n
   if (extDoc) {
     const matches = candidatos.filter(c => docMatches(extDoc, c.doc) && valorExato(extValor, Number(c.fin.valor)));
     if (matches.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: matches[0], auto: true };
-    // If multiple match by doc+valor, try narrowing by date
     if (matches.length > 1) {
       const byDate = matches.filter(c => {
         const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
@@ -69,7 +68,6 @@ function aplicarRegras(ext: any, candidatos: Candidato[]): { rule: MatchRule | n
   if (extPix) {
     const matches = candidatos.filter(c => {
       if (c.chavePix && c.chavePix.toLowerCase() === extPix) return valorExato(extValor, Number(c.fin.valor));
-      // Also check if pix key IS the doc
       const pixClean = extPix.replace(/\D/g, "");
       if (pixClean.length >= 8 && docMatches(pixClean, c.doc)) return valorExato(extValor, Number(c.fin.valor));
       return false;
@@ -77,13 +75,13 @@ function aplicarRegras(ext: any, candidatos: Candidato[]): { rule: MatchRule | n
     if (matches.length === 1) return { rule: "PIX_CHAVE_VALOR", candidato: matches[0], auto: true };
   }
 
-  // Regra 3: CNPJ/CPF match + valor com tolerância ±2% → auto-baixa (boleto com juros/desconto)
+  // Regra 3: CNPJ/CPF match + valor com tolerância ±2%
   if (extDoc) {
     const matches = candidatos.filter(c => docMatches(extDoc, c.doc) && valorTolerancia(extValor, Number(c.fin.valor), 2));
     if (matches.length === 1) return { rule: "CNPJ_VALOR_TOLERANCIA", candidato: matches[0], auto: true };
   }
 
-  // Regra 4: Valor exato + data ±3 dias → sugestão ao usuário (não auto)
+  // Regra 4: Valor exato + data ±3 dias → sugestão
   if (extDate) {
     const matches = candidatos.filter(c => {
       const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
@@ -121,24 +119,28 @@ serve(async (req) => {
       supabase.from("fin_pagamentos").select("*")
         .eq("liquidado", false)
         .eq("pago_sistema", false)
-        .not("status", "in", '("pago","liquidado","cancelado","baixado")')
+        .not("status", "in", '("pago","vencido","cancelado")')
         .limit(500),
       supabase.from("fin_recebimentos").select("*")
         .eq("liquidado", false)
         .eq("pago_sistema", false)
-        .not("status", "in", '("pago","liquidado","cancelado","baixado")')
+        .not("status", "in", '("pago","vencido","cancelado")')
         .limit(500),
       supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj, chave_pix, nome"),
       supabase.from("fin_clientes").select("gc_id, cpf_cnpj, nome"),
     ]);
 
-    // Exclude lançamentos already linked by another extrato
-    const { data: linkedLancs } = await supabase
+    // BUG R3 FIX: Proteção se coluna lancamento_id não existir
+    const { data: linkedLancs, error: linkedErr } = await supabase
       .from("fin_extrato_inter")
       .select("lancamento_id")
       .eq("reconciliado", true)
       .not("lancamento_id", "is", null);
-    const alreadyLinked = new Set((linkedLancs ?? []).map((l: any) => l.lancamento_id));
+
+    if (linkedErr) {
+      console.warn("[reconciliation-engine] alreadyLinked query falhou:", linkedErr.message);
+    }
+    const alreadyLinked = new Set((linkedLancs ?? []).map((l: any) => l.lancamento_id).filter(Boolean));
 
     // Index fornecedor/cliente por gc_id
     const fornMap: Record<string, { cpf_cnpj: string; chave_pix: string; nome: string }> = {};
@@ -187,7 +189,6 @@ serve(async (req) => {
           stats.errors++;
         }
       } else if (candidato && !auto) {
-        // Sugestão: valor+data match, needs user confirmation
         reviewItems.push({
           extrato_id: ext.id,
           descricao_extrato: ext.descricao ?? ext.contrapartida ?? "—",
@@ -215,7 +216,12 @@ serve(async (req) => {
           // Try to resolve collision by document
           const extDoc = cleanDoc(ext.cpf_cnpj);
           if (extDoc) {
-            const withDoc = mesmoValor.filter(c => docMatches(extDoc, c.doc));
+            // BUG R2 FIX: also check recipient_document directly
+            const withDoc = mesmoValor.filter(c => {
+              const fDocDirect = cleanDoc(c.fin.recipient_document);
+              if (fDocDirect && docMatches(extDoc, fDocDirect)) return true;
+              return c.doc && docMatches(extDoc, c.doc);
+            });
             if (withDoc.length === 1) {
               try {
                 await vincular(supabase, ext, withDoc[0], "CNPJ_VALOR_EXATO");
@@ -246,25 +252,40 @@ serve(async (req) => {
           });
           stats.review++;
         } else if (mesmoValor.length === 1) {
-          // Single valor match but no date/doc → sugestão
-          reviewItems.push({
-            extrato_id: ext.id,
-            descricao_extrato: ext.descricao ?? "—",
-            contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
-            cpf_cnpj: ext.cpf_cnpj ?? "",
-            valor: ext.valor,
-            tipo: ext.tipo,
-            data_hora: ext.data_hora,
-            motivo: "Valor exato, sem confirmação de data/documento",
-            melhor: {
-              id: mesmoValor[0].fin.id,
-              valor: mesmoValor[0].fin.valor,
-              descricao: mesmoValor[0].fin.descricao,
-              nome: mesmoValor[0].fin.nome_fornecedor ?? mesmoValor[0].fin.nome_cliente ?? "—",
-              rule: "VALOR_UNICO",
-            },
-          });
-          stats.review++;
+          // BUG R4 FIX: valor único com data próxima → auto-baixar
+          const candidatoUnico = mesmoValor[0];
+          const finDate = candidatoUnico.fin.data_vencimento ?? candidatoUnico.fin.data_emissao;
+          const extDate = ext.data_hora?.substring(0, 10) ?? "";
+
+          if (finDate && extDate && dataProxima(extDate, finDate, 5)) {
+            try {
+              await vincular(supabase, ext, candidatoUnico, "VALOR_UNICO");
+              usedIds.add(candidatoUnico.fin.id);
+              stats.auto++;
+            } catch (e) {
+              console.error(`Erro vincular valor único:`, (e as Error).message);
+              stats.errors++;
+            }
+          } else {
+            reviewItems.push({
+              extrato_id: ext.id,
+              descricao_extrato: ext.descricao ?? "—",
+              contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
+              cpf_cnpj: ext.cpf_cnpj ?? "",
+              valor: ext.valor,
+              tipo: ext.tipo,
+              data_hora: ext.data_hora,
+              motivo: "Valor exato, aguardando confirmação de data",
+              melhor: {
+                id: candidatoUnico.fin.id,
+                valor: candidatoUnico.fin.valor,
+                descricao: candidatoUnico.fin.descricao,
+                nome: candidatoUnico.fin.nome_fornecedor ?? candidatoUnico.fin.nome_cliente ?? "—",
+                rule: "VALOR_UNICO",
+              },
+            });
+            stats.review++;
+          }
         } else {
           stats.unmatched++;
           unmatchedItems.push({

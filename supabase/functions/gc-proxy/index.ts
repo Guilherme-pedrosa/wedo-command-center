@@ -90,6 +90,7 @@ serve(async (req) => {
       method.toUpperCase() === "GET" &&
       (endpoint.includes("contasapagar") ||
        endpoint.includes("contas_a_pagar") ||
+       endpoint.includes("pagamentos") ||
        endpoint.includes("financeiro"))
     ) {
       try {
@@ -108,25 +109,38 @@ serve(async (req) => {
           const contatoId = item.contato_id ?? item.fornecedor_id ?? item.cliente_id;
           if (!codigoGc || !contatoId) continue;
 
-          const contatoResp = await rateLimitedFetch(
-            `${GC_BASE_URL}/contatos/${contatoId}`,
-            { headers: gcHeaders }
-          ).then(r => r.json()).catch(() => null);
+          // BUG G2 FIX: tentar múltiplos endpoints do GestãoClick
+          let contatoResp: any = null;
+          for (const ep of [`/api/contatos/${contatoId}`, `/api/clientes/${contatoId}`, `/api/fornecedores/${contatoId}`]) {
+            const resp = await rateLimitedFetch(
+              `${GC_BASE_URL}${ep}`,
+              { headers: gcHeaders }
+            ).then(r => r.ok ? r.json() : null).catch(() => null);
 
-          const cnpjRaw = contatoResp?.cnpj ?? contatoResp?.cpf_cnpj ?? contatoResp?.cpf ?? null;
+            if (resp && (resp.cnpj || resp.cpf_cnpj || resp.cpf)) {
+              contatoResp = resp;
+              break;
+            }
+          }
+
+          if (!contatoResp) continue;
+
+          const cnpjRaw = contatoResp.cnpj ?? contatoResp.cpf_cnpj ?? contatoResp.cpf ?? null;
           if (!cnpjRaw) continue;
 
           const cnpj = String(cnpjRaw).replace(/\D/g, "");
           if (cnpj.length < 11) continue;
 
-          await supabase
+          // BUG G1 FIX: usar gc_codigo (nome correto da coluna no schema)
+          const { error: updateErr } = await supabase
             .from("fin_pagamentos")
             .update({ recipient_document: cnpj })
             .eq("gc_codigo", String(codigoGc))
-            .is("recipient_document", null)
-            .then(({ error }: any) => {
-              if (error) console.error(`[gc-proxy] Erro enriquecer ${codigoGc}:`, error.message);
-            });
+            .is("recipient_document", null);
+
+          if (updateErr) {
+            console.error(`[gc-proxy] Erro enriquecer ${codigoGc}:`, updateErr.message);
+          }
         }
       } catch (enrichErr: any) {
         console.error("[gc-proxy] Erro no enriquecimento CNPJ:", enrichErr.message);
@@ -146,7 +160,7 @@ serve(async (req) => {
     );
   } catch (error) {
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: (error as Error).message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
