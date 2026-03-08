@@ -429,12 +429,12 @@ export default function ConciliacaoHistoricoPage() {
               </div>
 
               {/* Diferença */}
-              {detail.lanc && (
-                <div className={`rounded-md p-3 text-xs flex items-center gap-2 ${Math.abs(Math.abs(Number(detail.item.valor)) - Number(detail.lanc.valor)) <= 0.01 ? "bg-wedo-green/10 text-wedo-green" : "bg-wedo-orange/10 text-wedo-orange"}`}>
+              {(detail.lanc || detail.valorGc != null) && (
+                <div className={`rounded-md p-3 text-xs flex items-center gap-2 ${detail.isExato ? "bg-wedo-green/10 text-wedo-green" : "bg-wedo-orange/10 text-wedo-orange"}`}>
                   <CheckCircle className="h-4 w-4" />
-                  {Math.abs(Math.abs(Number(detail.item.valor)) - Number(detail.lanc.valor)) <= 0.01
-                    ? "Valores idênticos — match exato"
-                    : `Diferença de ${formatCurrency(Math.abs(Math.abs(Number(detail.item.valor)) - Number(detail.lanc.valor)))}`
+                  {detail.isExato
+                    ? `Valores idênticos — match exato${detail.qtdParcelas > 1 ? ` (${detail.qtdParcelas} parcelas)` : ""}`
+                    : `Diferença de ${formatCurrency(detail.diff)}${detail.qtdParcelas > 1 ? ` (${detail.qtdParcelas} parcelas, total GC ${formatCurrency(detail.valorGc)})` : ""}`
                   }
                 </div>
               )}
