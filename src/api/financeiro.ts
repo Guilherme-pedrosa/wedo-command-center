@@ -879,50 +879,19 @@ export async function buscarExtratoInter(
   dataInicio: string,
   dataFim: string
 ): Promise<any[]> {
-  const resp = await interRequest<any>(
-    `/banking/v2/extrato?dataInicio=${dataInicio}&dataFim=${dataFim}`,
-    "GET"
-  );
-  const transacoes = resp.transacoes ?? resp.data ?? [];
+  // Delegate to inter-extrato edge function which handles dedup, enrichment, and reconciliation
+  const { data, error } = await supabase.functions.invoke("inter-extrato", {
+    body: { dataInicio, dataFim },
+  });
 
-  for (const t of transacoes) {
-    const tipoOp = (t.tipoOperacao ?? t.tipo) === "D" ? "DEBITO" : "CREDITO";
-    const descricaoRaw = t.descricao ?? (typeof t.titulo === "string" ? t.titulo : "") ?? "";
-    
-    // Extrair nome do remetente/destinatário da descrição
-    // Padrões comuns: "PIX ENVIADO INTERNO - 00019 82218404 FRED SILVA"
-    //                 "TED RECEBIDA - 376 1 1035698 CARGILL AGRICOLA S A"
-    //                 "PIX RECEBIDO - 00019 471609153 62 084 399 DANIEL BEAN"
-    const contrapartida = extrairNomeDaDescricao(descricaoRaw)
-      ?? t.detalhes?.pagador?.nome 
-      ?? t.detalhes?.recebedor?.nome 
-      ?? t.detalhes?.nomeFavorecido
-      ?? t.nomeOrigem 
-      ?? t.nomeDestino 
-      ?? "";
-    const cpfCnpj = t.detalhes?.pagador?.cpfCnpj
-      ?? t.detalhes?.recebedor?.cpfCnpj
-      ?? t.cpfCnpj
-      ?? t.cpfCnpjOrigem
-      ?? t.cpfCnpjDestino
-      ?? "";
+  if (error) throw new Error(error.message ?? "Erro ao buscar extrato");
 
-    await supabase.from("fin_extrato_inter" as any).upsert(
-      {
-        end_to_end_id: t.endToEndId ?? t.id ?? `${t.dataHora ?? t.dataEntrada}-${t.valor}`,
-        tipo: tipoOp,
-        valor: parseFloat(t.valor ?? "0"),
-        data_hora: t.dataHora ?? t.dataEntrada,
-        descricao: descricaoRaw,
-        contrapartida,
-        cpf_cnpj: cpfCnpj,
-        payload_raw: t,
-      },
-      { onConflict: "end_to_end_id", ignoreDuplicates: false }
-    );
-  }
+  const result = data as any;
+  if (!result?.success) throw new Error(result?.error ?? "Erro ao buscar extrato");
 
-  return transacoes;
+  // Return a synthetic array with length = inserted count for the toast message
+  const inserted = result?.extrato?.inserted ?? 0;
+  return new Array(inserted);
 }
 
 // ─── Inter: Enviar Pagamento PIX ────────────────────────────────────
