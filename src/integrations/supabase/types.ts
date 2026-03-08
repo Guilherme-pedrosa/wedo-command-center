@@ -366,6 +366,44 @@ export type Database = {
           },
         ]
       }
+      fin_extrato_lancamentos: {
+        Row: {
+          created_at: string | null
+          extrato_id: string
+          id: string
+          lancamento_id: string
+          reconciliation_rule: string | null
+          tabela: string
+          valor_alocado: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          extrato_id: string
+          id?: string
+          lancamento_id: string
+          reconciliation_rule?: string | null
+          tabela: string
+          valor_alocado?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          extrato_id?: string
+          id?: string
+          lancamento_id?: string
+          reconciliation_rule?: string | null
+          tabela?: string
+          valor_alocado?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_extrato_lancamentos_extrato_id_fkey"
+            columns: ["extrato_id"]
+            isOneToOne: false
+            referencedRelation: "fin_extrato_inter"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fin_formas_pagamento: {
         Row: {
           ativo: boolean | null
