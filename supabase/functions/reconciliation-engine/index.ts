@@ -62,8 +62,7 @@ type MatchRule =
   | "VALOR_DATA_7DIAS"
   | "VALOR_DATA_7DIAS_NOME"
   | "VALOR_UNICO"
-  | "SOMA_PARCELAS"
-  | "SOMA_PARCELAS_DESCONTO";
+  | "SOMA_PARCELAS";
 
 interface Candidato {
   fin: any;
@@ -353,18 +352,6 @@ function tentarSomaParcelas(
       parcelas: result.map(fin => ({ id: fin.id, valor: Number(fin.valor), tabela })),
       rule: "SOMA_PARCELAS",
     };
-  }
-
-  // Try with discount factors (common: 8%, 5%, 10%)
-  for (const factor of [0.92, 0.95, 0.90, 0.85]) {
-    const adjustedTarget = extValor / factor;
-    const result2 = findSubsetSum(sorted, adjustedTarget, adjustedTarget * 0.01);
-    if (result2) {
-      return {
-        parcelas: result2.map(fin => ({ id: fin.id, valor: Number(fin.valor), tabela })),
-        rule: `SOMA_PARCELAS_DESCONTO_${Math.round((1 - factor) * 100)}PCT`,
-      };
-    }
   }
 
   return null;
