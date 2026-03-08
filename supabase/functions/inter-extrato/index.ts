@@ -98,7 +98,7 @@ serve(async (req) => {
         const valor = Math.abs(parseFloat(String(tx.valor ?? "0").replace(",", ".")));
         const dataHora = tx.dataHora ?? tx.dataInclusao ?? tx.dataEntrada ?? tx.dataMovimento ?? now.toISOString();
 
-        // If no real ID, check if record already exists for same value+date+type (dedup against webhook)
+        // Dedup: if no real ID, skip if same valor+tipo+date already exists
         if (!realEndToEndId) {
           const dateOnly = String(dataHora).substring(0, 10);
           const { data: existing } = await supabase
@@ -113,6 +113,30 @@ serve(async (req) => {
           if (existing && existing.length > 0) {
             skipped++;
             continue;
+          }
+        }
+
+        // Dedup: if we HAVE a real ID, delete any fallback duplicate for same valor+tipo+date
+        if (realEndToEndId) {
+          const dateOnly = String(dataHora).substring(0, 10);
+          const fallbackPattern = `${dateOnly}-${valor}`;
+          const { data: phantoms } = await supabase
+            .from("fin_extrato_inter")
+            .select("id, end_to_end_id")
+            .eq("valor", valor)
+            .eq("tipo", tipo)
+            .gte("data_hora", `${dateOnly}T00:00:00`)
+            .lte("data_hora", `${dateOnly}T23:59:59`)
+            .neq("end_to_end_id", realEndToEndId);
+
+          if (phantoms && phantoms.length > 0) {
+            const fallbackIds = phantoms
+              .filter((p: any) => /^\d{4}-\d{2}-\d{2}-/.test(p.end_to_end_id))
+              .map((p: any) => p.id);
+            if (fallbackIds.length > 0) {
+              await supabase.from("fin_extrato_inter").delete().in("id", fallbackIds);
+              console.log(`[inter-extrato] Removidos ${fallbackIds.length} fantasmas para ${realEndToEndId}`);
+            }
           }
         }
 
