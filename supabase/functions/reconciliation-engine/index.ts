@@ -61,7 +61,9 @@ type MatchRule =
   | "VALOR_DATA_EXATO"
   | "VALOR_DATA_7DIAS"
   | "VALOR_DATA_7DIAS_NOME"
-  | "VALOR_UNICO";
+  | "VALOR_UNICO"
+  | "SOMA_PARCELAS"
+  | "SOMA_PARCELAS_DESCONTO";
 
 interface Candidato {
   fin: any;
@@ -257,6 +259,138 @@ async function vincularRastreabilidade(supabase: any, ext: any, lancamentoId: st
     status: "success",
     payload: { extrato_id: ext.id, lancamento_id: lancamentoId, rule },
   });
+}
+
+// ═══════════════════════════════════════════════════════════
+// SOMA PARCELAS — N:N (tabela fin_extrato_lancamentos)
+// ═══════════════════════════════════════════════════════════
+
+interface ParcelaSoma {
+  id: string;
+  valor: number;
+  tabela: "pagamentos" | "recebimentos";
+}
+
+async function saveSomaParcelas(
+  supabase: any,
+  extratoId: string,
+  parcelas: ParcelaSoma[],
+  rule: string
+) {
+  const now = new Date().toISOString();
+  const maior = parcelas.reduce((a, b) => (a.valor > b.valor ? a : b));
+
+  // 1. Marcar extrato como reconciliado (representante = maior parcela)
+  await supabase.from("fin_extrato_inter").update({
+    reconciliado: true,
+    reconciliado_em: now,
+    reconciliation_rule: rule,
+    lancamento_id: maior.id,
+  }).eq("id", extratoId);
+
+  // 2. Inserir todas as parcelas na tabela N:N
+  const rows = parcelas.map(p => ({
+    extrato_id: extratoId,
+    lancamento_id: p.id,
+    tabela: p.tabela,
+    valor_alocado: p.valor,
+    reconciliation_rule: rule,
+  }));
+  await supabase.from("fin_extrato_lancamentos")
+    .upsert(rows, { onConflict: "extrato_id,lancamento_id,tabela" });
+
+  // 3. Log
+  await supabase.from("fin_sync_log").insert({
+    tipo: "conciliacao_soma_parcelas",
+    referencia_id: extratoId,
+    status: "success",
+    payload: { extrato_id: extratoId, parcelas: parcelas.map(p => ({ id: p.id, valor: p.valor })), rule },
+  });
+}
+
+// Tenta encontrar N parcelas do mesmo fornecedor/cliente que somem ao valor do extrato
+function tentarSomaParcelas(
+  extValor: number,
+  extDoc: string,
+  extNome: string,
+  extDate: string,
+  pool: any[],
+  isDebito: boolean,
+  fornMap: Record<string, any>,
+  cliMap: Record<string, any>,
+  alreadyLinked: Set<string>,
+  usedIds: Set<string>,
+): { parcelas: ParcelaSoma[]; rule: string } | null {
+  // Filtrar candidatos pelo mesmo nome (ILIKE-like) ou CNPJ raiz
+  const candidatos = pool.filter((fin: any) => {
+    if (usedIds.has(fin.id) || alreadyLinked.has(fin.id)) return false;
+    const gcId = isDebito ? fin.fornecedor_gc_id : fin.cliente_gc_id;
+    const lkp = isDebito ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
+    const finDoc = cleanDoc(fin.recipient_document) || lkp?.cpf_cnpj || "";
+    const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? lkp?.nome ?? "";
+    const finDate = fin.data_vencimento ?? fin.data_emissao ?? "";
+
+    // Must match by CNPJ root or name similarity
+    const docOk = extDoc && finDoc && docMatches(extDoc, finDoc);
+    const nomeOk = extNome && nomeSimilar(extNome, finNome, 0.3);
+    if (!docOk && !nomeOk) return false;
+
+    // Must be within ±30 days
+    if (!finDate || !extDate) return true;
+    return dataProxima(extDate, finDate, 30);
+  });
+
+  if (candidatos.length < 2 || candidatos.length > 15) return null;
+
+  // Sort by valor desc for greedy subset-sum
+  const sorted = [...candidatos].sort((a, b) => Number(b.valor) - Number(a.valor));
+  const tabela: "pagamentos" | "recebimentos" = isDebito ? "pagamentos" : "recebimentos";
+
+  // Try exact sum (tolerance 0.01)
+  const result = findSubsetSum(sorted, extValor, 0.01);
+  if (result) {
+    return {
+      parcelas: result.map(fin => ({ id: fin.id, valor: Number(fin.valor), tabela })),
+      rule: "SOMA_PARCELAS",
+    };
+  }
+
+  // Try with discount factors (common: 8%, 5%, 10%)
+  for (const factor of [0.92, 0.95, 0.90, 0.85]) {
+    const adjustedTarget = extValor / factor;
+    const result2 = findSubsetSum(sorted, adjustedTarget, adjustedTarget * 0.01);
+    if (result2) {
+      return {
+        parcelas: result2.map(fin => ({ id: fin.id, valor: Number(fin.valor), tabela })),
+        rule: `SOMA_PARCELAS_DESCONTO_${Math.round((1 - factor) * 100)}PCT`,
+      };
+    }
+  }
+
+  return null;
+}
+
+// Greedy subset-sum with backtracking (max 15 items)
+function findSubsetSum(items: any[], target: number, tolerance: number): any[] | null {
+  const n = items.length;
+  if (n > 15) return null;
+
+  // Try all subsets of size 2..min(n, 10)
+  const maxSize = Math.min(n, 10);
+
+  function search(idx: number, remaining: number, selected: any[]): any[] | null {
+    if (Math.abs(remaining) <= tolerance && selected.length >= 2) return selected;
+    if (remaining < -tolerance || idx >= n || selected.length >= maxSize) return null;
+
+    const val = Number(items[idx].valor);
+    // Include items[idx]
+    const withItem = search(idx + 1, remaining - val, [...selected, items[idx]]);
+    if (withItem) return withItem;
+    // Skip
+    return search(idx + 1, remaining, selected);
+  }
+
+  return search(0, target, []);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -554,16 +688,47 @@ serve(async (req) => {
               });
             }
           } else {
-            stats.unmatched++;
-            unmatchedItems.push({
-              extrato_id: ext.id,
-              descricao_extrato: ext.descricao ?? "—",
-              contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
-              cpf_cnpj: ext.cpf_cnpj ?? "",
-              valor: ext.valor,
-              tipo: ext.tipo,
-              data_hora: ext.data_hora,
-            });
+            // Terceiro passo: tentar SOMA_PARCELAS em ambos os pools (pendentes + já pagos)
+            const extNomeSoma = ext.nome_contraparte ?? ext.contrapartida ?? "";
+            const extDocSoma = cleanDoc(ext.cpf_cnpj);
+            const extDateSoma = ext.data_hora?.substring(0, 10) ?? "";
+            const isDebitoSoma = ext.tipo === "DEBITO";
+            const allPool = [
+              ...(isDebitoSoma ? (pagamentos ?? []) : (recebimentos ?? [])),
+              ...(isDebitoSoma ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? [])),
+            ];
+
+            const somaResult = tentarSomaParcelas(
+              extValor, extDocSoma, extNomeSoma, extDateSoma,
+              allPool, isDebitoSoma, fornMap, cliMap, alreadyLinked, usedIds
+            );
+
+            if (somaResult) {
+              try {
+                await saveSomaParcelas(supabase, ext.id, somaResult.parcelas, somaResult.rule);
+                somaResult.parcelas.forEach(p => usedIds.add(p.id));
+                stats.auto++;
+              } catch (e) {
+                console.error("Erro soma parcelas:", (e as Error).message);
+                stats.errors++;
+                unmatchedItems.push({
+                  extrato_id: ext.id, descricao_extrato: ext.descricao ?? "—",
+                  contrapartida: extNomeSoma, cpf_cnpj: ext.cpf_cnpj ?? "",
+                  valor: ext.valor, tipo: ext.tipo, data_hora: ext.data_hora,
+                });
+              }
+            } else {
+              stats.unmatched++;
+              unmatchedItems.push({
+                extrato_id: ext.id,
+                descricao_extrato: ext.descricao ?? "—",
+                contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
+                cpf_cnpj: ext.cpf_cnpj ?? "",
+                valor: ext.valor,
+                tipo: ext.tipo,
+                data_hora: ext.data_hora,
+              });
+            }
           }
         }
       }
