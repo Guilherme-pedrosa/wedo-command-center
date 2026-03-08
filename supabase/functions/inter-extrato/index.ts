@@ -46,24 +46,50 @@ serve(async (req) => {
     let proxyData: any = null;
     let usedEndpoint = "";
 
-    for (const ep of endpoints) {
+    for (let i = 0; i < endpoints.length; i++) {
+      const ep = endpoints[i];
       console.log(`[inter-extrato] Tentando ${ep}`);
-      const res = await fetch(proxyUrl, {
-        method: "POST",
-        headers: proxyHeaders,
-        body: JSON.stringify({ path: ep, method: "GET" }),
-      });
 
-      const data = await res.json();
+      // Delay between attempts to avoid OAuth rate limiting (429)
+      if (i > 0) {
+        const delayMs = i * 2000; // 2s, 4s, 6s
+        console.log(`[inter-extrato] Aguardando ${delayMs}ms antes da próxima tentativa...`);
+        await new Promise(r => setTimeout(r, delayMs));
+      }
 
-      // Check for 404/403 or error — try next endpoint
-      const is404 =
-        res.status === 404 ||
-        res.status === 403 ||
+      let res: Response;
+      let data: any;
+
+      // Retry logic for 429 rate limiting
+      for (let attempt = 0; attempt < 3; attempt++) {
+        res = await fetch(proxyUrl, {
+          method: "POST",
+          headers: proxyHeaders,
+          body: JSON.stringify({ path: ep, method: "GET" }),
+        });
+        data = await res.json();
+
+        // Check if it's a 429 rate limit error
+        const is429 =
+          res.status === 429 ||
+          (data.error && typeof data.error === "string" && data.error.includes("429"));
+        if (is429 && attempt < 2) {
+          const retryDelay = (attempt + 1) * 3000; // 3s, 6s
+          console.log(`[inter-extrato] ${ep} → 429 rate limit, retry em ${retryDelay}ms (tentativa ${attempt + 1}/3)...`);
+          await new Promise(r => setTimeout(r, retryDelay));
+          continue;
+        }
+        break;
+      }
+
+      // Check for 404/403 — try next endpoint
+      const isSkippable =
+        res!.status === 404 ||
+        res!.status === 403 ||
         (data.raw && typeof data.raw === "string" && (data.raw.includes("404") || data.raw.includes("403"))) ||
         (typeof data === "string" && (data.includes("404") || data.includes("403")));
-      if (is404) {
-        console.log(`[inter-extrato] ${ep} → ${res.status}, tentando próximo...`);
+      if (isSkippable) {
+        console.log(`[inter-extrato] ${ep} → ${res!.status}, tentando próximo...`);
         continue;
       }
       if (data.error) {
