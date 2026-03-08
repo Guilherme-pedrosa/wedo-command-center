@@ -56,35 +56,56 @@ export default function ConciliacaoHistoricoPage() {
     },
   });
 
-  // Fetch linked lancamentos (recebimentos + pagamentos) in bulk
+  // IDs dos extratos com múltiplas parcelas
+  const extratoIdsComParcelas = (items || [])
+    .filter((i: any) => Number(i.qtd_parcelas) > 1)
+    .map((i: any) => i.id);
+
+  const { data: extratoLancamentos } = useQuery({
+    queryKey: ["conc-hist-extrato-lanc", extratoIdsComParcelas.join(",")],
+    queryFn: async () => {
+      if (!extratoIdsComParcelas.length) return [];
+      const { data } = await supabase
+        .from("fin_extrato_lancamentos")
+        .select("extrato_id, lancamento_id, tabela, valor_alocado")
+        .in("extrato_id", extratoIdsComParcelas);
+      return data || [];
+    },
+    enabled: extratoIdsComParcelas.length > 0,
+  });
+
+  // Expand IDs to include parcela lancamentos
   const lancIds = (items || []).map((i: any) => i.lancamento_id).filter(Boolean);
+  const parcelaLancIds = (extratoLancamentos || []).map((el: any) => el.lancamento_id).filter(Boolean);
+  const allLancIds = [...new Set([...lancIds, ...parcelaLancIds])];
+
   const grupoRecIds = (items || []).map((i: any) => i.grupo_receber_id).filter(Boolean);
   const grupoPagIds = (items || []).map((i: any) => i.grupo_pagar_id).filter(Boolean);
 
   const { data: recebimentos } = useQuery({
-    queryKey: ["conc-hist-rec", lancIds.join(",")],
+    queryKey: ["conc-hist-rec", allLancIds.join(",")],
     queryFn: async () => {
-      if (!lancIds.length) return [];
+      if (!allLancIds.length) return [];
       const { data } = await supabase
         .from("fin_recebimentos")
         .select("id, descricao, valor, nome_cliente, data_vencimento, data_liquidacao, status, gc_codigo, os_codigo, plano_contas_id, centro_custo_id, origem")
-        .in("id", lancIds);
+        .in("id", allLancIds);
       return data || [];
     },
-    enabled: lancIds.length > 0,
+    enabled: allLancIds.length > 0,
   });
 
   const { data: pagamentos } = useQuery({
-    queryKey: ["conc-hist-pag", lancIds.join(",")],
+    queryKey: ["conc-hist-pag", allLancIds.join(",")],
     queryFn: async () => {
-      if (!lancIds.length) return [];
+      if (!allLancIds.length) return [];
       const { data } = await supabase
         .from("fin_pagamentos")
         .select("id, descricao, valor, nome_fornecedor, data_vencimento, data_liquidacao, status, gc_codigo, os_codigo, plano_contas_id, centro_custo_id, origem")
-        .in("id", lancIds);
+        .in("id", allLancIds);
       return data || [];
     },
-    enabled: lancIds.length > 0,
+    enabled: allLancIds.length > 0,
   });
 
   const { data: gruposReceber } = useQuery({
@@ -113,7 +134,6 @@ export default function ConciliacaoHistoricoPage() {
     enabled: grupoPagIds.length > 0,
   });
 
-  // Fetch sync_log entries for conciliation
   const { data: syncLogs } = useQuery({
     queryKey: ["conc-hist-logs"],
     queryFn: async () => {
@@ -138,6 +158,17 @@ export default function ConciliacaoHistoricoPage() {
   (gruposPagar || []).forEach((g: any) => { grpPagMap[g.id] = g; });
   const logByRef: Record<string, any> = {};
   (syncLogs || []).forEach((l: any) => { if (l.referencia_id) logByRef[l.referencia_id] = l; });
+
+  // Parcelas map by extrato_id
+  const parcelasMap: Record<string, { lancamento_id: string; tabela: string; valor_alocado: number }[]> = {};
+  (extratoLancamentos || []).forEach((el: any) => {
+    if (!parcelasMap[el.extrato_id]) parcelasMap[el.extrato_id] = [];
+    parcelasMap[el.extrato_id].push({
+      lancamento_id: el.lancamento_id,
+      tabela: el.tabela,
+      valor_alocado: Number(el.valor_alocado),
+    });
+  });
 
   const getLancamento = (item: any) => {
     if (item.lancamento_id) return recMap[item.lancamento_id] || pagMap[item.lancamento_id] || null;
@@ -194,7 +225,7 @@ export default function ConciliacaoHistoricoPage() {
     return true;
   });
 
-  // Stats — only from conciliados reais
+  // Stats
   const totalCredito = filtered.filter((i: any) => i.tipo === "CREDITO").reduce((s: number, i: any) => s + Math.abs(Number(i.valor_extrato ?? i.valor)), 0);
   const totalDebito = filtered.filter((i: any) => i.tipo === "DEBITO").reduce((s: number, i: any) => s + Math.abs(Number(i.valor_extrato ?? i.valor)), 0);
   const totalExcecoes = (excecoes || []).reduce((s: number, i: any) => s + Math.abs(Number(i.valor_extrato ?? i.valor)), 0);
@@ -335,7 +366,35 @@ export default function ConciliacaoHistoricoPage() {
                         <td className="px-3 py-2.5 text-muted-foreground text-[11px] font-mono">{item.cpf_cnpj || "—"}</td>
                         <td className="px-3 py-2.5 text-right font-semibold">{formatCurrency(Math.abs(Number(valorExtrato)))}</td>
                         <td className="px-3 py-2.5">
-                          {lanc && (
+                          {/* SOMA_PARCELAS: mostrar todos os GCs */}
+                          {qtdParcelas != null && qtdParcelas > 1 && parcelasMap[item.id]?.length > 0 ? (
+                            <div className="space-y-1">
+                              {parcelasMap[item.id].map((p, idx) => {
+                                const pLanc = recMap[p.lancamento_id] || pagMap[p.lancamento_id];
+                                if (!pLanc) return (
+                                  <p key={idx} className="text-[10px] text-muted-foreground italic">
+                                    ID: {p.lancamento_id?.slice(0, 8)}… — {formatCurrency(p.valor_alocado)}
+                                  </p>
+                                );
+                                return (
+                                  <div key={idx} className="flex items-center justify-between gap-2 text-xs border-b border-border/30 last:border-0 pb-0.5 last:pb-0">
+                                    <div className="min-w-0">
+                                      <p className="font-medium truncate max-w-[180px]">{pLanc.descricao}</p>
+                                      <p className="text-[10px] text-muted-foreground">
+                                        {pLanc.nome_cliente || pLanc.nome_fornecedor || ""}
+                                        {pLanc.gc_codigo && <span className="ml-1">· GC {pLanc.gc_codigo}</span>}
+                                        {pLanc.os_codigo && <span className="ml-1">· OS {pLanc.os_codigo}</span>}
+                                      </p>
+                                    </div>
+                                    <span className="text-[10px] font-semibold text-muted-foreground whitespace-nowrap">
+                                      {formatCurrency(p.valor_alocado)}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : lanc ? (
+                            /* 1:1 normal */
                             <div>
                               <p className="text-xs font-medium truncate max-w-[200px]">{lanc.descricao}</p>
                               <p className="text-[10px] text-muted-foreground">
@@ -344,14 +403,14 @@ export default function ConciliacaoHistoricoPage() {
                                 {lanc.os_codigo && <span className="ml-1">· OS {lanc.os_codigo}</span>}
                               </p>
                             </div>
-                          )}
-                          {grupo && (
+                          ) : grupo ? (
                             <div>
                               <p className="text-xs font-medium truncate max-w-[200px]">{grupo.nome}</p>
                               <p className="text-[10px] text-muted-foreground">{grupo.nome_cliente || grupo.nome_fornecedor || ""}</p>
                             </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
                           )}
-                          {!lanc && !grupo && <span className="text-xs text-muted-foreground">—</span>}
                         </td>
                         <td className="px-3 py-2.5 text-right text-xs">
                           {valorGc !== null ? formatCurrency(valorGc) : "—"}
@@ -504,8 +563,8 @@ export default function ConciliacaoHistoricoPage() {
                 </div>
               </div>
 
-              {/* Lançamento vinculado */}
-              {detail.lanc && (
+              {/* Lançamento vinculado (1:1) */}
+              {detail.lanc && !(detail.qtdParcelas > 1 && parcelasMap[detail.item.id]?.length > 0) && (
                 <div className="rounded-md border border-border p-4 space-y-2">
                   <h4 className="font-semibold text-xs uppercase text-muted-foreground">📋 Lançamento Vinculado</h4>
                   <div className="grid grid-cols-2 gap-2">
@@ -519,6 +578,47 @@ export default function ConciliacaoHistoricoPage() {
                     <Field label="Data Liquidação" value={detail.lanc.data_liquidacao} />
                     <Field label="Origem" value={detail.lanc.origem} />
                   </div>
+                </div>
+              )}
+
+              {/* Parcelas múltiplas */}
+              {detail.qtdParcelas > 1 && parcelasMap[detail.item.id]?.length > 0 && (
+                <div className="rounded-md border border-border p-4 space-y-2">
+                  <h4 className="font-semibold text-xs uppercase text-muted-foreground">
+                    🔗 Lançamentos Vinculados ({parcelasMap[detail.item.id].length} parcelas)
+                  </h4>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-[10px] text-muted-foreground uppercase border-b border-border">
+                        <th className="pb-1 text-left">Descrição</th>
+                        <th className="pb-1 text-left">Cliente/Fornecedor</th>
+                        <th className="pb-1 text-left">GC / OS</th>
+                        <th className="pb-1 text-right">Valor Alocado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parcelasMap[detail.item.id].map((p, idx) => {
+                        const pLanc = recMap[p.lancamento_id] || pagMap[p.lancamento_id];
+                        return (
+                          <tr key={idx} className="border-b border-border/30 last:border-0">
+                            <td className="py-1 pr-2">{pLanc?.descricao || `ID: ${p.lancamento_id?.slice(0, 8)}…`}</td>
+                            <td className="py-1 pr-2 text-muted-foreground">{pLanc?.nome_cliente || pLanc?.nome_fornecedor || "—"}</td>
+                            <td className="py-1 pr-2 font-mono text-muted-foreground">
+                              {pLanc?.gc_codigo || "—"}
+                              {pLanc?.os_codigo && <span className="ml-1">/ {pLanc.os_codigo}</span>}
+                            </td>
+                            <td className="py-1 text-right font-semibold">{formatCurrency(p.valor_alocado)}</td>
+                          </tr>
+                        );
+                      })}
+                      <tr className="font-bold">
+                        <td colSpan={3} className="pt-1">Total GC</td>
+                        <td className="pt-1 text-right">
+                          {formatCurrency(parcelasMap[detail.item.id].reduce((s, p) => s + p.valor_alocado, 0))}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               )}
 
