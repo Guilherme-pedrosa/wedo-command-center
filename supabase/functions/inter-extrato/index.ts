@@ -162,7 +162,16 @@ serve(async (req) => {
         const codigoBarras= det.codigoBarras ?? null;
         const realId      = det.endToEndId ?? tx.endToEndId ?? tx.codigoTransacao ?? codigoBarras ?? null;
         const valor       = Math.abs(parseFloat(String(tx.valor ?? "0").replace(",", ".")));
-        const dataHora    = tx.dataHora ?? tx.dataInclusao ?? tx.dataEntrada ?? tx.dataMovimento ?? now.toISOString();
+        // Inter API retorna horários em BRT (UTC-3) sem timezone info
+        const dataHoraRaw = tx.dataHora ?? tx.dataInclusao ?? tx.dataEntrada ?? tx.dataMovimento ?? now.toISOString();
+        // Se não tem timezone (+/-), assumir BRT (-03:00)
+        const dataHora = (() => {
+          const s = String(dataHoraRaw).trim();
+          if (/[+-]\d{2}:\d{2}$/.test(s) || s.endsWith("Z")) return s; // já tem TZ
+          // Formato "2026-03-07 10:59:30.000" → "2026-03-07T10:59:30-03:00"
+          const iso = s.replace(" ", "T").replace(/\.000$/, "");
+          return `${iso}-03:00`;
+        })();
 
         // ── Dedup sem endToEndId: janela ±2 dias ──
         if (!realId) {
