@@ -21,12 +21,12 @@ export default function ConciliacaoHistoricoPage() {
     queryKey: ["conciliacao-historico"],
     queryFn: async () => {
       const { data } = await supabase
-        .from("fin_extrato_inter")
+        .from("vw_conciliacao_extrato" as any)
         .select("*")
         .eq("reconciliado", true)
         .order("reconciliado_em", { ascending: false })
         .limit(500);
-      return data || [];
+      return (data as any[]) || [];
     },
   });
 
