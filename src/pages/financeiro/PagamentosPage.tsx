@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -20,12 +20,13 @@ import { syncPagamentosGC } from "@/api/financeiro";
 import { cn } from "@/lib/utils";
 import {
   CreditCard, Search, RefreshCw, Plus, Loader2, Zap, CalendarIcon,
-  Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight,
+  Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight, FileText, Camera,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import toast from "react-hot-toast";
+import html2canvas from "html2canvas";
 
 const PAGE_SIZE = 50;
 
@@ -51,6 +52,7 @@ export default function PagamentosPage() {
   const [showDetailDrawer, setShowDetailDrawer] = useState(false);
   const [detailItem, setDetailItem] = useState<any>(null);
   const [page, setPage] = useState(0);
+  const [showFechamento, setShowFechamento] = useState(false);
 
   // Group creation
   const [groupName, setGroupName] = useState("");
@@ -62,10 +64,12 @@ export default function PagamentosPage() {
   const [newForm, setNewForm] = useState({
     descricao: "", valor: "", nome_fornecedor: "", data_vencimento: "",
     data_emissao: format(new Date(), "yyyy-MM-dd"), chave_pix: "", observacao: "",
+    aguardando_nf: false, nfe_chave: "",
   });
   const [saving, setSaving] = useState(false);
 
   const hoje = new Date().toISOString().split("T")[0];
+  const fechamentoRef = useRef<HTMLDivElement>(null);
 
   const { data: pagamentos, isLoading } = useQuery({
     queryKey: ["fin-pagamentos"],
@@ -78,6 +82,36 @@ export default function PagamentosPage() {
       return data || [];
     },
   });
+
+  // Fechamento do dia query
+  const { data: fechamentoItems, isLoading: loadingFechamento } = useQuery({
+    queryKey: ["fin-pagamentos-fechamento", hoje],
+    enabled: showFechamento,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("fin_pagamentos")
+        .select("*, fin_formas_pagamento:forma_pagamento_id(nome)")
+        .eq("data_liquidacao", hoje);
+      return data || [];
+    },
+  });
+
+  // Group by forma_pagamento for fechamento
+  const fechamentoGrouped = useMemo(() => {
+    if (!fechamentoItems) return {};
+    const groups: Record<string, any[]> = {};
+    fechamentoItems.forEach((p: any) => {
+      const forma = p.fin_formas_pagamento?.nome || "Sem forma";
+      if (!groups[forma]) groups[forma] = [];
+      groups[forma].push(p);
+    });
+    return groups;
+  }, [fechamentoItems]);
+
+  const fechamentoTotal = useMemo(() => 
+    (fechamentoItems || []).reduce((s: number, p: any) => s + Number(p.valor || 0), 0),
+    [fechamentoItems]
+  );
 
   const filtered = useMemo(() => {
     if (!pagamentos) return [];
@@ -161,16 +195,47 @@ export default function PagamentosPage() {
         origem: "manual" as any,
         tipo: "outro",
         status: "pendente" as any,
+        aguardando_nf: newForm.aguardando_nf,
+        nfe_chave: newForm.nfe_chave || null,
       });
       if (error) throw error;
       toast.success("Pagamento criado");
       setShowNewDrawer(false);
-      setNewForm({ descricao: "", valor: "", nome_fornecedor: "", data_vencimento: "", data_emissao: format(new Date(), "yyyy-MM-dd"), chave_pix: "", observacao: "" });
+      setNewForm({ descricao: "", valor: "", nome_fornecedor: "", data_vencimento: "", data_emissao: format(new Date(), "yyyy-MM-dd"), chave_pix: "", observacao: "", aguardando_nf: false, nfe_chave: "" });
       queryClient.invalidateQueries({ queryKey: ["fin-pagamentos"] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleVincularNFe = async (id: string, nfeChave: string) => {
+    const { error } = await supabase.from("fin_pagamentos").update({
+      nfe_chave: nfeChave,
+      nfe_vinculada_em: new Date().toISOString(),
+      aguardando_nf: false,
+    }).eq("id", id);
+    if (error) {
+      toast.error("Erro ao vincular NF-e");
+    } else {
+      toast.success("NF-e vinculada com sucesso");
+      queryClient.invalidateQueries({ queryKey: ["fin-pagamentos"] });
+    }
+  };
+
+  const handleCopyFechamento = async () => {
+    if (!fechamentoRef.current) return;
+    try {
+      const canvas = await html2canvas(fechamentoRef.current, { backgroundColor: "#ffffff" });
+      canvas.toBlob((blob) => {
+        if (blob) {
+          navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+          toast.success("Imagem copiada para a área de transferência!");
+        }
+      });
+    } catch (err) {
+      toast.error("Erro ao copiar imagem");
     }
   };
 
@@ -180,6 +245,13 @@ export default function PagamentosPage() {
       return <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30 text-[10px]">Vencido</Badge>;
     if (p.status === "cancelado") return <Badge variant="outline" className="text-[10px]">Cancelado</Badge>;
     return <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/30 text-[10px]">Pendente</Badge>;
+  };
+
+  const aguardandoNfBadge = (p: any) => {
+    if (p.aguardando_nf && p.liquidado) {
+      return <Badge variant="outline" className="bg-orange-500/10 text-orange-500 border-orange-500/30 text-[10px] ml-1">⏳ Ag. NF</Badge>;
+    }
+    return null;
   };
 
   const baixaGCBadge = (p: any) => {
@@ -202,6 +274,10 @@ export default function PagamentosPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => setShowFechamento(true)}>
+            <FileText className="h-3.5 w-3.5 mr-1.5" />
+            Fechamento do Dia
+          </Button>
           <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing}>
             {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
             Sync GC
@@ -287,7 +363,12 @@ export default function PagamentosPage() {
                   <td className="p-3 text-foreground">{p.nome_fornecedor || "—"}</td>
                   <td className="p-3 text-right font-semibold text-foreground">{formatCurrency(Number(p.valor))}</td>
                   <td className="p-3 text-foreground">{p.data_vencimento ? formatDate(p.data_vencimento) : "—"}</td>
-                  <td className="p-3 text-center">{statusBadge(p)}</td>
+                  <td className="p-3 text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      {statusBadge(p)}
+                      {aguardandoNfBadge(p)}
+                    </div>
+                  </td>
                   <td className="p-3 text-center">{baixaGCBadge(p)}</td>
                   <td className="p-3 text-center">
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openDetail(p)}>
@@ -367,6 +448,67 @@ export default function PagamentosPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Fechamento do Dia Dialog */}
+      <Dialog open={showFechamento} onOpenChange={setShowFechamento}>
+        <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Fechamento — {format(new Date(), "dd/MM/yyyy", { locale: ptBR })}</DialogTitle>
+          </DialogHeader>
+          <div ref={fechamentoRef} className="space-y-4 p-4 bg-background">
+            <h2 className="text-lg font-bold text-center">Pagamentos do Dia — {format(new Date(), "dd/MM/yyyy")}</h2>
+            {loadingFechamento ? (
+              <div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
+            ) : Object.keys(fechamentoGrouped).length === 0 ? (
+              <p className="text-center text-muted-foreground py-8">Nenhum pagamento liquidado hoje.</p>
+            ) : (
+              Object.entries(fechamentoGrouped).map(([forma, items]) => (
+                <div key={forma} className="space-y-2">
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase border-b pb-1">{forma}</h3>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-muted-foreground">
+                        <th className="text-left pb-1">Fornecedor</th>
+                        <th className="text-left pb-1">Descrição</th>
+                        <th className="text-right pb-1">Valor</th>
+                        <th className="text-center pb-1">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(items as any[]).map((p: any) => (
+                        <tr key={p.id} className="border-b border-border/30">
+                          <td className="py-1">{p.nome_fornecedor || "—"}</td>
+                          <td className="py-1 truncate max-w-[200px]">{p.descricao}</td>
+                          <td className="py-1 text-right font-medium">{formatCurrency(Number(p.valor))}</td>
+                          <td className="py-1 text-center">{statusBadge(p)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="font-semibold">
+                        <td colSpan={2} className="pt-1">Subtotal {forma}</td>
+                        <td className="pt-1 text-right">{formatCurrency((items as any[]).reduce((s, p) => s + Number(p.valor || 0), 0))}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              ))
+            )}
+            {Object.keys(fechamentoGrouped).length > 0 && (
+              <div className="border-t-2 border-foreground pt-2 text-right">
+                <span className="text-lg font-bold">Total Geral: {formatCurrency(fechamentoTotal)}</span>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCopyFechamento}>
+              <Camera className="h-3.5 w-3.5 mr-1.5" /> Copiar como imagem
+            </Button>
+            <Button variant="ghost" onClick={() => setShowFechamento(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Baixa Modal */}
       <ConfirmarBaixaModal
         open={showBaixa}
@@ -409,6 +551,16 @@ export default function PagamentosPage() {
               <Label>Chave PIX (opcional)</Label>
               <Input value={newForm.chave_pix} onChange={e => setNewForm(f => ({ ...f, chave_pix: e.target.value }))} placeholder="CPF, CNPJ, email..." />
             </div>
+            <div className="flex items-center gap-2">
+              <Switch id="aguardando-nf" checked={newForm.aguardando_nf} onCheckedChange={v => setNewForm(f => ({ ...f, aguardando_nf: v }))} />
+              <Label htmlFor="aguardando-nf" className="text-sm">Aguardando NF</Label>
+            </div>
+            {newForm.aguardando_nf && (
+              <div className="space-y-2">
+                <Label>Chave NF-e</Label>
+                <Input value={newForm.nfe_chave} onChange={e => setNewForm(f => ({ ...f, nfe_chave: e.target.value }))} placeholder="44 dígitos da chave NF-e" />
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Observação</Label>
               <Textarea value={newForm.observacao} onChange={e => setNewForm(f => ({ ...f, observacao: e.target.value }))} />
@@ -451,9 +603,50 @@ export default function PagamentosPage() {
                   </div>
                   <div>
                     <span className="text-muted-foreground text-xs">Status</span>
-                    <div className="mt-1">{statusBadge(detailItem)}</div>
+                    <div className="mt-1 flex items-center gap-1">
+                      {statusBadge(detailItem)}
+                      {aguardandoNfBadge(detailItem)}
+                    </div>
                   </div>
                 </div>
+
+                {/* NF-e Section */}
+                {(detailItem.aguardando_nf || detailItem.nfe_chave) && (
+                  <div className="rounded-lg border border-border p-4 space-y-2">
+                    <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <FileText className="h-4 w-4" /> Nota Fiscal
+                    </h4>
+                    {detailItem.nfe_chave ? (
+                      <div className="text-sm">
+                        <p className="text-muted-foreground text-xs">Chave NF-e</p>
+                        <p className="font-mono text-xs break-all">{detailItem.nfe_chave}</p>
+                        {detailItem.nfe_vinculada_em && (
+                          <p className="text-[10px] text-muted-foreground mt-1">Vinculada em {formatDateTime(detailItem.nfe_vinculada_em)}</p>
+                        )}
+                      </div>
+                    ) : detailItem.aguardando_nf ? (
+                      <div className="space-y-2">
+                        <p className="text-amber-500 text-sm">⏳ Aguardando NF-e</p>
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="Cole a chave NF-e aqui..."
+                            className="flex-1 text-xs"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                const value = (e.target as HTMLInputElement).value;
+                                if (value) handleVincularNFe(detailItem.id, value);
+                              }
+                            }}
+                          />
+                          <Button size="sm" variant="outline" onClick={(e) => {
+                            const input = (e.target as HTMLElement).previousElementSibling as HTMLInputElement;
+                            if (input?.value) handleVincularNFe(detailItem.id, input.value);
+                          }}>Vincular</Button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
 
                 <div className="rounded-lg border border-border p-4 space-y-2">
                   <h4 className="text-sm font-semibold text-foreground">Baixa GestãoClick</h4>
