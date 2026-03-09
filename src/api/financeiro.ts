@@ -1,5 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { callGC } from "@/lib/gc-client";
+import { startOfMonth, endOfMonth, addMonths, format as fnsFormat } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
