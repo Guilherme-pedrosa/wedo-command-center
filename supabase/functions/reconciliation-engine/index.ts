@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-09
+// redeploy: 2026-03-09-v2
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -432,14 +432,10 @@ serve(async (req) => {
     // 2. Lançamentos candidatos + lookup tables
     const [{ data: pagamentos }, { data: recebimentos }, { data: fornecedores }, { data: clientes }] = await Promise.all([
       supabase.from("fin_pagamentos").select("*")
-        .or("liquidado.eq.false,liquidado.is.null")
-        .or("pago_sistema.eq.false,pago_sistema.is.null")
-        .not("status", "in", '("pago","cancelado")')
+        .not("status", "in", '("cancelado")')
         .limit(1000),
       supabase.from("fin_recebimentos").select("*")
-        .or("liquidado.eq.false,liquidado.is.null")
-        .or("pago_sistema.eq.false,pago_sistema.is.null")
-        .not("status", "in", '("pago","cancelado")')
+        .not("status", "in", '("cancelado")')
         .limit(1000),
       supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj, chave_pix, nome"),
       supabase.from("fin_clientes").select("gc_id, cpf_cnpj, nome"),
