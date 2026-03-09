@@ -226,13 +226,13 @@ export default function ConciliacaoPage() {
     const chips: React.ReactNode[] = [];
     if (l.os_codigo) {
       chips.push(
-        <GCLink key="os" href={gcOsLink(l.gc_id || l.os_codigo)}>
+        <GCLink key="os" href={gcOsLink(l.os_codigo)}>
           <Hash className="h-2.5 w-2.5" />OS {l.os_codigo}
         </GCLink>
       );
     }
     if (l.gc_codigo) {
-      const link = tipo === "receber" ? gcRecebimentoLink(l.gc_id || l.gc_codigo) : gcPagamentoLink(l.gc_id || l.gc_codigo);
+      const link = tipo === "receber" ? gcRecebimentoLink(l.gc_codigo) : gcPagamentoLink(l.gc_codigo);
       chips.push(
         <GCLink key="gc" href={link}>
           GC {l.gc_codigo}
