@@ -199,11 +199,17 @@ export async function listRecebimentos(params?: {
 }
 
 export async function importarRecebimentosPendentes(
-  onProgress?: (current: number, total: number) => void
+  onProgress?: (current: number, total: number) => void,
+  filtros?: { dataInicio?: string; dataFim?: string; liquidado?: string }
 ): Promise<GCRecebimentoRaw[]> {
+  const params: Record<string, string> = {};
+  if (filtros?.liquidado !== undefined) params.liquidado = filtros.liquidado;
+  else params.liquidado = "0";
+  if (filtros?.dataInicio) params.data_vencimento_inicio = filtros.dataInicio;
+  if (filtros?.dataFim) params.data_vencimento_fim = filtros.dataFim;
   return fetchPaginatedGC<GCRecebimentoRaw>(
     "/api/recebimentos",
-    { liquidado: "0" },
+    params,
     onProgress
   );
 }
