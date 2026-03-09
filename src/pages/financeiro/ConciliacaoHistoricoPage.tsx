@@ -151,9 +151,11 @@ export default function ConciliacaoHistoricoPage() {
 
       const results: any[] = [];
       for (const link of links) {
-        const table = link.tabela as "fin_recebimentos" | "fin_pagamentos";
+        // Engine stores "pagamentos"/"recebimentos", need full table name
+        const rawTabela = link.tabela as string;
+        const table = rawTabela.startsWith("fin_") ? rawTabela : `fin_${rawTabela}`;
         const { data: rec } = await supabase
-          .from(table)
+          .from(table as "fin_recebimentos" | "fin_pagamentos")
           .select("id, gc_id, gc_codigo, descricao, valor, data_vencimento, data_liquidacao, data_competencia, liquidado, status, gc_baixado, gc_baixado_em, os_codigo, nome_cliente, nome_fornecedor, plano_contas_id, centro_custo_id, origem, tipo")
           .eq("id", link.lancamento_id)
           .single();
