@@ -554,6 +554,10 @@ export default function MetasOrcamentoPage() {
             </SelectContent>
           </Select>
 
+          <Button variant="outline" size="sm" onClick={() => setConfigOpen(true)}>
+            <Settings className="h-4 w-4 mr-1" /> Configurar
+          </Button>
+
           <Button variant="default" size="sm" onClick={handleSyncAll} disabled={syncingAll}>
             {syncingAll ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
             Sincronizar Tudo
