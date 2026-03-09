@@ -97,6 +97,7 @@ const App = () => (
           {/* Standalone pages (no sidebar) */}
           <Route path="/relatorio/resultados" element={<Suspense fallback={<LazyFallback />}><RelatorioResultados /></Suspense>} />
           <Route path="/tv/resultados" element={<Suspense fallback={<LazyFallback />}><TvResultados /></Suspense>} />
+          <Route path="/tv/tecnicos" element={<Suspense fallback={<LazyFallback />}><TvTecnicos /></Suspense>} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>
