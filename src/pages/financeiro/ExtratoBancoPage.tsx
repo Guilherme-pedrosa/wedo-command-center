@@ -577,17 +577,44 @@ export default function ExtratoBancoPage() {
         <Badge variant="outline" className="text-[10px] bg-green-500/10 text-green-500">✅ {totalReconciliado}</Badge>
         <Badge variant="outline" className="text-[10px] bg-red-500/10 text-red-500">❌ {totalNaoReconciliado}</Badge>
 
-        <Select value={mesExtrato} onValueChange={handleMesChange}>
-          <SelectTrigger className="w-[150px] h-8 text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>{monthOptions.map(o => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
-        </Select>
+        <SearchableSelect
+          value={mesExtrato}
+          onValueChange={handleMesChange}
+          options={monthOptions.map(o => ({ value: o.value, label: o.label }))}
+          placeholder="Mês"
+          searchPlaceholder="Buscar mês..."
+          className="w-[150px] h-8 text-xs"
+        />
         <div className="flex items-center gap-1">
           <Popover><PopoverTrigger asChild><Button variant="outline" size="sm" className="h-8 text-xs gap-1"><CalendarIcon className="h-3 w-3" />{format(dateFrom, "dd/MM/yy")}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={dateFrom} onSelect={d => { if (d) { setDateFrom(startOfDay(d)); setMesExtrato("custom"); } }} className={cn("p-3 pointer-events-auto")} /></PopoverContent></Popover>
           <span className="text-xs text-muted-foreground">→</span>
           <Popover><PopoverTrigger asChild><Button variant="outline" size="sm" className="h-8 text-xs gap-1"><CalendarIcon className="h-3 w-3" />{format(dateTo, "dd/MM/yy")}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={dateTo} onSelect={d => { if (d) { setDateTo(endOfDay(d)); setMesExtrato("custom"); } }} className={cn("p-3 pointer-events-auto")} /></PopoverContent></Popover>
         </div>
-        <Select value={tipoFilter} onValueChange={setTipoFilter}><SelectTrigger className="w-[100px] h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todos</SelectItem><SelectItem value="CREDITO">Crédito</SelectItem><SelectItem value="DEBITO">Débito</SelectItem></SelectContent></Select>
-        <Select value={reconcFilter} onValueChange={setReconcFilter}><SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todos</SelectItem><SelectItem value="sim">✅ Conciliado</SelectItem><SelectItem value="nao">❌ Pendente</SelectItem><SelectItem value="excecao">⚠️ Exceção</SelectItem></SelectContent></Select>
+        <SearchableSelect
+          value={tipoFilter}
+          onValueChange={v => setTipoFilter(v || "todos")}
+          options={[
+            { value: "todos", label: "Todos" },
+            { value: "CREDITO", label: "Crédito" },
+            { value: "DEBITO", label: "Débito" },
+          ]}
+          placeholder="Tipo"
+          searchPlaceholder="Buscar..."
+          className="w-[100px] h-8 text-xs"
+        />
+        <SearchableSelect
+          value={reconcFilter}
+          onValueChange={v => setReconcFilter(v || "todos")}
+          options={[
+            { value: "todos", label: "Todos" },
+            { value: "sim", label: "✅ Conciliado" },
+            { value: "nao", label: "❌ Pendente" },
+            { value: "excecao", label: "⚠️ Exceção" },
+          ]}
+          placeholder="Conciliação"
+          searchPlaceholder="Buscar..."
+          className="w-[140px] h-8 text-xs"
+        />
         <div className="relative">
           <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
           <Input placeholder="Buscar..." value={searchTerm} onChange={ev => setSearchTerm(ev.target.value)} className="pl-7 h-8 w-[180px] text-xs" />
