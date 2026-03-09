@@ -421,7 +421,7 @@ serve(async (req) => {
       .from("fin_extrato_inter")
       .select("*")
       .eq("reconciliado", false)
-      .not("reconciliation_rule", "in", `(${MANUAL_EXCEPTIONS.join(",")})`)
+      .or(`reconciliation_rule.is.null,reconciliation_rule.not.in.(${MANUAL_EXCEPTIONS.join(",")})`)
       .order("data_hora", { ascending: false })
       .limit(200);
 
