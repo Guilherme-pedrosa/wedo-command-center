@@ -568,9 +568,8 @@ export default function ConciliacaoPage() {
       <SyncPeriodDialog
         open={showSyncDialog}
         onOpenChange={setShowSyncDialog}
-        titulo="Sincronizar dados do GestãoClick"
-        descricao="Importa recebimentos e pagamentos do GC para o banco local. Necessário para a conciliação funcionar."
-        onConfirm={async (filtros, onProgress, onStep) => {
+        title="Sincronizar dados do GestãoClick"
+        onSync={async (filtros, onProgress, onStep) => {
           setSyncing(true);
           try {
             onStep?.("Importando recebimentos do GestãoClick...");
