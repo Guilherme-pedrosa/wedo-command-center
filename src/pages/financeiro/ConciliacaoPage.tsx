@@ -114,29 +114,6 @@ export default function ConciliacaoPage() {
     });
   }, [extratoNR, mesExtrato]);
 
-  const filteredRecebimentos = useMemo(() => {
-    if (!recebimentosNL) return [];
-    if (mesLanc === "all") return recebimentosNL;
-    const start = startOfMonth(new Date(mesLanc + "-01"));
-    const end = endOfMonth(start);
-    return recebimentosNL.filter((r: any) => {
-      if (!r.data_vencimento) return false;
-      const d = new Date(r.data_vencimento + "T00:00:00");
-      return d >= start && d <= end;
-    });
-  }, [recebimentosNL, mesLanc]);
-
-  const filteredPagamentos = useMemo(() => {
-    if (!pagamentosNL) return [];
-    if (mesLanc === "all") return pagamentosNL;
-    const start = startOfMonth(new Date(mesLanc + "-01"));
-    const end = endOfMonth(start);
-    return pagamentosNL.filter((p: any) => {
-      if (!p.data_vencimento) return false;
-      const d = new Date(p.data_vencimento + "T00:00:00");
-      return d >= start && d <= end;
-    });
-  }, [pagamentosNL, mesLanc]);
 
   const handleSelectExtrato = (e: any) => {
     if (expandedExtrato === e.id) {
