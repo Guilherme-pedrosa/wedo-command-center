@@ -765,6 +765,14 @@ export default function RecebimentosPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <SyncPeriodDialog
+        open={showSyncDialog}
+        onOpenChange={setShowSyncDialog}
+        onSync={handleSync}
+        loading={syncing}
+        title="Sincronizar Recebimentos (GC)"
+      />
     </div>
   );
 }

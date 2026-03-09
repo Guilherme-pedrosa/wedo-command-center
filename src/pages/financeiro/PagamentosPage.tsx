@@ -700,6 +700,14 @@ export default function PagamentosPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <SyncPeriodDialog
+        open={showSyncDialog}
+        onOpenChange={setShowSyncDialog}
+        onSync={handleSync}
+        loading={syncing}
+        title="Sincronizar Pagamentos (GC)"
+      />
     </div>
   );
 }
