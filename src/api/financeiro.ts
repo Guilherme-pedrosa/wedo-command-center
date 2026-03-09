@@ -212,8 +212,8 @@ export async function importarRecebimentosPendentes(
   } else {
     params.liquidado = "0";
   }
-  if (filtros?.dataInicio) params.data_vencimento_inicio = filtros.dataInicio;
-  if (filtros?.dataFim) params.data_vencimento_fim = filtros.dataFim;
+  if (filtros?.dataInicio) params.data_inicio = filtros.dataInicio;
+  if (filtros?.dataFim) params.data_fim = filtros.dataFim;
   return fetchPaginatedGC<GCRecebimentoRaw>(
     "/api/recebimentos",
     params,
