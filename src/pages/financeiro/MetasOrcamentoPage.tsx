@@ -370,12 +370,6 @@ const useMetas = (year: number, month: number) => {
           }
         }
       }
-      else if (meta.categoria === 'receita' && (nome.includes('contrato') || nome.includes('pcm'))) {
-        // Use gc_recebimentos with GC plano_contas_id directly
-        realizado = gcRecebimentos
-          .filter(r => r.plano_contas_id === '27867721')
-          .reduce((acc, r) => acc + (r.valor || 0), 0);
-      }
       else if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto') || nome.includes('peça'))) {
         realizado = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
       }
