@@ -1,5 +1,6 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { ARGUSChat } from "@/components/financeiro/ARGUSChat";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import {
   Bell, DollarSign, ChevronDown, LayoutDashboard, Receipt, CreditCard,
@@ -12,7 +13,6 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-
 export function AppLayout() {
   const location = useLocation();
   const isFinActive = location.pathname.startsWith("/financeiro");
@@ -133,6 +133,7 @@ export function AppLayout() {
           </main>
         </div>
       </div>
+      <ARGUSChat />
     </SidebarProvider>
   );
 }
