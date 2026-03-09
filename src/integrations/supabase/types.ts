@@ -920,6 +920,33 @@ export type Database = {
         }
         Relationships: []
       }
+      fin_metas_tecnicos: {
+        Row: {
+          ativo: boolean
+          created_at: string | null
+          id: string
+          meta_faturamento: number
+          nome_tecnico: string
+          updated_at: string | null
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string | null
+          id?: string
+          meta_faturamento?: number
+          nome_tecnico: string
+          updated_at?: string | null
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string | null
+          id?: string
+          meta_faturamento?: number
+          nome_tecnico?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       fin_pagamentos: {
         Row: {
           aguardando_nf: boolean | null
