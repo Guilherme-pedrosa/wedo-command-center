@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { ptBR } from "date-fns/locale";
 import toast from "react-hot-toast";
 
-const GC_BASE = "https://app.gestaoclick.com.br";
+const GC_BASE = "https://gestaoclick.com";
 
 // Build month options: current + last 5 months + "all"
 function buildMonthOptions() {
