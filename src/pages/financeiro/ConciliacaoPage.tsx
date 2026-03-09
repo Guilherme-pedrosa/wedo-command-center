@@ -259,10 +259,6 @@ export default function ConciliacaoPage() {
             <RefreshCw className="h-4 w-4" />
             Atualizar
           </Button>
-          <Button onClick={() => setShowSyncDialog(true)} disabled={syncing} size="sm" className="gap-2">
-            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            Sincronizar GC
-          </Button>
           <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" className="gap-2">
             {autoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
             Conciliação Automática
