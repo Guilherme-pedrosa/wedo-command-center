@@ -161,15 +161,15 @@ export default function PagamentosPage() {
   ) => {
     setSyncing(true);
     try {
-      onStep?.("Importando pagamentos do GestãoClick...");
-      const r = await syncPagamentosGC(onProgress, {
-        dataInicio: filtros.dataInicio,
-        dataFim: filtros.dataFim,
-        incluirLiquidados: filtros.incluirLiquidados,
-      });
-      toast.success(`Importados: ${r.importados} pagamentos`);
+      const result = await syncByMonthChunks(filtros, onProgress, onStep);
+      toast.success(`Importados: ${result.importados} registros`);
       queryClient.invalidateQueries({ queryKey: ["fin-pagamentos"] });
       setShowSyncDialog(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro");
+    } finally {
+      setSyncing(false);
+    }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
     } finally {

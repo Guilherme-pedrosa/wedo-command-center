@@ -178,15 +178,15 @@ export default function RecebimentosPage() {
   ) => {
     setSyncing(true);
     try {
-      onStep?.("Importando recebimentos do GestãoClick...");
-      const result = await syncRecebimentosGC(onProgress, {
-        dataInicio: filtros.dataInicio,
-        dataFim: filtros.dataFim,
-        incluirLiquidados: filtros.incluirLiquidados,
-      });
-      toast.success(`Importados: ${result.importados} recebimentos`);
+      const result = await syncByMonthChunks(filtros, onProgress, onStep);
+      toast.success(`Importados: ${result.importados} registros`);
       queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
       setShowSyncDialog(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro");
+    } finally {
+      setSyncing(false);
+    }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
     } finally {

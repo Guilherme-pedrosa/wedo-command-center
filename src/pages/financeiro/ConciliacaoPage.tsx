@@ -571,29 +571,20 @@ export default function ConciliacaoPage() {
       <SyncPeriodDialog
         open={showSyncDialog}
         onOpenChange={setShowSyncDialog}
-        title="Sincronizar dados do GestãoClick"
+        title="Sincronizar GestãoClick → Conciliação"
+        loading={syncing}
         onSync={async (filtros, onProgress, onStep) => {
           setSyncing(true);
           try {
-            onStep?.("Importando recebimentos do GestãoClick...");
-            const r = await syncRecebimentosGC(onProgress, {
-              dataInicio: filtros.dataInicio,
-              dataFim: filtros.dataFim,
-            });
-
-            onStep?.("Importando pagamentos do GestãoClick...");
-            const p = await syncPagamentosGC(onProgress, {
-              dataInicio: filtros.dataInicio,
-              dataFim: filtros.dataFim,
-            });
-
-            onStep?.("Concluído!");
+            const result = await syncByMonthChunks(filtros, onProgress, onStep);
             invalidateAll();
-            toast.success(`Sincronizado: ${r.importados} recebimentos, ${p.importados} pagamentos`);
+            toast.success(`Sincronizado: ${result.importados} registros importados`);
           } catch (err) {
             toast.error(err instanceof Error ? err.message : "Erro ao sincronizar");
+            throw err;
           } finally {
             setSyncing(false);
+            invalidateAll();
           }
         }}
       />

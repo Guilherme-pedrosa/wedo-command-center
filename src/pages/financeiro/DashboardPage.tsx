@@ -185,20 +185,19 @@ export default function FinDashboardPage() {
   ) => {
     setSyncing(true);
     try {
-      onStep?.("Importando fornecedores...");
-      const f = await syncFornecedoresGC();
+      onStep?.("Importando cadastros (fornecedores, clientes, plano de contas, centros de custo)...");
+      await Promise.all([
+        syncFornecedoresGC(),
+        syncClientesGC(),
+        syncPlanoContasGC(),
+        syncCentrosCustoGC(),
+      ]);
 
-      onStep?.("Importando clientes...");
-      const c = await syncClientesGC();
-
-      onStep?.("Importando recebimentos do GestãoClick...");
-      const r = await syncRecebimentosGC(onProgress, filtros);
-
-      onStep?.("Importando pagamentos do GestãoClick...");
-      const p = await syncPagamentosGC(onProgress, filtros);
+      onStep?.("Iniciando sincronização por período...");
+      const result = await syncByMonthChunks(filtros, onProgress, onStep);
 
       onStep?.("Concluído!");
-      toast.success(`Sync: ${r.importados} recebimentos, ${p.importados} pagamentos, ${f.importados} fornecedores, ${c.importados} clientes`);
+      toast.success(`Sync: ${result.importados} registros importados${result.erros > 0 ? `, ${result.erros} erros` : ""}`);
       queryClient.invalidateQueries({ queryKey: ["fin-dash"] });
       setShowSyncDialog(false);
     } catch (err) {
