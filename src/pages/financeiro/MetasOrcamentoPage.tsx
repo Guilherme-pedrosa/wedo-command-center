@@ -146,6 +146,23 @@ const useMetas = (year: number, month: number) => {
     return map;
   }, [planoContasMap]);
 
+  // Centro de custo UUID → codigo (GC text ID) map
+  const { data: centrosCustoMap = {} } = useQuery({
+    queryKey: ['fin_centros_custo_map'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('fin_centros_custo')
+        .select('id, codigo');
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      for (const row of data || []) {
+        if (row.codigo) map[row.id] = row.codigo;
+      }
+      return map;
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+
   // 2. Busca recebimentos do período (TODOS: abertos, vencidos e pagos — exclui apenas cancelados)
   const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec } = useQuery({
     queryKey: ['fin_recebimentos_metas', start, end],
@@ -389,11 +406,13 @@ const useMetas = (year: number, month: number) => {
             realizado += auvoSum * (link.peso || 1);
           } else if (gcId) {
             // Use gc_recebimentos or gc_pagamentos (GC plano_contas_id = text)
+            // Convert centro_custo UUID to GC codigo for comparison
+            const centroCodigo = centroUuid ? centrosCustoMap[centroUuid] : null;
             const source = meta.categoria === 'receita' ? gcRecebimentos : gcPagamentos;
             const soma = source
               .filter(r =>
                 r.plano_contas_id === gcId &&
-                (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
+                (centroCodigo === null || centroCodigo === undefined || !r.centro_custo_id || r.centro_custo_id === centroCodigo)
               )
               .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
             realizado += soma * (link.peso || 1);
