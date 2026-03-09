@@ -115,6 +115,7 @@ export default function ExtratoBancoPage() {
   const [detailItem, setDetailItem] = useState<any>(null);
   const [detailLancs, setDetailLancs] = useState<any[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [desfazendo, setDesfazendo] = useState(false);
 
   const handleMesChange = (val: string) => {
     setMesExtrato(val);
