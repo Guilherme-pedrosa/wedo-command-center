@@ -7,9 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw, ExternalLink, FileText, Hash, Search, X, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw, ExternalLink, FileText, Hash, Search, X, ChevronDown, ChevronUp, Download } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
+import { syncRecebimentosGC, syncPagamentosGC } from "@/api/financeiro";
 import toast from "react-hot-toast";
 
 const GC_BASE = "https://app.gestaoclick.com.br";
@@ -53,6 +55,7 @@ export default function ConciliacaoPage() {
   const [autoRunning, setAutoRunning] = useState(false);
   const [autoResult, setAutoResult] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
+  const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [mesExtrato, setMesExtrato] = useState("all");
   const [mesLanc, setMesLanc] = useState("all");
   const [searchLanc, setSearchLanc] = useState("");
@@ -229,16 +232,16 @@ export default function ConciliacaoPage() {
           <p className="text-sm text-muted-foreground">Vincule transações do extrato a lançamentos do sistema</p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={async () => {
-            setSyncing(true);
-            try {
-              invalidateAll();
-              toast.success("Dados atualizados");
-            } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
-            finally { setSyncing(false); }
-          }} disabled={syncing} variant="outline" className="gap-2">
-            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Atualizar
+          <Button onClick={() => {
+            invalidateAll();
+            toast.success("Cache atualizado");
+          }} variant="ghost" size="sm" className="gap-2">
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+          <Button onClick={() => setShowSyncDialog(true)} disabled={syncing} variant="outline" className="gap-2">
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Sincronizar GC
           </Button>
           <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" className="gap-2">
             {autoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
@@ -560,6 +563,37 @@ export default function ConciliacaoPage() {
           <DialogFooter><Button variant="ghost" onClick={() => { setShowConfirm(false); setSelectedExtrato(null); setSelectedLanc(null); }}>Cancelar</Button><Button onClick={handleVincular} disabled={linking}>{linking && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}Vincular</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Sync Period Dialog */}
+      <SyncPeriodDialog
+        open={showSyncDialog}
+        onOpenChange={setShowSyncDialog}
+        title="Sincronizar dados do GestãoClick"
+        onSync={async (filtros, onProgress, onStep) => {
+          setSyncing(true);
+          try {
+            onStep?.("Importando recebimentos do GestãoClick...");
+            const r = await syncRecebimentosGC(onProgress, {
+              dataInicio: filtros.dataInicio,
+              dataFim: filtros.dataFim,
+            });
+
+            onStep?.("Importando pagamentos do GestãoClick...");
+            const p = await syncPagamentosGC(onProgress, {
+              dataInicio: filtros.dataInicio,
+              dataFim: filtros.dataFim,
+            });
+
+            onStep?.("Concluído!");
+            invalidateAll();
+            toast.success(`Sincronizado: ${r.importados} recebimentos, ${p.importados} pagamentos`);
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Erro ao sincronizar");
+          } finally {
+            setSyncing(false);
+          }
+        }}
+      />
     </div>
   );
 }
