@@ -171,9 +171,14 @@ export default function RecebimentosPage() {
     setSelected(n);
   };
 
-  const handleSync = async (filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean }, onProgress?: (atual: number, total: number) => void) => {
+  const handleSync = async (
+    filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean },
+    onProgress?: (atual: number, total: number) => void,
+    onStep?: (etapa: string) => void
+  ) => {
     setSyncing(true);
     try {
+      onStep?.("Importando recebimentos do GestãoClick...");
       const result = await syncRecebimentosGC(onProgress, {
         dataInicio: filtros.dataInicio,
         dataFim: filtros.dataFim,

@@ -154,9 +154,14 @@ export default function PagamentosPage() {
   const selectedTotal = selectedItems.reduce((s: number, p: any) => s + Number(p.valor || 0), 0);
   const canSelect = (p: any) => !p.liquidado && !p.grupo_id;
 
-  const handleSync = async (filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean }, onProgress?: (atual: number, total: number) => void) => {
+  const handleSync = async (
+    filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean },
+    onProgress?: (atual: number, total: number) => void,
+    onStep?: (etapa: string) => void
+  ) => {
     setSyncing(true);
     try {
+      onStep?.("Importando pagamentos do GestãoClick...");
       const r = await syncPagamentosGC(onProgress, {
         dataInicio: filtros.dataInicio,
         dataFim: filtros.dataFim,
