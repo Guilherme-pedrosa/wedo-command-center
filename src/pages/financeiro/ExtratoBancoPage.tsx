@@ -462,13 +462,19 @@ export default function ExtratoBancoPage() {
               <div className="space-y-0.5">
                 {[7, 15, 30, 60, 90].map(d => (
                   <Button key={d} variant="ghost" size="sm" className="w-full justify-start text-sm h-8"
-                    onClick={() => {
+                    onClick={async () => {
                       const now = new Date();
                       const from = subDays(now, d);
                       setDateFrom(from);
                       setDateTo(now);
                       setMesExtrato("custom");
-                      setTimeout(() => handleFetch(), 50);
+                      setFetching(true);
+                      try {
+                        const txs = await buscarExtratoInter(format(from, "yyyy-MM-dd"), format(now, "yyyy-MM-dd"));
+                        toast.success(`${txs.length} transações processadas (${d} dias)`);
+                        invalidateAll();
+                      } catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao buscar extrato"); }
+                      finally { setFetching(false); }
                     }}
                     disabled={fetching}>
                     Últimos {d} dias
