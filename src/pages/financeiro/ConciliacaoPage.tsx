@@ -186,6 +186,33 @@ export default function ConciliacaoPage() {
     queryClient.invalidateQueries({ queryKey: ["conc-pagamentos"] });
   };
 
+  const handleFetchInter = async () => {
+    setFetchingInter(true);
+    try {
+      const from = format(dateFrom, "yyyy-MM-dd");
+      const to = format(dateTo, "yyyy-MM-dd");
+      const txs = await buscarExtratoInter(from, to);
+      toast.success(`${txs.length} transações do Inter processadas`);
+      invalidateAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao buscar extrato Inter");
+    } finally {
+      setFetchingInter(false);
+    }
+  };
+
+  const handleSyncGC = async () => {
+    setSyncingGC(true);
+    try {
+      const [r, p] = await Promise.all([syncRecebimentos(), syncPagamentos()]);
+      toast.success(`GC sincronizado: ${r.importados} receb., ${p.importados} pagam.`);
+      invalidateAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao sincronizar GC");
+    } finally {
+      setSyncingGC(false);
+    }
+  };
   const handleVincular = async () => {
     if (!selectedExtrato || !selectedLanc) return;
     setLinking(true);
