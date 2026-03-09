@@ -189,23 +189,17 @@ export default function FinDashboardPage() {
   ) => {
     setSyncing(true);
     try {
-      onStep?.("Importando cadastros (fornecedores, clientes)...");
+      onStep?.("Importando cadastros (fornecedores, clientes, plano de contas, centros de custo, formas de pagamento)...");
       await Promise.all([
         syncFornecedoresGC(),
         syncClientesGC(),
-      ]);
-
-      onStep?.("Iniciando sincronização por período...");
-      const result = await syncByMonthChunks(filtros, onProgress, onStep);
-
-      // Plano de Contas e Centros de Custo são extraídos dos payloads GC
-      // Precisam rodar DEPOIS dos recebimentos/pagamentos estarem no banco
-      onStep?.("Extraindo Plano de Contas, Centros de Custo e Formas de Pagamento...");
-      await Promise.all([
         syncPlanoContasGC(),
         syncCentrosCustoGC(),
         syncFormasPagamentoGC(),
       ]);
+
+      onStep?.("Iniciando sincronização por período...");
+      const result = await syncByMonthChunks(filtros, onProgress, onStep);
 
       onStep?.("Concluído!");
       const mesSync = filtros.dataInicio.substring(0, 7);
