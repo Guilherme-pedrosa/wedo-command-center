@@ -1187,16 +1187,22 @@ export async function syncFormasPagamentoGC(
   const existingMap: Record<string, string> = {};
   (existing || []).forEach((e: any) => { if (e.gc_id) existingMap[e.gc_id] = e.id; });
 
-  for (const raw of raws) {
-    // Try multiple possible field names for the GC ID
-    const gcId = String(raw.codigo || raw.id || raw.codigo_forma_pagamento || "");
+  for (let raw of raws) {
+    // GC API wraps each item: { FormasPagamento: { id, nome, ... } }
+    // Unwrap if needed
+    const wrapperKey = Object.keys(raw).find(k => typeof raw[k] === "object" && raw[k] !== null && !Array.isArray(raw[k]) && ("id" in raw[k] || "nome" in raw[k]));
+    if (wrapperKey && !raw.id && !raw.nome) {
+      raw = raw[wrapperKey];
+    }
+
+    const gcId = String(raw.id || raw.codigo || raw.codigo_forma_pagamento || "");
     if (!gcId || gcId === "undefined" || gcId === "null") {
       if (sampleErrors.length < 3) sampleErrors.push(`no_id: keys=${Object.keys(raw).join(",")}`);
       erros++;
       continue;
     }
     
-    const nome = raw.descricao || raw.nome || raw.nome_forma_pagamento || "Sem nome";
+    const nome = raw.nome || raw.descricao || raw.nome_forma_pagamento || "Sem nome";
     const record = {
       gc_id: gcId,
       nome,
