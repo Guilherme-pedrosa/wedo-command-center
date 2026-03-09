@@ -32,6 +32,7 @@ const FinConfigBanco = lazy(() => import("@/pages/financeiro/ConfigBancoPage"));
 const FinLog = lazy(() => import("@/pages/financeiro/LogPage"));
 const FinMetas = lazy(() => import("@/pages/financeiro/MetasOrcamentoPage"));
 const FinCentrosCusto = lazy(() => import("@/pages/financeiro/CentrosCustoPage"));
+const FinPaineisTv = lazy(() => import("@/pages/financeiro/PaineisTvPage"));
 const FinClientes = lazy(() => import("@/pages/financeiro/ClientesPage"));
 const FinFornecedores = lazy(() => import("@/pages/financeiro/FornecedoresPage"));
 const RelatorioResultados = lazy(() => import("@/pages/RelatorioResultados"));
