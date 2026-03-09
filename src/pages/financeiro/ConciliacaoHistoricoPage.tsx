@@ -16,9 +16,17 @@ import { subMonths, startOfMonth, endOfMonth, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import toast from "react-hot-toast";
 
-const GC_BASE = "https://app.gestaoclick.com.br";
-const gcRecebimentoLink = (gcId: string) => `${GC_BASE}/recebimentos/${gcId}`;
-const gcPagamentoLink = (gcId: string) => `${GC_BASE}/pagamentos/${gcId}`;
+const GC_BASE = "https://gestaoclick.com";
+const gcRecebimentoLink = (gcId: string) => `${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${gcId}`;
+const gcPagamentoLink = (gcId: string) => `${GC_BASE}/movimentacoes_financeiras/visualizar_pagamento/${gcId}`;
+const gcCompraLink = (numero: string) => `${GC_BASE}/compras/visualizar_compra/${numero}`;
+
+/** Extrai número do pedido de compras da descrição, ex: "Compra de nº 3282" → "3282" */
+const extractCompraNumero = (descricao?: string): string | null => {
+  if (!descricao) return null;
+  const match = descricao.match(/Compra de n[ºo°]\s*(\d+)/i);
+  return match ? match[1] : null;
+};
 
 const EXCECAO_RULES = ["SEM_PAR_GC", "TRANSFERENCIA_INTERNA", "PIX_DEVOLVIDO_MANUAL"];
 
