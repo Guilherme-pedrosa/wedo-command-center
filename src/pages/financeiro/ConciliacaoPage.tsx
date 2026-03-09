@@ -497,7 +497,7 @@ export default function ConciliacaoPage() {
               )}
             </div>
           ))}
-          {!filteredExtrato.length && <p className="text-sm text-muted-foreground text-center py-8">{mesExtrato === "all" ? "Tudo reconciliado ✅" : "Nenhuma transação neste mês"}</p>}
+          {!(extratoNR || []).length && <p className="text-sm text-muted-foreground text-center py-8">Nenhuma transação neste período</p>}
         </div>
       </div>
 
