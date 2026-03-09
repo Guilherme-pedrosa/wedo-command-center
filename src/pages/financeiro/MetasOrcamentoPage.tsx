@@ -325,10 +325,15 @@ const useMetas = (year: number, month: number) => {
 
       // ─── REVENUE METAS (unchanged logic, using UUID directly) ──────
       if (meta.categoria === 'receita' && (nome.includes('contrato') || nome.includes('pcm'))) {
-        // Use gc_recebimentos with GC plano_contas_id directly
-        realizado = gcRecebimentos
+        // Recebimentos financeiros de Contratos de Serviços
+        const recContratos = gcRecebimentos
           .filter(r => r.plano_contas_id === '27867721')
           .reduce((acc, r) => acc + (r.valor || 0), 0);
+        // OS executadas POR CONTRATO (inclui ECOLAB, Marista, etc.)
+        const osContratos = osExecutadas
+          .filter(os => os.nome_situacao === 'EXECUTADO POR CONTRATO')
+          .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
+        realizado = recContratos + osContratos;
       }
       else if (meta.categoria === 'receita' && (nome.includes('at') || nome.includes('coifa') || nome.includes('higienização'))) {
         realizado = osExecutadas
