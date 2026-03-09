@@ -296,7 +296,7 @@ export async function importarPagamentosPendentes(
   } else if (filtros?.liquidado !== undefined) {
     params.liquidado = filtros.liquidado;
   } else {
-    params.liquidado = "0";
+    params.liquidado = "ab";
   }
   if (filtros?.dataInicio) params.data_inicio = filtros.dataInicio;
   if (filtros?.dataFim) params.data_fim = filtros.dataFim;
