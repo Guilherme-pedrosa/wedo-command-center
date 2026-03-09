@@ -1119,78 +1119,44 @@ export async function syncCentrosCustoGC(
   return { importados, erros };
 }
 
-// ─── Sync Formas de Pagamento (extraído dos recebimentos/pagamentos GC) ─
+// ─── Sync Formas de Pagamento (GC → fin_formas_pagamento) ───────────
 
 export async function syncFormasPagamentoGC(
   onProgress?: (atual: number, total: number) => void
 ): Promise<{ importados: number; erros: number }> {
   const inicio = Date.now();
+  const raws = await fetchPaginatedGC<Record<string, any>>(
+    "/api/formas_pagamentos",
+    {},
+    onProgress
+  );
   let importados = 0;
   let erros = 0;
 
-  // Extract from GC payloads
-  const fpMap = new Map<string, { gc_id: string; nome: string; tipo: string | null }>();
-
-  const { data: recs } = await supabase
-    .from("fin_recebimentos" as any)
-    .select("gc_payload_raw")
-    .not("gc_payload_raw", "is", null)
-    .limit(1000) as any;
-
-  for (const r of (recs ?? []) as any[]) {
-    const raw = r.gc_payload_raw;
-    if (raw?.forma_pagamento_id && raw?.nome_forma_pagamento) {
-      fpMap.set(String(raw.forma_pagamento_id), {
-        gc_id: String(raw.forma_pagamento_id),
-        nome: raw.nome_forma_pagamento,
-        tipo: null,
-      });
-    }
-  }
-
-  const { data: pags } = await supabase
-    .from("fin_pagamentos" as any)
-    .select("gc_payload_raw")
-    .not("gc_payload_raw", "is", null)
-    .limit(1000) as any;
-
-  for (const p of (pags ?? []) as any[]) {
-    const raw = p.gc_payload_raw;
-    if (raw?.forma_pagamento_id && raw?.nome_forma_pagamento) {
-      fpMap.set(String(raw.forma_pagamento_id), {
-        gc_id: String(raw.forma_pagamento_id),
-        nome: raw.nome_forma_pagamento,
-        tipo: null,
-      });
-    }
-  }
-
-  const entries = Array.from(fpMap.values());
-  onProgress?.(0, entries.length);
   const batchSize = 50;
-  for (let i = 0; i < entries.length; i += batchSize) {
-    const batch = entries.slice(i, i + batchSize).map((e) => ({
-      gc_id: e.gc_id,
-      nome: e.nome,
-      tipo: e.tipo,
+  for (let i = 0; i < raws.length; i += batchSize) {
+    const batch = raws.slice(i, i + batchSize).map((raw) => ({
+      gc_id: String(raw.id),
+      nome: raw.nome || "Sem nome",
       ativo: true,
     }));
+
     const { error } = await supabase
       .from("fin_formas_pagamento" as any)
       .upsert(batch, { onConflict: "gc_id" });
+
     if (error) {
       console.error("Upsert formas_pagamento error:", error);
       erros += batch.length;
     } else {
       importados += batch.length;
     }
-    onProgress?.(Math.min(i + batchSize, entries.length), entries.length);
   }
 
   await supabase.from("fin_sync_log" as any).insert({
     tipo: "gc_import_formas_pagamento",
     status: erros === 0 ? "success" : "partial",
-    resposta: { importados, erros, total: entries.length, source: "payload_extraction" },
+    resposta: { importados, erros, total: raws.length },
     duracao_ms: Date.now() - inicio,
   });
 
