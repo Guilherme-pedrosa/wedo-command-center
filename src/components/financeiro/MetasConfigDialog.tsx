@@ -419,18 +419,18 @@ export default function MetasConfigDialog({ open, onOpenChange }: Props) {
                         <div key={map.id} className="flex items-start gap-1 p-2 rounded bg-muted/50 border text-xs">
                           <div className="flex-1 space-y-1.5">
                             <div>
-                              <Label className="text-[10px] text-muted-foreground">Plano de Contas (GC ID)</Label>
+                              <Label className="text-[10px] text-muted-foreground">Plano de Contas</Label>
                               <Select
                                 value={map.plano_contas_id}
                                 onValueChange={v => {
-                                  const plano = planos.find(p => p.gc_id === v);
+                                  const plano = planos.find(p => p.id === v);
                                   setEditingMaps(prev => prev.map((m, i) => i === idx ? { ...m, plano_contas_id: v, nome_plano: plano?.nome || null } : m));
                                 }}
                               >
                                 <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Selecione..." /></SelectTrigger>
                                 <SelectContent>
-                                  {planos.filter(p => p.gc_id).map(p => (
-                                    <SelectItem key={p.gc_id!} value={p.gc_id!} className="text-xs">{p.nome}</SelectItem>
+                                  {planos.map(p => (
+                                    <SelectItem key={p.id} value={p.id} className="text-xs">{p.nome}</SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
@@ -441,15 +441,15 @@ export default function MetasConfigDialog({ open, onOpenChange }: Props) {
                                 value={map.centro_custo_id || '__none__'}
                                 onValueChange={v => {
                                   const val = v === '__none__' ? null : v;
-                                  const centro = centros.find(c => c.codigo === val);
+                                  const centro = centros.find(c => c.id === val);
                                   setEditingMaps(prev => prev.map((m, i) => i === idx ? { ...m, centro_custo_id: val, nome_centro_custo: centro?.nome || null } : m));
                                 }}
                               >
                                 <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Todos" /></SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="__none__" className="text-xs">Todos</SelectItem>
-                                  {centros.filter(c => c.codigo).map(c => (
-                                    <SelectItem key={c.codigo!} value={c.codigo!} className="text-xs">{c.nome}</SelectItem>
+                                  {centros.map(c => (
+                                    <SelectItem key={c.id} value={c.id} className="text-xs">{c.nome}</SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
