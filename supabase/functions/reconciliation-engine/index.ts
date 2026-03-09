@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-10-v8-nome-guard
+// redeploy: 2026-03-10-v9-cpu-limit-fix
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -523,7 +523,7 @@ serve(async (req) => {
       .eq("reconciliado", false)
       .or(`reconciliation_rule.is.null,reconciliation_rule.not.in.(${MANUAL_EXCEPTIONS.join(",")})`)
       .order("data_hora", { ascending: true })
-      .limit(500);
+      .limit(50);
 
     if (errE) throw new Error(`fin_extrato_inter: ${errE.message}`);
 
