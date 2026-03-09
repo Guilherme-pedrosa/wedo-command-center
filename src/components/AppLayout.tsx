@@ -12,7 +12,6 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-
 export function AppLayout() {
   const location = useLocation();
   const isFinActive = location.pathname.startsWith("/financeiro");
