@@ -146,18 +146,18 @@ const useMetas = (year: number, month: number) => {
     return map;
   }, [planoContasMap]);
 
-  // 2. Busca recebimentos do período (liquidados OU pago_sistema)
+  // 2. Busca recebimentos do período (TODOS: abertos, vencidos e pagos — exclui apenas cancelados)
   const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec } = useQuery({
     queryKey: ['fin_recebimentos_metas', start, end],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fin_recebimentos')
-        .select('plano_contas_id, centro_custo_id, valor')
-        .or('liquidado.eq.true,and(pago_sistema.eq.true,status.eq.pago)')
+        .select('plano_contas_id, centro_custo_id, valor, status')
+        .neq('status', 'cancelado')
         .gte('data_vencimento', start)
         .lte('data_vencimento', end);
       if (error) throw error;
-      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number }[];
+      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
     },
   });
 
@@ -168,6 +168,7 @@ const useMetas = (year: number, month: number) => {
       const { data, error } = await supabase
         .from('fin_pagamentos')
         .select('plano_contas_id, centro_custo_id, valor, status, data_liquidacao')
+        .neq('status', 'cancelado')
         .gte('data_vencimento', start)
         .lte('data_vencimento', end);
       if (error) throw error;
