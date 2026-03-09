@@ -205,13 +205,7 @@ export async function importarRecebimentosPendentes(
   filtros?: { dataInicio?: string; dataFim?: string; liquidado?: string; incluirTodos?: boolean }
 ): Promise<GCRecebimentoRaw[]> {
   const params: Record<string, string> = {};
-  if (filtros?.incluirTodos) {
-    // Don't set liquidado filter — fetch ALL records
-  } else if (filtros?.liquidado !== undefined) {
-    params.liquidado = filtros.liquidado;
-  } else {
-    params.liquidado = "ab";
-  }
+  // Always fetch ALL records (open + paid) — never filter by liquidado
   if (filtros?.dataInicio) params.data_inicio = filtros.dataInicio;
   if (filtros?.dataFim) params.data_fim = filtros.dataFim;
   return fetchPaginatedGC<GCRecebimentoRaw>(
@@ -291,13 +285,7 @@ export async function importarPagamentosPendentes(
   filtros?: { dataInicio?: string; dataFim?: string; liquidado?: string; incluirTodos?: boolean }
 ): Promise<GCPagamentoRaw[]> {
   const params: Record<string, string> = {};
-  if (filtros?.incluirTodos) {
-    // Don't set liquidado filter — fetch ALL records
-  } else if (filtros?.liquidado !== undefined) {
-    params.liquidado = filtros.liquidado;
-  } else {
-    params.liquidado = "ab";
-  }
+  // Always fetch ALL records (open + paid) — never filter by liquidado
   if (filtros?.dataInicio) params.data_inicio = filtros.dataInicio;
   if (filtros?.dataFim) params.data_fim = filtros.dataFim;
   return fetchPaginatedGC<GCPagamentoRaw>(
@@ -646,28 +634,40 @@ export async function syncRecebimentosGC(
   let atualizados = 0;
   let erros = 0;
 
+  // Fetch locally cancelled gc_ids to skip them during upsert
+  const { data: cancelledRecs } = await supabase
+    .from("fin_recebimentos" as any)
+    .select("gc_id")
+    .eq("status", "cancelado")
+    .not("gc_id", "is", null) as any;
+  const cancelledRecGcIds = new Set((cancelledRecs ?? []).map((r: any) => r.gc_id));
+
   const batchSize = 50;
   for (let i = 0; i < raws.length; i += batchSize) {
-    const batch = raws.slice(i, i + batchSize).map((raw) => ({
-      gc_id: raw.id,
-      gc_codigo: raw.codigo,
-      gc_payload_raw: raw as unknown,
-      descricao: raw.descricao ?? "Sem descrição",
-      os_codigo: extrairOsCodigo(raw.descricao),
-      tipo: inferirTipo(raw.descricao),
-      origem: inferirOrigem(raw.descricao),
-      valor: parseFloat(raw.valor_total ?? "0"),
-      cliente_gc_id: raw.cliente_id ?? null,
-      nome_cliente: raw.nome_cliente ?? null,
-      plano_contas_id: raw.plano_contas_id ? (pcMap[raw.plano_contas_id] ?? null) : null,
-      centro_custo_id: raw.centro_custo_id ? (ccMap[raw.centro_custo_id] ?? null) : null,
-      data_vencimento: raw.data_vencimento || null,
-      data_competencia: raw.data_competencia || null,
-      data_liquidacao: raw.data_liquidacao || null,
-      liquidado: raw.liquidado === "1",
-      status: raw.liquidado === "1" ? "pago" : "pendente",
-      last_synced_at: new Date().toISOString(),
-    }));
+    const batch = raws.slice(i, i + batchSize)
+      .filter((raw) => !cancelledRecGcIds.has(raw.id)) // Skip cancelled
+      .map((raw) => ({
+        gc_id: raw.id,
+        gc_codigo: raw.codigo,
+        gc_payload_raw: raw as unknown,
+        descricao: raw.descricao ?? "Sem descrição",
+        os_codigo: extrairOsCodigo(raw.descricao),
+        tipo: inferirTipo(raw.descricao),
+        origem: inferirOrigem(raw.descricao),
+        valor: parseFloat(raw.valor_total ?? "0"),
+        cliente_gc_id: raw.cliente_id ?? null,
+        nome_cliente: raw.nome_cliente ?? null,
+        plano_contas_id: raw.plano_contas_id ? (pcMap[raw.plano_contas_id] ?? null) : null,
+        centro_custo_id: raw.centro_custo_id ? (ccMap[raw.centro_custo_id] ?? null) : null,
+        data_vencimento: raw.data_vencimento || null,
+        data_competencia: raw.data_competencia || null,
+        data_liquidacao: raw.data_liquidacao || null,
+        liquidado: raw.liquidado === "1",
+        status: raw.liquidado === "1" ? "pago" : "pendente",
+        last_synced_at: new Date().toISOString(),
+      }));
+
+    if (batch.length === 0) continue;
 
     const { error } = await supabase
       .from("fin_recebimentos" as any)
@@ -706,28 +706,40 @@ export async function syncPagamentosGC(
   let atualizados = 0;
   let erros = 0;
 
+  // Fetch locally cancelled gc_ids to skip them during upsert
+  const { data: cancelledPags } = await supabase
+    .from("fin_pagamentos" as any)
+    .select("gc_id")
+    .eq("status", "cancelado")
+    .not("gc_id", "is", null) as any;
+  const cancelledPagGcIds = new Set((cancelledPags ?? []).map((p: any) => p.gc_id));
+
   const batchSize = 50;
   for (let i = 0; i < raws.length; i += batchSize) {
-    const batch = raws.slice(i, i + batchSize).map((raw) => ({
-      gc_id: raw.id,
-      gc_codigo: raw.codigo,
-      gc_payload_raw: raw as unknown,
-      descricao: raw.descricao ?? "Sem descrição",
-      os_codigo: extrairOsCodigo(raw.descricao),
-      tipo: inferirTipo(raw.descricao),
-      origem: inferirOrigem(raw.descricao),
-      valor: parseFloat(raw.valor_total ?? "0"),
-      fornecedor_gc_id: raw.fornecedor_id ?? null,
-      nome_fornecedor: raw.nome_fornecedor ?? null,
-      plano_contas_id: raw.plano_contas_id ? (pcMap[raw.plano_contas_id] ?? null) : null,
-      centro_custo_id: raw.centro_custo_id ? (ccMap[raw.centro_custo_id] ?? null) : null,
-      data_vencimento: raw.data_vencimento || null,
-      data_competencia: raw.data_competencia || null,
-      data_liquidacao: raw.data_liquidacao || null,
-      liquidado: raw.liquidado === "1",
-      status: raw.liquidado === "1" ? "pago" : "pendente",
-      last_synced_at: new Date().toISOString(),
-    }));
+    const batch = raws.slice(i, i + batchSize)
+      .filter((raw) => !cancelledPagGcIds.has(raw.id)) // Skip cancelled
+      .map((raw) => ({
+        gc_id: raw.id,
+        gc_codigo: raw.codigo,
+        gc_payload_raw: raw as unknown,
+        descricao: raw.descricao ?? "Sem descrição",
+        os_codigo: extrairOsCodigo(raw.descricao),
+        tipo: inferirTipo(raw.descricao),
+        origem: inferirOrigem(raw.descricao),
+        valor: parseFloat(raw.valor_total ?? "0"),
+        fornecedor_gc_id: raw.fornecedor_id ?? null,
+        nome_fornecedor: raw.nome_fornecedor ?? null,
+        plano_contas_id: raw.plano_contas_id ? (pcMap[raw.plano_contas_id] ?? null) : null,
+        centro_custo_id: raw.centro_custo_id ? (ccMap[raw.centro_custo_id] ?? null) : null,
+        data_vencimento: raw.data_vencimento || null,
+        data_competencia: raw.data_competencia || null,
+        data_liquidacao: raw.data_liquidacao || null,
+        liquidado: raw.liquidado === "1",
+        status: raw.liquidado === "1" ? "pago" : "pendente",
+        last_synced_at: new Date().toISOString(),
+      }));
+
+    if (batch.length === 0) continue;
 
     const { error } = await supabase
       .from("fin_pagamentos" as any)

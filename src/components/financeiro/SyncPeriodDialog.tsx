@@ -3,7 +3,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { CalendarIcon, Loader2, RefreshCw, CheckCircle, AlertTriangle } from "lucide-react";
@@ -32,7 +31,7 @@ interface SyncPeriodDialogProps {
 export function SyncPeriodDialog({ open, onOpenChange, onSync, title = "Sincronizar com GestãoClick", loading }: SyncPeriodDialogProps) {
   const [dataInicio, setDataInicio] = useState<Date>(new Date(2025, 11, 1)); // Dec 2025
   const [dataFim, setDataFim] = useState<Date>(new Date());
-  const [incluirLiquidados, setIncluirLiquidados] = useState(true);
+  // incluirLiquidados always true — we always import all records
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [etapasConcluidas, setEtapasConcluidas] = useState<string[]>([]);
   const [syncResult, setSyncResult] = useState<string | null>(null);
@@ -62,7 +61,7 @@ export function SyncPeriodDialog({ open, onOpenChange, onSync, title = "Sincroni
         {
           dataInicio: format(dataInicio, "yyyy-MM-dd"),
           dataFim: format(dataFim, "yyyy-MM-dd"),
-          incluirLiquidados,
+          incluirLiquidados: true, // Always import all records
         },
         onProgress,
         onStep
@@ -130,20 +129,8 @@ export function SyncPeriodDialog({ open, onOpenChange, onSync, title = "Sincroni
 
           <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
-            O filtro usa a data de vencimento do GestãoClick. Para sincronizar registros de meses anteriores, selecione o período correto e ative "Incluir liquidados".
+            O filtro usa a data de vencimento do GestãoClick. Todos os lançamentos do período serão importados (abertos e pagos), exceto os cancelados localmente.
           </p>
-
-          <div className="flex items-center gap-2">
-            <Switch
-              id="incluir-liquidados"
-              checked={incluirLiquidados}
-              onCheckedChange={setIncluirLiquidados}
-              disabled={isDisabled}
-            />
-            <Label htmlFor="incluir-liquidados" className="text-sm">
-              Incluir liquidados (já pagos)
-            </Label>
-          </div>
 
           {/* Progress section — no dependency on external loading prop */}
           {progress && (
