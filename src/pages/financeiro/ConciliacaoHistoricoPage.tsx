@@ -503,39 +503,46 @@ export default function ConciliacaoHistoricoPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
-        {/* Month selector */}
-        <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
-          <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {monthOptions.map(opt => (
-              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={mesSelecionado}
+          onValueChange={v => setMesSelecionado(v)}
+          options={monthOptions.map(opt => ({ value: opt.value, label: opt.label }))}
+          placeholder="Mês"
+          searchPlaceholder="Buscar mês..."
+          className="w-[180px] h-9"
+        />
 
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Buscar nome, CPF/CNPJ, E2E ID, descrição, OS, G..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
-        <Select value={tipoFilter} onValueChange={setTipoFilter}>
-          <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos tipos</SelectItem>
-            <SelectItem value="CREDITO">Crédito</SelectItem>
-            <SelectItem value="DEBITO">Débito</SelectItem>
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={tipoFilter}
+          onValueChange={v => setTipoFilter(v || "todos")}
+          options={[
+            { value: "todos", label: "Todos tipos" },
+            { value: "CREDITO", label: "Crédito" },
+            { value: "DEBITO", label: "Débito" },
+          ]}
+          placeholder="Tipo"
+          searchPlaceholder="Buscar tipo..."
+          className="w-[140px] h-9"
+        />
         {tab === "conciliados" && (
-          <Select value={vinculoFilter} onValueChange={setVinculoFilter}>
-            <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos vínculos</SelectItem>
-              <SelectItem value="lancamento">Lançamento</SelectItem>
-              <SelectItem value="grupo_receber">Grupo Receber</SelectItem>
-              <SelectItem value="grupo_pagar">Grupo Pagar</SelectItem>
-              <SelectItem value="agenda">Agenda</SelectItem>
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            value={vinculoFilter}
+            onValueChange={v => setVinculoFilter(v || "todos")}
+            options={[
+              { value: "todos", label: "Todos vínculos" },
+              { value: "lancamento", label: "Lançamento" },
+              { value: "grupo_receber", label: "Grupo Receber" },
+              { value: "grupo_pagar", label: "Grupo Pagar" },
+              { value: "agenda", label: "Agenda" },
+            ]}
+            placeholder="Vínculo"
+            searchPlaceholder="Buscar vínculo..."
+            className="w-[160px] h-9"
+          />
         )}
       </div>
 
