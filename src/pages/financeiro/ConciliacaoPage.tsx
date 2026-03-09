@@ -65,7 +65,10 @@ export default function ConciliacaoPage() {
 
   const handleMesChange = (val: string) => {
     setMesExtrato(val);
-    if (val !== "all") {
+    if (val === "all") {
+      setDateFrom(new Date('2024-10-01'));
+      setDateTo(endOfMonth(new Date()));
+    } else if (val !== "custom") {
       const base = new Date(val + "-01");
       setDateFrom(startOfMonth(base));
       setDateTo(endOfMonth(base));
