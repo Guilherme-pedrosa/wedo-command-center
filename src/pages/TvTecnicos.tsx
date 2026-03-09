@@ -17,6 +17,15 @@ interface TecnicoMeta {
 interface OsRow {
   nome_vendedor: string | null;
   valor_total: number | null;
+  os_codigo: string;
+}
+
+interface TecnicoResult {
+  nome: string;
+  meta: number;
+  realizado: number;
+  pct: number;
+  osList: { codigo: string; valor: number }[];
 }
 
 export default function TvTecnicos() {
