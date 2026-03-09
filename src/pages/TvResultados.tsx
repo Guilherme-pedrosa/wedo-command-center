@@ -120,8 +120,11 @@ export default function TvResultados() {
       {/* Big numbers */}
       <div className={`grid grid-cols-3 gap-8 p-8 rounded-2xl border-3 ${statusBorder(margemStatus)} ${statusBg(margemStatus)}`}>
         <div className="text-center">
-          <p className="text-sm text-muted-foreground uppercase tracking-widest mb-2">Faturamento</p>
-          <p className="text-5xl font-black">{formatBRL(execTotal)}</p>
+          <p className="text-sm text-muted-foreground uppercase tracking-widest mb-2">Meta Faturamento</p>
+          {(() => {
+            const pctFat = recAgg.meta > 0 ? (recAgg.realizado / recAgg.meta) * 100 : 0;
+            return <p className={`text-5xl font-black ${statusLabelColor(recStatus)}`}>{pctFat.toFixed(0)}%</p>;
+          })()}
         </div>
         <div className="text-center">
           <p className="text-sm text-muted-foreground uppercase tracking-widest mb-2">Margem Líquida</p>
