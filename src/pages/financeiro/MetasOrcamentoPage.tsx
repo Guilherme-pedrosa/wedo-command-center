@@ -1,7 +1,5 @@
 // src/pages/financeiro/MetasOrcamentoPage.tsx
-import { useState, useMemo, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -14,444 +12,68 @@ import {
 import { syncVendas, syncCompras, syncAuvoExpenses, syncOS, syncRecebimentos, syncPagamentos } from '@/api/syncService';
 import toast from 'react-hot-toast';
 import MetasConfigDialog from '@/components/financeiro/MetasConfigDialog';
+import {
+  useMetasResultados, formatBRL, formatPct, statusBadge,
+  getPeriodRange, MetaComResultado
+} from '@/hooks/useMetasResultados';
 
-// ─── TIPOS ─────────────────────────────────────────────────────────────────
-interface Meta {
-  id: string;
-  nome: string;
-  categoria: 'receita' | 'custo_variavel' | 'custo_fixo';
-  tipo_meta: 'absoluto' | 'percentual';
-  meta_valor: number | null;
-  meta_percentual: number | null;
-}
+// ─── COMPONENTE ROW ──────────────────────────────────────────────────────────
+const MetaRow = ({ m, execTotal }: { m: MetaComResultado; execTotal: number }) => {
+  const badge = statusBadge(m.status);
+  const isCusto = m.categoria !== 'receita';
+  const isAcima = m.delta > 0;
 
-interface MetaPlanoContas {
-  meta_id: string;
-  plano_contas_id: string;
-  centro_custo_id: string | null;
-  peso: number;
-}
-
-interface MetaComResultado extends Meta {
-  realizado: number;
-  meta_calculada: number;
-  delta: number;
-  pct_faturamento: number;
-  status: 'verde' | 'amarelo' | 'vermelho';
-  progresso: number;
-}
-
-// ─── UTILITÁRIOS ────────────────────────────────────────────────────────────
-const formatBRL = (v: number) =>
-  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
-
-const formatPct = (v: number) => `${(v * 100).toFixed(1)}%`;
-
-const getPeriodRange = (year: number, month: number) => {
-  const start = `${year}-${String(month).padStart(2, '0')}-01`;
-  const lastDay = new Date(year, month, 0).getDate();
-  const end = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
-  return { start, end };
-};
-
-const calcStatus = (
-  categoria: string,
-  realizado: number,
-  meta_calculada: number
-): 'verde' | 'amarelo' | 'vermelho' => {
-  const ratio = meta_calculada > 0 ? realizado / meta_calculada : 0;
-  if (categoria === 'receita') {
-    if (ratio >= 1) return 'verde';
-    if (ratio >= 0.8) return 'amarelo';
-    return 'vermelho';
-  } else {
-    // custo_fixo e custo_variavel — menor = melhor
-    if (ratio <= 1) return 'verde';
-    if (ratio <= 1.15) return 'amarelo';
-    return 'vermelho';
-  }
-};
-
-const statusBadge = (status: 'verde' | 'amarelo' | 'vermelho') => {
-  const map = {
-    verde:    { label: 'OK',       class: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
-    amarelo:  { label: 'ATENÇÃO',  class: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-    vermelho: { label: 'ALERTA',   class: 'bg-red-100 text-red-800 border-red-200' },
-  };
-  return map[status];
-};
-
-// Auvo typeId → plano gc_id mapping
-const AUVO_SOURCE_MAP: Record<string, number[]> = {
-  '27867667': [48782],  // Combustivel → Auvo Deslocamento
-  '27912040': [48784],  // Hospedagem → Auvo Estadia
-  '28160784': [49032],  // Pedágios → Auvo Pedágio/Estacionamento
-  '28223100': [49032],  // Estacionamento → Auvo Pedágio/Estacionamento
-};
-
-// ─── HOOK DE DADOS ──────────────────────────────────────────────────────────
-const useMetas = (year: number, month: number) => {
-  const { start, end } = getPeriodRange(year, month);
-
-  // 1. Busca metas e mapeamentos (plano_contas_id = UUID after migration)
-  const { data: metas = [], isLoading: loadingMetas } = useQuery({
-    queryKey: ['fin_metas'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_metas')
-        .select('*')
-        .eq('ativo', true);
-      if (error) throw error;
-      return data as Meta[];
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const { data: mapeamentos = [], isLoading: loadingMap } = useQuery({
-    queryKey: ['fin_meta_plano_contas'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_meta_plano_contas')
-        .select('*');
-      if (error) throw error;
-      return data as MetaPlanoContas[];
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-
-  // 1b. gc_id → UUID map (still needed for hardcoded revenue GC IDs in execTotal)
-  // Also build reverse UUID → gc_id for Auvo source detection
-  const { data: planoContasMap = {}, isLoading: loadingPlanos } = useQuery({
-    queryKey: ['fin_plano_contas_gc_map'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_plano_contas')
-        .select('id, gc_id');
-      if (error) throw error;
-      const map: Record<string, string> = {};
-      for (const row of data || []) {
-        if (row.gc_id) map[row.gc_id] = row.id;
-      }
-      return map;
-    },
-    staleTime: 10 * 60 * 1000,
-  });
-
-  // Reverse map: UUID → gc_id
-  const uuidToGcId = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const [gcId, uuid] of Object.entries(planoContasMap)) {
-      map[uuid] = gcId;
-    }
-    return map;
-  }, [planoContasMap]);
-
-  // Centro de custo UUID → codigo (GC text ID) map
-  const { data: centrosCustoMap = {} } = useQuery({
-    queryKey: ['fin_centros_custo_map'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_centros_custo')
-        .select('id, codigo');
-      if (error) throw error;
-      const map: Record<string, string> = {};
-      for (const row of data || []) {
-        if (row.codigo) map[row.id] = row.codigo;
-      }
-      return map;
-    },
-    staleTime: 10 * 60 * 1000,
-  });
-
-  // 2. Busca recebimentos do período (TODOS: abertos, vencidos e pagos — exclui apenas cancelados)
-  const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec } = useQuery({
-    queryKey: ['fin_recebimentos_metas', start, end],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_recebimentos')
-        .select('plano_contas_id, centro_custo_id, valor, status')
-        .neq('status', 'cancelado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
-      if (error) throw error;
-      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
-    },
-  });
-
-  // 3. Busca pagamentos do período — ALL, filter realized vs projected in code
-  const { data: pagamentos = [], isLoading: loadingPag, refetch: refetchPag } = useQuery({
-    queryKey: ['fin_pagamentos_metas', start, end],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_pagamentos')
-        .select('plano_contas_id, centro_custo_id, valor, status, data_liquidacao')
-        .neq('status', 'cancelado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
-      if (error) throw error;
-      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null }[];
-    },
-  });
-
-  // 3b. Busca OS executadas do período (para AT+Coifa, Ecolab e Contratos)
-  const OS_EXECUTADOS_STATUS = [
-    'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
-    'EXECUTADO - AGUARDANDO PAGAMENTO',
-    'EXECUTADO COM NOTA EMITIDA',
-    'EXECUTADO - FINANCEIRO SEPARADO',
-    'EXECUTADO - CIGAM',
-    'EXECUTADO POR CONTRATO',
-    'EXECUTADO - FECHADO CHAMADO',
-  ];
-
-  const { data: osExecutadas = [], isLoading: loadingOS, refetch: refetchOS } = useQuery({
-    queryKey: ['os_executadas_metas', start, end],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('os_index')
-        .select('os_id, os_codigo, nome_cliente, nome_situacao, valor_total, data_saida')
-        .in('nome_situacao', OS_EXECUTADOS_STATUS)
-        .gte('data_saida', start)
-        .lte('data_saida', end);
-      if (error) throw error;
-      return data as { os_id: string; os_codigo: string; nome_cliente: string | null; nome_situacao: string | null; valor_total: number | null; data_saida: string | null }[];
-    },
-  });
-
-  // 3c. Busca vendas concretizadas do período
-  const { data: vendasConcretizadas = [], isLoading: loadingVendas, refetch: refetchVendas } = useQuery({
-    queryKey: ['gc_vendas_metas', start, end],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('gc_vendas')
-        .select('gc_id, codigo, nome_cliente, nome_situacao, valor_total, data')
-        .gte('data', start)
-        .lte('data', end);
-      if (error) throw error;
-      return data as { gc_id: string; codigo: string; nome_cliente: string | null; nome_situacao: string | null; valor_total: number | null; data: string | null }[];
-    },
-  });
-
-  // 3d. Busca compras do período (Finalizado + Comprado AG CHEGADA) por cadastrado_em (fallback: data)
-  const { data: comprasFinalizadas = [], isLoading: loadingCompras, refetch: refetchCompras } = useQuery({
-    queryKey: ['gc_compras_metas', start, end],
-    queryFn: async () => {
-      // Tentar filtrar pelo campo `data` direto no Supabase
-      const { data: byData, error: err1 } = await supabase
-        .from('gc_compras' as any)
-        .select('gc_id, codigo, nome_fornecedor, nome_situacao, valor_total, data, cadastrado_em')
-        .or('nome_situacao.ilike.%finalizado%mercadoria chegou%,nome_situacao.ilike.%comprado%ag chegada%')
-        .gte('data', start)
-        .lte('data', end);
-      if (!err1 && byData && byData.length > 0) return byData as any[];
-
-      // Fallback: filtrar por cadastrado_em se data estiver null (registros antigos)
-      const { data: byCad, error: err2 } = await supabase
-        .from('gc_compras' as any)
-        .select('gc_id, codigo, nome_fornecedor, nome_situacao, valor_total, data, cadastrado_em')
-        .or('nome_situacao.ilike.%finalizado%mercadoria chegou%,nome_situacao.ilike.%comprado%ag chegada%')
-        .gte('cadastrado_em', start)
-        .lte('cadastrado_em', end + 'T23:59:59');
-      if (err2) throw err2;
-      return (byCad as any[]) ?? [];
-    },
-  });
-
-  // 3e. Busca despesas Auvo do período
-  const { data: auvoExpenses = [], isLoading: loadingAuvo, refetch: refetchAuvo } = useQuery({
-    queryKey: ['auvo_expenses_metas', start, end],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('auvo_expenses_sync' as any)
-        .select('type_id, amount, expense_date')
-        .gte('expense_date', start)
-        .lte('expense_date', end);
-      if (error) throw error;
-      return (data as any[]) as { type_id: number; amount: number; expense_date: string }[];
-    },
-  });
-
-  // 3f. Busca gc_recebimentos do período (fonte completa do GC, inclui abertos e pagos)
-  const { data: gcRecebimentos = [], isLoading: loadingGcRec, refetch: refetchGcRec } = useQuery({
-    queryKey: ['gc_recebimentos_metas', start, end],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('gc_recebimentos')
-        .select('gc_id, gc_codigo, descricao, valor, plano_contas_id, centro_custo_id, data_vencimento, liquidado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
-      if (error) throw error;
-      return data as { gc_id: string; gc_codigo: string; descricao: string | null; valor: number; plano_contas_id: string | null; centro_custo_id: string | null; data_vencimento: string | null; liquidado: boolean }[];
-    },
-  });
-
-  // 3g. Busca gc_pagamentos do período (fonte completa do GC)
-  const { data: gcPagamentos = [], isLoading: loadingGcPag, refetch: refetchGcPag } = useQuery({
-    queryKey: ['gc_pagamentos_metas', start, end],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('gc_pagamentos')
-        .select('gc_id, gc_codigo, descricao, valor, plano_contas_id, centro_custo_id, data_vencimento, liquidado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
-      if (error) throw error;
-      return data as { gc_id: string; gc_codigo: string; descricao: string | null; valor: number; plano_contas_id: string | null; centro_custo_id: string | null; data_vencimento: string | null; liquidado: boolean }[];
-    },
-  });
-
-  // 4. Calcula EXEC_TOTAL — OS executadas + gc_vendas + Contratos PCM + Locação
-  // NÃO inclui "Vendas de produtos" (27867718) nem "Vendas no balcão" (27867719) dos recebimentos
-  const execTotal = useMemo(() => {
-    // Fontes de receita financeira (gc_recebimentos): apenas Contratos e Locação
-    const receitaFinanceiraGcIds = ['27867721', '27867722']; // Contratos de serviços + Locação de equipamentos
-
-    const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
-    const vendasTotal = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
-
-    const recFinanceiro = gcRecebimentos
-      .filter(r => r.plano_contas_id && receitaFinanceiraGcIds.includes(r.plano_contas_id))
-      .reduce((acc, r) => acc + (r.valor || 0), 0);
-
-    return osTotal + vendasTotal + recFinanceiro;
-  }, [gcRecebimentos, osExecutadas, vendasConcretizadas]);
-
-  // 5. Calcula realizado por meta
-  const metasComResultado = useMemo((): MetaComResultado[] => {
-    const hoje = new Date().toISOString().split('T')[0];
-
-    return metas.map(meta => {
-      const links = mapeamentos.filter(m => m.meta_id === meta.id);
-      let realizado = 0;
-      const nome = meta.nome.toLowerCase();
-
-      // ─── REVENUE METAS (unchanged logic, using UUID directly) ──────
-      if (meta.categoria === 'receita' && (nome.includes('contrato') || nome.includes('pcm'))) {
-        // Somente recebimentos financeiros de Contratos de Serviços (plano 27867721)
-        realizado = gcRecebimentos
-          .filter(r => r.plano_contas_id === '27867721')
-          .reduce((acc, r) => acc + (r.valor || 0), 0);
-      }
-      else if (meta.categoria === 'receita' && (nome.includes('at') || nome.includes('coifa') || nome.includes('higienização'))) {
-        // Somente OS nas 4 situações de execução de serviço (exclui FECHADO CHAMADO e POR CONTRATO)
-        const EXEC_SERVICO_STATUS = [
-          'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
-          'EXECUTADO - AGUARDANDO PAGAMENTO',
-          'EXECUTADO - FINANCEIRO SEPARADO',
-          'EXECUTADO COM NOTA EMITIDA',
-        ];
-        realizado = osExecutadas
-          .filter(os => EXEC_SERVICO_STATUS.includes(os.nome_situacao ?? ''))
-          .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
-        if (realizado === 0 && osExecutadas.length === 0) {
-          for (const link of links) {
-            const planoUuid = link.plano_contas_id; // Already UUID
-            const centroUuid = link.centro_custo_id || null; // Already UUID
-            const soma = recebimentos
-              .filter(r => r.plano_contas_id === planoUuid && (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
-              .reduce((acc, r) => acc + (r.valor || 0), 0);
-            realizado += soma * (link.peso || 1);
-          }
-        }
-      }
-      else if (meta.categoria === 'receita' && (nome.includes('ecolab') || nome.includes('chamado'))) {
-        // Somente OS com situação "EXECUTADO - FECHADO CHAMADO"
-        realizado = osExecutadas
-          .filter(os => os.nome_situacao === 'EXECUTADO - FECHADO CHAMADO')
-          .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
-        if (realizado === 0 && osExecutadas.length === 0) {
-          for (const link of links) {
-            const planoUuid = link.plano_contas_id;
-            const centroUuid = link.centro_custo_id || null;
-            const soma = recebimentos
-              .filter(r => r.plano_contas_id === planoUuid && (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
-              .reduce((acc, r) => acc + (r.valor || 0), 0);
-            realizado += soma * (link.peso || 1);
-          }
-        }
-      }
-      else if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto') || nome.includes('peça'))) {
-        realizado = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
-      }
-      // ─── COST: Peças e Estoque from gc_compras ──────
-      else if (meta.categoria === 'custo_variavel' && (nome.includes('peça') || nome.includes('estoque'))) {
-        realizado = comprasFinalizadas.reduce((acc, c) => acc + (c.valor_total ?? 0), 0);
-        if (realizado === 0 && comprasFinalizadas.length === 0) {
-          for (const link of links) {
-            // Fallback to gc_pagamentos using GC ID
-            const gcId = uuidToGcId[link.plano_contas_id];
-            if (gcId) {
-              const soma = gcPagamentos
-                .filter(r => r.plano_contas_id === gcId &&
-                  (link.centro_custo_id === null || !r.centro_custo_id || r.centro_custo_id === link.centro_custo_id))
-                .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
-              realizado += soma * (link.peso || 1);
+  return (
+    <div className="flex flex-col gap-1 p-3 rounded-lg border border-border bg-card hover:bg-accent/30 transition-colors">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-medium text-sm truncate text-foreground">{m.nome}</span>
+          {m.tipo_meta === 'percentual' && (
+            <span className="text-xs text-muted-foreground">
+              ({formatPct(m.meta_percentual || 0)} do fatur.)
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`text-xs font-medium ${isCusto && isAcima ? 'text-destructive' : !isCusto && !isAcima ? 'text-destructive' : 'text-muted-foreground'}`}>
+            {isCusto
+              ? (isAcima ? `+${formatBRL(m.delta)}` : formatBRL(m.delta))
+              : (isAcima ? `+${formatBRL(m.delta)}` : formatBRL(m.delta))
             }
-          }
-        }
-      }
-      // ─── ALL OTHER COSTS & REVENUE: use gc_recebimentos / gc_pagamentos ──────
-      else {
-        for (const link of links) {
-          const planoUuid = link.plano_contas_id;
-          const centroUuid = link.centro_custo_id || null;
+          </span>
+          <Badge variant="outline" className={`text-xs ${badge.class}`}>
+            {badge.label}
+          </Badge>
+        </div>
+      </div>
 
-          // Check if this plano maps to Auvo data
-          const gcId = uuidToGcId[planoUuid];
-          const auvoTypeIds = gcId ? AUVO_SOURCE_MAP[gcId] : undefined;
+      <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+        <div>
+          <span className="block text-[10px] uppercase tracking-wide">Meta</span>
+          <span className="font-medium text-foreground">{formatBRL(m.meta_calculada)}</span>
+        </div>
+        <div>
+          <span className="block text-[10px] uppercase tracking-wide">Realizado</span>
+          <span className="font-medium text-foreground">{formatBRL(m.realizado)}</span>
+        </div>
+        <div>
+          <span className="block text-[10px] uppercase tracking-wide">% Fatur.</span>
+          <span className="font-medium text-foreground">
+            {execTotal > 0 ? formatPct(m.pct_faturamento) : '—'}
+          </span>
+        </div>
+      </div>
 
-          if (auvoTypeIds && auvoExpenses.length > 0) {
-            const auvoSum = auvoExpenses
-              .filter(e => auvoTypeIds.includes(e.type_id))
-              .reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
-            realizado += auvoSum * (link.peso || 1);
-          } else if (gcId) {
-            // Use gc_recebimentos or gc_pagamentos (GC plano_contas_id = text)
-            // Convert centro_custo UUID to GC codigo for comparison
-            const centroCodigo = centroUuid ? centrosCustoMap[centroUuid] : null;
-            const source = meta.categoria === 'receita' ? gcRecebimentos : gcPagamentos;
-            const soma = source
-              .filter(r =>
-                r.plano_contas_id === gcId &&
-                (centroCodigo === null || centroCodigo === undefined || !r.centro_custo_id || r.centro_custo_id === centroCodigo)
-              )
-              .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
-            realizado += soma * (link.peso || 1);
-          } else {
-            // Fallback: try fin_pagamentos/fin_recebimentos with UUID
-            const source = meta.categoria === 'receita' ? recebimentos : pagamentos;
-            const soma = source
-              .filter(r =>
-                r.plano_contas_id === planoUuid &&
-                (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
-              )
-              .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
-            realizado += soma * (link.peso || 1);
-          }
-        }
-      }
-
-      const meta_calculada =
-        meta.tipo_meta === 'absoluto'
-          ? (meta.meta_valor || 0)
-          : (meta.meta_percentual || 0) * execTotal;
-
-      const delta = realizado - meta_calculada;
-      const pct_faturamento = execTotal > 0 ? realizado / execTotal : 0;
-      const status = calcStatus(meta.categoria, realizado, meta_calculada);
-      const progresso = meta_calculada > 0
-        ? Math.min(Math.round((realizado / meta_calculada) * 100), 150)
-        : 0;
-
-      return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
-    });
-  }, [metas, mapeamentos, recebimentos, pagamentos, gcRecebimentos, gcPagamentos, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, planoContasMap, uuidToGcId]);
-
-  const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
-
-  const refetch = () => { refetchRec(); refetchPag(); refetchGcRec(); refetchGcPag(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo(); };
-  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingGcRec || loadingGcPag || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
-
-  return { metasComResultado, execTotal, isLoading, refetch, hasOsData };
+      <Progress
+        value={Math.min(m.progresso, 100)}
+        className={`h-1.5 mt-1 ${
+          m.status === 'verde' ? '[&>div]:bg-emerald-500' :
+          m.status === 'amarelo' ? '[&>div]:bg-yellow-500' :
+          '[&>div]:bg-red-500'
+        }`}
+      />
+    </div>
+  );
 };
 
 // ─── COMPONENTE ROW ──────────────────────────────────────────────────────────
