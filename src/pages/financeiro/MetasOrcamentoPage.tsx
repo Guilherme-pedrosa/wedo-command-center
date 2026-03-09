@@ -329,9 +329,12 @@ const useMetas = (year: number, month: number) => {
         const recContratos = gcRecebimentos
           .filter(r => r.plano_contas_id === '27867721')
           .reduce((acc, r) => acc + (r.valor || 0), 0);
-        // OS executadas POR CONTRATO (inclui ECOLAB, Marista, etc.)
+        // OS de clientes Ecolab/Tenda (contratos por cliente)
         const osContratos = osExecutadas
-          .filter(os => os.nome_situacao === 'EXECUTADO POR CONTRATO')
+          .filter(os => {
+            const cliente = (os.nome_cliente ?? '').toLowerCase();
+            return cliente.includes('ecolab') || cliente.includes('tenda');
+          })
           .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
         realizado = recContratos + osContratos;
       }
