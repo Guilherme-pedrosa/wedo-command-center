@@ -902,7 +902,7 @@ export async function syncPlanoContasGC(
   // Try dedicated API endpoint first
   try {
     const raws = await fetchPaginatedGC<Record<string, any>>(
-      "/api/plano_contas",
+      "/api/planos_contas",
       {},
       onProgress
     );
