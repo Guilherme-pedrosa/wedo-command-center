@@ -232,16 +232,16 @@ export default function ConciliacaoPage() {
           <p className="text-sm text-muted-foreground">Vincule transações do extrato a lançamentos do sistema</p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={async () => {
-            setSyncing(true);
-            try {
-              invalidateAll();
-              toast.success("Dados atualizados");
-            } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
-            finally { setSyncing(false); }
-          }} disabled={syncing} variant="outline" className="gap-2">
-            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Atualizar
+          <Button onClick={() => {
+            invalidateAll();
+            toast.success("Cache atualizado");
+          }} variant="ghost" size="sm" className="gap-2">
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+          <Button onClick={() => setShowSyncDialog(true)} disabled={syncing} variant="outline" className="gap-2">
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Sincronizar GC
           </Button>
           <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" className="gap-2">
             {autoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
