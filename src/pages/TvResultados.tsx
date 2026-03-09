@@ -117,7 +117,19 @@ export default function TvResultados() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-4xl font-black tracking-tight">Resultados Operação</h1>
-          <p className="text-xl text-muted-foreground mt-1">{meses[month - 1]} {year}</p>
+          <div className="flex items-center gap-3 mt-1">
+            <button onClick={() => navigateMonth(-1)} className="p-1 rounded hover:bg-white/10 transition-colors">
+              <ChevronLeft className="h-6 w-6 text-muted-foreground" />
+            </button>
+            <p className="text-xl text-muted-foreground">{meses[month - 1]} {year}</p>
+            <button
+              onClick={() => navigateMonth(1)}
+              disabled={isCurrentMonth}
+              className="p-1 rounded hover:bg-white/10 transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
+            >
+              <ChevronRight className="h-6 w-6 text-muted-foreground" />
+            </button>
+          </div>
         </div>
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-3">
