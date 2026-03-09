@@ -30,6 +30,7 @@ function buildMonthOptions() {
       label: format(d, "MMMM yyyy", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase()),
     });
   }
+  opts.push({ value: "custom", label: "Período personalizado" });
   return opts;
 }
 
