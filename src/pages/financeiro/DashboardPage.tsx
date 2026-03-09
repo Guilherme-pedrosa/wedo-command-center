@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatTimeAgo, formatDate } from "@/lib/format";
 import { syncRecebimentosGC, syncPagamentosGC, syncFornecedoresGC, syncClientesGC } from "@/api/financeiro";
 import {
   Receipt, AlertTriangle, CheckCircle, CreditCard, RefreshCw,
-  TrendingUp, Loader2, ArrowRight, Zap, FileWarning, Eye,
+  TrendingUp, Loader2, ArrowRight, Zap, FileWarning, Eye, CalendarIcon,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -16,18 +17,43 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
 } from "recharts";
-import { format, subMonths, startOfWeek, endOfWeek } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
+
+// Generate month options: current + 11 past months
+function getMonthOptions() {
+  const options: { value: string; label: string }[] = [];
+  const now = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = subMonths(now, i);
+    options.push({
+      value: format(d, "yyyy-MM"),
+      label: format(d, "MMMM yyyy", { locale: ptBR }),
+    });
+  }
+  return options;
+}
 
 export default function FinDashboardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
   const [showSyncDialog, setShowSyncDialog] = useState(false);
+  const [mesSelecionado, setMesSelecionado] = useState(format(new Date(), "yyyy-MM"));
+
+  const monthOptions = useMemo(() => getMonthOptions(), []);
   const hoje = new Date().toISOString().split("T")[0];
-  const mesAtual = format(new Date(), "yyyy-MM");
+
+  // Derive date boundaries from selected month
+  const mesDate = useMemo(() => {
+    const [y, m] = mesSelecionado.split("-").map(Number);
+    return new Date(y, m - 1, 1);
+  }, [mesSelecionado]);
+  const mesInicio = format(startOfMonth(mesDate), "yyyy-MM-dd");
+  const mesFim = format(endOfMonth(mesDate), "yyyy-MM-dd");
   const inicioSemana = format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd");
   const fimSemana = format(endOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd");
+  const isMesAtual = mesSelecionado === format(new Date(), "yyyy-MM");
 
   const { data: recebimentos } = useQuery({
     queryKey: ["fin-dash-recebimentos"],
@@ -84,35 +110,57 @@ export default function FinDashboardPage() {
     },
   });
 
-  // Vencimentos da semana (recebimentos pendentes)
-  const vencimentosSemana = (recebimentos || []).filter(
-    (r: any) => !r.liquidado && r.data_vencimento && r.data_vencimento >= inicioSemana && r.data_vencimento <= fimSemana
-  ).sort((a: any, b: any) => (a.data_vencimento || "").localeCompare(b.data_vencimento || "")).slice(0, 10);
+  // Filter data by selected month
+  const recebimentosMes = useMemo(() =>
+    (recebimentos || []).filter((r: any) =>
+      (r.data_vencimento && r.data_vencimento >= mesInicio && r.data_vencimento <= mesFim) ||
+      (r.data_liquidacao && r.data_liquidacao >= mesInicio && r.data_liquidacao <= mesFim)
+    ), [recebimentos, mesInicio, mesFim]);
 
-  // Stats
-  const totalAReceber = recebimentos?.filter((r: any) => !r.liquidado).reduce((s: number, r: any) => s + Number(r.valor || 0), 0) || 0;
-  const totalAPagar = pagamentos?.filter((p: any) => !p.liquidado).reduce((s: number, p: any) => s + Number(p.valor || 0), 0) || 0;
-  const vencidosReceber = recebimentos?.filter((r: any) => !r.liquidado && r.data_vencimento && r.data_vencimento < hoje).length || 0;
-  const vencidosPagar = pagamentos?.filter((p: any) => !p.liquidado && p.data_vencimento && p.data_vencimento < hoje).length || 0;
-  const recebidoMes = recebimentos?.filter((r: any) => r.liquidado && r.data_liquidacao?.startsWith(mesAtual)).reduce((s: number, r: any) => s + Number(r.valor || 0), 0) || 0;
-  const pagoMes = pagamentos?.filter((p: any) => p.liquidado && p.data_liquidacao?.startsWith(mesAtual)).reduce((s: number, p: any) => s + Number(p.valor || 0), 0) || 0;
+  const pagamentosMes = useMemo(() =>
+    (pagamentos || []).filter((p: any) =>
+      (p.data_vencimento && p.data_vencimento >= mesInicio && p.data_vencimento <= mesFim) ||
+      (p.data_liquidacao && p.data_liquidacao >= mesInicio && p.data_liquidacao <= mesFim)
+    ), [pagamentos, mesInicio, mesFim]);
+
+  // Vencimentos da semana (only show for current month)
+  const vencimentosSemana = isMesAtual
+    ? (recebimentos || []).filter(
+        (r: any) => !r.liquidado && r.data_vencimento && r.data_vencimento >= inicioSemana && r.data_vencimento <= fimSemana
+      ).sort((a: any, b: any) => (a.data_vencimento || "").localeCompare(b.data_vencimento || "")).slice(0, 10)
+    : [];
+
+  // Vencimentos do m\u00eas selecionado (for non-current months)
+  const vencimentosMesSelecionado = !isMesAtual
+    ? (recebimentos || []).filter(
+        (r: any) => !r.liquidado && r.data_vencimento && r.data_vencimento >= mesInicio && r.data_vencimento <= mesFim
+      ).sort((a: any, b: any) => (a.data_vencimento || "").localeCompare(b.data_vencimento || "")).slice(0, 10)
+    : [];
+
+  // Stats filtered by month
+  const totalAReceber = recebimentosMes.filter((r: any) => !r.liquidado).reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
+  const totalAPagar = pagamentosMes.filter((p: any) => !p.liquidado).reduce((s: number, p: any) => s + Number(p.valor || 0), 0);
+  const vencidosReceber = recebimentosMes.filter((r: any) => !r.liquidado && r.data_vencimento && r.data_vencimento < hoje).length;
+  const vencidosPagar = pagamentosMes.filter((p: any) => !p.liquidado && p.data_vencimento && p.data_vencimento < hoje).length;
+  const recebidoMes = recebimentosMes.filter((r: any) => r.liquidado && r.data_liquidacao?.startsWith(mesSelecionado)).reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
+  const pagoMes = pagamentosMes.filter((p: any) => p.liquidado && p.data_liquidacao?.startsWith(mesSelecionado)).reduce((s: number, p: any) => s + Number(p.valor || 0), 0);
   const saldoLiquido = totalAReceber - totalAPagar;
-  const baixasPendentesGC = recebimentos?.filter((r: any) => r.pago_sistema && !r.gc_baixado).length || 0;
+  const baixasPendentesGC = recebimentosMes.filter((r: any) => r.pago_sistema && !r.gc_baixado).length;
 
-  // Chart data - 6 months
-  const chartData = Array.from({ length: 6 }, (_, i) => {
-    const d = subMonths(new Date(), 5 - i);
+  // Chart data - 6 months centered around selected month
+  const chartData = useMemo(() => Array.from({ length: 6 }, (_, i) => {
+    const d = subMonths(mesDate, 5 - i);
     const key = format(d, "yyyy-MM");
-    const label = format(d, "MMM", { locale: ptBR });
-    const rec = recebimentos?.filter((r: any) => r.liquidado && r.data_liquidacao?.startsWith(key)).reduce((s: number, r: any) => s + Number(r.valor || 0), 0) || 0;
-    const pag = pagamentos?.filter((p: any) => p.liquidado && p.data_liquidacao?.startsWith(key)).reduce((s: number, p: any) => s + Number(p.valor || 0), 0) || 0;
-    return { name: label, recebimentos: rec, pagamentos: pag };
-  });
+    const label = format(d, "MMM/yy", { locale: ptBR });
+    const isSelected = key === mesSelecionado;
+    const rec = (recebimentos || []).filter((r: any) => r.liquidado && r.data_liquidacao?.startsWith(key)).reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
+    const pag = (pagamentos || []).filter((p: any) => p.liquidado && p.data_liquidacao?.startsWith(key)).reduce((s: number, p: any) => s + Number(p.valor || 0), 0);
+    return { name: label, recebimentos: rec, pagamentos: pag, isSelected };
+  }), [mesDate, mesSelecionado, recebimentos, pagamentos]);
 
   const handleSyncAll = async (filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean }) => {
     setSyncing(true);
     try {
-      // Run ALL syncs in parallel instead of sequentially
       const [f, c, r, p] = await Promise.all([
         syncFornecedoresGC(),
         syncClientesGC(),
@@ -128,6 +176,8 @@ export default function FinDashboardPage() {
       setSyncing(false);
     }
   };
+
+  const mesLabel = format(mesDate, "MMMM", { locale: ptBR });
 
   const StatCard = ({ title, value, subtitle, icon: Icon, variant = "default" }: {
     title: string; value: string; subtitle?: string; icon: any; variant?: "default" | "success" | "danger" | "warning"
@@ -150,17 +200,35 @@ export default function FinDashboardPage() {
     );
   };
 
+  const vencimentosDisplay = isMesAtual ? vencimentosSemana : vencimentosMesSelecionado;
+  const vencimentosTitle = isMesAtual ? "Vencimentos esta semana" : `Vencimentos em ${mesLabel}`;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Dashboard Financeiro</h1>
-          <p className="text-sm text-muted-foreground">Visão consolidada do módulo financeiro</p>
+          <p className="text-sm text-muted-foreground">{"Vis\u00e3o consolidada do m\u00f3dulo financeiro"}</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setShowSyncDialog(true)} disabled={syncing}>
-          {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
-          Sincronizar Tudo
-        </Button>
+        <div className="flex items-center gap-2">
+          <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
+            <SelectTrigger className="w-[200px]">
+              <CalendarIcon className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {monthOptions.map(opt => (
+                <SelectItem key={opt.value} value={opt.value} className="capitalize">
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={() => setShowSyncDialog(true)} disabled={syncing}>
+            {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+            Sincronizar
+          </Button>
+        </div>
       </div>
 
       {/* Alert banner */}
@@ -178,23 +246,37 @@ export default function FinDashboardPage() {
         </div>
       )}
 
+      {/* Month indicator */}
+      {!isMesAtual && (
+        <div className="rounded-lg bg-primary/5 border border-primary/20 px-4 py-2 flex items-center gap-2">
+          <CalendarIcon className="h-4 w-4 text-primary" />
+          <span className="text-sm text-foreground">
+            {"Exibindo dados de "}
+            <strong className="capitalize">{mesLabel} {format(mesDate, "yyyy")}</strong>
+          </span>
+          <Button variant="ghost" size="sm" className="ml-auto text-xs" onClick={() => setMesSelecionado(format(new Date(), "yyyy-MM"))}>
+            Voltar ao {"m\u00eas"} atual
+          </Button>
+        </div>
+      )}
+
       {/* Stats grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard title="A Receber" value={formatCurrency(totalAReceber)} subtitle={vencidosReceber > 0 ? `${vencidosReceber} vencido(s)` : undefined} icon={Receipt} variant="default" />
         <StatCard title="A Pagar" value={formatCurrency(totalAPagar)} subtitle={vencidosPagar > 0 ? `${vencidosPagar} vencido(s)` : undefined} icon={CreditCard} variant="default" />
-        <StatCard title="Recebido (mês)" value={formatCurrency(recebidoMes)} icon={CheckCircle} variant="success" />
-        <StatCard title="Pago (mês)" value={formatCurrency(pagoMes)} icon={TrendingUp} variant="success" />
-        <StatCard title="Saldo Líquido" value={formatCurrency(saldoLiquido)} icon={TrendingUp} variant={saldoLiquido >= 0 ? "success" : "danger"} />
+        <StatCard title={`Recebido (${mesLabel})`} value={formatCurrency(recebidoMes)} icon={CheckCircle} variant="success" />
+        <StatCard title={`Pago (${mesLabel})`} value={formatCurrency(pagoMes)} icon={TrendingUp} variant="success" />
+        <StatCard title={"Saldo L\u00edquido"} value={formatCurrency(saldoLiquido)} icon={TrendingUp} variant={saldoLiquido >= 0 ? "success" : "danger"} />
         <StatCard title="Vencidos (Receber)" value={String(vencidosReceber)} icon={AlertTriangle} variant="danger" />
         <StatCard title="Vencidos (Pagar)" value={String(vencidosPagar)} icon={AlertTriangle} variant="danger" />
-        <StatCard title="Baixas pendentes GC" value={String(baixasPendentesGC)} subtitle={`Extrato ñ reconciliado: ${extratoNaoReconciliado}`} icon={FileWarning} variant="warning" />
+        <StatCard title="Baixas pendentes GC" value={String(baixasPendentesGC)} subtitle={`Extrato n\u00e3o reconciliado: ${extratoNaoReconciliado}`} icon={FileWarning} variant="warning" />
       </div>
 
       {/* Charts + Vencimentos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Bar Chart */}
         <div className="rounded-lg border border-border bg-card p-6">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Recebimentos vs Pagamentos (6 meses)</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-4">{"Recebimentos vs Pagamentos (\u00faltimos 6 meses)"}</h3>
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -216,19 +298,21 @@ export default function FinDashboardPage() {
           </ResponsiveContainer>
         </div>
 
-        {/* Vencimentos da semana */}
+        {/* Vencimentos */}
         <div className="rounded-lg border border-border bg-card p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-foreground">Vencimentos esta semana</h3>
+            <h3 className="text-sm font-semibold text-foreground">{vencimentosTitle}</h3>
             <Button variant="ghost" size="sm" onClick={() => navigate("/financeiro/recebimentos")} className="text-xs">
               Ver todos <ArrowRight className="h-3 w-3 ml-1" />
             </Button>
           </div>
-          {vencimentosSemana.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">Nenhum vencimento esta semana 🎉</p>
+          {vencimentosDisplay.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-8 text-center">
+              {isMesAtual ? "Nenhum vencimento esta semana \uD83C\uDF89" : `Nenhum vencimento pendente em ${mesLabel}`}
+            </p>
           ) : (
             <div className="space-y-2 max-h-[220px] overflow-y-auto">
-              {vencimentosSemana.map((r: any) => (
+              {vencimentosDisplay.map((r: any) => (
                 <div key={r.id} className="flex items-center gap-3 p-2.5 rounded-md border border-border hover:bg-muted/30 transition-colors">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground truncate">{r.nome_cliente || "Sem cliente"}</p>
@@ -252,7 +336,7 @@ export default function FinDashboardPage() {
 
       {/* Recent Activity */}
       <div className="rounded-lg border border-border bg-card p-6">
-        <h3 className="text-sm font-semibold text-foreground mb-4">Últimas Atividades</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-4">{"\u00daltimas Atividades"}</h3>
         {recentLogs && recentLogs.length > 0 ? (
           <div className="space-y-2 max-h-60 overflow-y-auto">
             {recentLogs.map((log: any) => (
