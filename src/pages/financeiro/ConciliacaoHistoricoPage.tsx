@@ -165,7 +165,7 @@ export default function ConciliacaoHistoricoPage() {
             .eq("id", lancId)
             .single();
           console.log(`[openDetail] fin_recebimentos id=${lancId}`, data, error);
-          return data ? { ...data, _tabela: "fin_recebimentos" } : null;
+          return data ? { ...(data as any), _tabela: "fin_recebimentos" } : null;
         }
       };
 
