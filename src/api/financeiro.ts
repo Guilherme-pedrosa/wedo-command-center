@@ -903,7 +903,7 @@ export async function syncCentrosCustoGC(
           .eq("codigo", b.codigo)
           .maybeSingle();
         if (existing) {
-          await supabase.from("fin_centros_custo" as any).update({ nome: b.nome, ativo: b.ativo }).eq("id", existing.id);
+          await supabase.from("fin_centros_custo" as any).update({ nome: b.nome, ativo: b.ativo }).eq("id", (existing as any).id);
         } else {
           await supabase.from("fin_centros_custo" as any).insert({ nome: b.nome, codigo: b.codigo, ativo: b.ativo });
         }
