@@ -104,7 +104,7 @@ export default function ExtratoBancoPage() {
                 <td className="p-3 text-right font-semibold">{formatCurrency(Number(e.valor))}</td>
                 <td className="p-3">
                   <div className="flex flex-col">
-                    <span className="font-medium text-foreground">{e.contrapartida || extrairNomeDaDescricao(e.descricao) || "—"}</span>
+                    <span className="font-medium text-foreground">{e.nome_contraparte || e.contrapartida || extrairNomeDaDescricao(e.descricao) || "—"}</span>
                     {e.cpf_cnpj && <span className="text-[10px] text-muted-foreground">{e.cpf_cnpj}</span>}
                   </div>
                 </td>
