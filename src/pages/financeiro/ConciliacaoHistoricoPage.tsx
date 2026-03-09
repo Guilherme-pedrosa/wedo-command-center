@@ -1,16 +1,20 @@
-import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, formatDateTime, formatDate } from "@/lib/format";
-import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Link2, Loader2, Banknote, FileText } from "lucide-react";
+import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Link2, Loader2, Banknote, FileText, AlertCircle, Link } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { subMonths, startOfMonth, endOfMonth, format } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import toast from "react-hot-toast";
 
 const GC_BASE = "https://app.gestaoclick.com.br";
 const gcRecebimentoLink = (gcId: string) => `${GC_BASE}/recebimentos/${gcId}`;
@@ -35,9 +39,11 @@ const ruleLabels: Record<string, string> = {
   REGRA_0_MAX_CONFIANCA: "Máx. Confiança",
   SOMA_PARCELAS: "Soma Parcelas",
   DATA_PROXIMA: "Data Próxima",
+  MANUAL_VINCULO: "Vínculo Manual",
 };
 
 export default function ConciliacaoHistoricoPage() {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [tipoFilter, setTipoFilter] = useState<string>("todos");
   const [vinculoFilter, setVinculoFilter] = useState<string>("todos");
@@ -46,46 +52,82 @@ export default function ConciliacaoHistoricoPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [tab, setTab] = useState("conciliados");
 
+  // Month filter
+  const [mesSelecionado, setMesSelecionado] = useState("all");
+
+  const monthOptions = useMemo(() => {
+    const opts: { value: string; label: string }[] = [{ value: "all", label: "Todos os meses" }];
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = subMonths(now, i);
+      opts.push({ value: format(d, "yyyy-MM"), label: format(d, "MMMM yyyy", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase()) });
+    }
+    return opts;
+  }, []);
+
+  const mesDateRange = useMemo(() => {
+    if (mesSelecionado === "all") return null;
+    const base = new Date(mesSelecionado + "-01");
+    return { from: startOfMonth(base).toISOString(), to: endOfMonth(base).toISOString() };
+  }, [mesSelecionado]);
+
+  // Manual linking state
+  const [showVincularDialog, setShowVincularDialog] = useState(false);
+  const [vinculandoItem, setVinculandoItem] = useState<any>(null);
+  const [vinculoForm, setVinculoForm] = useState({ descricao: "", os_codigo: "", gc_codigo: "", nfe_numero: "" });
+
   // CONCILIADOS REAIS
   const { data: items, isLoading } = useQuery({
-    queryKey: ["conciliacao-historico"],
+    queryKey: ["conciliacao-historico", mesSelecionado],
     queryFn: async () => {
-      const { data } = await supabase
+      let query = supabase
         .from("vw_conciliacao_extrato" as any)
         .select("*")
         .eq("reconciliado", true)
-        .not("reconciliation_rule", "in", '("SEM_PAR_GC","TRANSFERENCIA_INTERNA","PIX_DEVOLVIDO_MANUAL")')
-        .order("reconciliado_em", { ascending: false })
-        .limit(500);
+        .not("reconciliation_rule", "in", '("SEM_PAR_GC","TRANSFERENCIA_INTERNA","PIX_DEVOLVIDO_MANUAL")');
+
+      if (mesDateRange) {
+        query = query.gte("reconciliado_em", mesDateRange.from).lte("reconciliado_em", mesDateRange.to);
+      }
+
+      const { data } = await query.order("reconciliado_em", { ascending: false }).limit(2000);
       return (data as any[]) || [];
     },
   });
 
-  // N\u00c3O CONCILIADO (exce\u00e7\u00f5es classificadas)
+  // NÃO CONCILIADO (exceções classificadas)
   const { data: excecoes, isLoading: isLoadingExc } = useQuery({
-    queryKey: ["conciliacao-excecoes"],
+    queryKey: ["conciliacao-excecoes", mesSelecionado],
     queryFn: async () => {
-      const { data } = await supabase
+      let query = supabase
         .from("vw_conciliacao_extrato" as any)
         .select("*")
-        .in("reconciliation_rule", EXCECAO_RULES)
-        .order("reconciliado_em", { ascending: false })
-        .limit(200);
+        .in("reconciliation_rule", EXCECAO_RULES);
+
+      if (mesDateRange) {
+        query = query.gte("reconciliado_em", mesDateRange.from).lte("reconciliado_em", mesDateRange.to);
+      }
+
+      const { data } = await query.order("reconciliado_em", { ascending: false }).limit(500);
       return (data as any[]) || [];
     },
   });
 
-  // FINANCEIRO N\u00c3O CONCILIADO (sem regra, n\u00e3o reconciliado)
+  // FINANCEIRO NÃO CONCILIADO (sem regra, não reconciliado)
   const { data: financeirosNaoConciliados, isLoading: isLoadingFinNaoConc } = useQuery({
-    queryKey: ["conciliacao-financeiro-nao-conciliado"],
+    queryKey: ["conciliacao-financeiro-nao-conciliado", mesSelecionado],
     queryFn: async () => {
-      const { data } = await supabase
+      let query = supabase
         .from("vw_conciliacao_extrato" as any)
         .select("*")
         .eq("reconciliado", false)
-        .is("reconciliation_rule", null)
-        .order("data_hora", { ascending: false })
-        .limit(200);
+        .is("reconciliation_rule", null);
+
+      if (mesDateRange) {
+        query = query.gte("data_hora", mesDateRange.from).lte("data_hora", mesDateRange.to);
+      }
+
+      const { data } = await query.order("data_hora", { ascending: false }).limit(500);
       return (data as any[]) || [];
     },
   });
@@ -97,7 +139,6 @@ export default function ConciliacaoHistoricoPage() {
     if (!item.id) return;
     setDetailLoading(true);
     try {
-      // Get all links from fin_extrato_lancamentos
       const { data: links } = await supabase
         .from("fin_extrato_lancamentos")
         .select("lancamento_id, tabela, valor_alocado, reconciliation_rule")
@@ -125,6 +166,32 @@ export default function ConciliacaoHistoricoPage() {
       console.error("Erro ao buscar lançamentos vinculados:", e);
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  // Manual linking handler
+  const handleVincularManual = async () => {
+    if (!vinculandoItem) return;
+    const updatePayload: Record<string, any> = {
+      reconciliado: true,
+      reconciliation_rule: "MANUAL_VINCULO",
+      reconciliado_em: new Date().toISOString(),
+    };
+    if (vinculoForm.descricao) updatePayload.descricao = vinculoForm.descricao;
+
+    const { error } = await supabase
+      .from("fin_extrato_inter")
+      .update(updatePayload)
+      .eq("id", vinculandoItem.id);
+
+    if (!error) {
+      toast.success("Vínculo registrado com sucesso");
+      setShowVincularDialog(false);
+      setVinculandoItem(null);
+      queryClient.invalidateQueries({ queryKey: ["conciliacao-financeiro-nao-conciliado"] });
+      queryClient.invalidateQueries({ queryKey: ["conciliacao-historico"] });
+    } else {
+      toast.error(`Erro ao vincular: ${error.message}`);
     }
   };
 
@@ -165,7 +232,7 @@ export default function ConciliacaoHistoricoPage() {
     if (item.grupo_receber_id) return <Badge variant="secondary" className="text-[10px]">Grupo Receber</Badge>;
     if (item.grupo_pagar_id) return <Badge variant="secondary" className="text-[10px]">Grupo Pagar</Badge>;
     if (item.agenda_id) return <Badge variant="secondary" className="text-[10px]">Agenda</Badge>;
-    if (item.lancamento_id) return <Badge variant="secondary" className="text-[10px]">{`Lan\u00e7amento`}</Badge>;
+    if (item.lancamento_id) return <Badge variant="secondary" className="text-[10px]">Lançamento</Badge>;
     return null;
   };
 
@@ -190,13 +257,13 @@ export default function ConciliacaoHistoricoPage() {
       </div>
       {/* Nome contraparte */}
       <div className="col-span-2 font-medium text-foreground truncate" title={item.nome_contraparte}>
-        {item.nome_contraparte || "\u2014"}
+        {item.nome_contraparte || "—"}
       </div>
       {/* CPF/CNPJ */}
       <div className="col-span-1 text-xs text-muted-foreground font-mono truncate" title={item.cpf_cnpj}>
-        {item.cpf_cnpj || "\u2014"}
+        {item.cpf_cnpj || "—"}
       </div>
-      {/* Tipo + V\u00ednculo */}
+      {/* Tipo + Vínculo + GC links */}
       <div className="col-span-2 flex flex-wrap items-center gap-1">
         <Badge variant="outline" className="text-[10px]">{item.tipo}</Badge>
         {showVinculo && vinculoBadge(item)}
@@ -218,7 +285,7 @@ export default function ConciliacaoHistoricoPage() {
       <div className="col-span-1 text-right font-bold text-foreground">
         {formatCurrency(Math.abs(Number(item.valor_extrato || 0)))}
       </div>
-      {/* Valor GC + Diferen\u00e7a */}
+      {/* Valor GC + Diferença */}
       {showDiferenca ? (
         <div className="col-span-2 flex items-center gap-2">
           {item.valor_gc != null && (
@@ -234,7 +301,7 @@ export default function ConciliacaoHistoricoPage() {
       ) : (
         <div className="col-span-2" />
       )}
-      {/* A\u00e7\u00f5es */}
+      {/* Ações */}
       <div className="col-span-2 flex items-center justify-end gap-1">
         <TooltipProvider>
           <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openDetail(item)}>
@@ -251,10 +318,10 @@ export default function ConciliacaoHistoricoPage() {
         {formatDateTime(item.reconciliado_em || item.data_hora)}
       </div>
       <div className="col-span-2 font-medium text-foreground truncate" title={item.nome_contraparte}>
-        {item.nome_contraparte || "\u2014"}
+        {item.nome_contraparte || "—"}
       </div>
       <div className="col-span-1 text-xs text-muted-foreground font-mono truncate">
-        {item.cpf_cnpj || "\u2014"}
+        {item.cpf_cnpj || "—"}
       </div>
       <div className="col-span-2">
         <Badge variant="destructive" className="text-[10px]">
@@ -265,7 +332,7 @@ export default function ConciliacaoHistoricoPage() {
         {formatCurrency(Math.abs(Number(item.valor_extrato || 0)))}
       </div>
       <div className="col-span-2 text-xs text-muted-foreground truncate" title={item.descricao}>
-        {item.descricao || "\u2014"}
+        {item.descricao || "—"}
       </div>
       <div className="col-span-2 flex items-center justify-end gap-1">
         <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openDetail(item)}>
@@ -278,8 +345,8 @@ export default function ConciliacaoHistoricoPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">{`Hist\u00f3rico de Concilia\u00e7\u00e3o`}</h1>
-        <p className="text-sm text-muted-foreground">{`Registro detalhado de todas as transa\u00e7\u00f5es reconciliadas`}</p>
+        <h1 className="text-2xl font-bold text-foreground">Histórico de Conciliação</h1>
+        <p className="text-sm text-muted-foreground">Registro detalhado de todas as transações reconciliadas</p>
       </div>
 
       {/* Summary cards */}
@@ -291,23 +358,23 @@ export default function ConciliacaoHistoricoPage() {
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="flex items-center gap-1">
             <TrendingUp className="h-3 w-3 text-emerald-500" />
-            <p className="text-[10px] uppercase text-muted-foreground font-semibold">{`Cr\u00e9ditos`}</p>
+            <p className="text-[10px] uppercase text-muted-foreground font-semibold">Créditos</p>
           </div>
           <p className="text-lg font-bold text-emerald-500">{formatCurrency(totalCredito)}</p>
-          <p className="text-[10px] text-muted-foreground">{filtered.filter((i: any) => i.tipo === "CREDITO").length} {`transa\u00e7\u00f5es`}</p>
+          <p className="text-[10px] text-muted-foreground">{filtered.filter((i: any) => i.tipo === "CREDITO").length} transações</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="flex items-center gap-1">
             <TrendingDown className="h-3 w-3 text-destructive" />
-            <p className="text-[10px] uppercase text-muted-foreground font-semibold">{`D\u00e9bitos`}</p>
+            <p className="text-[10px] uppercase text-muted-foreground font-semibold">Débitos</p>
           </div>
           <p className="text-lg font-bold text-destructive">{formatCurrency(totalDebito)}</p>
-          <p className="text-[10px] text-muted-foreground">{filtered.filter((i: any) => i.tipo === "DEBITO").length} {`transa\u00e7\u00f5es`}</p>
+          <p className="text-[10px] text-muted-foreground">{filtered.filter((i: any) => i.tipo === "DEBITO").length} transações</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="flex items-center gap-1">
             <ArrowLeftRight className="h-3 w-3 text-primary" />
-            <p className="text-[10px] uppercase text-muted-foreground font-semibold">{`Saldo L\u00edquido`}</p>
+            <p className="text-[10px] uppercase text-muted-foreground font-semibold">Saldo Líquido</p>
           </div>
           <p className={`text-lg font-bold ${totalCredito - totalDebito >= 0 ? "text-emerald-500" : "text-destructive"}`}>
             {formatCurrency(totalCredito - totalDebito)}
@@ -316,7 +383,7 @@ export default function ConciliacaoHistoricoPage() {
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="flex items-center gap-1">
             <AlertTriangle className="h-3 w-3 text-amber-500" />
-            <p className="text-[10px] uppercase text-muted-foreground font-semibold">{`N\u00e3o Conciliado`}</p>
+            <p className="text-[10px] uppercase text-muted-foreground font-semibold">Não Conciliado</p>
           </div>
           <p className="text-lg font-bold text-amber-500">{(excecoes || []).length}</p>
           <p className="text-[10px] text-muted-foreground">{formatCurrency(totalExcecoes)}</p>
@@ -325,24 +392,34 @@ export default function ConciliacaoHistoricoPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
+        {/* Month selector */}
+        <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
+          <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {monthOptions.map(opt => (
+              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Buscar nome, CPF/CNPJ, E2E ID, descri\u00e7\u00e3o, OS, G..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Buscar nome, CPF/CNPJ, E2E ID, descrição, OS, G..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
         <Select value={tipoFilter} onValueChange={setTipoFilter}>
           <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="todos">Todos tipos</SelectItem>
-            <SelectItem value="CREDITO">{`Cr\u00e9dito`}</SelectItem>
-            <SelectItem value="DEBITO">{`D\u00e9bito`}</SelectItem>
+            <SelectItem value="CREDITO">Crédito</SelectItem>
+            <SelectItem value="DEBITO">Débito</SelectItem>
           </SelectContent>
         </Select>
         {tab === "conciliados" && (
           <Select value={vinculoFilter} onValueChange={setVinculoFilter}>
             <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="todos">{`Todos v\u00ednculos`}</SelectItem>
-              <SelectItem value="lancamento">{`Lan\u00e7amento`}</SelectItem>
+              <SelectItem value="todos">Todos vínculos</SelectItem>
+              <SelectItem value="lancamento">Lançamento</SelectItem>
               <SelectItem value="grupo_receber">Grupo Receber</SelectItem>
               <SelectItem value="grupo_pagar">Grupo Pagar</SelectItem>
               <SelectItem value="agenda">Agenda</SelectItem>
@@ -355,15 +432,15 @@ export default function ConciliacaoHistoricoPage() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="conciliados">Conciliados ({filtered.length})</TabsTrigger>
-          <TabsTrigger value="excecoes">{`N\u00e3o Conciliado`} ({filteredExc.length})</TabsTrigger>
-          <TabsTrigger value="financeiro_nao_conciliado">{`Financeiro N\u00e3o Conciliado`} ({filteredFinNaoConc.length})</TabsTrigger>
+          <TabsTrigger value="excecoes">Não Conciliado ({filteredExc.length})</TabsTrigger>
+          <TabsTrigger value="financeiro_nao_conciliado">Financeiro Não Conciliado ({filteredFinNaoConc.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="conciliados" className="space-y-3">
           {isLoading ? (
             <p className="text-muted-foreground p-4">Carregando...</p>
           ) : filtered.length === 0 ? (
-            <p className="text-muted-foreground p-4 text-center">{`Nenhum registro conciliado encontrado.`}</p>
+            <p className="text-muted-foreground p-4 text-center">Nenhum registro conciliado encontrado.</p>
           ) : (
             <div className="divide-y divide-border rounded-md border border-border bg-card overflow-hidden">
               {/* Header */}
@@ -371,10 +448,10 @@ export default function ConciliacaoHistoricoPage() {
                 <div className="col-span-2">Data</div>
                 <div className="col-span-2">Contraparte</div>
                 <div className="col-span-1">CPF/CNPJ</div>
-                <div className="col-span-2">{`Tipo / V\u00ednculo`}</div>
+                <div className="col-span-2">Tipo / Vínculo</div>
                 <div className="col-span-1 text-right">Valor</div>
                 <div className="col-span-2">GC / Dif.</div>
-                <div className="col-span-2 text-right">{`A\u00e7\u00f5es`}</div>
+                <div className="col-span-2 text-right">Ações</div>
               </div>
               {filtered.map((item: any) => renderRow(item))}
             </div>
@@ -383,10 +460,20 @@ export default function ConciliacaoHistoricoPage() {
         </TabsContent>
 
         <TabsContent value="excecoes" className="space-y-3">
+          {/* Informational banner */}
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+            <div className="text-xs text-foreground">
+              Estes lançamentos foram classificados manualmente como exceções e
+              <strong> nunca serão reprocessados</strong> pelo motor de conciliação automática.
+              Para reclassificar um item, use o botão de detalhes (ícone de olho) individual.
+            </div>
+          </div>
+
           {isLoadingExc ? (
             <p className="text-muted-foreground p-4">Carregando...</p>
           ) : filteredExc.length === 0 ? (
-            <p className="text-muted-foreground p-4 text-center">{`Nenhuma exce\u00e7\u00e3o encontrada.`}</p>
+            <p className="text-muted-foreground p-4 text-center">Nenhuma exceção encontrada.</p>
           ) : (
             <div className="divide-y divide-border rounded-md border border-border bg-card overflow-hidden">
               <div className="grid grid-cols-12 items-center gap-2 p-3 bg-muted/50 text-[10px] uppercase font-semibold text-muted-foreground">
@@ -395,20 +482,20 @@ export default function ConciliacaoHistoricoPage() {
                 <div className="col-span-1">CPF/CNPJ</div>
                 <div className="col-span-2">Motivo</div>
                 <div className="col-span-1 text-right">Valor</div>
-                <div className="col-span-2">{`Descri\u00e7\u00e3o`}</div>
-                <div className="col-span-2 text-right">{`A\u00e7\u00f5es`}</div>
+                <div className="col-span-2">Descrição</div>
+                <div className="col-span-2 text-right">Ações</div>
               </div>
               {filteredExc.map((item: any) => renderExcRow(item))}
             </div>
           )}
-          <p className="text-xs text-muted-foreground">{filteredExc.length} registro(s) {`n\u00e3o conciliado(s)`}</p>
+          <p className="text-xs text-muted-foreground">{filteredExc.length} registro(s) não conciliado(s)</p>
         </TabsContent>
 
         <TabsContent value="financeiro_nao_conciliado" className="space-y-3">
           {isLoadingFinNaoConc ? (
             <p className="text-muted-foreground p-4">Carregando...</p>
           ) : filteredFinNaoConc.length === 0 ? (
-            <p className="text-muted-foreground p-4 text-center">{`Nenhum registro pendente.`}</p>
+            <p className="text-muted-foreground p-4 text-center">Nenhum registro pendente.</p>
           ) : (
             <div className="divide-y divide-border rounded-md border border-border bg-card overflow-hidden">
               <div className="grid grid-cols-12 items-center gap-2 p-3 bg-muted/50 text-[10px] uppercase font-semibold text-muted-foreground">
@@ -417,20 +504,33 @@ export default function ConciliacaoHistoricoPage() {
                 <div className="col-span-1">CPF/CNPJ</div>
                 <div className="col-span-2">Tipo</div>
                 <div className="col-span-1 text-right">Valor</div>
-                <div className="col-span-2">{`Descri\u00e7\u00e3o`}</div>
-                <div className="col-span-2 text-right">{`A\u00e7\u00f5es`}</div>
+                <div className="col-span-2">Descrição</div>
+                <div className="col-span-2 text-right">Ações</div>
               </div>
               {filteredFinNaoConc.map((item: any) => (
                 <div key={item.id} className="grid grid-cols-12 items-center gap-2 p-3 hover:bg-muted/30 transition-colors">
                   <div className="col-span-2 text-xs text-muted-foreground">{formatDateTime(item.data_hora)}</div>
-                  <div className="col-span-2 font-medium text-foreground truncate">{item.nome_contraparte || "\u2014"}</div>
-                  <div className="col-span-1 text-xs text-muted-foreground font-mono truncate">{item.cpf_cnpj || "\u2014"}</div>
+                  <div className="col-span-2 font-medium text-foreground truncate">{item.nome_contraparte || "—"}</div>
+                  <div className="col-span-1 text-xs text-muted-foreground font-mono truncate">{item.cpf_cnpj || "—"}</div>
                   <div className="col-span-2">
                     <Badge variant="outline" className="text-[10px]">{item.tipo}</Badge>
                   </div>
                   <div className="col-span-1 text-right font-bold text-foreground">{formatCurrency(Math.abs(Number(item.valor_extrato || 0)))}</div>
-                  <div className="col-span-2 text-xs text-muted-foreground truncate" title={item.descricao}>{item.descricao || "\u2014"}</div>
-                  <div className="col-span-2 flex items-center justify-end">
+                  <div className="col-span-2 text-xs text-muted-foreground truncate" title={item.descricao}>{item.descricao || "—"}</div>
+                  <div className="col-span-2 flex items-center justify-end gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[10px] gap-1"
+                      onClick={() => {
+                        setVinculandoItem(item);
+                        setVinculoForm({ descricao: item.descricao ?? "", os_codigo: "", gc_codigo: "", nfe_numero: "" });
+                        setShowVincularDialog(true);
+                      }}
+                    >
+                      <Link className="h-3 w-3" />
+                      Vincular
+                    </Button>
                     <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openDetail(item)}>
                       <Eye className="h-3.5 w-3.5" />
                     </Button>
@@ -451,7 +551,7 @@ export default function ConciliacaoHistoricoPage() {
           </DialogHeader>
           {detail && (
             <div className="space-y-4">
-              {/* ── SEÇÃO 1: Transação Bancária ── */}
+              {/* SEÇÃO 1: Transação Bancária */}
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <Banknote className="h-4 w-4 text-primary" />
@@ -475,7 +575,7 @@ export default function ConciliacaoHistoricoPage() {
 
               <Separator />
 
-              {/* ── SEÇÃO 2: Conciliação ── */}
+              {/* SEÇÃO 2: Conciliação */}
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <Link2 className="h-4 w-4 text-primary" />
@@ -501,7 +601,7 @@ export default function ConciliacaoHistoricoPage() {
 
               <Separator />
 
-              {/* ── SEÇÃO 3: Lançamentos GC Vinculados ── */}
+              {/* SEÇÃO 3: Lançamentos GC Vinculados */}
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <FileText className="h-4 w-4 text-primary" />
@@ -556,6 +656,68 @@ export default function ConciliacaoHistoricoPage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Manual Linking Dialog */}
+      <Dialog open={showVincularDialog} onOpenChange={(v) => { if (!v) { setShowVincularDialog(false); setVinculandoItem(null); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Vincular Lançamento Manualmente</DialogTitle>
+            <DialogDescription>
+              Informe a referência financeira correta para este lançamento do extrato bancário.
+            </DialogDescription>
+          </DialogHeader>
+          {vinculandoItem && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1">
+                <p className="text-sm font-medium text-foreground">Extrato: {vinculandoItem.descricao ?? "—"}</p>
+                <p className="text-sm text-foreground">Valor: {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(vinculandoItem.valor_extrato ?? vinculandoItem.valor ?? 0)}</p>
+                <p className="text-xs text-muted-foreground">Data: {vinculandoItem.data_hora ? new Date(vinculandoItem.data_hora).toLocaleDateString("pt-BR") : "—"}</p>
+                {vinculandoItem.cpf_cnpj && <p className="text-xs text-muted-foreground">Doc: {vinculandoItem.cpf_cnpj}</p>}
+              </div>
+
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Descrição correta</Label>
+                  <Input
+                    value={vinculoForm.descricao}
+                    onChange={(e) => setVinculoForm(f => ({ ...f, descricao: e.target.value }))}
+                    placeholder="Descrição do lançamento"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Código OS</Label>
+                    <Input
+                      value={vinculoForm.os_codigo}
+                      onChange={(e) => setVinculoForm(f => ({ ...f, os_codigo: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Código GC</Label>
+                    <Input
+                      value={vinculoForm.gc_codigo}
+                      onChange={(e) => setVinculoForm(f => ({ ...f, gc_codigo: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Número NF-e</Label>
+                  <Input
+                    value={vinculoForm.nfe_numero}
+                    onChange={(e) => setVinculoForm(f => ({ ...f, nfe_numero: e.target.value }))}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowVincularDialog(false)}>Cancelar</Button>
+            <Button onClick={handleVincularManual}>Confirmar Vínculo</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
