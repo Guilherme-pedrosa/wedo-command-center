@@ -168,6 +168,7 @@ const useMetas = (year: number, month: number) => {
       const { data, error } = await supabase
         .from('fin_pagamentos')
         .select('plano_contas_id, centro_custo_id, valor, status, data_liquidacao')
+        .neq('status', 'cancelado')
         .gte('data_vencimento', start)
         .lte('data_vencimento', end);
       if (error) throw error;
