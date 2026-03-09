@@ -620,10 +620,16 @@ export async function syncRecebimentosGC(
 }
 
 export async function syncPagamentosGC(
-  onProgress?: (atual: number, total: number) => void
+  onProgress?: (atual: number, total: number) => void,
+  filtros?: SyncDateFilter
 ): Promise<{ importados: number; atualizados: number; erros: number }> {
   const inicio = Date.now();
-  const raws = await importarPagamentosPendentes(onProgress);
+  const fetchFiltros = {
+    dataInicio: filtros?.dataInicio,
+    dataFim: filtros?.dataFim,
+    ...(filtros?.incluirLiquidados ? { liquidado: undefined } : {}),
+  };
+  const raws = await importarPagamentosPendentes(onProgress, fetchFiltros as any);
   const { pcMap, ccMap } = await buildPcCcMaps();
   let importados = 0;
   let atualizados = 0;
