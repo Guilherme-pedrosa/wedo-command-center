@@ -371,9 +371,9 @@ export default function ConciliacaoPage() {
                             }}
                             className="p-2 rounded-md border border-border cursor-pointer transition-colors text-xs hover:bg-primary/10 hover:border-primary"
                           >
-                            <div className="flex justify-between items-center gap-2">
-                              <span className="truncate font-medium flex-1">{p.descricao}</span>
-                              <span className="font-bold text-sm whitespace-nowrap text-primary">{formatCurrency(Number(p.valor))}</span>
+                            <div className="flex justify-between items-start gap-2">
+                              <span className="font-medium text-xs break-words" style={{ maxWidth: "60%" }}>{p.descricao}</span>
+                              <span className="font-bold text-sm whitespace-nowrap text-primary shrink-0">{formatCurrency(Number(p.valor))}</span>
                             </div>
                             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                               <span className="text-[10px] text-muted-foreground">{p.nome_fornecedor}</span>
