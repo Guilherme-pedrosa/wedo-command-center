@@ -353,6 +353,30 @@ export default function PagamentosPage() {
             <SelectItem value="outro">Outro</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={formaFilter} onValueChange={v => { setFormaFilter(v); setPage(0); }}>
+          <SelectTrigger className="w-[180px]"><SelectValue placeholder="Forma Pgto" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Forma: Todas</SelectItem>
+            {(formasPagamento || []).map((f: any) => (
+              <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground whitespace-nowrap">De:</Label>
+          <Input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(0); }} className="w-[150px] h-9" />
+        </div>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground whitespace-nowrap">Até:</Label>
+          <Input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(0); }} className="w-[150px] h-9" />
+        </div>
+        {(dateFrom || dateTo) && (
+          <Button size="sm" variant="ghost" onClick={() => { setDateFrom(""); setDateTo(""); setPage(0); }}>
+            <X className="h-3.5 w-3.5 mr-1" /> Limpar datas
+          </Button>
+        )}
         <div className="flex items-center gap-2">
           <Switch id="baixa-gc-p" checked={pendenteBaixaGC} onCheckedChange={v => { setPendenteBaixaGC(v); setPage(0); }} />
           <Label htmlFor="baixa-gc-p" className="text-xs text-muted-foreground">Pendente baixa GC</Label>
@@ -378,12 +402,12 @@ export default function PagamentosPage() {
                     }}
                   />
                 </th>
-                <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Cód GC</th>
-                <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Descrição</th>
-                <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Fornecedor</th>
-                <th className="p-3 text-right text-xs font-medium text-muted-foreground uppercase">Valor</th>
-                <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Vencimento</th>
-                <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Status</th>
+                <SortableHeader label="Cód GC" sortKey="gc_codigo" currentSort={sort} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Descrição" sortKey="descricao" currentSort={sort} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Fornecedor" sortKey="nome_fornecedor" currentSort={sort} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Valor" sortKey="valor" currentSort={sort} onSort={handleSort} className="text-right" />
+                <SortableHeader label="Vencimento" sortKey="data_vencimento" currentSort={sort} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Status" sortKey="status" currentSort={sort} onSort={handleSort} className="text-center" />
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Conciliado</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Baixa GC</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Ações</th>
