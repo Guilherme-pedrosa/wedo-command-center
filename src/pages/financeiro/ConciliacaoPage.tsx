@@ -280,6 +280,26 @@ export default function ConciliacaoPage() {
         </div>
       )}
 
+      {/* AI Reconciliation Panel */}
+      <AIReconciliationPanel
+        onVincular={async (extratoId, lancamentoId, tipo) => {
+          const table = tipo === "recebimento" ? "fin_recebimentos" : "fin_pagamentos";
+          const tabela = tipo === "recebimento" ? "recebimentos" : "pagamentos";
+          const now = new Date().toISOString();
+          await supabase.from("fin_extrato_inter").update({
+            reconciliado: true, lancamento_id: lancamentoId, reconciliado_em: now, reconciliation_rule: "AI_GPT5",
+          }).eq("id", extratoId);
+          await supabase.from(table).update({
+            pago_sistema: true, pago_sistema_em: now, status: "pago",
+          }).eq("id", lancamentoId);
+          await supabase.from("fin_extrato_lancamentos").upsert({
+            extrato_id: extratoId, lancamento_id: lancamentoId, tabela,
+            valor_alocado: 0, reconciliation_rule: "AI_GPT5",
+          }, { onConflict: "extrato_id,lancamento_id,tabela" });
+          invalidateAll();
+        }}
+      />
+
       {/* Single-panel: Extrato with expandable search */}
       <div className="rounded-lg border border-border bg-card p-4">
         {/* Monthly breakdown counter */}
