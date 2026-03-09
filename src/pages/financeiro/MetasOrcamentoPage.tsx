@@ -9,9 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Target, TrendingUp, TrendingDown, AlertTriangle,
-  RefreshCw, DollarSign, Percent, BarChart3, ShoppingCart, Loader2
+  RefreshCw, DollarSign, Percent, BarChart3, ShoppingCart, Package, Loader2
 } from 'lucide-react';
-import { syncVendas } from '@/api/syncService';
+import { syncVendas, syncCompras } from '@/api/syncService';
 import toast from 'react-hot-toast';
 
 // ─── TIPOS ─────────────────────────────────────────────────────────────────
@@ -211,6 +211,20 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
+  // 3d. Busca compras finalizadas do período (para Custo com Peças e Estoque)
+  const { data: comprasFinalizadas = [], isLoading: loadingCompras, refetch: refetchCompras } = useQuery({
+    queryKey: ['gc_compras_metas', start, end],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('gc_compras' as any)
+        .select('gc_id, codigo, nome_fornecedor, nome_situacao, valor_total, data')
+        .gte('data', start)
+        .lte('data', end);
+      if (error) throw error;
+      return data as any[];
+    },
+  });
+
   // 4. Calcula EXEC_TOTAL — OS (AT+Ecolab) + receitas financeiras (PCM, Locação, etc.) + vendas
   const execTotal = useMemo(() => {
     // GC IDs dos planos de receita cobertos por OS (AT+Coifa, Ecolab, Contratos)
@@ -323,6 +337,24 @@ const useMetas = (year: number, month: number) => {
         realizado = vendasConcretizadas
           .reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
       }
+      // Custo com Peças e Estoque: busca de gc_compras (Finalizado - Mercadoria Chegou)
+      else if (meta.categoria === 'custo_variavel' && (nome.includes('peça') || nome.includes('estoque'))) {
+        realizado = comprasFinalizadas
+          .reduce((acc, c) => acc + (c.valor_total ?? 0), 0);
+        
+        // Fallback to fin_pagamentos if no compras data
+        if (realizado === 0 && comprasFinalizadas.length === 0) {
+          for (const link of links) {
+            const planoUuid = planoContasMap[link.plano_contas_id];
+            const centroUuid = link.centro_custo_id ? centrosCustoMap[link.centro_custo_id] : null;
+            if (!planoUuid) continue;
+            const soma = pagamentos
+              .filter(r => r.plano_contas_id === planoUuid && (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
+              .reduce((acc, r) => acc + (r.valor || 0), 0);
+            realizado += soma * (link.peso || 1);
+          }
+        }
+      }
       // All other metas: use fin_recebimentos or fin_pagamentos
       else {
         for (const link of links) {
@@ -354,12 +386,12 @@ const useMetas = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, osExecutadas, vendasConcretizadas, execTotal, planoContasMap, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, osExecutadas, vendasConcretizadas, comprasFinalizadas, execTotal, planoContasMap, centrosCustoMap]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
-  const refetch = () => { refetchRec(); refetchPag(); refetchOS(); refetchVendas(); };
-  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingCentros || loadingRec || loadingPag || loadingOS || loadingVendas;
+  const refetch = () => { refetchRec(); refetchPag(); refetchOS(); refetchVendas(); refetchCompras(); };
+  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingCentros || loadingRec || loadingPag || loadingOS || loadingVendas || loadingCompras;
 
   return { metasComResultado, execTotal, isLoading, refetch, hasOsData };
 };
@@ -446,6 +478,21 @@ export default function MetasOrcamentoPage() {
     }
   }, [selectedYear, selectedMonth, refetch]);
 
+  const [syncingCompras, setSyncingCompras] = useState(false);
+  const handleSyncCompras = useCallback(async () => {
+    setSyncingCompras(true);
+    try {
+      const { start, end } = getPeriodRange(selectedYear, selectedMonth);
+      const result = await syncCompras(start, end);
+      toast.success(`Compras sincronizadas: ${result.upserted} registros`);
+      refetch();
+    } catch (err: any) {
+      toast.error(`Erro ao sincronizar compras: ${err.message}`);
+    } finally {
+      setSyncingCompras(false);
+    }
+  }, [selectedYear, selectedMonth, refetch]);
+
   const receitas       = metasComResultado.filter(m => m.categoria === 'receita');
   const custosVar      = metasComResultado.filter(m => m.categoria === 'custo_variavel');
   const custosFixos    = metasComResultado.filter(m => m.categoria === 'custo_fixo');
@@ -512,6 +559,11 @@ export default function MetasOrcamentoPage() {
           <Button variant="outline" size="sm" onClick={handleSyncVendas} disabled={syncingVendas}>
             {syncingVendas ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ShoppingCart className="h-4 w-4 mr-1" />}
             Sync Vendas
+          </Button>
+
+          <Button variant="outline" size="sm" onClick={handleSyncCompras} disabled={syncingCompras}>
+            {syncingCompras ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Package className="h-4 w-4 mr-1" />}
+            Sync Compras
           </Button>
 
           <Button variant="outline" size="icon" onClick={refetch} disabled={isLoading}>
