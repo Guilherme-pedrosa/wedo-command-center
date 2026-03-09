@@ -563,6 +563,38 @@ export default function ConciliacaoPage() {
           <DialogFooter><Button variant="ghost" onClick={() => { setShowConfirm(false); setSelectedExtrato(null); setSelectedLanc(null); }}>Cancelar</Button><Button onClick={handleVincular} disabled={linking}>{linking && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}Vincular</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Sync Period Dialog */}
+      <SyncPeriodDialog
+        open={showSyncDialog}
+        onOpenChange={setShowSyncDialog}
+        titulo="Sincronizar dados do GestãoClick"
+        descricao="Importa recebimentos e pagamentos do GC para o banco local. Necessário para a conciliação funcionar."
+        onConfirm={async (filtros, onProgress, onStep) => {
+          setSyncing(true);
+          try {
+            onStep?.("Importando recebimentos do GestãoClick...");
+            const r = await syncRecebimentosGC(onProgress, {
+              dataInicio: filtros.dataInicio,
+              dataFim: filtros.dataFim,
+            });
+
+            onStep?.("Importando pagamentos do GestãoClick...");
+            const p = await syncPagamentosGC(onProgress, {
+              dataInicio: filtros.dataInicio,
+              dataFim: filtros.dataFim,
+            });
+
+            onStep?.("Concluído!");
+            invalidateAll();
+            toast.success(`Sincronizado: ${r.importados} recebimentos, ${p.importados} pagamentos`);
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Erro ao sincronizar");
+          } finally {
+            setSyncing(false);
+          }
+        }}
+      />
     </div>
   );
 }
