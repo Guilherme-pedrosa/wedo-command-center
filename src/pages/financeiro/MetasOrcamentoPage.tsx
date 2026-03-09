@@ -318,8 +318,8 @@ const useMetas = (year: number, month: number) => {
             .reduce((acc, r) => acc + (r.valor || 0), 0);
         }
       }
-      // Venda de Produtos / Peças / Químicos: busca de gc_vendas (Concretizado + Venda Futura)
-      else if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto') || nome.includes('peça') || nome.includes('quimico') || nome.includes('químico'))) {
+      // Venda de Produtos / Peças: busca de gc_vendas (Concretizado + Venda Futura)
+      else if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto') || nome.includes('peça'))) {
         realizado = vendasConcretizadas
           .reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
       }
