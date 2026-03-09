@@ -87,18 +87,16 @@ export default function ConciliacaoPage() {
     },
   });
 
-  // Pagamentos — enriched with GC fields
+  // Pagamentos — all non-cancelled for search
   const { data: pagamentosNL } = useQuery({
     queryKey: ["conc-pagamentos"],
     queryFn: async () => {
       const { data } = await supabase
         .from("fin_pagamentos")
-        .select("id, descricao, valor, nome_fornecedor, data_vencimento, status, os_codigo, gc_codigo, gc_id, nf_numero, nfe_chave")
-        .eq("liquidado", false)
-        .eq("pago_sistema", false)
+        .select("id, descricao, valor, nome_fornecedor, data_vencimento, status, os_codigo, gc_codigo, gc_id, nf_numero, nfe_chave, liquidado, pago_sistema")
         .not("status", "eq", "cancelado")
-        .order("data_vencimento")
-        .limit(500);
+        .order("data_vencimento", { ascending: false })
+        .limit(1000);
       return data || [];
     },
   });
