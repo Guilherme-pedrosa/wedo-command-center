@@ -235,16 +235,24 @@ const useMetas = (year: number, month: number) => {
   const { data: comprasFinalizadas = [], isLoading: loadingCompras, refetch: refetchCompras } = useQuery({
     queryKey: ['gc_compras_metas', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Tentar filtrar pelo campo `data` direto no Supabase
+      const { data: byData, error: err1 } = await supabase
         .from('gc_compras' as any)
         .select('gc_id, codigo, nome_fornecedor, nome_situacao, valor_total, data, cadastrado_em')
-        .or('nome_situacao.ilike.%finalizado%mercadoria chegou%,nome_situacao.ilike.%comprado%ag chegada%');
-      if (error) throw error;
-      // Filter by cadastrado_em if available, otherwise by data
-      return (data as any[]).filter((c: any) => {
-        const dt = c.cadastrado_em || c.data;
-        return dt && dt >= start && dt <= end;
-      });
+        .or('nome_situacao.ilike.%finalizado%mercadoria chegou%,nome_situacao.ilike.%comprado%ag chegada%')
+        .gte('data', start)
+        .lte('data', end);
+      if (!err1 && byData && byData.length > 0) return byData as any[];
+
+      // Fallback: filtrar por cadastrado_em se data estiver null (registros antigos)
+      const { data: byCad, error: err2 } = await supabase
+        .from('gc_compras' as any)
+        .select('gc_id, codigo, nome_fornecedor, nome_situacao, valor_total, data, cadastrado_em')
+        .or('nome_situacao.ilike.%finalizado%mercadoria chegou%,nome_situacao.ilike.%comprado%ag chegada%')
+        .gte('cadastrado_em', start)
+        .lte('cadastrado_em', end + 'T23:59:59');
+      if (err2) throw err2;
+      return (byCad as any[]) ?? [];
     },
   });
 
