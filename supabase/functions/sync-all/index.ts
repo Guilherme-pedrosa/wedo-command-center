@@ -108,37 +108,28 @@ serve(async (req) => {
       "Content-Type": "application/json",
     };
 
-    // ─── 1. Sync OS (delegate to existing function) ──────────────────
-    console.log("[sync-all] Starting sync-os...");
-    const osResult = await callEdgeFunction(supabaseUrl, supabaseKey, "sync-os");
+    // ─── 1-4. Sync OS, Vendas, Compras, Auvo in parallel ───────────
+    console.log("[sync-all] Starting OS, Vendas, Compras, Auvo in parallel...");
+    const [osResult, vendasResult, comprasResult, auvoResult] = await Promise.all([
+      callEdgeFunction(supabaseUrl, supabaseKey, "sync-os"),
+      callEdgeFunction(supabaseUrl, supabaseKey, "sync-vendas"),
+      callEdgeFunction(supabaseUrl, supabaseKey, "sync-compras"),
+      callEdgeFunction(supabaseUrl, supabaseKey, "sync-auvo-expenses"),
+    ]);
+
     results.os = osResult.ok
       ? { status: "ok", duration_ms: osResult.duration_ms, ...osResult.data }
       : { status: "error", error: osResult.error, duration_ms: osResult.duration_ms };
-    console.log(`[sync-all] sync-os done: ${osResult.ok ? "ok" : "error"} (${osResult.duration_ms}ms)`);
-
-    // ─── 2. Sync Vendas (delegate to existing function) ──────────────
-    console.log("[sync-all] Starting sync-vendas...");
-    const vendasResult = await callEdgeFunction(supabaseUrl, supabaseKey, "sync-vendas");
     results.vendas = vendasResult.ok
       ? { status: "ok", duration_ms: vendasResult.duration_ms, ...vendasResult.data }
       : { status: "error", error: vendasResult.error, duration_ms: vendasResult.duration_ms };
-    console.log(`[sync-all] sync-vendas done: ${vendasResult.ok ? "ok" : "error"} (${vendasResult.duration_ms}ms)`);
-
-    // ─── 3. Sync Compras (delegate to existing function) ─────────────
-    console.log("[sync-all] Starting sync-compras...");
-    const comprasResult = await callEdgeFunction(supabaseUrl, supabaseKey, "sync-compras");
     results.compras = comprasResult.ok
       ? { status: "ok", duration_ms: comprasResult.duration_ms, ...comprasResult.data }
       : { status: "error", error: comprasResult.error, duration_ms: comprasResult.duration_ms };
-    console.log(`[sync-all] sync-compras done: ${comprasResult.ok ? "ok" : "error"} (${comprasResult.duration_ms}ms)`);
-
-    // ─── 4. Sync Auvo Expenses (delegate to existing function) ───────
-    console.log("[sync-all] Starting sync-auvo-expenses...");
-    const auvoResult = await callEdgeFunction(supabaseUrl, supabaseKey, "sync-auvo-expenses");
     results.auvo = auvoResult.ok
       ? { status: "ok", duration_ms: auvoResult.duration_ms, ...auvoResult.data }
       : { status: "error", error: auvoResult.error, duration_ms: auvoResult.duration_ms };
-    console.log(`[sync-all] sync-auvo-expenses done: ${auvoResult.ok ? "ok" : "error"} (${auvoResult.duration_ms}ms)`);
+    console.log(`[sync-all] Parallel batch done: OS=${osResult.ok}, Vendas=${vendasResult.ok}, Compras=${comprasResult.ok}, Auvo=${auvoResult.ok}`);
 
     // ─── 5. Sync GC Recebimentos (inline — no dedicated edge fn) ─────
     console.log("[sync-all] Starting gc_recebimentos sync...");

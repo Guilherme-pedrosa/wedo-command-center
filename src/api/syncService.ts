@@ -114,7 +114,8 @@ export async function syncRecebimentos(
 // ─── Sync Pagamentos ─────────────────────────────────────────────────
 
 export async function syncPagamentos(
-  onProgress?: (n: number, t: number) => void
+  onProgress?: (n: number, t: number) => void,
+  filtros?: { dataInicio?: string; dataFim?: string }
 ): Promise<{ importados: number; atualizados: number; erros: number }> {
   const startTime = Date.now();
   let importados = 0;
@@ -122,7 +123,7 @@ export async function syncPagamentos(
   let erros = 0;
 
   try {
-    const items = await importarPagamentosPendentes(onProgress);
+    const items = await importarPagamentosPendentes(onProgress, filtros ? { dataInicio: filtros.dataInicio, dataFim: filtros.dataFim } : undefined);
 
     for (let i = 0; i < items.length; i += 50) {
       const batch = items.slice(i, i + 50).map((item: GCPagamentoItem) => ({
