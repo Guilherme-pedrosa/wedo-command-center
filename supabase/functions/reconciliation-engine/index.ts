@@ -433,7 +433,7 @@ serve(async (req) => {
         .or("liquidado.eq.false,liquidado.is.null")
         .or("pago_sistema.eq.false,pago_sistema.is.null")
         .not("status", "in", '("pago","cancelado")')
-        .limit(500),
+        .limit(1000),
       supabase.from("fin_recebimentos").select("*")
         .or("liquidado.eq.false,liquidado.is.null")
         .or("pago_sistema.eq.false,pago_sistema.is.null")
