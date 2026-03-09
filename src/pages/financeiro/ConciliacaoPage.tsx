@@ -336,7 +336,7 @@ export default function ConciliacaoPage() {
           </div>
         </div>
         <div className="space-y-2 max-h-[70vh] overflow-y-auto">
-          {filteredExtrato.map((e: any) => (
+          {(extratoNR || []).map((e: any) => (
             <div key={e.id} className="rounded-md border border-border transition-colors">
               {/* Extrato row - clickable */}
               <div
