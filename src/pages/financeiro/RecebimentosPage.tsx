@@ -31,7 +31,7 @@ import toast from "react-hot-toast";
 import html2canvas from "html2canvas";
 
 const PAGE_SIZE = 50;
-const GC_BASE = "https://app.gestaoclick.com.br";
+const GC_BASE = "https://gestaoclick.com";
 
 export default function RecebimentosPage() {
   const queryClient = useQueryClient();
@@ -402,7 +402,7 @@ export default function RecebimentosPage() {
                   </td>
                   <td className="p-3 font-mono text-xs text-foreground">
                     {r.gc_id ? (
-                      <a href={`${GC_BASE}/recebimentos/${r.gc_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                      <a href={`${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${r.gc_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
                         {r.gc_codigo || r.gc_id}
                         <ExternalLink className="h-3 w-3" />
                       </a>

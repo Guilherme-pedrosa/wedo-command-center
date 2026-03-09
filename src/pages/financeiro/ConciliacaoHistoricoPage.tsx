@@ -16,9 +16,17 @@ import { subMonths, startOfMonth, endOfMonth, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import toast from "react-hot-toast";
 
-const GC_BASE = "https://app.gestaoclick.com.br";
-const gcRecebimentoLink = (gcId: string) => `${GC_BASE}/recebimentos/${gcId}`;
-const gcPagamentoLink = (gcId: string) => `${GC_BASE}/pagamentos/${gcId}`;
+const GC_BASE = "https://gestaoclick.com";
+const gcRecebimentoLink = (gcId: string) => `${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${gcId}`;
+const gcPagamentoLink = (gcId: string) => `${GC_BASE}/movimentacoes_financeiras/visualizar_pagamento/${gcId}`;
+const gcCompraLink = (numero: string) => `${GC_BASE}/compras/visualizar_compra/${numero}`;
+
+/** Extrai número do pedido de compras da descrição, ex: "Compra de nº 3282" → "3282" */
+const extractCompraNumero = (descricao?: string): string | null => {
+  if (!descricao) return null;
+  const match = descricao.match(/Compra de n[ºo°]\s*(\d+)/i);
+  return match ? match[1] : null;
+};
 
 const EXCECAO_RULES = ["SEM_PAR_GC", "TRANSFERENCIA_INTERNA", "PIX_DEVOLVIDO_MANUAL"];
 
@@ -304,15 +312,15 @@ export default function ConciliacaoHistoricoPage() {
             </Tooltip>
           </TooltipProvider>
         )}
-        {item.gc_codigo_vinculado && (
+        {item.gc_id_vinculado && (
           <a
-            href={item._tabela === "fin_recebimentos" ? gcRecebimentoLink(item.gc_codigo_vinculado) : gcPagamentoLink(item.gc_codigo_vinculado)}
+            href={item._tabela === "fin_recebimentos" ? gcRecebimentoLink(item.gc_id_vinculado) : gcPagamentoLink(item.gc_id_vinculado)}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-0.5 text-[10px] text-primary hover:underline"
             onClick={(e) => e.stopPropagation()}
           >
-            GC {item.gc_codigo_vinculado} <ExternalLink className="h-2.5 w-2.5" />
+            GC {item.gc_codigo_vinculado || item.gc_id_vinculado} <ExternalLink className="h-2.5 w-2.5" />
           </a>
         )}
       </div>
@@ -362,15 +370,15 @@ export default function ConciliacaoHistoricoPage() {
         <Badge variant="destructive" className="text-[10px]">
           {ruleLabels[item.reconciliation_rule] || item.reconciliation_rule}
         </Badge>
-        {item.gc_codigo_vinculado && (
+        {item.gc_id_vinculado && (
           <a
-            href={item._tabela === "fin_recebimentos" ? gcRecebimentoLink(item.gc_codigo_vinculado) : gcPagamentoLink(item.gc_codigo_vinculado)}
+            href={item._tabela === "fin_recebimentos" ? gcRecebimentoLink(item.gc_id_vinculado) : gcPagamentoLink(item.gc_id_vinculado)}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-0.5 text-[10px] text-primary hover:underline"
             onClick={(e) => e.stopPropagation()}
           >
-            GC {item.gc_codigo_vinculado} <ExternalLink className="h-2.5 w-2.5" />
+            GC {item.gc_codigo_vinculado || item.gc_id_vinculado} <ExternalLink className="h-2.5 w-2.5" />
           </a>
         )}
       </div>
@@ -560,15 +568,15 @@ export default function ConciliacaoHistoricoPage() {
                   <div className="col-span-1 text-xs text-muted-foreground font-mono truncate">{item.cpf_cnpj || "—"}</div>
                   <div className="col-span-2 flex flex-wrap items-center gap-1">
                     <Badge variant="outline" className="text-[10px]">{item.tipo}</Badge>
-                    {item.gc_codigo_vinculado && (
+                    {item.gc_id_vinculado && (
                       <a
-                        href={item._tabela === "fin_recebimentos" ? gcRecebimentoLink(item.gc_codigo_vinculado) : gcPagamentoLink(item.gc_codigo_vinculado)}
+                        href={item._tabela === "fin_recebimentos" ? gcRecebimentoLink(item.gc_id_vinculado) : gcPagamentoLink(item.gc_id_vinculado)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-0.5 text-[10px] text-primary hover:underline"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        GC {item.gc_codigo_vinculado} <ExternalLink className="h-2.5 w-2.5" />
+                        GC {item.gc_codigo_vinculado || item.gc_id_vinculado} <ExternalLink className="h-2.5 w-2.5" />
                       </a>
                     )}
                   </div>
@@ -677,19 +685,30 @@ export default function ConciliacaoHistoricoPage() {
                       <div key={idx} className="rounded-lg border border-border bg-muted/30 p-3 space-y-2 text-sm">
                         <div className="flex items-center justify-between">
                           <Badge variant="outline" className="text-[10px]">{lanc._tabela === "fin_recebimentos" ? "Recebimento" : "Pagamento"}</Badge>
-                          {lanc.gc_codigo && (
+                          {lanc.gc_id && (
                             <a
-                              href={lanc._tabela === "fin_recebimentos" ? gcRecebimentoLink(lanc.gc_codigo) : gcPagamentoLink(lanc.gc_codigo)}
+                              href={lanc._tabela === "fin_recebimentos" ? gcRecebimentoLink(lanc.gc_id) : gcPagamentoLink(lanc.gc_id)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="flex items-center gap-1 text-xs text-primary hover:underline"
                             >
-                              Abrir no GestãoClick <ExternalLink className="h-3 w-3" />
+                              Financeiro GC {lanc.gc_codigo || ""} <ExternalLink className="h-3 w-3" />
                             </a>
                           )}
+                          {(() => {
+                            const compraNum = extractCompraNumero(lanc.descricao);
+                            return compraNum ? (
+                              <a
+                                href={gcCompraLink(compraNum)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-xs text-primary hover:underline"
+                              >
+                                Pedido Compra nº {compraNum} <ExternalLink className="h-3 w-3" />
+                              </a>
+                            ) : null;
+                          })()}
                         </div>
-                        <DetailRow label="ID Local" value={lanc.id} mono small />
-                        <DetailRow label="GC ID" value={lanc.gc_id || "—"} mono />
                         <DetailRow label="Cód GC" value={lanc.gc_codigo || "—"} mono />
                         <DetailRow label="Descrição" value={lanc.descricao} />
                         <DetailRow label={lanc._tabela === "fin_recebimentos" ? "Cliente" : "Fornecedor"} value={lanc.nome_cliente || lanc.nome_fornecedor || "—"} />
@@ -704,8 +723,6 @@ export default function ConciliacaoHistoricoPage() {
                         } />
                         <DetailRow label="Baixado GC" value={lanc.gc_baixado ? "✅ Sim" : "❌ Não"} />
                         {lanc.os_codigo && <DetailRow label="OS" value={lanc.os_codigo} />}
-                        {lanc.plano_contas_id && <DetailRow label="Plano Contas ID" value={lanc.plano_contas_id} mono small />}
-                        {lanc.centro_custo_id && <DetailRow label="Centro Custo ID" value={lanc.centro_custo_id} mono small />}
                       </div>
                     ))}
                   </div>
