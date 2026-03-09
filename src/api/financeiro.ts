@@ -1185,10 +1185,16 @@ export async function syncFormasPagamentoGC(
     const slice = raws.slice(i, i + batchSize);
     
     for (const raw of slice) {
-      const gcId = String(raw.id);
+      // GC returns codigo as the ID field for formas_pagamentos
+      const gcId = String(raw.codigo || raw.id || "");
+      if (!gcId || gcId === "undefined") {
+        console.warn("Forma pagamento sem ID, raw keys:", Object.keys(raw), "sample:", JSON.stringify(raw).substring(0, 200));
+        erros++;
+        continue;
+      }
       const record = {
         gc_id: gcId,
-        nome: raw.nome || "Sem nome",
+        nome: raw.descricao || raw.nome || "Sem nome",
         tipo: raw.tipo || null,
         ativo: true,
       };
