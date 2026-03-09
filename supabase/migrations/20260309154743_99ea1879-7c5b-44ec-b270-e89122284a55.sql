@@ -1,0 +1,28 @@
+
+-- Add enriched fields to fin_clientes
+ALTER TABLE public.fin_clientes
+  ADD COLUMN IF NOT EXISTS razao_social TEXT,
+  ADD COLUMN IF NOT EXISTS nome_fantasia TEXT,
+  ADD COLUMN IF NOT EXISTS endereco TEXT,
+  ADD COLUMN IF NOT EXISTS cidade TEXT,
+  ADD COLUMN IF NOT EXISTS estado TEXT,
+  ADD COLUMN IF NOT EXISTS cep TEXT,
+  ADD COLUMN IF NOT EXISTS bairro TEXT,
+  ADD COLUMN IF NOT EXISTS observacao TEXT,
+  ADD COLUMN IF NOT EXISTS data_cadastro TEXT,
+  ADD COLUMN IF NOT EXISTS tipo_pessoa TEXT,
+  ADD COLUMN IF NOT EXISTS payload_raw JSONB;
+
+-- Add enriched fields to fin_fornecedores
+ALTER TABLE public.fin_fornecedores
+  ADD COLUMN IF NOT EXISTS razao_social TEXT,
+  ADD COLUMN IF NOT EXISTS nome_fantasia TEXT,
+  ADD COLUMN IF NOT EXISTS endereco TEXT,
+  ADD COLUMN IF NOT EXISTS cidade TEXT,
+  ADD COLUMN IF NOT EXISTS estado TEXT,
+  ADD COLUMN IF NOT EXISTS cep TEXT,
+  ADD COLUMN IF NOT EXISTS bairro TEXT,
+  ADD COLUMN IF NOT EXISTS observacao TEXT,
+  ADD COLUMN IF NOT EXISTS data_cadastro TEXT,
+  ADD COLUMN IF NOT EXISTS tipo_pessoa TEXT,
+  ADD COLUMN IF NOT EXISTS payload_raw JSONB;

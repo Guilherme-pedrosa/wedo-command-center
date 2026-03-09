@@ -2,7 +2,7 @@ import {
   LayoutDashboard, ShoppingCart, DollarSign, Receipt,
   Layers, CreditCard, CalendarClock, ScrollText, Settings,
   ChevronDown, TrendingUp, Building2, ArrowLeftRight, FileText,
-  BarChart3, LineChart, BookOpen, Landmark, Search,
+  BarChart3, LineChart, BookOpen, Landmark, Search, Users, Building,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -33,6 +33,11 @@ const finLancamentos = [
   { title: "📊 Dashboard", url: "/financeiro/dashboard", icon: LayoutDashboard },
   { title: "💰 A Receber", url: "/financeiro/recebimentos", icon: Receipt },
   { title: "💸 A Pagar", url: "/financeiro/pagamentos", icon: CreditCard },
+];
+
+const finCadastros = [
+  { title: "👥 Clientes", url: "/financeiro/clientes", icon: Users },
+  { title: "🏢 Fornecedores", url: "/financeiro/fornecedores", icon: Building },
 ];
 
 const finGrupos = [
@@ -141,6 +146,8 @@ export function AppSidebar() {
                   <SidebarGroupContent>
                     <SidebarMenu>
                       {renderItems(finLancamentos)}
+                      <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase text-muted-foreground/60">Cadastros</div>
+                      {renderItems(finCadastros)}
                       <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase text-muted-foreground/60">Grupos</div>
                       {renderItems(finGrupos)}
                       <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase text-muted-foreground/60">Banco</div>
