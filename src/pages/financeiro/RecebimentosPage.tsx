@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
@@ -20,12 +21,13 @@ import { syncRecebimentosGC } from "@/api/financeiro";
 import { cn } from "@/lib/utils";
 import {
   Receipt, Search, RefreshCw, Plus, Loader2, Zap, CalendarIcon,
-  Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight,
+  Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight, FileText, Lock, Camera,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import toast from "react-hot-toast";
+import html2canvas from "html2canvas";
 
 const PAGE_SIZE = 50;
 
@@ -52,6 +54,7 @@ export default function RecebimentosPage() {
   const [showDetailDrawer, setShowDetailDrawer] = useState(false);
   const [detailItem, setDetailItem] = useState<any>(null);
   const [page, setPage] = useState(0);
+  const [showFechamento, setShowFechamento] = useState(false);
 
   // Group creation
   const [groupName, setGroupName] = useState("");
@@ -63,10 +66,12 @@ export default function RecebimentosPage() {
   const [newForm, setNewForm] = useState({
     descricao: "", valor: "", nome_cliente: "", data_vencimento: "",
     data_emissao: format(new Date(), "yyyy-MM-dd"), observacao: "",
+    nfe_chave: "", nfe_numero: "",
   });
   const [saving, setSaving] = useState(false);
 
   const hoje = new Date().toISOString().split("T")[0];
+  const fechamentoRef = useRef<HTMLDivElement>(null);
 
   const { data: recebimentos, isLoading } = useQuery({
     queryKey: ["fin-recebimentos"],
@@ -79,6 +84,36 @@ export default function RecebimentosPage() {
       return data || [];
     },
   });
+
+  // Fechamento do dia query
+  const { data: fechamentoItems, isLoading: loadingFechamento } = useQuery({
+    queryKey: ["fin-recebimentos-fechamento", hoje],
+    enabled: showFechamento,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("fin_recebimentos")
+        .select("*, fin_formas_pagamento:forma_pagamento_id(nome)")
+        .eq("data_liquidacao", hoje);
+      return data || [];
+    },
+  });
+
+  // Group by forma_pagamento for fechamento
+  const fechamentoGrouped = useMemo(() => {
+    if (!fechamentoItems) return {};
+    const groups: Record<string, any[]> = {};
+    fechamentoItems.forEach((r: any) => {
+      const forma = r.fin_formas_pagamento?.nome || "Sem forma";
+      if (!groups[forma]) groups[forma] = [];
+      groups[forma].push(r);
+    });
+    return groups;
+  }, [fechamentoItems]);
+
+  const fechamentoTotal = useMemo(() => 
+    (fechamentoItems || []).reduce((s: number, r: any) => s + Number(r.valor || 0), 0),
+    [fechamentoItems]
+  );
 
   const filtered = useMemo(() => {
     if (!recebimentos) return [];
@@ -150,10 +185,15 @@ export default function RecebimentosPage() {
       }).select().single();
       if (gErr) throw gErr;
 
+      // Create items with snapshot
       const grupoItens = items.map((r: any) => ({
         grupo_id: (grupo as any).id,
         recebimento_id: r.id,
         valor: Number(r.valor),
+        os_codigo_original: r.os_codigo || null,
+        gc_os_id: r.gc_id || null,
+        snapshot_valor: Number(r.valor),
+        snapshot_data: r.data_vencimento || null,
       }));
       await supabase.from("fin_grupo_receber_itens").insert(grupoItens);
       await supabase.from("fin_recebimentos").update({ grupo_id: (grupo as any).id }).in("id", items.map((r: any) => r.id));
@@ -186,16 +226,33 @@ export default function RecebimentosPage() {
         origem: "manual" as any,
         tipo: "outro",
         status: "pendente" as any,
+        nfe_chave: newForm.nfe_chave || null,
+        nfe_numero: newForm.nfe_numero || null,
       });
       if (error) throw error;
       toast.success("Recebimento criado");
       setShowNewDrawer(false);
-      setNewForm({ descricao: "", valor: "", nome_cliente: "", data_vencimento: "", data_emissao: format(new Date(), "yyyy-MM-dd"), observacao: "" });
+      setNewForm({ descricao: "", valor: "", nome_cliente: "", data_vencimento: "", data_emissao: format(new Date(), "yyyy-MM-dd"), observacao: "", nfe_chave: "", nfe_numero: "" });
       queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCopyFechamento = async () => {
+    if (!fechamentoRef.current) return;
+    try {
+      const canvas = await html2canvas(fechamentoRef.current, { backgroundColor: "#ffffff" });
+      canvas.toBlob((blob) => {
+        if (blob) {
+          navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+          toast.success("Imagem copiada para a área de transferência!");
+        }
+      });
+    } catch (err) {
+      toast.error("Erro ao copiar imagem");
     }
   };
 
@@ -231,6 +288,10 @@ export default function RecebimentosPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => setShowFechamento(true)}>
+            <FileText className="h-3.5 w-3.5 mr-1.5" />
+            Fechamento do Dia
+          </Button>
           <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing}>
             {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
             Sync GC
@@ -303,15 +364,16 @@ export default function RecebimentosPage() {
                 <th className="p-3 text-right text-xs font-medium text-muted-foreground uppercase">Valor</th>
                 <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Vencimento</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Status</th>
+                <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">NF</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Baixa GC</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Ações</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={10} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></td></tr>
+                <tr><td colSpan={11} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></td></tr>
               ) : paged.length === 0 ? (
-                <tr><td colSpan={10}><EmptyState icon={Receipt} title="Nenhum recebimento" description="Sincronize os dados do GC ou crie manualmente." action={{ label: "Sincronizar", onClick: handleSync }} /></td></tr>
+                <tr><td colSpan={11}><EmptyState icon={Receipt} title="Nenhum recebimento" description="Sincronize os dados do GC ou crie manualmente." action={{ label: "Sincronizar", onClick: handleSync }} /></td></tr>
               ) : paged.map((r: any) => (
                 <tr key={r.id} className="border-b border-border hover:bg-muted/30 transition-colors">
                   <td className="p-3">
@@ -324,6 +386,22 @@ export default function RecebimentosPage() {
                   <td className="p-3 text-right font-semibold text-foreground">{formatCurrency(Number(r.valor))}</td>
                   <td className="p-3 text-foreground">{r.data_vencimento ? formatDate(r.data_vencimento) : "—"}</td>
                   <td className="p-3 text-center">{statusBadge(r)}</td>
+                  <td className="p-3 text-center">
+                    {r.nfe_chave ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <FileText className="h-4 w-4 text-emerald-500 mx-auto cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="font-mono text-xs">{r.nfe_chave}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <span className="text-muted-foreground text-[10px]">—</span>
+                    )}
+                  </td>
                   <td className="p-3 text-center">{baixaGCBadge(r)}</td>
                   <td className="p-3 text-center">
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openDetail(r)}>
@@ -414,6 +492,69 @@ export default function RecebimentosPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Fechamento do Dia Dialog */}
+      <Dialog open={showFechamento} onOpenChange={setShowFechamento}>
+        <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Recebimentos do Dia — {format(new Date(), "dd/MM/yyyy", { locale: ptBR })}</DialogTitle>
+          </DialogHeader>
+          <div ref={fechamentoRef} className="space-y-4 p-4 bg-background">
+            <h2 className="text-lg font-bold text-center">Recebimentos do Dia — {format(new Date(), "dd/MM/yyyy")}</h2>
+            {loadingFechamento ? (
+              <div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
+            ) : Object.keys(fechamentoGrouped).length === 0 ? (
+              <p className="text-center text-muted-foreground py-8">Nenhum recebimento liquidado hoje.</p>
+            ) : (
+              Object.entries(fechamentoGrouped).map(([forma, items]) => (
+                <div key={forma} className="space-y-2">
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase border-b pb-1">{forma}</h3>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-muted-foreground">
+                        <th className="text-left pb-1">Cliente</th>
+                        <th className="text-left pb-1">Descrição</th>
+                        <th className="text-left pb-1">OS/GC</th>
+                        <th className="text-right pb-1">Valor</th>
+                        <th className="text-center pb-1">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(items as any[]).map((r: any) => (
+                        <tr key={r.id} className="border-b border-border/30">
+                          <td className="py-1">{r.nome_cliente || "—"}</td>
+                          <td className="py-1 truncate max-w-[150px]">{r.descricao}</td>
+                          <td className="py-1 font-mono text-[10px]">{r.os_codigo || r.gc_codigo || "—"}</td>
+                          <td className="py-1 text-right font-medium">{formatCurrency(Number(r.valor))}</td>
+                          <td className="py-1 text-center">{statusBadge(r)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="font-semibold">
+                        <td colSpan={3} className="pt-1">Subtotal {forma}</td>
+                        <td className="pt-1 text-right">{formatCurrency((items as any[]).reduce((s, r) => s + Number(r.valor || 0), 0))}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              ))
+            )}
+            {Object.keys(fechamentoGrouped).length > 0 && (
+              <div className="border-t-2 border-foreground pt-2 text-right">
+                <span className="text-lg font-bold">Total Geral: {formatCurrency(fechamentoTotal)}</span>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCopyFechamento}>
+              <Camera className="h-3.5 w-3.5 mr-1.5" /> Copiar como imagem
+            </Button>
+            <Button variant="ghost" onClick={() => setShowFechamento(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Baixa Modal */}
       <ConfirmarBaixaModal
         open={showBaixa}
@@ -453,6 +594,14 @@ export default function RecebimentosPage() {
               <Input type="date" value={newForm.data_emissao} onChange={e => setNewForm(f => ({ ...f, data_emissao: e.target.value }))} />
             </div>
             <div className="space-y-2">
+              <Label>Chave NF-e (opcional)</Label>
+              <Input value={newForm.nfe_chave} onChange={e => setNewForm(f => ({ ...f, nfe_chave: e.target.value }))} placeholder="44 dígitos" />
+            </div>
+            <div className="space-y-2">
+              <Label>Número NF-e (opcional)</Label>
+              <Input value={newForm.nfe_numero} onChange={e => setNewForm(f => ({ ...f, nfe_numero: e.target.value }))} placeholder="Número da nota" />
+            </div>
+            <div className="space-y-2">
               <Label>Observação</Label>
               <Textarea value={newForm.observacao} onChange={e => setNewForm(f => ({ ...f, observacao: e.target.value }))} />
             </div>
@@ -474,11 +623,43 @@ export default function RecebimentosPage() {
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-muted-foreground text-xs">Código GC</span>
-                    <p className="font-mono font-medium text-foreground">{detailItem.gc_codigo || "—"}</p>
+                    {detailItem.gc_codigo ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <p className="font-mono font-medium text-foreground flex items-center gap-1">
+                              {detailItem.gc_codigo}
+                              <Lock className="h-3 w-3 text-muted-foreground" />
+                            </p>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Referência protegida — gerada automaticamente via GC</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <p className="font-mono font-medium text-foreground">—</p>
+                    )}
                   </div>
                   <div>
                     <span className="text-muted-foreground text-xs">OS</span>
-                    <p className="font-semibold text-primary">{detailItem.os_codigo || "—"}</p>
+                    {detailItem.os_codigo ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <p className="font-semibold text-primary flex items-center gap-1">
+                              {detailItem.os_codigo}
+                              <Lock className="h-3 w-3 text-muted-foreground" />
+                            </p>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Referência protegida — gerada automaticamente via GC</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <p className="font-semibold text-primary">—</p>
+                    )}
                   </div>
                   <div className="col-span-2">
                     <span className="text-muted-foreground text-xs">Descrição</span>
@@ -509,6 +690,27 @@ export default function RecebimentosPage() {
                     <p className="text-foreground">{detailItem.tipo || "—"}</p>
                   </div>
                 </div>
+
+                {/* NF-e Section */}
+                {(detailItem.nfe_chave || detailItem.nfe_numero) && (
+                  <div className="rounded-lg border border-border p-4 space-y-2">
+                    <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <FileText className="h-4 w-4" /> Nota Fiscal
+                    </h4>
+                    {detailItem.nfe_numero && (
+                      <div>
+                        <p className="text-muted-foreground text-xs">Número NF-e</p>
+                        <p className="text-foreground">{detailItem.nfe_numero}</p>
+                      </div>
+                    )}
+                    {detailItem.nfe_chave && (
+                      <div>
+                        <p className="text-muted-foreground text-xs">Chave NF-e</p>
+                        <p className="font-mono text-xs break-all">{detailItem.nfe_chave}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* GC Baixa status */}
                 <div className="rounded-lg border border-border p-4 space-y-2">
