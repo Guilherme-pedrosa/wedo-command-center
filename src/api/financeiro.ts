@@ -1220,7 +1220,9 @@ export async function syncFormasPagamentoGC(
       }
 
       if (error) {
-        console.error(`Formas pagamento ${gcId} error:`, error.message);
+        const errMsg = `${gcId}: ${error.message}`;
+        console.error(`Formas pagamento error:`, errMsg);
+        if (sampleErrors.length < 5) sampleErrors.push(errMsg);
         erros++;
       } else {
         importados++;
