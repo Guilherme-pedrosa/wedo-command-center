@@ -646,29 +646,6 @@ export default function ConciliacaoPage() {
         }}
       />
 
-      {/* Import Extrato Inter Dialog */}
-      <SyncPeriodDialog
-        open={showExtratoDialog}
-        onOpenChange={setShowExtratoDialog}
-        title="Importar Extrato Banco Inter"
-        loading={importingExtrato}
-        onSync={async (filtros, onProgress, onStep) => {
-          setImportingExtrato(true);
-          try {
-            onStep?.("Importando extrato do Banco Inter...");
-            const registros = await buscarExtratoInter(filtros.dataInicio, filtros.dataFim);
-            const total = Array.isArray(registros) ? registros.length : 0;
-            onProgress?.(total, total);
-            toast.success(`Extrato Inter: ${total} transações importadas`);
-            invalidateAll();
-          } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Erro ao importar extrato Inter");
-            throw err;
-          } finally {
-            setImportingExtrato(false);
-          }
-        }}
-      />
     </div>
   );
 }
