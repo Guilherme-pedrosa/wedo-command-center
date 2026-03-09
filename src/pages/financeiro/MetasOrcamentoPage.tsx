@@ -201,6 +201,7 @@ const useMetas = (year: number, month: number) => {
     'EXECUTADO - FINANCEIRO SEPARADO',
     'EXECUTADO - CIGAM',
     'EXECUTADO POR CONTRATO',
+    'EXECUTADO - FECHADO CHAMADO',
   ];
 
   const { data: osExecutadas = [], isLoading: loadingOS, refetch: refetchOS } = useQuery({
@@ -359,13 +360,9 @@ const useMetas = (year: number, month: number) => {
         }
       }
       else if (meta.categoria === 'receita' && (nome.includes('ecolab') || nome.includes('chamado'))) {
+        // Somente OS com situação "EXECUTADO - FECHADO CHAMADO"
         realizado = osExecutadas
-          .filter(os => {
-            const cliente = (os.nome_cliente ?? '').toLowerCase();
-            const sit = os.nome_situacao ?? '';
-            return sit !== 'EXECUTADO POR CONTRATO' &&
-              (cliente.includes('ecolab') || cliente.includes('tenda'));
-          })
+          .filter(os => os.nome_situacao === 'EXECUTADO - FECHADO CHAMADO')
           .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
         if (realizado === 0 && osExecutadas.length === 0) {
           for (const link of links) {
