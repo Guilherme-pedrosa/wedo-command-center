@@ -330,31 +330,61 @@ export default function ExtratoBancoPage() {
     finally { setAiVinculando(null); }
   };
 
-  // Open detail for reconciled items
+  // Open detail for reconciled items — full fields like history page
   const openReconciledDetail = async (item: any) => {
     setDetailItem(item);
     setDetailLancs([]);
     setDetailLoading(true);
     try {
       const { data: links } = await supabase.from("fin_extrato_lancamentos").select("lancamento_id, tabela, valor_alocado, reconciliation_rule").eq("extrato_id", item.id);
+
+      const pagamentoFields = "id, gc_id, gc_codigo, descricao, valor, data_vencimento, data_liquidacao, data_competencia, liquidado, status, gc_baixado, gc_baixado_em, os_codigo, nome_fornecedor, plano_contas_id, centro_custo_id, conta_bancaria_id, forma_pagamento_id, origem, tipo, nf_numero, nfe_chave";
+      const recebimentoFields = "id, gc_id, gc_codigo, descricao, valor, data_vencimento, data_liquidacao, data_competencia, liquidado, status, gc_baixado, gc_baixado_em, os_codigo, nome_cliente, plano_contas_id, centro_custo_id, conta_bancaria_id, forma_pagamento_id, origem, tipo, nf_numero, nfe_chave";
+
       const fetchLanc = async (id: string, tab: string) => {
         const isPag = tab === "pagamentos" || tab === "fin_pagamentos";
         const { data } = await supabase.from(isPag ? "fin_pagamentos" : "fin_recebimentos")
-          .select("id, gc_id, gc_codigo, descricao, valor, data_vencimento, nome_fornecedor, nome_cliente, os_codigo, nf_numero, status")
+          .select(isPag ? pagamentoFields : recebimentoFields)
           .eq("id", id).single();
         return data ? { ...(data as any), _tabela: isPag ? "fin_pagamentos" : "fin_recebimentos" } : null;
       };
+
       if (links?.length) {
         const results: any[] = [];
-        for (const l of links) { const r = await fetchLanc(l.lancamento_id, l.tabela as string); if (r) results.push({ ...r, _rule: l.reconciliation_rule }); }
+        for (const l of links) {
+          const r = await fetchLanc(l.lancamento_id, l.tabela as string);
+          if (r) results.push({ ...r, _valor_alocado: l.valor_alocado, _rule: l.reconciliation_rule });
+        }
         setDetailLancs(results);
       } else if (item.lancamento_id) {
         const tab = item.tipo === "DEBITO" ? "pagamentos" : "recebimentos";
         const r = await fetchLanc(item.lancamento_id, tab);
-        if (r) setDetailLancs([{ ...r, _rule: item.reconciliation_rule }]);
+        if (r) setDetailLancs([{ ...r, _valor_alocado: null, _rule: item.reconciliation_rule }]);
       }
     } catch (e) { console.error(e); }
     finally { setDetailLoading(false); }
+  };
+
+  // Desfazer conciliação — same as history page
+  const handleDesfazerConciliacao = async (item: any) => {
+    if (!confirm("Tem certeza que deseja desfazer esta conciliação? O extrato voltará para 'não conciliado'.")) return;
+    setDesfazendo(true);
+    try {
+      await supabase.from("fin_extrato_lancamentos").delete().eq("extrato_id", item.id);
+      for (const lanc of detailLancs) {
+        if (lanc._tabela === "fin_pagamentos") {
+          await supabase.from("fin_pagamentos").update({ pago_sistema: false, pago_sistema_em: null, status: "pendente" }).eq("id", lanc.id);
+        } else if (lanc._tabela === "fin_recebimentos") {
+          await supabase.from("fin_recebimentos").update({ pago_sistema: false, pago_sistema_em: null, status: "pendente" }).eq("id", lanc.id);
+        }
+      }
+      await supabase.from("fin_extrato_inter").update({ reconciliado: false, reconciliado_em: null, reconciliation_rule: null, lancamento_id: null }).eq("id", item.id);
+      await supabase.from("fin_sync_log").insert({ tipo: "conciliacao_desfeita", referencia_id: item.id, status: "success", payload: { extrato_id: item.id, lancamentos: detailLancs.map((l: any) => l.id) } });
+      toast.success("Conciliação desfeita com sucesso");
+      setDetailItem(null); setDetailLancs([]);
+      invalidateAll();
+    } catch (err) { toast.error("Erro ao desfazer: " + (err instanceof Error ? err.message : "erro desconhecido")); }
+    finally { setDesfazendo(false); }
   };
 
   const labelContraparte = (e: any) => e.nome_contraparte || e.contrapartida || extrairNomeDaDescricao(e.descricao) || "—";
