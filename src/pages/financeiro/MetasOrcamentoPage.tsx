@@ -478,6 +478,21 @@ export default function MetasOrcamentoPage() {
     }
   }, [selectedYear, selectedMonth, refetch]);
 
+  const [syncingCompras, setSyncingCompras] = useState(false);
+  const handleSyncCompras = useCallback(async () => {
+    setSyncingCompras(true);
+    try {
+      const { start, end } = getPeriodRange(selectedYear, selectedMonth);
+      const result = await syncCompras(start, end);
+      toast.success(`Compras sincronizadas: ${result.upserted} registros`);
+      refetch();
+    } catch (err: any) {
+      toast.error(`Erro ao sincronizar compras: ${err.message}`);
+    } finally {
+      setSyncingCompras(false);
+    }
+  }, [selectedYear, selectedMonth, refetch]);
+
   const receitas       = metasComResultado.filter(m => m.categoria === 'receita');
   const custosVar      = metasComResultado.filter(m => m.categoria === 'custo_variavel');
   const custosFixos    = metasComResultado.filter(m => m.categoria === 'custo_fixo');
