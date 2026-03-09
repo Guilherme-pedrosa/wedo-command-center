@@ -55,6 +55,7 @@ export default function ConciliacaoPage() {
   const [autoRunning, setAutoRunning] = useState(false);
   const [autoResult, setAutoResult] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
+  const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [mesExtrato, setMesExtrato] = useState("all");
   const [mesLanc, setMesLanc] = useState("all");
   const [searchLanc, setSearchLanc] = useState("");
