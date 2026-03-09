@@ -400,7 +400,16 @@ export default function RecebimentosPage() {
                   <td className="p-3">
                     {canSelect(r) ? <Checkbox checked={selected.has(r.id)} onCheckedChange={() => toggle(r.id)} /> : <Checkbox disabled checked={false} />}
                   </td>
-                  <td className="p-3 font-mono text-xs text-foreground">{r.gc_codigo || "—"}</td>
+                  <td className="p-3 font-mono text-xs text-foreground">
+                    {r.gc_id ? (
+                      <a href={`${GC_BASE}/recebimentos/${r.gc_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                        {r.gc_codigo || r.gc_id}
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : (
+                      <span>{r.gc_codigo || "\u2014"}</span>
+                    )}
+                  </td>
                   <td className="p-3 font-semibold text-primary">{r.os_codigo || "—"}</td>
                   <td className="p-3 text-foreground max-w-[200px] truncate">{r.descricao}</td>
                   <td className="p-3 text-foreground">{r.nome_cliente || "—"}</td>
