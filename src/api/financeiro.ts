@@ -879,19 +879,26 @@ export async function buscarExtratoInter(
   dataInicio: string,
   dataFim: string
 ): Promise<any[]> {
-  // Delegate to inter-extrato edge function which handles dedup, enrichment, and reconciliation
   const { data, error } = await supabase.functions.invoke("inter-extrato", {
     body: { dataInicio, dataFim },
   });
 
-  if (error) throw new Error(error.message ?? "Erro ao buscar extrato");
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("non-2xx") || msg.includes("429")) {
+      throw new Error("API do Inter com limite de taxa. Aguarde alguns minutos e tente novamente.");
+    }
+    throw new Error(msg || "Erro ao buscar extrato");
+  }
 
   const result = data as any;
   if (!result?.success) throw new Error(result?.error ?? "Erro ao buscar extrato");
 
-  // Return a synthetic array with length = inserted count for the toast message
   const inserted = result?.extrato?.inserted ?? 0;
-  return new Array(inserted);
+  const total = result?.extrato?.total ?? 0;
+  const chunks = result?.extrato?.chunks ?? 1;
+  // Return array with meaningful length for toast
+  return new Array(total).fill({ inserted, chunks });
 }
 
 // ─── Inter: Enviar Pagamento PIX ────────────────────────────────────
