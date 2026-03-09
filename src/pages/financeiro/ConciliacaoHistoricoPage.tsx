@@ -285,7 +285,7 @@ export default function ConciliacaoHistoricoPage() {
     <div key={item.id} className="grid grid-cols-12 items-center gap-2 p-3 hover:bg-muted/30 transition-colors">
       {/* Data */}
       <div className="col-span-2 text-xs text-muted-foreground">
-        {formatDateTime(item.reconciliado_em || item.data_hora)}
+        {formatDateTime(item.data_hora || item.reconciliado_em)}
       </div>
       {/* Nome contraparte */}
       <div className="col-span-2 font-medium text-foreground truncate" title={item.nome_contraparte || item.descricao || ""}>
@@ -358,7 +358,7 @@ export default function ConciliacaoHistoricoPage() {
   const renderExcRow = (item: any) => (
     <div key={item.id} className="grid grid-cols-12 items-center gap-2 p-3 hover:bg-muted/30 transition-colors">
       <div className="col-span-2 text-xs text-muted-foreground">
-        {formatDateTime(item.reconciliado_em || item.data_hora)}
+        {formatDateTime(item.data_hora || item.reconciliado_em)}
       </div>
       <div className="col-span-2 font-medium text-foreground truncate" title={item.nome_contraparte || item.descricao || ""}>
         {item.nome_contraparte || item.descricao || "—"}
