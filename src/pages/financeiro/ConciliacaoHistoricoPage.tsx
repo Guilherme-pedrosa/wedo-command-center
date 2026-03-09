@@ -370,15 +370,15 @@ export default function ConciliacaoHistoricoPage() {
         <Badge variant="destructive" className="text-[10px]">
           {ruleLabels[item.reconciliation_rule] || item.reconciliation_rule}
         </Badge>
-        {item.gc_codigo_vinculado && (
+        {item.gc_id_vinculado && (
           <a
-            href={item._tabela === "fin_recebimentos" ? gcRecebimentoLink(item.gc_codigo_vinculado) : gcPagamentoLink(item.gc_codigo_vinculado)}
+            href={item._tabela === "fin_recebimentos" ? gcRecebimentoLink(item.gc_id_vinculado) : gcPagamentoLink(item.gc_id_vinculado)}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-0.5 text-[10px] text-primary hover:underline"
             onClick={(e) => e.stopPropagation()}
           >
-            GC {item.gc_codigo_vinculado} <ExternalLink className="h-2.5 w-2.5" />
+            GC {item.gc_codigo_vinculado || item.gc_id_vinculado} <ExternalLink className="h-2.5 w-2.5" />
           </a>
         )}
       </div>
