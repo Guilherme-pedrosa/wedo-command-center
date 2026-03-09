@@ -344,8 +344,8 @@ export default function ConciliacaoHistoricoPage() {
       <div className="col-span-2 text-xs text-muted-foreground">
         {formatDateTime(item.reconciliado_em || item.data_hora)}
       </div>
-      <div className="col-span-2 font-medium text-foreground truncate" title={item.nome_contraparte}>
-        {item.nome_contraparte || "—"}
+      <div className="col-span-2 font-medium text-foreground truncate" title={item.nome_contraparte || item.descricao || ""}>
+        {item.nome_contraparte || item.descricao || "—"}
       </div>
       <div className="col-span-1 text-xs text-muted-foreground font-mono truncate">
         {item.cpf_cnpj || "—"}
