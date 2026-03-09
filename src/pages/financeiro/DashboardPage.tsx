@@ -20,11 +20,10 @@ import {
 import { format, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
-// Generate month options: from Dec 2025 to current month, ascending
+// Generate month options: from Dec 2025 to current month, ascending + "Todos"
 function getMonthOptions() {
   const options: { value: string; label: string }[] = [];
   const now = new Date();
-  // Start from Dec 2025
   let cursor = new Date(2025, 11, 1); // Dec 2025
   while (cursor <= now) {
     options.push({
@@ -33,6 +32,7 @@ function getMonthOptions() {
     });
     cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
   }
+  options.push({ value: "todos", label: "Todos os meses" });
   return options;
 }
 
@@ -48,16 +48,19 @@ export default function FinDashboardPage() {
   const monthOptions = useMemo(() => getMonthOptions(), []);
   const hoje = new Date().toISOString().split("T")[0];
 
+  const isTodos = mesSelecionado === "todos";
+
   // Derive date boundaries from selected month
   const mesDate = useMemo(() => {
+    if (isTodos) return new Date();
     const [y, m] = mesSelecionado.split("-").map(Number);
     return new Date(y, m - 1, 1);
-  }, [mesSelecionado]);
-  const mesInicio = format(startOfMonth(mesDate), "yyyy-MM-dd");
-  const mesFim = format(endOfMonth(mesDate), "yyyy-MM-dd");
+  }, [mesSelecionado, isTodos]);
+  const mesInicio = isTodos ? "2025-12-01" : format(startOfMonth(mesDate), "yyyy-MM-dd");
+  const mesFim = isTodos ? "2099-12-31" : format(endOfMonth(mesDate), "yyyy-MM-dd");
   const inicioSemana = format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd");
   const fimSemana = format(endOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd");
-  const isMesAtual = mesSelecionado === format(new Date(), "yyyy-MM");
+  const isMesAtual = !isTodos && mesSelecionado === format(new Date(), "yyyy-MM");
 
   const { data: recebimentos } = useQuery({
     queryKey: ["fin-dash-recebimentos"],
@@ -136,16 +139,16 @@ export default function FinDashboardPage() {
 
   // Filter data by selected month
   const recebimentosMes = useMemo(() =>
-    (recebimentos || []).filter((r: any) =>
+    isTodos ? (recebimentos || []) : (recebimentos || []).filter((r: any) =>
       (r.data_vencimento && r.data_vencimento >= mesInicio && r.data_vencimento <= mesFim) ||
       (r.data_liquidacao && r.data_liquidacao >= mesInicio && r.data_liquidacao <= mesFim)
-    ), [recebimentos, mesInicio, mesFim]);
+    ), [recebimentos, mesInicio, mesFim, isTodos]);
 
   const pagamentosMes = useMemo(() =>
-    (pagamentos || []).filter((p: any) =>
+    isTodos ? (pagamentos || []) : (pagamentos || []).filter((p: any) =>
       (p.data_vencimento && p.data_vencimento >= mesInicio && p.data_vencimento <= mesFim) ||
       (p.data_liquidacao && p.data_liquidacao >= mesInicio && p.data_liquidacao <= mesFim)
-    ), [pagamentos, mesInicio, mesFim]);
+    ), [pagamentos, mesInicio, mesFim, isTodos]);
 
   // Vencimentos da semana (only show for current month)
   const vencimentosSemana = isMesAtual
@@ -166,8 +169,8 @@ export default function FinDashboardPage() {
   const totalAPagar = pagamentosMes.filter((p: any) => !p.liquidado).reduce((s: number, p: any) => s + Number(p.valor || 0), 0);
   const vencidosReceber = recebimentosMes.filter((r: any) => !r.liquidado && r.data_vencimento && r.data_vencimento < hoje).length;
   const vencidosPagar = pagamentosMes.filter((p: any) => !p.liquidado && p.data_vencimento && p.data_vencimento < hoje).length;
-  const recebidoMes = recebimentosMes.filter((r: any) => r.liquidado && r.data_liquidacao?.startsWith(mesSelecionado)).reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
-  const pagoMes = pagamentosMes.filter((p: any) => p.liquidado && p.data_liquidacao?.startsWith(mesSelecionado)).reduce((s: number, p: any) => s + Number(p.valor || 0), 0);
+  const recebidoMes = recebimentosMes.filter((r: any) => r.liquidado && (isTodos || r.data_liquidacao?.startsWith(mesSelecionado))).reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
+  const pagoMes = pagamentosMes.filter((p: any) => p.liquidado && (isTodos || p.data_liquidacao?.startsWith(mesSelecionado))).reduce((s: number, p: any) => s + Number(p.valor || 0), 0);
   const saldoLiquido = totalAReceber - totalAPagar;
   const baixasPendentesGC = recebimentosMes.filter((r: any) => r.pago_sistema && !r.gc_baixado).length;
 
