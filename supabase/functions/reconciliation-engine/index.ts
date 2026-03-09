@@ -466,10 +466,12 @@ serve(async (req) => {
     const [{ data: pagamentos }, { data: recebimentos }, { data: fornecedores }, { data: clientes }] = await Promise.all([
       supabase.from("fin_pagamentos").select("*")
         .not("status", "in", '("cancelado")')
-        .limit(1000),
+        .order("data_vencimento", { ascending: false })
+        .limit(2000),
       supabase.from("fin_recebimentos").select("*")
         .not("status", "in", '("cancelado")')
-        .limit(1000),
+        .order("data_vencimento", { ascending: false })
+        .limit(2000),
       supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj, chave_pix, nome"),
       supabase.from("fin_clientes").select("gc_id, cpf_cnpj, nome"),
     ]);

@@ -281,6 +281,21 @@ export default function ConciliacaoPage() {
 
       {/* Single-panel: Extrato with expandable search */}
       <div className="rounded-lg border border-border bg-card p-4">
+        {/* Monthly breakdown counter */}
+        {(extratoNR || []).length > 0 && (() => {
+          const byMonth: Record<string, number> = {};
+          for (const e of (extratoNR || [])) {
+            const m = e.data_hora ? format(new Date(e.data_hora), "MMM/yy", { locale: ptBR }) : "S/D";
+            byMonth[m] = (byMonth[m] || 0) + 1;
+          }
+          return (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {Object.entries(byMonth).map(([m, qty]) => (
+                <Badge key={m} variant="secondary" className="text-[10px]">{m}: {qty}</Badge>
+              ))}
+            </div>
+          );
+        })()}
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">🏦 Extrato não reconciliado ({(extratoNR || []).length})</h3>
           <div className="flex items-center gap-2">
