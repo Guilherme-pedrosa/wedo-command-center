@@ -197,7 +197,7 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
-  // 3c. Busca vendas concretizadas do período (para Venda de Produtos e Químicos)
+  // 3c. Busca vendas concretizadas do período (para Venda de Produtos / Peças)
   const { data: vendasConcretizadas = [], isLoading: loadingVendas, refetch: refetchVendas } = useQuery({
     queryKey: ['gc_vendas_metas', start, end],
     queryFn: async () => {
@@ -215,8 +215,8 @@ const useMetas = (year: number, month: number) => {
   const execTotal = useMemo(() => {
     // GC IDs dos planos de receita cobertos por OS (AT+Coifa, Ecolab, Contratos)
     const receitaGcIds_OS = ['27867720', '27867721']; // Execução de Serviços Aprovados + Contratos de serviços
-    // GC IDs cobertos por gc_vendas (Venda de Produtos/Peças e Químicos)
-    const receitaGcIds_Vendas = ['27867722', '27867718']; // Venda de Produtos + Venda de Químicos
+    // GC IDs cobertos por gc_vendas (Venda de Produtos/Peças)
+    const receitaGcIds_Vendas = ['27867722']; // Venda de Produtos
     const receitaUuids_OS = receitaGcIds_OS
       .map(gcId => planoContasMap[gcId])
       .filter(Boolean);
@@ -233,7 +233,7 @@ const useMetas = (year: number, month: number) => {
     // Total de OS executadas (substitui AT+Coifa e Ecolab de fin_recebimentos)
     const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
 
-    // Total de vendas concretizadas (substitui Venda Produtos e Químicos de fin_recebimentos)
+    // Total de vendas concretizadas (substitui Venda Produtos de fin_recebimentos)
     const vendasTotal = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
 
     // Receitas financeiras excluindo planos cobertos por OS e vendas
@@ -318,8 +318,8 @@ const useMetas = (year: number, month: number) => {
             .reduce((acc, r) => acc + (r.valor || 0), 0);
         }
       }
-      // Venda de Produtos / Peças / Químicos: busca de gc_vendas (Concretizado + Venda Futura)
-      else if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto') || nome.includes('peça') || nome.includes('quimico') || nome.includes('químico'))) {
+      // Venda de Produtos / Peças: busca de gc_vendas (Concretizado + Venda Futura)
+      else if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto') || nome.includes('peça'))) {
         realizado = vendasConcretizadas
           .reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
       }
