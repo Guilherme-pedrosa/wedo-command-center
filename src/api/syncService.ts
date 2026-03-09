@@ -458,3 +458,35 @@ export async function executarPagamentoPix(pagamentoId: string): Promise<void> {
     resposta: res.data as any,
   });
 }
+
+// ─── Sync Vendas (GC → gc_vendas) ──────────────────────────────────
+
+export async function syncVendas(
+  dataInicio?: string,
+  dataFim?: string
+): Promise<{ totalFetched: number; upserted: number; errors: number }> {
+  const startTime = Date.now();
+  try {
+    const { data, error } = await supabase.functions.invoke("sync-vendas", {
+      body: {
+        ...(dataInicio && { data_inicio: dataInicio }),
+        ...(dataFim && { data_fim: dataFim }),
+      },
+    });
+
+    if (error) throw error;
+    return {
+      totalFetched: data?.totalFetched ?? 0,
+      upserted: data?.upserted ?? 0,
+      errors: data?.errors ?? 0,
+    };
+  } catch (err: any) {
+    await logSync({
+      tipo: "sync-vendas",
+      status: "erro",
+      erro: err.message,
+      duracao_ms: Date.now() - startTime,
+    });
+    throw err;
+  }
+}

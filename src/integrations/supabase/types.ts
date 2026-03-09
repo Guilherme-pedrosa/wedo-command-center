@@ -1481,6 +1481,66 @@ export type Database = {
           },
         ]
       }
+      gc_vendas: {
+        Row: {
+          cliente_id: string | null
+          codigo: string | null
+          created_at: string | null
+          data: string | null
+          desconto: number | null
+          gc_id: string
+          gc_payload_raw: Json | null
+          id: string
+          last_synced_at: string | null
+          nome_cliente: string | null
+          nome_situacao: string | null
+          observacao: string | null
+          situacao_id: string | null
+          tipo: string | null
+          valor_produtos: number | null
+          valor_servicos: number | null
+          valor_total: number | null
+        }
+        Insert: {
+          cliente_id?: string | null
+          codigo?: string | null
+          created_at?: string | null
+          data?: string | null
+          desconto?: number | null
+          gc_id: string
+          gc_payload_raw?: Json | null
+          id?: string
+          last_synced_at?: string | null
+          nome_cliente?: string | null
+          nome_situacao?: string | null
+          observacao?: string | null
+          situacao_id?: string | null
+          tipo?: string | null
+          valor_produtos?: number | null
+          valor_servicos?: number | null
+          valor_total?: number | null
+        }
+        Update: {
+          cliente_id?: string | null
+          codigo?: string | null
+          created_at?: string | null
+          data?: string | null
+          desconto?: number | null
+          gc_id?: string
+          gc_payload_raw?: Json | null
+          id?: string
+          last_synced_at?: string | null
+          nome_cliente?: string | null
+          nome_situacao?: string | null
+          observacao?: string | null
+          situacao_id?: string | null
+          tipo?: string | null
+          valor_produtos?: number | null
+          valor_servicos?: number | null
+          valor_total?: number | null
+        }
+        Relationships: []
+      }
       grupo_itens: {
         Row: {
           baixado_gc: boolean | null

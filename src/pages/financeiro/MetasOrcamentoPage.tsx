@@ -1,5 +1,5 @@
 // src/pages/financeiro/MetasOrcamentoPage.tsx
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,8 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Target, TrendingUp, TrendingDown, AlertTriangle,
-  RefreshCw, DollarSign, Percent, BarChart3
+  RefreshCw, DollarSign, Percent, BarChart3, ShoppingCart, Loader2
 } from 'lucide-react';
+import { syncVendas } from '@/api/syncService';
+import toast from 'react-hot-toast';
 
 // ─── TIPOS ─────────────────────────────────────────────────────────────────
 interface Meta {
@@ -195,11 +197,30 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
-  // 4. Calcula EXEC_TOTAL — OS (AT+Ecolab) + receitas financeiras (PCM, Locação, etc.)
+  // 3c. Busca vendas concretizadas do período (para Venda de Produtos e Químicos)
+  const { data: vendasConcretizadas = [], isLoading: loadingVendas, refetch: refetchVendas } = useQuery({
+    queryKey: ['gc_vendas_metas', start, end],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('gc_vendas')
+        .select('gc_id, codigo, nome_cliente, nome_situacao, valor_total, data')
+        .gte('data', start)
+        .lte('data', end);
+      if (error) throw error;
+      return data as { gc_id: string; codigo: string; nome_cliente: string | null; nome_situacao: string | null; valor_total: number | null; data: string | null }[];
+    },
+  });
+
+  // 4. Calcula EXEC_TOTAL — OS (AT+Ecolab) + receitas financeiras (PCM, Locação, etc.) + vendas
   const execTotal = useMemo(() => {
     // GC IDs dos planos de receita cobertos por OS (AT+Coifa, Ecolab, Contratos)
     const receitaGcIds_OS = ['27867720', '27867721']; // Execução de Serviços Aprovados + Contratos de serviços
+    // GC IDs cobertos por gc_vendas (Venda de Produtos/Peças e Químicos)
+    const receitaGcIds_Vendas = ['27867722', '27867718']; // Venda de Produtos + Venda de Químicos
     const receitaUuids_OS = receitaGcIds_OS
+      .map(gcId => planoContasMap[gcId])
+      .filter(Boolean);
+    const receitaUuids_Vendas = receitaGcIds_Vendas
       .map(gcId => planoContasMap[gcId])
       .filter(Boolean);
 
@@ -212,22 +233,26 @@ const useMetas = (year: number, month: number) => {
     // Total de OS executadas (substitui AT+Coifa e Ecolab de fin_recebimentos)
     const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
 
-    // Receitas financeiras excluindo planos cobertos por OS (PCM, Locação, Venda, Químicos)
+    // Total de vendas concretizadas (substitui Venda Produtos e Químicos de fin_recebimentos)
+    const vendasTotal = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
+
+    // Receitas financeiras excluindo planos cobertos por OS e vendas
+    const excludedUuids = [...receitaUuids_OS, ...receitaUuids_Vendas];
     const recFinanceiro = recebimentos
-      .filter(r => r.plano_contas_id && receitaUuids.includes(r.plano_contas_id) && !receitaUuids_OS.includes(r.plano_contas_id))
+      .filter(r => r.plano_contas_id && receitaUuids.includes(r.plano_contas_id) && !excludedUuids.includes(r.plano_contas_id))
       .reduce((acc, r) => acc + (r.valor || 0), 0);
 
-    // Se há dados de OS, combinar: OS + receitas financeiras não-OS
-    // Se não há OS data, fallback total para fin_recebimentos
-    if (osExecutadas.length > 0) {
-      return osTotal + recFinanceiro;
+    // Combinar: OS + vendas + receitas financeiras restantes
+    const hasExternalData = osExecutadas.length > 0 || vendasConcretizadas.length > 0;
+    if (hasExternalData) {
+      return osTotal + vendasTotal + recFinanceiro;
     }
 
     // Fallback: tudo de fin_recebimentos
     return recebimentos
       .filter(r => r.plano_contas_id && receitaUuids.includes(r.plano_contas_id))
       .reduce((acc, r) => acc + (r.valor || 0), 0);
-  }, [recebimentos, planoContasMap, osExecutadas]);
+  }, [recebimentos, planoContasMap, osExecutadas, vendasConcretizadas]);
 
   // 5. Calcula realizado por meta
   const metasComResultado = useMemo((): MetaComResultado[] => {
@@ -293,6 +318,11 @@ const useMetas = (year: number, month: number) => {
             .reduce((acc, r) => acc + (r.valor || 0), 0);
         }
       }
+      // Venda de Produtos / Peças / Químicos: busca de gc_vendas (Concretizado + Venda Futura)
+      else if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto') || nome.includes('peça') || nome.includes('quimico') || nome.includes('químico'))) {
+        realizado = vendasConcretizadas
+          .reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
+      }
       // All other metas: use fin_recebimentos or fin_pagamentos
       else {
         for (const link of links) {
@@ -324,12 +354,12 @@ const useMetas = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, osExecutadas, execTotal, planoContasMap, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, osExecutadas, vendasConcretizadas, execTotal, planoContasMap, centrosCustoMap]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
-  const refetch = () => { refetchRec(); refetchPag(); refetchOS(); };
-  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingCentros || loadingRec || loadingPag || loadingOS;
+  const refetch = () => { refetchRec(); refetchPag(); refetchOS(); refetchVendas(); };
+  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingCentros || loadingRec || loadingPag || loadingOS || loadingVendas;
 
   return { metasComResultado, execTotal, isLoading, refetch, hasOsData };
 };
@@ -401,6 +431,21 @@ export default function MetasOrcamentoPage() {
 
   const { metasComResultado, execTotal, isLoading, refetch, hasOsData } = useMetas(selectedYear, selectedMonth);
 
+  const [syncingVendas, setSyncingVendas] = useState(false);
+  const handleSyncVendas = useCallback(async () => {
+    setSyncingVendas(true);
+    try {
+      const { start, end } = getPeriodRange(selectedYear, selectedMonth);
+      const result = await syncVendas(start, end);
+      toast.success(`Vendas sincronizadas: ${result.upserted} registros`);
+      refetch();
+    } catch (err: any) {
+      toast.error(`Erro ao sincronizar vendas: ${err.message}`);
+    } finally {
+      setSyncingVendas(false);
+    }
+  }, [selectedYear, selectedMonth, refetch]);
+
   const receitas       = metasComResultado.filter(m => m.categoria === 'receita');
   const custosVar      = metasComResultado.filter(m => m.categoria === 'custo_variavel');
   const custosFixos    = metasComResultado.filter(m => m.categoria === 'custo_fixo');
@@ -463,6 +508,11 @@ export default function MetasOrcamentoPage() {
               ))}
             </SelectContent>
           </Select>
+
+          <Button variant="outline" size="sm" onClick={handleSyncVendas} disabled={syncingVendas}>
+            {syncingVendas ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ShoppingCart className="h-4 w-4 mr-1" />}
+            Sync Vendas
+          </Button>
 
           <Button variant="outline" size="icon" onClick={refetch} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
