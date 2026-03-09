@@ -8,8 +8,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react";
+import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+const GC_BASE = "https://app.gestaoclick.com.br";
+const gcRecebimentoLink = (gcId: string) => `${GC_BASE}/recebimentos/${gcId}`;
+const gcPagamentoLink = (gcId: string) => `${GC_BASE}/pagamentos/${gcId}`;
+const gcOsLink = (osId: string) => `${GC_BASE}/ordens_servicos/${osId}`;
 
 const EXCECAO_RULES = ["SEM_PAR_GC", "TRANSFERENCIA_INTERNA", "PIX_DEVOLVIDO_MANUAL"];
 
