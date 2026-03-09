@@ -1,12 +1,13 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw, ExternalLink, FileText, Hash } from "lucide-react";
+import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw, ExternalLink, FileText, Hash, Search, X, ChevronDown, ChevronUp } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import toast from "react-hot-toast";
@@ -54,6 +55,8 @@ export default function ConciliacaoPage() {
   const [syncing, setSyncing] = useState(false);
   const [mesExtrato, setMesExtrato] = useState("all");
   const [mesLanc, setMesLanc] = useState("all");
+  const [searchLanc, setSearchLanc] = useState("");
+  const [expandedExtrato, setExpandedExtrato] = useState<string | null>(null);
 
   // Extrato query — fetch more, filter client-side by month
   const { data: extratoNR } = useQuery({
@@ -63,41 +66,37 @@ export default function ConciliacaoPage() {
         .from("fin_extrato_inter")
         .select("*")
         .eq("reconciliado", false)
-        .not("reconciliation_rule", "in", '("SEM_PAR_GC","TRANSFERENCIA_INTERNA","PIX_DEVOLVIDO_MANUAL")')
+        .or("reconciliation_rule.is.null,reconciliation_rule.not.in.(SEM_PAR_GC,TRANSFERENCIA_INTERNA,PIX_DEVOLVIDO_MANUAL)")
         .order("data_hora", { ascending: false })
-        .limit(500);
+        .limit(1000);
       return data || [];
     },
   });
 
-  // Recebimentos — enriched with GC fields
+  // Recebimentos — all non-cancelled for search
   const { data: recebimentosNL } = useQuery({
     queryKey: ["conc-recebimentos"],
     queryFn: async () => {
       const { data } = await supabase
         .from("fin_recebimentos")
-        .select("id, descricao, valor, nome_cliente, data_vencimento, status, os_codigo, gc_codigo, gc_id, nf_numero, nfe_chave, nfe_numero")
-        .eq("liquidado", false)
-        .eq("pago_sistema", false)
+        .select("id, descricao, valor, nome_cliente, data_vencimento, status, os_codigo, gc_codigo, gc_id, nf_numero, nfe_chave, nfe_numero, liquidado, pago_sistema")
         .not("status", "eq", "cancelado")
-        .order("data_vencimento")
-        .limit(500);
+        .order("data_vencimento", { ascending: false })
+        .limit(1000);
       return data || [];
     },
   });
 
-  // Pagamentos — enriched with GC fields
+  // Pagamentos — all non-cancelled for search
   const { data: pagamentosNL } = useQuery({
     queryKey: ["conc-pagamentos"],
     queryFn: async () => {
       const { data } = await supabase
         .from("fin_pagamentos")
-        .select("id, descricao, valor, nome_fornecedor, data_vencimento, status, os_codigo, gc_codigo, gc_id, nf_numero, nfe_chave")
-        .eq("liquidado", false)
-        .eq("pago_sistema", false)
+        .select("id, descricao, valor, nome_fornecedor, data_vencimento, status, os_codigo, gc_codigo, gc_id, nf_numero, nfe_chave, liquidado, pago_sistema")
         .not("status", "eq", "cancelado")
-        .order("data_vencimento")
-        .limit(500);
+        .order("data_vencimento", { ascending: false })
+        .limit(1000);
       return data || [];
     },
   });
@@ -115,39 +114,36 @@ export default function ConciliacaoPage() {
     });
   }, [extratoNR, mesExtrato]);
 
-  const filteredRecebimentos = useMemo(() => {
-    if (!recebimentosNL) return [];
-    if (mesLanc === "all") return recebimentosNL;
-    const start = startOfMonth(new Date(mesLanc + "-01"));
-    const end = endOfMonth(start);
-    return recebimentosNL.filter((r: any) => {
-      if (!r.data_vencimento) return false;
-      const d = new Date(r.data_vencimento + "T00:00:00");
-      return d >= start && d <= end;
-    });
-  }, [recebimentosNL, mesLanc]);
-
-  const filteredPagamentos = useMemo(() => {
-    if (!pagamentosNL) return [];
-    if (mesLanc === "all") return pagamentosNL;
-    const start = startOfMonth(new Date(mesLanc + "-01"));
-    const end = endOfMonth(start);
-    return pagamentosNL.filter((p: any) => {
-      if (!p.data_vencimento) return false;
-      const d = new Date(p.data_vencimento + "T00:00:00");
-      return d >= start && d <= end;
-    });
-  }, [pagamentosNL, mesLanc]);
 
   const handleSelectExtrato = (e: any) => {
-    setSelectedExtrato(e);
-    if (selectedLanc) setShowConfirm(true);
+    if (expandedExtrato === e.id) {
+      setExpandedExtrato(null);
+      setSearchLanc("");
+    } else {
+      setExpandedExtrato(e.id);
+      setSelectedExtrato(e);
+      setSearchLanc("");
+    }
   };
 
-  const handleSelectLanc = (l: any, tipo: "receber" | "pagar") => {
-    setSelectedLanc({ ...l, _tipo: tipo });
-    if (selectedExtrato) setShowConfirm(true);
-  };
+  // Search-filtered lancamentos for the expanded extrato
+  const searchedLancamentos = useMemo(() => {
+    if (!expandedExtrato || !selectedExtrato) return { recebimentos: [], pagamentos: [] };
+    const isCredito = selectedExtrato.tipo === "CREDITO";
+    const q = searchLanc.toLowerCase().trim();
+
+    const filterFn = (l: any) => {
+      if (!q) return true;
+      const fields = [l.descricao, l.nome_cliente, l.nome_fornecedor, l.os_codigo, l.gc_codigo, l.nf_numero, l.nfe_numero, String(l.valor)].filter(Boolean).join(" ").toLowerCase();
+      return fields.includes(q);
+    };
+
+    if (isCredito) {
+      return { recebimentos: (recebimentosNL || []).filter(filterFn).slice(0, 50), pagamentos: [] };
+    } else {
+      return { recebimentos: [], pagamentos: (pagamentosNL || []).filter(filterFn).slice(0, 50) };
+    }
+  }, [expandedExtrato, selectedExtrato, searchLanc, recebimentosNL, pagamentosNL]);
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["conc-extrato"] });
@@ -260,76 +256,182 @@ export default function ConciliacaoPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: Extrato */}
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2">🏦 Extrato não reconciliado ({filteredExtrato.length})</h3>
-            <Select value={mesExtrato} onValueChange={setMesExtrato}>
-              <SelectTrigger className="w-[160px] h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {monthOptions.map(o => (
-                  <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-            {filteredExtrato.map((e: any) => (
-              <div key={e.id} onClick={() => handleSelectExtrato(e)} className={`p-3 rounded-md border cursor-pointer transition-colors ${selectedExtrato?.id === e.id ? "border-primary bg-primary/10" : "border-border hover:bg-muted/30"}`}>
-                <div className="flex justify-between items-center">
-                  <Badge variant="outline" className={`text-[10px] ${e.tipo === "CREDITO" ? "text-wedo-green" : "text-wedo-red"}`}>{e.tipo_transacao ?? e.tipo}</Badge>
-                  <span className="font-semibold text-sm">{formatCurrency(Number(e.valor))}</span>
-                </div>
-                <p className="text-xs font-medium text-foreground mt-1">{labelContraparte(e)}</p>
-                {e.cpf_cnpj && <p className="text-[10px] text-muted-foreground">Doc: {e.cpf_cnpj}</p>}
-                {e.end_to_end_id && <p className="text-[10px] text-muted-foreground font-mono">E2E: {e.end_to_end_id}</p>}
-                <p className="text-[10px] text-muted-foreground">{e.data_hora ? formatDateTime(e.data_hora) : ""}</p>
-              </div>
-            ))}
-            {!filteredExtrato.length && <p className="text-sm text-muted-foreground text-center py-4">{mesExtrato === "all" ? "Tudo reconciliado ✅" : "Nenhuma transação neste mês"}</p>}
-          </div>
+      {/* Single-panel: Extrato with expandable search */}
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold flex items-center gap-2">🏦 Extrato não reconciliado ({filteredExtrato.length})</h3>
+          <Select value={mesExtrato} onValueChange={setMesExtrato}>
+            <SelectTrigger className="w-[160px] h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {monthOptions.map(o => (
+                <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+        <div className="space-y-2 max-h-[70vh] overflow-y-auto">
+          {filteredExtrato.map((e: any) => (
+            <div key={e.id} className="rounded-md border border-border transition-colors">
+              {/* Extrato row - clickable */}
+              <div
+                onClick={() => handleSelectExtrato(e)}
+                className={`p-3 cursor-pointer transition-colors rounded-t-md ${expandedExtrato === e.id ? "bg-primary/10 border-b border-border" : "hover:bg-muted/30 rounded-b-md"}`}
+              >
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className={`text-[10px] ${e.tipo === "CREDITO" ? "text-wedo-green" : "text-wedo-red"}`}>{e.tipo_transacao ?? e.tipo}</Badge>
+                    <span className="text-xs font-medium text-foreground">{labelContraparte(e)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm">{formatCurrency(Number(e.valor))}</span>
+                    {expandedExtrato === e.id ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 mt-1">
+                  {e.cpf_cnpj && <span className="text-[10px] text-muted-foreground">Doc: {e.cpf_cnpj}</span>}
+                  {e.end_to_end_id && <span className="text-[10px] text-muted-foreground font-mono">E2E: {e.end_to_end_id}</span>}
+                  <span className="text-[10px] text-muted-foreground">{e.data_hora ? formatDateTime(e.data_hora) : ""}</span>
+                </div>
+              </div>
 
-        {/* Right: Lançamentos */}
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold">📋 Lançamentos pendentes</h3>
-            <Select value={mesLanc} onValueChange={setMesLanc}>
-              <SelectTrigger className="w-[160px] h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {monthOptions.map(o => (
-                  <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1 max-h-[30vh] overflow-y-auto mb-4">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase px-1">A Receber ({filteredRecebimentos.length})</p>
-            {filteredRecebimentos.map((r: any) => (
-              <div key={r.id} onClick={() => handleSelectLanc(r, "receber")} className={`p-2 rounded-md border cursor-pointer transition-colors text-xs ${selectedLanc?.id === r.id ? "border-primary bg-primary/10" : "border-border hover:bg-muted/30"}`}>
-                <div className="flex justify-between"><span className="truncate">{r.descricao}</span><span className="font-semibold">{formatCurrency(Number(r.valor))}</span></div>
-                <p className="text-[10px] text-muted-foreground">{r.nome_cliente}{r.data_vencimento ? ` · Venc: ${r.data_vencimento}` : ""}</p>
-                {renderGCMeta(r, "receber")}
-              </div>
-            ))}
-            {!filteredRecebimentos.length && <p className="text-[10px] text-muted-foreground text-center py-2">Nenhum</p>}
-          </div>
-          <div className="space-y-1 max-h-[30vh] overflow-y-auto">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase px-1">A Pagar ({filteredPagamentos.length})</p>
-            {filteredPagamentos.map((p: any) => (
-              <div key={p.id} onClick={() => handleSelectLanc(p, "pagar")} className={`p-2 rounded-md border cursor-pointer transition-colors text-xs ${selectedLanc?.id === p.id ? "border-primary bg-primary/10" : "border-border hover:bg-muted/30"}`}>
-                <div className="flex justify-between"><span className="truncate">{p.descricao}</span><span className="font-semibold">{formatCurrency(Number(p.valor))}</span></div>
-                <p className="text-[10px] text-muted-foreground">{p.nome_fornecedor}{p.data_vencimento ? ` · Venc: ${p.data_vencimento}` : ""}</p>
-                {renderGCMeta(p, "pagar")}
-              </div>
-            ))}
-            {!filteredPagamentos.length && <p className="text-[10px] text-muted-foreground text-center py-2">Nenhum</p>}
-          </div>
+              {/* Expanded: search & link financeiros */}
+              {expandedExtrato === e.id && (
+                <div className="p-3 space-y-3 bg-muted/20 rounded-b-md">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                    <Input
+                      placeholder={`Buscar ${e.tipo === "CREDITO" ? "recebimento" : "pagamento"} por descrição, OS, código, NF, valor...`}
+                      value={searchLanc}
+                      onChange={(ev) => setSearchLanc(ev.target.value)}
+                      className="pl-8 h-8 text-xs"
+                      autoFocus
+                    />
+                    {searchLanc && (
+                      <button onClick={() => setSearchLanc("")} className="absolute right-2.5 top-2.5">
+                        <X className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-1 max-h-[40vh] overflow-y-auto">
+                    {e.tipo === "CREDITO" ? (
+                      <>
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase px-1">
+                          Recebimentos ({searchedLancamentos.recebimentos.length})
+                        </p>
+                        {searchedLancamentos.recebimentos.map((r: any) => (
+                          <div
+                            key={r.id}
+                            onClick={() => {
+                              setSelectedLanc({ ...r, _tipo: "receber" });
+                              setShowConfirm(true);
+                            }}
+                            className="p-2 rounded-md border border-border cursor-pointer transition-colors text-xs hover:bg-primary/10 hover:border-primary"
+                          >
+                            <div className="flex justify-between">
+                              <span className="truncate font-medium">{r.descricao}</span>
+                              <span className="font-semibold">{formatCurrency(Number(r.valor))}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] text-muted-foreground">{r.nome_cliente}</span>
+                              {r.data_vencimento && <span className="text-[10px] text-muted-foreground">Venc: {r.data_vencimento}</span>}
+                              {r.liquidado && <Badge variant="secondary" className="text-[9px] h-4">Liquidado</Badge>}
+                              {r.pago_sistema && <Badge variant="secondary" className="text-[9px] h-4">Pago Sistema</Badge>}
+                            </div>
+                            {renderGCMeta(r, "receber")}
+                          </div>
+                        ))}
+                        {!searchedLancamentos.recebimentos.length && (
+                          <p className="text-[10px] text-muted-foreground text-center py-2">
+                            {searchLanc ? "Nenhum resultado" : "Digite para buscar recebimentos"}
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase px-1">
+                          Pagamentos ({searchedLancamentos.pagamentos.length})
+                        </p>
+                        {searchedLancamentos.pagamentos.map((p: any) => (
+                          <div
+                            key={p.id}
+                            onClick={() => {
+                              setSelectedLanc({ ...p, _tipo: "pagar" });
+                              setShowConfirm(true);
+                            }}
+                            className="p-2 rounded-md border border-border cursor-pointer transition-colors text-xs hover:bg-primary/10 hover:border-primary"
+                          >
+                            <div className="flex justify-between">
+                              <span className="truncate font-medium">{p.descricao}</span>
+                              <span className="font-semibold">{formatCurrency(Number(p.valor))}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] text-muted-foreground">{p.nome_fornecedor}</span>
+                              {p.data_vencimento && <span className="text-[10px] text-muted-foreground">Venc: {p.data_vencimento}</span>}
+                              {p.liquidado && <Badge variant="secondary" className="text-[9px] h-4">Liquidado</Badge>}
+                              {p.pago_sistema && <Badge variant="secondary" className="text-[9px] h-4">Pago Sistema</Badge>}
+                            </div>
+                            {renderGCMeta(p, "pagar")}
+                          </div>
+                        ))}
+                        {!searchedLancamentos.pagamentos.length && (
+                          <p className="text-[10px] text-muted-foreground text-center py-2">
+                            {searchLanc ? "Nenhum resultado" : "Digite para buscar pagamentos"}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* Quick classification buttons */}
+                  <div className="flex gap-2 pt-1 border-t border-border">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-[10px] h-6"
+                      onClick={async () => {
+                        await supabase.from("fin_extrato_inter").update({ reconciliation_rule: "SEM_PAR_GC" }).eq("id", e.id);
+                        toast.success("Classificado como exceção (sem par no GC)");
+                        setExpandedExtrato(null);
+                        invalidateAll();
+                      }}
+                    >
+                      Sem par no GC
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-[10px] h-6"
+                      onClick={async () => {
+                        await supabase.from("fin_extrato_inter").update({ reconciliation_rule: "TRANSFERENCIA_INTERNA" }).eq("id", e.id);
+                        toast.success("Classificado como transferência interna");
+                        setExpandedExtrato(null);
+                        invalidateAll();
+                      }}
+                    >
+                      Transferência interna
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-[10px] h-6"
+                      onClick={async () => {
+                        await supabase.from("fin_extrato_inter").update({ reconciliation_rule: "PIX_DEVOLVIDO_MANUAL" }).eq("id", e.id);
+                        toast.success("Classificado como PIX devolvido");
+                        setExpandedExtrato(null);
+                        invalidateAll();
+                      }}
+                    >
+                      PIX devolvido
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+          {!filteredExtrato.length && <p className="text-sm text-muted-foreground text-center py-8">{mesExtrato === "all" ? "Tudo reconciliado ✅" : "Nenhuma transação neste mês"}</p>}
         </div>
       </div>
 
