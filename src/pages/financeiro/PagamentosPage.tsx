@@ -21,8 +21,9 @@ import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
 import { cn } from "@/lib/utils";
 import {
   CreditCard, Search, RefreshCw, Plus, Loader2, Zap, CalendarIcon,
-  Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight, FileText, Camera, ExternalLink, Link2,
+  Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight, FileText, Camera, ExternalLink, Link2, X,
 } from "lucide-react";
+import { SortableHeader, useSortConfig } from "@/components/financeiro/SortableHeader";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
