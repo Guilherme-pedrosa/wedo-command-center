@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { EmptyState } from "@/components/EmptyState";
-import { formatCurrency, formatDateTime } from "@/lib/format";
+import { formatCurrency, formatDateTime, formatDate } from "@/lib/format";
 import { buscarExtratoInter, extrairNomeDaDescricao } from "@/api/financeiro";
 import { syncRecebimentos, syncPagamentos } from "@/api/syncService";
 import {
