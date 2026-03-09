@@ -99,9 +99,9 @@ serve(async (req) => {
       }
 
       const data = await response.json();
-      const gcData = data?.data || data;
-      const records = gcData?.data || [];
-      const meta = gcData?.meta || data?.meta || {};
+      // GC returns { data: [...], meta: {...} } directly
+      const records = Array.isArray(data?.data) ? data.data : [];
+      const meta = data?.meta || {};
 
       // Filter for EXECUTADO statuses client-side (GC ignores nome_situacao filter)
       for (const rec of records) {
