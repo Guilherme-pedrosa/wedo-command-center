@@ -1017,7 +1017,7 @@ export async function syncCentrosCustoGC(
   // Try dedicated API endpoint first
   try {
     const raws = await fetchPaginatedGC<Record<string, any>>(
-      "/api/centros_custo",
+      "/api/centros_custos",
       {},
       onProgress
     );
