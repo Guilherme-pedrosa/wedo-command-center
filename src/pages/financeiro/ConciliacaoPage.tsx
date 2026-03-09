@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw, ExternalLink, FileText, Hash } from "lucide-react";
+import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw, ExternalLink, FileText, Hash, Search, X, ChevronDown, ChevronUp } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import toast from "react-hot-toast";
