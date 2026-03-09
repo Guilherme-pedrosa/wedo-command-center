@@ -30,54 +30,6 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
   return fetch(url, options);
 }
 
-async function fetchByStatus(
-  status: string,
-  gcHeaders: Record<string, string>,
-  filters: { data_inicio?: string; data_fim?: string }
-): Promise<any[]> {
-  const allRecords: any[] = [];
-  let page = 1;
-  let totalPages = 1;
-
-  while (page <= totalPages) {
-    const params = new URLSearchParams({
-      limite: "100",
-      pagina: String(page),
-      nome_situacao: status,
-    });
-
-    if (filters.data_inicio) params.set("data_inicio", filters.data_inicio);
-    if (filters.data_fim) params.set("data_fim", filters.data_fim);
-
-    const url = `${GC_BASE_URL}/api/orcamentos?${params.toString()}`;
-    const response = await rateLimitedFetch(url, { headers: gcHeaders });
-
-    if (response.status === 401) {
-      throw new Error("GC_AUTH_ERROR: Invalid credentials");
-    }
-    if (response.status === 429) {
-      await new Promise((r) => setTimeout(r, 2000));
-      continue;
-    }
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`GC API error ${response.status}: ${text}`);
-    }
-
-    const data = await response.json();
-    const gcData = data?.data || data;
-    const records = gcData?.data || [];
-    const meta = gcData?.meta || data?.meta || {};
-
-    allRecords.push(...records);
-    totalPages = meta?.total_paginas || 1;
-    console.log(`[sync-os] Status="${status}" Page ${page}/${totalPages} — ${records.length} records`);
-    page++;
-  }
-
-  return allRecords;
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -106,36 +58,81 @@ serve(async (req) => {
       "Content-Type": "application/json",
     };
 
-    let filters: { data_inicio?: string; data_fim?: string } = {};
+    // Parse optional page range from request body
+    // Supports: { page_start, page_end } for chunked execution
+    let pageStart = 1;
+    let pageEnd = 999;
+    let onlyExecutados = true;
     try {
       const body = await req.json();
-      filters = body || {};
+      if (body?.page_start) pageStart = body.page_start;
+      if (body?.page_end) pageEnd = body.page_end;
+      if (body?.all === true) onlyExecutados = false;
     } catch {
-      // No body
+      // No body — fetch all, filter EXECUTADO only
     }
 
-    // Fetch all EXECUTADO statuses in sequence (rate limit)
     const allOS: any[] = [];
-    const statusCounts: Record<string, number> = {};
+    let page = pageStart;
+    let totalPages = pageStart; // Will be updated on first response
+    let totalSkipped = 0;
 
-    for (const status of EXECUTADO_STATUSES) {
-      const records = await fetchByStatus(status, gcHeaders, filters);
-      statusCounts[status] = records.length;
-      allOS.push(...records);
+    while (page <= Math.min(totalPages, pageEnd)) {
+      const params = new URLSearchParams({
+        limite: "100",
+        pagina: String(page),
+      });
+
+      const url = `${GC_BASE_URL}/api/orcamentos?${params.toString()}`;
+      const response = await rateLimitedFetch(url, { headers: gcHeaders });
+
+      if (response.status === 401) {
+        throw new Error("GC_AUTH_ERROR: Invalid credentials");
+      }
+      if (response.status === 429) {
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`GC API error ${response.status}: ${text}`);
+      }
+
+      const data = await response.json();
+      const gcData = data?.data || data;
+      const records = gcData?.data || [];
+      const meta = gcData?.meta || data?.meta || {};
+
+      // Filter for EXECUTADO statuses client-side (GC ignores nome_situacao filter)
+      for (const rec of records) {
+        const situacao = rec.nome_situacao || "";
+        if (!onlyExecutados || EXECUTADO_STATUSES.some(s => situacao.toUpperCase().includes(s.toUpperCase().split(" ")[0]) && situacao.toUpperCase().startsWith("EXECUTADO"))) {
+          allOS.push(rec);
+        } else {
+          totalSkipped++;
+        }
+      }
+
+      totalPages = meta?.total_paginas || 1;
+      console.log(`[sync-os] Page ${page}/${totalPages} — ${records.length} fetched, ${allOS.length} executados so far`);
+      page++;
     }
 
-    console.log(`[sync-os] Total EXECUTADO records fetched: ${allOS.length}`, statusCounts);
+    console.log(`[sync-os] Total EXECUTADO: ${allOS.length}, skipped: ${totalSkipped}`);
 
     // Upsert into os_index
     let upserted = 0;
     let errors = 0;
+    const statusCounts: Record<string, number> = {};
 
     for (const os of allOS) {
       const osId = String(os.id || "");
       const osCodigo = String(os.codigo || "");
+      const situacao = os.nome_situacao || "unknown";
+
+      statusCounts[situacao] = (statusCounts[situacao] || 0) + 1;
 
       if (!osId || !osCodigo) {
-        console.warn(`[sync-os] Skipping record without id/codigo`);
         errors++;
         continue;
       }
@@ -144,7 +141,6 @@ serve(async (req) => {
       const valorServicos = parseFloat(os.valor_servicos || "0") || null;
       const valorProdutos = parseFloat(os.valor_produtos || "0") || null;
 
-      // data_saida: usar modificado_em como proxy
       let dataSaida: string | null = null;
       const modificadoEm = os.modificado_em || os.data || null;
       if (modificadoEm) {
@@ -158,7 +154,7 @@ serve(async (req) => {
         orc_codigo: osCodigo,
         todos_orcs: null,
         nome_cliente: os.nome_cliente || null,
-        nome_situacao: os.nome_situacao || null,
+        nome_situacao: situacao,
         data_saida: dataSaida,
         valor_total: valorTotal,
         valor_servicos: valorServicos,
@@ -172,7 +168,7 @@ serve(async (req) => {
         .upsert(record, { onConflict: "os_id,orc_codigo" });
 
       if (upsertErr) {
-        console.error(`[sync-os] Upsert error for OS ${osCodigo}:`, upsertErr.message);
+        console.error(`[sync-os] Upsert error OS ${osCodigo}:`, upsertErr.message);
         errors++;
       } else {
         upserted++;
@@ -187,21 +183,22 @@ serve(async (req) => {
       built_at: new Date().toISOString(),
     });
 
-    // Log to sync_log
     const duration = Date.now() - startTime;
     await supabase.from("sync_log").insert({
       tipo: "sync-os",
       status: errors > 0 ? "partial" : "ok",
-      payload: { filters, statusCounts, total_fetched: allOS.length, upserted, errors },
+      payload: { pageStart, pageEnd, totalPages, total_fetched: allOS.length, totalSkipped, upserted, errors, statusCounts },
       duracao_ms: duration,
     });
 
     const result = {
       success: true,
       total_fetched: allOS.length,
+      totalSkipped,
       upserted,
       errors,
       statusCounts,
+      pages_processed: `${pageStart}-${Math.min(page - 1, pageEnd)}/${totalPages}`,
       duration_ms: duration,
     };
 
@@ -227,7 +224,7 @@ serve(async (req) => {
         erro: errorMsg,
         duracao_ms: duration,
       });
-    } catch { /* ignore logging errors */ }
+    } catch { /* ignore */ }
 
     return new Response(
       JSON.stringify({ error: errorMsg }),
