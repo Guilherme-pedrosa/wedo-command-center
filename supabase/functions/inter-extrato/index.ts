@@ -28,25 +28,46 @@ const NOMES_GENERICOS_DESC = new Set([
   "CREDITO","CRÉDITO","DEBITO","DÉBITO",
 ]);
 
-function extrairNomeDescricao(descricao: unknown): string | null {
-  if (!descricao || typeof descricao !== "string") return null;
+/** Extract name AND optionally CNPJ from description */
+function extrairDadosDescricao(descricao: unknown): { nome: string | null; cnpj: string | null } {
+  if (!descricao || typeof descricao !== "string") return { nome: null, cnpj: null };
   
+  // Pattern: "PIX RECEBIDO - Cp :60746948-SAPORE S.A." or "PIX ENVIADO - Cp :12345678000190-NOME"
+  const pixMatch = descricao.match(/PIX\s+(?:RECEBIDO|ENVIADO|RECEBIDA|ENVIADA)\s*[-–]\s*(?:Cp\s*:|CP\s*:)?\s*(\d{8,14})\s*[-–]\s*(.+)$/i);
+  if (pixMatch) {
+    const cnpj = pixMatch[1].replace(/\D/g, "") || null;
+    const nome = pixMatch[2].trim();
+    return { nome: nome.length >= 2 ? nome : null, cnpj };
+  }
+
+  // Pattern: "PAGAMENTO TITULO - Cp :12345678000190-NOME" (boletos)
+  const boletoMatch = descricao.match(/[-–]\s*(?:Cp\s*:|CP\s*:)?\s*(\d{8,14})\s*[-–]\s*(.+)$/i);
+  if (boletoMatch) {
+    const cnpj = boletoMatch[1].replace(/\D/g, "") || null;
+    const nome = boletoMatch[2].trim();
+    return { nome: nome.length >= 2 ? nome : null, cnpj };
+  }
+
   // Pattern: "TED RECEBIDA - 341 66 251687 NOME DA EMPRESA S A"
-  // Bank routing: 3-digit bank code, then branch, then account, then the actual name
   const tedMatch = descricao.match(/(?:TED|DOC)\s+(?:RECEBIDA|ENVIADA?|RECEBIDO|ENVIADO)\s*[-–]\s*\d+\s+\d+\s+\d+\s+(.+)$/i);
   if (tedMatch) {
     const nome = tedMatch[1].trim();
-    if (nome.length >= 3) return nome;
+    return { nome: nome.length >= 3 ? nome : null, cnpj: null };
   }
   
-  // Pattern: "DESCRIPTION - NOME"
+  // Generic: "DESCRIPTION - NOME"
   const match = descricao.match(/[-–]\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9 .&\/'",-]+)$/);
-  if (!match) return null;
+  if (!match) return { nome: null, cnpj: null };
   const nome = match[1].trim();
-  if (nome.length < 3) return null;
+  if (nome.length < 3) return { nome: null, cnpj: null };
   const primeira = nome.split(/\s+/)[0].toUpperCase();
-  if (NOMES_GENERICOS_DESC.has(primeira)) return null;
-  return nome;
+  if (NOMES_GENERICOS_DESC.has(primeira)) return { nome: null, cnpj: null };
+  return { nome, cnpj: null };
+}
+
+// Legacy wrapper
+function extrairNomeDescricao(descricao: unknown): string | null {
+  return extrairDadosDescricao(descricao).nome;
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
