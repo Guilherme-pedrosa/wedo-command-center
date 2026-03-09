@@ -1173,30 +1173,53 @@ export async function syncFormasPagamentoGC(
   let importados = 0;
   let erros = 0;
 
+  // Fetch existing gc_ids to decide insert vs update
+  const { data: existing } = await supabase
+    .from("fin_formas_pagamento")
+    .select("id, gc_id");
+  const existingMap: Record<string, string> = {};
+  (existing || []).forEach((e: any) => { if (e.gc_id) existingMap[e.gc_id] = e.id; });
+
   const batchSize = 50;
   for (let i = 0; i < raws.length; i += batchSize) {
-    const batch = raws.slice(i, i + batchSize).map((raw) => ({
-      gc_id: String(raw.id),
-      nome: raw.nome || "Sem nome",
-      ativo: true,
-    }));
+    const slice = raws.slice(i, i + batchSize);
+    
+    for (const raw of slice) {
+      const gcId = String(raw.id);
+      const record = {
+        gc_id: gcId,
+        nome: raw.nome || "Sem nome",
+        tipo: raw.tipo || null,
+        ativo: true,
+      };
 
-    const { error } = await supabase
-      .from("fin_formas_pagamento" as any)
-      .upsert(batch, { onConflict: "gc_id" });
+      let error: any;
+      if (existingMap[gcId]) {
+        const res = await supabase
+          .from("fin_formas_pagamento")
+          .update(record)
+          .eq("id", existingMap[gcId]);
+        error = res.error;
+      } else {
+        const res = await supabase
+          .from("fin_formas_pagamento")
+          .insert(record);
+        error = res.error;
+      }
 
-    if (error) {
-      console.error("Upsert formas_pagamento error:", error);
-      erros += batch.length;
-    } else {
-      importados += batch.length;
+      if (error) {
+        console.error(`Formas pagamento ${gcId} error:`, error.message);
+        erros++;
+      } else {
+        importados++;
+      }
     }
   }
 
-  await supabase.from("fin_sync_log" as any).insert({
+  await supabase.from("fin_sync_log").insert({
     tipo: "gc_import_formas_pagamento",
     status: erros === 0 ? "success" : "partial",
-    resposta: { importados, erros, total: raws.length },
+    resposta: { importados, erros, total: raws.length } as any,
     duracao_ms: Date.now() - inicio,
   });
 
