@@ -155,7 +155,7 @@ export default function FinDashboardPage() {
           <h1 className="text-2xl font-bold text-foreground">Dashboard Financeiro</h1>
           <p className="text-sm text-muted-foreground">Visão consolidada do módulo financeiro</p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleSyncAll} disabled={syncing}>
+        <Button variant="outline" size="sm" onClick={() => setShowSyncDialog(true)} disabled={syncing}>
           {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
           Sincronizar Tudo
         </Button>
