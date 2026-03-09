@@ -23,6 +23,7 @@ export default function FinDashboardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
+  const [showSyncDialog, setShowSyncDialog] = useState(false);
   const hoje = new Date().toISOString().split("T")[0];
   const mesAtual = format(new Date(), "yyyy-MM");
   const inicioSemana = format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd");
