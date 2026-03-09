@@ -306,31 +306,51 @@ Retorne APENAS o JSON, sem markdown, sem texto fora do JSON.`;
     try {
       result = JSON.parse(aiContent);
     } catch {
-      result = { analise: aiContent, sugestoes: [], sem_match: [] };
+      result = { analise_geral: aiContent, sugestoes: [], sem_match: [], alertas: [] };
     }
 
-    // 5. Validar que os IDs sugeridos existem
-    const validSugestoes = (result.sugestoes ?? []).filter((s: any) => {
+    // 5. Validar IDs — novo formato com candidatos[]
+    const validSugestoes: any[] = [];
+    let totalCandidatos = 0;
+    let altaCount = 0, mediaCount = 0, baixaCount = 0;
+
+    for (const s of (result.sugestoes ?? [])) {
       const extratoExists = extratoCtx.some(e => e.id === s.extrato_id);
-      const lancExists = s.lancamento_tipo === "recebimento" 
-        ? recCtx.some(r => r.id === s.lancamento_id)
-        : pagCtx.some(p => p.id === s.lancamento_id);
-      return extratoExists && lancExists;
-    });
+      if (!extratoExists) continue;
+
+      const validCandidatos = (s.candidatos ?? []).filter((c: any) => {
+        const lancExists = c.lancamento_tipo === "recebimento"
+          ? recCtx.some(r => r.id === c.lancamento_id)
+          : pagCtx.some(p => p.id === c.lancamento_id);
+        return lancExists;
+      });
+
+      for (const c of validCandidatos) {
+        totalCandidatos++;
+        if (c.confianca === "ALTA") altaCount++;
+        else if (c.confianca === "MEDIA" || c.confianca === "MÉDIA") mediaCount++;
+        else baixaCount++;
+      }
+
+      if (validCandidatos.length > 0) {
+        validSugestoes.push({ ...s, candidatos: validCandidatos });
+      }
+    }
 
     return new Response(JSON.stringify({
       success: true,
-      analise: result.analise,
+      analise_geral: result.analise_geral ?? result.analise ?? "",
       sugestoes: validSugestoes,
       sem_match: result.sem_match ?? [],
+      alertas: result.alertas ?? [],
       stats: {
         extratos_analisados: extratoCtx.length,
         recebimentos_pool: recCtx.length,
         pagamentos_pool: pagCtx.length,
-        sugestoes_total: validSugestoes.length,
-        alta_confianca: validSugestoes.filter((s: any) => s.confianca === "ALTA").length,
-        media_confianca: validSugestoes.filter((s: any) => s.confianca === "MEDIA").length,
-        baixa_confianca: validSugestoes.filter((s: any) => s.confianca === "BAIXA").length,
+        sugestoes_total: totalCandidatos,
+        alta_confianca: altaCount,
+        media_confianca: mediaCount,
+        baixa_confianca: baixaCount,
       },
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
