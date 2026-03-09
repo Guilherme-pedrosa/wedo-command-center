@@ -22,7 +22,7 @@ const FinPagar = lazy(() => import("@/pages/financeiro/PagamentosPage"));
 const FinGrpReceber = lazy(() => import("@/pages/financeiro/GruposReceberPage"));
 const FinGrpPagar = lazy(() => import("@/pages/financeiro/GruposPagarPage"));
 const FinAgenda = lazy(() => import("@/pages/financeiro/AgendaPage"));
-const FinExtrato = lazy(() => import("@/pages/financeiro/ExtratoBancoPage"));
+
 const FinConciliacao = lazy(() => import("@/pages/financeiro/ConciliacaoPage"));
 const FinConciliacaoHist = lazy(() => import("@/pages/financeiro/ConciliacaoHistoricoPage"));
 const FinDRE = lazy(() => import("@/pages/financeiro/DREPage"));
