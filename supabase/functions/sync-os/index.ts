@@ -105,8 +105,9 @@ serve(async (req) => {
 
       // Filter for EXECUTADO statuses client-side (GC ignores nome_situacao filter)
       for (const rec of records) {
-        const situacao = rec.nome_situacao || "";
-        if (!onlyExecutados || EXECUTADO_STATUSES.some(s => situacao.toUpperCase().includes(s.toUpperCase().split(" ")[0]) && situacao.toUpperCase().startsWith("EXECUTADO"))) {
+        const situacao = (rec.nome_situacao || "").toUpperCase().trim();
+        const isExecutado = situacao.startsWith("EXECUTADO");
+        if (!onlyExecutados || isExecutado) {
           allOS.push(rec);
         } else {
           totalSkipped++;
