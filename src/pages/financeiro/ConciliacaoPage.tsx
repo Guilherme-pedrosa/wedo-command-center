@@ -262,10 +262,6 @@ export default function ConciliacaoPage() {
             <RefreshCw className="h-4 w-4" />
             Atualizar
           </Button>
-          <Button onClick={() => setShowExtratoDialog(true)} disabled={importingExtrato} variant="outline" size="sm" className="gap-2">
-            {importingExtrato ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            Importar Extrato Inter
-          </Button>
           <Button onClick={() => setShowSyncDialog(true)} disabled={syncing} size="sm" className="gap-2">
             {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             Sincronizar GC
