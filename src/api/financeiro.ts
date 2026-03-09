@@ -890,105 +890,229 @@ export async function syncClientesGC(
   return { importados, erros };
 }
 
-// ─── Sync Plano de Contas (GC → fin_plano_contas) ───────────────────
+// ─── Sync Plano de Contas (extraído dos recebimentos/pagamentos GC) ──
 
 export async function syncPlanoContasGC(
   onProgress?: (atual: number, total: number) => void
 ): Promise<{ importados: number; erros: number }> {
   const inicio = Date.now();
-  const raws = await fetchPaginatedGC<Record<string, any>>(
-    "/api/plano_contas",
-    {},
-    onProgress
-  );
   let importados = 0;
   let erros = 0;
 
+  // Try dedicated API endpoint first
+  try {
+    const raws = await fetchPaginatedGC<Record<string, any>>(
+      "/api/plano_contas",
+      {},
+      onProgress
+    );
+    if (raws.length > 0) {
+      const batchSize = 50;
+      for (let i = 0; i < raws.length; i += batchSize) {
+        const batch = raws.slice(i, i + batchSize).map((raw) => ({
+          gc_id: String(raw.id),
+          nome: raw.nome || "Sem nome",
+          codigo: raw.codigo || null,
+          tipo: (raw.tipo === "despesa" ? "despesa" : "receita") as "receita" | "despesa",
+          ativo: raw.ativo !== "0" && raw.ativo !== false,
+          updated_at: new Date().toISOString(),
+        }));
+        const { error } = await supabase
+          .from("fin_plano_contas" as any)
+          .upsert(batch, { onConflict: "gc_id" });
+        if (error) erros += batch.length;
+        else importados += batch.length;
+      }
+      await supabase.from("fin_sync_log" as any).insert({
+        tipo: "gc_import_plano_contas",
+        status: erros === 0 ? "success" : "partial",
+        resposta: { importados, erros, source: "api" },
+        duracao_ms: Date.now() - inicio,
+      });
+      return { importados, erros };
+    }
+  } catch {
+    console.log("[syncPlanoContasGC] API endpoint not available, extracting from payloads...");
+  }
+
+  // Fallback: extract from GC recebimentos + pagamentos gc_payload_raw
+  const pcMap = new Map<string, { gc_id: string; nome: string; tipo: "receita" | "despesa" }>();
+
+  const { data: recs } = await supabase
+    .from("fin_recebimentos" as any)
+    .select("gc_payload_raw")
+    .not("gc_payload_raw", "is", null)
+    .limit(1000) as any;
+
+  for (const r of (recs ?? []) as any[]) {
+    const raw = r.gc_payload_raw;
+    if (raw?.plano_contas_id && raw?.nome_plano_conta) {
+      pcMap.set(String(raw.plano_contas_id), {
+        gc_id: String(raw.plano_contas_id),
+        nome: raw.nome_plano_conta,
+        tipo: "receita",
+      });
+    }
+  }
+
+  const { data: pags } = await supabase
+    .from("fin_pagamentos" as any)
+    .select("gc_payload_raw")
+    .not("gc_payload_raw", "is", null)
+    .limit(1000) as any;
+
+  for (const p of (pags ?? []) as any[]) {
+    const raw = p.gc_payload_raw;
+    if (raw?.plano_contas_id && raw?.nome_plano_conta) {
+      pcMap.set(String(raw.plano_contas_id), {
+        gc_id: String(raw.plano_contas_id),
+        nome: raw.nome_plano_conta,
+        tipo: "despesa",
+      });
+    }
+  }
+
+  const entries = Array.from(pcMap.values());
+  onProgress?.(0, entries.length);
   const batchSize = 50;
-  for (let i = 0; i < raws.length; i += batchSize) {
-    const batch = raws.slice(i, i + batchSize).map((raw) => ({
-      gc_id: String(raw.id),
-      nome: raw.nome || "Sem nome",
-      codigo: raw.codigo || null,
-      tipo: (raw.tipo === "despesa" ? "despesa" : "receita") as "receita" | "despesa",
-      ativo: raw.ativo !== "0" && raw.ativo !== false,
+  for (let i = 0; i < entries.length; i += batchSize) {
+    const batch = entries.slice(i, i + batchSize).map((e) => ({
+      gc_id: e.gc_id,
+      nome: e.nome,
+      tipo: e.tipo,
+      ativo: true,
       updated_at: new Date().toISOString(),
     }));
-
     const { error } = await supabase
       .from("fin_plano_contas" as any)
       .upsert(batch, { onConflict: "gc_id" });
-
     if (error) {
       console.error("Upsert plano_contas error:", error);
       erros += batch.length;
     } else {
       importados += batch.length;
     }
+    onProgress?.(Math.min(i + batchSize, entries.length), entries.length);
   }
 
   await supabase.from("fin_sync_log" as any).insert({
     tipo: "gc_import_plano_contas",
     status: erros === 0 ? "success" : "partial",
-    resposta: { importados, erros, total: raws.length },
+    resposta: { importados, erros, total: entries.length, source: "payload_extraction" },
     duracao_ms: Date.now() - inicio,
   });
 
   return { importados, erros };
 }
 
-// ─── Sync Centros de Custo (GC → fin_centros_custo) ─────────────────
+// ─── Sync Centros de Custo (extraído dos recebimentos/pagamentos GC) ─
 
 export async function syncCentrosCustoGC(
   onProgress?: (atual: number, total: number) => void
 ): Promise<{ importados: number; erros: number }> {
   const inicio = Date.now();
-  const raws = await fetchPaginatedGC<Record<string, any>>(
-    "/api/centros_custo",
-    {},
-    onProgress
-  );
   let importados = 0;
   let erros = 0;
 
-  const batchSize = 50;
-  for (let i = 0; i < raws.length; i += batchSize) {
-    const batch = raws.slice(i, i + batchSize).map((raw) => ({
-      id: undefined as any, // let DB auto-generate
-      nome: raw.nome || "Sem nome",
-      codigo: String(raw.id), // store GC id as codigo for mapping
-      ativo: raw.ativo !== "0" && raw.ativo !== false,
-    }));
-
-    // Upsert by codigo (GC id stored there)
-    const { error } = await supabase
-      .from("fin_centros_custo" as any)
-      .upsert(batch.map(b => ({ nome: b.nome, codigo: b.codigo, ativo: b.ativo })), { onConflict: "codigo" } as any);
-
-    if (error) {
-      // If no unique constraint on codigo, do manual check
-      for (const b of batch) {
-        const { data: existing } = await supabase
-          .from("fin_centros_custo" as any)
-          .select("id")
-          .eq("codigo", b.codigo)
-          .maybeSingle();
-        if (existing) {
-          await supabase.from("fin_centros_custo" as any).update({ nome: b.nome, ativo: b.ativo }).eq("id", (existing as any).id);
-        } else {
-          await supabase.from("fin_centros_custo" as any).insert({ nome: b.nome, codigo: b.codigo, ativo: b.ativo });
+  // Try dedicated API endpoint first
+  try {
+    const raws = await fetchPaginatedGC<Record<string, any>>(
+      "/api/centros_custo",
+      {},
+      onProgress
+    );
+    if (raws.length > 0) {
+      const batchSize = 50;
+      for (let i = 0; i < raws.length; i += batchSize) {
+        const batch = raws.slice(i, i + batchSize).map((raw) => ({
+          nome: raw.nome || "Sem nome",
+          codigo: String(raw.id),
+          ativo: raw.ativo !== "0" && raw.ativo !== false,
+        }));
+        for (const b of batch) {
+          const { data: existing } = await supabase
+            .from("fin_centros_custo" as any)
+            .select("id")
+            .eq("codigo", b.codigo)
+            .maybeSingle();
+          if (existing) {
+            await supabase.from("fin_centros_custo" as any).update({ nome: b.nome, ativo: b.ativo }).eq("id", (existing as any).id);
+          } else {
+            await supabase.from("fin_centros_custo" as any).insert(b);
+          }
+          importados++;
         }
       }
-      importados += batch.length;
-    } else {
-      importados += batch.length;
+      await supabase.from("fin_sync_log" as any).insert({
+        tipo: "gc_import_centros_custo",
+        status: "success",
+        resposta: { importados, erros, source: "api" },
+        duracao_ms: Date.now() - inicio,
+      });
+      return { importados, erros };
     }
+  } catch {
+    console.log("[syncCentrosCustoGC] API endpoint not available, extracting from payloads...");
+  }
+
+  // Fallback: extract from GC payloads
+  const ccMap = new Map<string, { codigo: string; nome: string }>();
+
+  const { data: recs } = await supabase
+    .from("fin_recebimentos" as any)
+    .select("gc_payload_raw")
+    .not("gc_payload_raw", "is", null)
+    .limit(1000) as any;
+
+  for (const r of (recs ?? []) as any[]) {
+    const raw = r.gc_payload_raw;
+    if (raw?.centro_custo_id && raw?.nome_centro_custo) {
+      ccMap.set(String(raw.centro_custo_id), {
+        codigo: String(raw.centro_custo_id),
+        nome: raw.nome_centro_custo,
+      });
+    }
+  }
+
+  const { data: pags } = await supabase
+    .from("fin_pagamentos" as any)
+    .select("gc_payload_raw")
+    .not("gc_payload_raw", "is", null)
+    .limit(1000) as any;
+
+  for (const p of (pags ?? []) as any[]) {
+    const raw = p.gc_payload_raw;
+    if (raw?.centro_custo_id && raw?.nome_centro_custo) {
+      ccMap.set(String(raw.centro_custo_id), {
+        codigo: String(raw.centro_custo_id),
+        nome: raw.nome_centro_custo,
+      });
+    }
+  }
+
+  const entries = Array.from(ccMap.values());
+  onProgress?.(0, entries.length);
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    const { data: existing } = await supabase
+      .from("fin_centros_custo" as any)
+      .select("id")
+      .eq("codigo", e.codigo)
+      .maybeSingle();
+    if (existing) {
+      await supabase.from("fin_centros_custo" as any).update({ nome: e.nome, ativo: true }).eq("id", (existing as any).id);
+    } else {
+      const { error } = await supabase.from("fin_centros_custo" as any).insert({ nome: e.nome, codigo: e.codigo, ativo: true });
+      if (error) erros++;
+      else importados++;
+    }
+    onProgress?.(i + 1, entries.length);
   }
 
   await supabase.from("fin_sync_log" as any).insert({
     tipo: "gc_import_centros_custo",
     status: erros === 0 ? "success" : "partial",
-    resposta: { importados, erros, total: raws.length },
+    resposta: { importados, erros, total: entries.length, source: "payload_extraction" },
     duracao_ms: Date.now() - inicio,
   });
 
