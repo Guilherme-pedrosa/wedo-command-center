@@ -158,12 +158,17 @@ export default function RecebimentosPage() {
     setSelected(n);
   };
 
-  const handleSync = async () => {
+  const handleSync = async (filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean }) => {
     setSyncing(true);
     try {
-      const result = await syncRecebimentosGC();
+      const result = await syncRecebimentosGC(undefined, {
+        dataInicio: filtros.dataInicio,
+        dataFim: filtros.dataFim,
+        incluirLiquidados: filtros.incluirLiquidados,
+      });
       toast.success(`Importados: ${result.importados} recebimentos`);
       queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
+      setShowSyncDialog(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
     } finally {

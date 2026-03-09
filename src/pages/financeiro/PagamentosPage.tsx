@@ -141,12 +141,17 @@ export default function PagamentosPage() {
   const selectedTotal = selectedItems.reduce((s: number, p: any) => s + Number(p.valor || 0), 0);
   const canSelect = (p: any) => !p.liquidado && !p.grupo_id;
 
-  const handleSync = async () => {
+  const handleSync = async (filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean }) => {
     setSyncing(true);
     try {
-      const r = await syncPagamentosGC();
+      const r = await syncPagamentosGC(undefined, {
+        dataInicio: filtros.dataInicio,
+        dataFim: filtros.dataFim,
+        incluirLiquidados: filtros.incluirLiquidados,
+      });
       toast.success(`Importados: ${r.importados} pagamentos`);
       queryClient.invalidateQueries({ queryKey: ["fin-pagamentos"] });
+      setShowSyncDialog(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
     } finally {
