@@ -139,47 +139,45 @@ export default function ConciliacaoHistoricoPage() {
     if (!item.id) return;
     setDetailLoading(true);
     try {
-      const { data: links } = await supabase
+      const { data: links, error: linksErr } = await supabase
         .from("fin_extrato_lancamentos")
         .select("lancamento_id, tabela, valor_alocado, reconciliation_rule")
         .eq("extrato_id", item.id);
 
-      if (!links?.length && item.lancamento_id) {
+      console.log("[openDetail] links:", links, "err:", linksErr);
+
+      const selectFields = "id, gc_id, gc_codigo, descricao, valor, data_vencimento, data_liquidacao, data_competencia, liquidado, status, gc_baixado, gc_baixado_em, os_codigo, nome_cliente, nome_fornecedor, plano_contas_id, centro_custo_id, conta_bancaria_id, forma_pagamento_id, origem, tipo, nf_numero, nfe_chave";
+
+      if (links && links.length > 0) {
+        const results: any[] = [];
+        for (const link of links) {
+          const rawTabela = link.tabela as string;
+          const table = rawTabela.startsWith("fin_") ? rawTabela : `fin_${rawTabela}`;
+          const { data: rec, error: recErr } = await supabase
+            .from(table as "fin_recebimentos" | "fin_pagamentos")
+            .select(selectFields)
+            .eq("id", link.lancamento_id)
+            .single();
+          console.log(`[openDetail] table=${table} id=${link.lancamento_id} rec:`, rec, "err:", recErr);
+          if (rec) {
+            results.push({ ...(rec as any), _tabela: table, _valor_alocado: link.valor_alocado, _rule: link.reconciliation_rule });
+          }
+        }
+        setDetailLancamentos(results);
+      } else if (item.lancamento_id) {
         // Fallback: conciliação 1:1 sem registro em fin_extrato_lancamentos
-        // Tentar buscar em ambas as tabelas
         const isDebito = item.tipo === "DEBITO";
         const fallbackTable = isDebito ? "fin_pagamentos" : "fin_recebimentos";
         const { data: rec } = await supabase
           .from(fallbackTable as any)
-          .select("id, gc_id, gc_codigo, descricao, valor, data_vencimento, data_liquidacao, data_competencia, liquidado, status, gc_baixado, gc_baixado_em, os_codigo, nome_cliente, nome_fornecedor, plano_contas_id, centro_custo_id, origem, tipo")
+          .select(selectFields)
           .eq("id", item.lancamento_id)
           .single();
+        console.log(`[openDetail] fallback table=${fallbackTable} rec:`, rec);
         if (rec) {
           setDetailLancamentos([{ ...(rec as any), _tabela: fallbackTable, _valor_alocado: null, _rule: item.reconciliation_rule }]);
         }
-        setDetailLoading(false);
-        return;
       }
-      if (!links?.length) {
-        setDetailLoading(false);
-        return;
-      }
-
-      const results: any[] = [];
-      for (const link of links) {
-        // Engine stores "pagamentos"/"recebimentos", need full table name
-        const rawTabela = link.tabela as string;
-        const table = rawTabela.startsWith("fin_") ? rawTabela : `fin_${rawTabela}`;
-        const { data: rec } = await supabase
-          .from(table as "fin_recebimentos" | "fin_pagamentos")
-          .select("id, gc_id, gc_codigo, descricao, valor, data_vencimento, data_liquidacao, data_competencia, liquidado, status, gc_baixado, gc_baixado_em, os_codigo, nome_cliente, nome_fornecedor, plano_contas_id, centro_custo_id, origem, tipo")
-          .eq("id", link.lancamento_id)
-          .single();
-        if (rec) {
-          results.push({ ...(rec as any), _tabela: table, _valor_alocado: link.valor_alocado, _rule: link.reconciliation_rule });
-        }
-      }
-      setDetailLancamentos(results);
     } catch (e) {
       console.error("Erro ao buscar lançamentos vinculados:", e);
     } finally {
