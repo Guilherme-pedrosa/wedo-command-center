@@ -290,12 +290,20 @@ export default function ConciliacaoPage() {
           <h1 className="text-2xl font-bold text-foreground">Conciliação</h1>
           <p className="text-sm text-muted-foreground">Vincule transações do extrato a lançamentos do sistema</p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={() => { invalidateAll(); toast.success("Dados recarregados"); }} variant="outline" size="sm" className="gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button onClick={handleFetchInter} disabled={fetchingInter} variant="outline" size="sm" className="gap-2">
+            {fetchingInter ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Importar Extrato Inter
+          </Button>
+          <Button onClick={handleSyncGC} disabled={syncingGC} variant="outline" size="sm" className="gap-2">
+            {syncingGC ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />}
+            Sincronizar GC
+          </Button>
+          <Button onClick={() => { invalidateAll(); toast.success("Cache recarregado"); }} variant="ghost" size="sm" className="gap-2">
             <RefreshCw className="h-4 w-4" />
             Atualizar
           </Button>
-          <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" className="gap-2">
+          <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" size="sm" className="gap-2">
             {autoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
             Conciliação Automática
           </Button>
