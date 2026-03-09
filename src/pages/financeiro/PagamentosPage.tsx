@@ -86,6 +86,18 @@ export default function PagamentosPage() {
     },
   });
 
+  // IDs conciliados (vinculados no extrato)
+  const { data: conciliadoIds } = useQuery({
+    queryKey: ["fin-pagamentos-conciliados"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("fin_extrato_lancamentos")
+        .select("lancamento_id")
+        .eq("tabela", "fin_pagamentos");
+      return new Set((data || []).map((d: any) => d.lancamento_id));
+    },
+  });
+
   // Fechamento do dia query
   const { data: fechamentoItems, isLoading: loadingFechamento } = useQuery({
     queryKey: ["fin-pagamentos-fechamento", hoje],
