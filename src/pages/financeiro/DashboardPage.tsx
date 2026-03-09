@@ -276,6 +276,14 @@ export default function FinDashboardPage() {
           <p className="text-sm text-muted-foreground">Nenhuma atividade registrada.</p>
         )}
       </div>
+
+      <SyncPeriodDialog
+        open={showSyncDialog}
+        onOpenChange={setShowSyncDialog}
+        onSync={handleSyncAll}
+        loading={syncing}
+        title="Sincronizar Tudo (GC)"
+      />
     </div>
   );
 }
