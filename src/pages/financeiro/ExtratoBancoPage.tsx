@@ -46,9 +46,12 @@ export default function ExtratoBancoPage() {
     setFetching(true);
     try {
       const txs = await buscarExtratoInter(format(dateFrom, "yyyy-MM-dd"), format(dateTo, "yyyy-MM-dd"));
-      toast.success(`${txs.length} transações importadas`);
+      toast.success(`${txs.length} transações processadas`);
       queryClient.invalidateQueries({ queryKey: ["fin-extrato"] });
-    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro ao buscar extrato";
+      toast.error(msg, { duration: 6000 });
+    }
     finally { setFetching(false); }
   };
 
