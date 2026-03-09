@@ -11,7 +11,7 @@ import {
   Target, TrendingUp, TrendingDown, AlertTriangle,
   RefreshCw, DollarSign, Percent, BarChart3, ShoppingCart, Loader2
 } from 'lucide-react';
-import { syncVendas } from '@/api/syncService';
+import { syncVendas, syncCompras } from '@/api/syncService';
 import toast from 'react-hot-toast';
 
 // ─── TIPOS ─────────────────────────────────────────────────────────────────

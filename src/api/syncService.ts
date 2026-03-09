@@ -521,9 +521,6 @@ export async function syncCompras(
     });
     throw err;
   }
-}
-  dataInicio?: string,
-  dataFim?: string
 ): Promise<{ totalFetched: number; upserted: number; errors: number }> {
   const startTime = Date.now();
   try {
