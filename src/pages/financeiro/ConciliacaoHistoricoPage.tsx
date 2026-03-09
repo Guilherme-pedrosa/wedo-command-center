@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, formatDateTime, formatDate } from "@/lib/format";
-import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Link2, Loader2, Banknote, FileText, AlertCircle, Link } from "lucide-react";
+import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Link2, Loader2, Banknote, FileText, AlertCircle, Link, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { subMonths, startOfMonth, endOfMonth, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
