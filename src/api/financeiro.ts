@@ -872,9 +872,20 @@ export async function syncClientesGC(
       return {
         gc_id: String(raw.id),
         nome: raw.nome_fantasia || raw.razao_social || raw.nome || "Sem nome",
+        razao_social: raw.razao_social || null,
+        nome_fantasia: raw.nome_fantasia || null,
         cpf_cnpj: cpfCnpj,
         email: raw.email || null,
         telefone: raw.telefone || raw.celular || null,
+        endereco: raw.endereco || raw.logradouro || null,
+        cidade: raw.cidade || raw.nome_cidade || null,
+        estado: raw.estado || raw.uf || null,
+        cep: raw.cep ? String(raw.cep).replace(/\D/g, "") : null,
+        bairro: raw.bairro || null,
+        observacao: raw.observacao || raw.observacoes || null,
+        data_cadastro: raw.data_cadastro || raw.created_at || null,
+        tipo_pessoa: raw.tipo_pessoa || (cpfCnpj && cpfCnpj.length > 11 ? "juridica" : "fisica"),
+        payload_raw: raw,
         last_synced: new Date().toISOString(),
       };
     });
