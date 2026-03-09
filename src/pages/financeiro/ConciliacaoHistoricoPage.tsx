@@ -268,7 +268,7 @@ export default function ConciliacaoHistoricoPage() {
         {item.descricao || "\u2014"}
       </div>
       <div className="col-span-2 flex items-center justify-end gap-1">
-        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setDetail(item)}>
+        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openDetail(item)}>
           <Eye className="h-3.5 w-3.5" />
         </Button>
       </div>
