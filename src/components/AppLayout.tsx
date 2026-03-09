@@ -1,6 +1,6 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
-import { ARGUSChat } from "@/components/financeiro/ARGUSChat";
+import { ARGUSChat } from "@/components/ARGUSChat";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import {
   Bell, DollarSign, ChevronDown, LayoutDashboard, Receipt, CreditCard,
