@@ -39,7 +39,9 @@ export default function FinDashboardPage() {
   const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
   const [showSyncDialog, setShowSyncDialog] = useState(false);
-  const [mesSelecionado, setMesSelecionado] = useState(format(new Date(), "yyyy-MM"));
+  const [mesSelecionado, setMesSelecionado] = useState(() => {
+    return localStorage.getItem("fin-dash-mes-selecionado") || format(new Date(), "yyyy-MM");
+  });
 
   const monthOptions = useMemo(() => getMonthOptions(), []);
   const hoje = new Date().toISOString().split("T")[0];
