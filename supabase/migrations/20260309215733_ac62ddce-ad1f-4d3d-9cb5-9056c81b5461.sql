@@ -1,0 +1,1 @@
+ALTER TABLE public.os_index ADD COLUMN nome_vendedor text;
