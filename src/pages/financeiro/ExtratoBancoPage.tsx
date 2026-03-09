@@ -756,40 +756,117 @@ export default function ExtratoBancoPage() {
         </table>
       </div>
 
-      {/* Reconciled detail dialog */}
+      {/* Reconciled detail dialog — full 3-section layout like history page */}
       <Dialog open={!!detailItem} onOpenChange={o => { if (!o) { setDetailItem(null); setDetailLancs([]); } }}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Detalhes da Conciliação</DialogTitle></DialogHeader>
           {detailItem && (
-            <div className="space-y-3 text-sm">
-              <div className="rounded-md bg-muted/50 p-3">
-                <p className="font-semibold">{labelContraparte(detailItem)}</p>
-                <p className="text-xs text-muted-foreground">{detailItem.descricao}</p>
-                <div className="flex items-center gap-3 mt-1">
-                  <Badge variant="outline" className={`text-[10px] ${detailItem.tipo === "CREDITO" ? "text-green-500" : "text-red-500"}`}>{detailItem.tipo}</Badge>
-                  <span className="font-bold">{formatCurrency(Number(detailItem.valor))}</span>
-                  <span className="text-xs text-muted-foreground">{detailItem.data_hora ? formatDateTime(detailItem.data_hora) : ""}</span>
+            <div className="space-y-4">
+              {/* SEÇÃO 1: Transação Bancária */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Banknote className="h-4 w-4 text-primary" />
+                  <h3 className="font-semibold text-foreground">Transação Bancária (Extrato Inter)</h3>
                 </div>
-                {detailItem.reconciliation_rule && (
-                  <Badge variant="outline" className="text-[10px] mt-1 bg-primary/10 text-primary">{ruleLabels[detailItem.reconciliation_rule] || detailItem.reconciliation_rule}</Badge>
+                <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2 text-sm">
+                  <DetailRow label="ID Extrato" value={detailItem.id} mono />
+                  <DetailRow label="Contraparte" value={labelContraparte(detailItem)} bold />
+                  <DetailRow label="CPF/CNPJ" value={detailItem.cpf_cnpj} mono />
+                  <DetailRow label="Tipo" value={<Badge variant="outline">{detailItem.tipo}</Badge>} />
+                  <DetailRow label="Tipo Transação" value={detailItem.tipo_transacao} />
+                  <DetailRow label="Valor Extrato" value={formatCurrency(Math.abs(Number(detailItem.valor || 0)))} bold />
+                  <DetailRow label="Descrição" value={detailItem.descricao} />
+                  <DetailRow label="Data/Hora" value={detailItem.data_hora ? formatDateTime(detailItem.data_hora) : "—"} />
+                  {detailItem.end_to_end_id && <DetailRow label="E2E ID" value={detailItem.end_to_end_id} mono small />}
+                  {detailItem.chave_pix && <DetailRow label="Chave PIX" value={detailItem.chave_pix} mono small />}
+                  {detailItem.codigo_barras && <DetailRow label="Cód. Barras" value={detailItem.codigo_barras} mono small />}
+                  {detailItem.contrapartida && <DetailRow label="Contrapartida" value={detailItem.contrapartida} />}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* SEÇÃO 2: Dados da Conciliação */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Link2 className="h-4 w-4 text-primary" />
+                  <h3 className="font-semibold text-foreground">Dados da Conciliação</h3>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2 text-sm">
+                  <DetailRow label="Regra" value={
+                    detailItem.reconciliation_rule ? (
+                      <Badge variant="secondary">{ruleLabels[detailItem.reconciliation_rule] || detailItem.reconciliation_rule}</Badge>
+                    ) : "—"
+                  } />
+                  <DetailRow label="Conciliado em" value={detailItem.reconciliado_em ? formatDateTime(detailItem.reconciliado_em) : "—"} />
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* SEÇÃO 3: Lançamentos GC Vinculados */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <FileText className="h-4 w-4 text-primary" />
+                  <h3 className="font-semibold text-foreground">Financeiro GC Vinculado</h3>
+                </div>
+
+                {detailLoading ? (
+                  <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Carregando lançamentos...
+                  </div>
+                ) : detailLancs.length === 0 ? (
+                  <p className="text-sm text-muted-foreground p-3">Nenhum lançamento vinculado encontrado.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {detailLancs.map((lanc: any, idx: number) => (
+                      <div key={idx} className="rounded-lg border border-border bg-muted/30 p-3 space-y-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <Badge variant="outline" className="text-[10px]">{lanc._tabela === "fin_recebimentos" ? "Recebimento" : "Pagamento"}</Badge>
+                          <div className="flex items-center gap-2">
+                            {lanc.gc_id && (
+                              <a href={lanc._tabela === "fin_recebimentos" ? gcRecebimentoLink(lanc.gc_id) : gcPagamentoLink(lanc.gc_id)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-primary hover:underline">
+                                Financeiro GC {lanc.gc_codigo || ""} <ExternalLink className="h-3 w-3" />
+                              </a>
+                            )}
+                            {(() => { const n = extractCompraNumero(lanc.descricao); return n ? <a href={gcCompraLink(n)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-primary hover:underline">Pedido Compra nº {n} <ExternalLink className="h-3 w-3" /></a> : null; })()}
+                          </div>
+                        </div>
+                        <DetailRow label="Cód GC" value={lanc.gc_codigo || "—"} mono />
+                        <DetailRow label="Descrição" value={lanc.descricao} />
+                        <DetailRow label={lanc._tabela === "fin_recebimentos" ? "Cliente" : "Fornecedor"} value={lanc.nome_cliente || lanc.nome_fornecedor || "—"} />
+                        <DetailRow label="Valor" value={formatCurrency(Number(lanc.valor || 0))} bold />
+                        <DetailRow label="Valor Alocado" value={lanc._valor_alocado ? formatCurrency(Number(lanc._valor_alocado)) : "—"} />
+                        <DetailRow label="Vencimento" value={lanc.data_vencimento ? formatDate(lanc.data_vencimento) : "—"} />
+                        <DetailRow label="Liquidação" value={lanc.data_liquidacao ? formatDate(lanc.data_liquidacao) : "—"} />
+                        <DetailRow label="Status" value={
+                          <Badge variant={lanc.liquidado ? "default" : "outline"} className="text-[10px]">
+                            {lanc.status || (lanc.liquidado ? "pago" : "pendente")}
+                          </Badge>
+                        } />
+                        <DetailRow label="Baixado GC" value={lanc.gc_baixado ? "✅ Sim" : "❌ Não"} />
+                        {lanc.os_codigo && <DetailRow label="OS" value={lanc.os_codigo} />}
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-              {detailLoading ? <Loader2 className="h-5 w-5 animate-spin mx-auto" /> : detailLancs.length > 0 ? (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase">Lançamentos vinculados</p>
-                  {detailLancs.map((l: any) => (
-                    <div key={l.id} className="rounded-md border border-border p-2 text-xs">
-                      <p className="font-medium">{l.descricao}</p>
-                      <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <span className="font-bold text-primary">{formatCurrency(Number(l.valor))}</span>
-                        <span className="text-muted-foreground">{l.nome_cliente || l.nome_fornecedor || ""}</span>
-                        <Badge variant="secondary" className="text-[9px]">{l.status}</Badge>
-                      </div>
-                      {renderGCMeta(l, l._tabela === "fin_pagamentos" ? "pagar" : "receber")}
-                    </div>
-                  ))}
+
+              {/* Botão Desfazer */}
+              {detailItem.reconciliado && (
+                <div className="pt-2">
+                  <Separator className="mb-4" />
+                  <Button
+                    variant="destructive"
+                    className="w-full gap-2"
+                    disabled={desfazendo || detailLoading}
+                    onClick={() => handleDesfazerConciliacao(detailItem)}
+                  >
+                    {desfazendo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />}
+                    Desfazer Conciliação
+                  </Button>
                 </div>
-              ) : <p className="text-xs text-muted-foreground">Nenhum lançamento vinculado encontrado.</p>}
+              )}
             </div>
           )}
         </DialogContent>
@@ -818,6 +895,19 @@ export default function ExtratoBancoPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ── Helper component ──
+function DetailRow({ label, value, mono, bold, small }: { label: string; value: any; mono?: boolean; bold?: boolean; small?: boolean }) {
+  if (!value && value !== 0) return null;
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={`col-span-2 ${mono ? "font-mono" : ""} ${bold ? "font-bold" : ""} ${small ? "text-xs break-all" : ""}`}>
+        {value}
+      </span>
     </div>
   );
 }
