@@ -9,8 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Target, TrendingUp, TrendingDown, AlertTriangle,
-  RefreshCw, DollarSign, Percent, BarChart3
+  RefreshCw, DollarSign, Percent, BarChart3, ShoppingCart, Loader2
 } from 'lucide-react';
+import { syncVendas } from '@/api/syncService';
+import toast from 'react-hot-toast';
 
 // ─── TIPOS ─────────────────────────────────────────────────────────────────
 interface Meta {
