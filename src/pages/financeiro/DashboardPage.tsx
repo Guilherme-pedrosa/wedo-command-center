@@ -58,20 +58,40 @@ export default function FinDashboardPage() {
   const { data: recebimentos } = useQuery({
     queryKey: ["fin-dash-recebimentos"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("fin_recebimentos")
-        .select("id, valor, liquidado, status, data_vencimento, data_liquidacao, pago_sistema, gc_baixado, nome_cliente, descricao");
-      return data || [];
+      const all: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data } = await supabase
+          .from("fin_recebimentos")
+          .select("id, valor, liquidado, status, data_vencimento, data_liquidacao, pago_sistema, gc_baixado, nome_cliente, descricao")
+          .range(from, from + pageSize - 1);
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      return all;
     },
   });
 
   const { data: pagamentos } = useQuery({
     queryKey: ["fin-dash-pagamentos"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("fin_pagamentos")
-        .select("id, valor, liquidado, status, data_vencimento, data_liquidacao, pago_sistema, gc_baixado, nome_fornecedor, descricao");
-      return data || [];
+      const all: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data } = await supabase
+          .from("fin_pagamentos")
+          .select("id, valor, liquidado, status, data_vencimento, data_liquidacao, pago_sistema, gc_baixado, nome_fornecedor, descricao")
+          .range(from, from + pageSize - 1);
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      return all;
     },
   });
 
