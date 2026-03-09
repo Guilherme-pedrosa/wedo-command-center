@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
@@ -7,8 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatCurrency, formatDateTime } from "@/lib/format";
-import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Link2 } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { formatCurrency, formatDateTime, formatDate } from "@/lib/format";
+import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Link2, Loader2, Banknote, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const GC_BASE = "https://app.gestaoclick.com.br";
@@ -19,7 +20,7 @@ const EXCECAO_RULES = ["SEM_PAR_GC", "TRANSFERENCIA_INTERNA", "PIX_DEVOLVIDO_MAN
 
 const ruleLabels: Record<string, string> = {
   SEM_PAR_GC: "Sem Par GC",
-  TRANSFERENCIA_INTERNA: "Transfer\u00eancia Interna",
+  TRANSFERENCIA_INTERNA: "Transferência Interna",
   PIX_DEVOLVIDO_MANUAL: "PIX Devolvido",
   LINK_JA_PAGO_GC: "Rastreabilidade",
   MATCH_VALOR_DATA: "Valor + Data",
@@ -27,6 +28,13 @@ const ruleLabels: Record<string, string> = {
   MATCH_GRUPO_RECEBER: "Grupo Receber",
   MATCH_GRUPO_PAGAR: "Grupo Pagar",
   MATCH_AGENDA: "Agenda",
+  NOME_VALOR_EXATO: "Nome + Valor Exato",
+  CNPJ_VALOR_EXATO: "CNPJ + Valor Exato",
+  CNPJ_VALOR_TOLERANCIA: "CNPJ + Valor ~2%",
+  PIX_KEY_VALOR: "Chave PIX + Valor",
+  REGRA_0_MAX_CONFIANCA: "Máx. Confiança",
+  SOMA_PARCELAS: "Soma Parcelas",
+  DATA_PROXIMA: "Data Próxima",
 };
 
 export default function ConciliacaoHistoricoPage() {
@@ -34,6 +42,8 @@ export default function ConciliacaoHistoricoPage() {
   const [tipoFilter, setTipoFilter] = useState<string>("todos");
   const [vinculoFilter, setVinculoFilter] = useState<string>("todos");
   const [detail, setDetail] = useState<any>(null);
+  const [detailLancamentos, setDetailLancamentos] = useState<any[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [tab, setTab] = useState("conciliados");
 
   // CONCILIADOS REAIS
@@ -79,6 +89,44 @@ export default function ConciliacaoHistoricoPage() {
       return (data as any[]) || [];
     },
   });
+
+  // Fetch linked lancamentos when detail opens
+  const openDetail = async (item: any) => {
+    setDetail(item);
+    setDetailLancamentos([]);
+    if (!item.id) return;
+    setDetailLoading(true);
+    try {
+      // Get all links from fin_extrato_lancamentos
+      const { data: links } = await supabase
+        .from("fin_extrato_lancamentos")
+        .select("lancamento_id, tabela, valor_alocado, reconciliation_rule")
+        .eq("extrato_id", item.id);
+
+      if (!links?.length) {
+        setDetailLoading(false);
+        return;
+      }
+
+      const results: any[] = [];
+      for (const link of links) {
+        const table = link.tabela as "fin_recebimentos" | "fin_pagamentos";
+        const { data: rec } = await supabase
+          .from(table)
+          .select("id, gc_id, gc_codigo, descricao, valor, data_vencimento, data_liquidacao, data_competencia, liquidado, status, gc_baixado, gc_baixado_em, os_codigo, nome_cliente, nome_fornecedor, plano_contas_id, centro_custo_id, origem, tipo")
+          .eq("id", link.lancamento_id)
+          .single();
+        if (rec) {
+          results.push({ ...(rec as any), _tabela: table, _valor_alocado: link.valor_alocado, _rule: link.reconciliation_rule });
+        }
+      }
+      setDetailLancamentos(results);
+    } catch (e) {
+      console.error("Erro ao buscar lançamentos vinculados:", e);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
   const searchFilter = (i: any) => {
     if (!search) return true;
@@ -189,7 +237,7 @@ export default function ConciliacaoHistoricoPage() {
       {/* A\u00e7\u00f5es */}
       <div className="col-span-2 flex items-center justify-end gap-1">
         <TooltipProvider>
-          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setDetail(item)}>
+          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openDetail(item)}>
             <Eye className="h-3.5 w-3.5" />
           </Button>
         </TooltipProvider>
@@ -220,7 +268,7 @@ export default function ConciliacaoHistoricoPage() {
         {item.descricao || "\u2014"}
       </div>
       <div className="col-span-2 flex items-center justify-end gap-1">
-        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setDetail(item)}>
+        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openDetail(item)}>
           <Eye className="h-3.5 w-3.5" />
         </Button>
       </div>
@@ -383,7 +431,7 @@ export default function ConciliacaoHistoricoPage() {
                   <div className="col-span-1 text-right font-bold text-foreground">{formatCurrency(Math.abs(Number(item.valor_extrato || 0)))}</div>
                   <div className="col-span-2 text-xs text-muted-foreground truncate" title={item.descricao}>{item.descricao || "\u2014"}</div>
                   <div className="col-span-2 flex items-center justify-end">
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setDetail(item)}>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openDetail(item)}>
                       <Eye className="h-3.5 w-3.5" />
                     </Button>
                   </div>
@@ -396,85 +444,133 @@ export default function ConciliacaoHistoricoPage() {
       </Tabs>
 
       {/* Detail Modal */}
-      <Dialog open={!!detail} onOpenChange={() => setDetail(null)}>
-        <DialogContent className="sm:max-w-lg">
+      <Dialog open={!!detail} onOpenChange={() => { setDetail(null); setDetailLancamentos([]); }}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{`Detalhes da Transa\u00e7\u00e3o`}</DialogTitle>
+            <DialogTitle>Detalhes da Conciliação</DialogTitle>
           </DialogHeader>
           {detail && (
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Contraparte</span>
-                <span className="col-span-2 font-medium">{detail.nome_contraparte || "\u2014"}</span>
+            <div className="space-y-4">
+              {/* ── SEÇÃO 1: Transação Bancária ── */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Banknote className="h-4 w-4 text-primary" />
+                  <h3 className="font-semibold text-foreground">Transação Bancária (Extrato Inter)</h3>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2 text-sm">
+                  <DetailRow label="ID Extrato" value={detail.id} mono />
+                  <DetailRow label="Contraparte" value={detail.nome_contraparte} bold />
+                  <DetailRow label="CPF/CNPJ" value={detail.cpf_cnpj} mono />
+                  <DetailRow label="Tipo" value={<Badge variant="outline">{detail.tipo}</Badge>} />
+                  <DetailRow label="Tipo Transação" value={detail.tipo_transacao} />
+                  <DetailRow label="Valor Extrato" value={formatCurrency(Math.abs(Number(detail.valor_extrato || 0)))} bold />
+                  <DetailRow label="Descrição" value={detail.descricao} />
+                  <DetailRow label="Data/Hora" value={formatDateTime(detail.data_hora)} />
+                  {detail.end_to_end_id && <DetailRow label="E2E ID" value={detail.end_to_end_id} mono small />}
+                  {detail.chave_pix && <DetailRow label="Chave PIX" value={detail.chave_pix} mono small />}
+                  {detail.codigo_barras && <DetailRow label="Cód. Barras" value={detail.codigo_barras} mono small />}
+                  {detail.contrapartida && <DetailRow label="Contrapartida" value={detail.contrapartida} />}
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">CPF/CNPJ</span>
-                <span className="col-span-2 font-mono">{detail.cpf_cnpj || "\u2014"}</span>
+
+              <Separator />
+
+              {/* ── SEÇÃO 2: Conciliação ── */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Link2 className="h-4 w-4 text-primary" />
+                  <h3 className="font-semibold text-foreground">Dados da Conciliação</h3>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2 text-sm">
+                  <DetailRow label="Regra" value={
+                    detail.reconciliation_rule ? (
+                      <Badge variant="secondary">{ruleLabels[detail.reconciliation_rule] || detail.reconciliation_rule}</Badge>
+                    ) : "—"
+                  } />
+                  <DetailRow label="Conciliado em" value={detail.reconciliado_em ? formatDateTime(detail.reconciliado_em) : "—"} />
+                  {detail.valor_gc != null && <DetailRow label="Valor GC" value={formatCurrency(Number(detail.valor_gc))} bold />}
+                  {detail.diferenca != null && detail.diferenca !== 0 && (
+                    <DetailRow label="Diferença" value={diferencaBadge(detail)} />
+                  )}
+                  {detail.exato && <DetailRow label="Match" value={<Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30">Valor Exato</Badge>} />}
+                  {detail.qtd_parcelas != null && detail.qtd_parcelas > 1 && (
+                    <DetailRow label="Parcelas (N:N)" value={`${detail.qtd_parcelas} lançamentos vinculados`} />
+                  )}
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Tipo</span>
-                <span className="col-span-2"><Badge variant="outline">{detail.tipo}</Badge></span>
+
+              <Separator />
+
+              {/* ── SEÇÃO 3: Lançamentos GC Vinculados ── */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <FileText className="h-4 w-4 text-primary" />
+                  <h3 className="font-semibold text-foreground">Financeiro GC Vinculado</h3>
+                </div>
+
+                {detailLoading ? (
+                  <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Carregando lançamentos...
+                  </div>
+                ) : detailLancamentos.length === 0 ? (
+                  <p className="text-sm text-muted-foreground p-3">Nenhum lançamento vinculado encontrado.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {detailLancamentos.map((lanc: any, idx: number) => (
+                      <div key={idx} className="rounded-lg border border-border bg-muted/30 p-3 space-y-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <Badge variant="outline" className="text-[10px]">{lanc._tabela === "fin_recebimentos" ? "Recebimento" : "Pagamento"}</Badge>
+                          {lanc.gc_id && (
+                            <a
+                              href={lanc._tabela === "fin_recebimentos" ? gcRecebimentoLink(lanc.gc_id) : gcPagamentoLink(lanc.gc_id)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-xs text-primary hover:underline"
+                            >
+                              Abrir no GestãoClick <ExternalLink className="h-3 w-3" />
+                            </a>
+                          )}
+                        </div>
+                        <DetailRow label="ID Local" value={lanc.id} mono small />
+                        <DetailRow label="GC ID" value={lanc.gc_id || "—"} mono />
+                        <DetailRow label="Cód GC" value={lanc.gc_codigo || "—"} mono />
+                        <DetailRow label="Descrição" value={lanc.descricao} />
+                        <DetailRow label={lanc._tabela === "fin_recebimentos" ? "Cliente" : "Fornecedor"} value={lanc.nome_cliente || lanc.nome_fornecedor || "—"} />
+                        <DetailRow label="Valor" value={formatCurrency(Number(lanc.valor || 0))} bold />
+                        <DetailRow label="Valor Alocado" value={lanc._valor_alocado ? formatCurrency(Number(lanc._valor_alocado)) : "—"} />
+                        <DetailRow label="Vencimento" value={lanc.data_vencimento ? formatDate(lanc.data_vencimento) : "—"} />
+                        <DetailRow label="Liquidação" value={lanc.data_liquidacao ? formatDate(lanc.data_liquidacao) : "—"} />
+                        <DetailRow label="Status" value={
+                          <Badge variant={lanc.liquidado ? "default" : "outline"} className="text-[10px]">
+                            {lanc.status || (lanc.liquidado ? "pago" : "pendente")}
+                          </Badge>
+                        } />
+                        <DetailRow label="Baixado GC" value={lanc.gc_baixado ? "✅ Sim" : "❌ Não"} />
+                        {lanc.os_codigo && <DetailRow label="OS" value={lanc.os_codigo} />}
+                        {lanc.plano_contas_id && <DetailRow label="Plano Contas ID" value={lanc.plano_contas_id} mono small />}
+                        {lanc.centro_custo_id && <DetailRow label="Centro Custo ID" value={lanc.centro_custo_id} mono small />}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Valor Extrato</span>
-                <span className="col-span-2 font-bold">{formatCurrency(Math.abs(Number(detail.valor_extrato || 0)))}</span>
-              </div>
-              {detail.valor_gc != null && (
-                <div className="grid grid-cols-3 gap-2">
-                  <span className="text-muted-foreground">Valor GC</span>
-                  <span className="col-span-2">{formatCurrency(Number(detail.valor_gc))}</span>
-                </div>
-              )}
-              {detail.diferenca != null && detail.diferenca !== 0 && (
-                <div className="grid grid-cols-3 gap-2">
-                  <span className="text-muted-foreground">{`Diferen\u00e7a`}</span>
-                  <span className="col-span-2">{diferencaBadge(detail)}</span>
-                </div>
-              )}
-              {detail.qtd_parcelas != null && detail.qtd_parcelas > 1 && (
-                <div className="grid grid-cols-3 gap-2">
-                  <span className="text-muted-foreground">Parcelas</span>
-                  <span className="col-span-2">{detail.qtd_parcelas}</span>
-                </div>
-              )}
-              <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">{`Descri\u00e7\u00e3o`}</span>
-                <span className="col-span-2">{detail.descricao || "\u2014"}</span>
-              </div>
-              {detail.end_to_end_id && (
-                <div className="grid grid-cols-3 gap-2">
-                  <span className="text-muted-foreground">E2E ID</span>
-                  <span className="col-span-2 font-mono text-xs break-all">{detail.end_to_end_id}</span>
-                </div>
-              )}
-              {detail.chave_pix && (
-                <div className="grid grid-cols-3 gap-2">
-                  <span className="text-muted-foreground">Chave PIX</span>
-                  <span className="col-span-2 font-mono text-xs break-all">{detail.chave_pix}</span>
-                </div>
-              )}
-              {detail.reconciliation_rule && (
-                <div className="grid grid-cols-3 gap-2">
-                  <span className="text-muted-foreground">Regra</span>
-                  <span className="col-span-2">
-                    <Badge variant="secondary">{ruleLabels[detail.reconciliation_rule] || detail.reconciliation_rule}</Badge>
-                  </span>
-                </div>
-              )}
-              <div className="grid grid-cols-3 gap-2">
-                <span className="text-muted-foreground">Data</span>
-                <span className="col-span-2">{formatDateTime(detail.data_hora)}</span>
-              </div>
-              {detail.reconciliado_em && (
-                <div className="grid grid-cols-3 gap-2">
-                  <span className="text-muted-foreground">Conciliado em</span>
-                  <span className="col-span-2">{formatDateTime(detail.reconciliado_em)}</span>
-                </div>
-              )}
             </div>
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ── Helper component ──
+function DetailRow({ label, value, mono, bold, small }: { label: string; value: any; mono?: boolean; bold?: boolean; small?: boolean }) {
+  if (!value && value !== 0) return null;
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={`col-span-2 ${mono ? "font-mono" : ""} ${bold ? "font-bold" : ""} ${small ? "text-xs break-all" : ""}`}>
+        {value}
+      </span>
     </div>
   );
 }
