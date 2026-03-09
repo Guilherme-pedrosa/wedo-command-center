@@ -171,13 +171,14 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
-  // 3b. Busca OS executadas do período (para AT+Coifa e Ecolab)
+  // 3b. Busca OS executadas do período (para AT+Coifa, Ecolab e Contratos)
   const OS_EXECUTADOS_STATUS = [
     'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
     'EXECUTADO - AGUARDANDO PAGAMENTO',
     'EXECUTADO COM NOTA EMITIDA',
     'EXECUTADO - FINANCEIRO SEPARADO',
     'EXECUTADO - CIGAM',
+    'EXECUTADO POR CONTRATO',
   ];
 
   const { data: osExecutadas = [], isLoading: loadingOS, refetch: refetchOS } = useQuery({
