@@ -163,13 +163,13 @@ export default function MetasConfigDialog({ open, onOpenChange }: Props) {
       // Insert new mappings
       const validMaps = editingMaps.filter(m => m.plano_contas_id);
       if (validMaps.length > 0) {
-        const planoMap = Object.fromEntries(planos.map(p => [p.gc_id, p.nome]));
-        const centroMap = Object.fromEntries(centros.map(c => [c.codigo, c.nome]));
+        const planoMap = Object.fromEntries(planos.map(p => [p.id, p.nome]));
+        const centroMap = Object.fromEntries(centros.map(c => [c.id, c.nome]));
 
         const inserts = validMaps.map(m => ({
           meta_id: editingMeta.id,
-          plano_contas_id: m.plano_contas_id,
-          centro_custo_id: m.centro_custo_id || null,
+          plano_contas_id: m.plano_contas_id, // UUID
+          centro_custo_id: m.centro_custo_id || null, // UUID
           nome_plano: planoMap[m.plano_contas_id] || m.nome_plano || null,
           nome_centro_custo: m.centro_custo_id ? (centroMap[m.centro_custo_id] || m.nome_centro_custo || null) : null,
           peso: m.peso || 1,
