@@ -11,6 +11,15 @@ const GC_BASE_URL = "https://api.gestaoclick.com";
 const MIN_DELAY_MS = 350;
 let lastCallTime = 0;
 
+// Status de OS executadas no GestãoClick
+const EXECUTADO_STATUSES = [
+  "EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA",
+  "EXECUTADO - AGUARDANDO PAGAMENTO",
+  "EXECUTADO COM NOTA EMITIDA",
+  "EXECUTADO - FINANCEIRO SEPARADO",
+  "EXECUTADO - CIGAM",
+];
+
 async function rateLimitedFetch(url: string, options: RequestInit): Promise<Response> {
   const now = Date.now();
   const elapsed = now - lastCallTime;
@@ -19,6 +28,54 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
   }
   lastCallTime = Date.now();
   return fetch(url, options);
+}
+
+async function fetchByStatus(
+  status: string,
+  gcHeaders: Record<string, string>,
+  filters: { data_inicio?: string; data_fim?: string }
+): Promise<any[]> {
+  const allRecords: any[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  while (page <= totalPages) {
+    const params = new URLSearchParams({
+      limite: "100",
+      pagina: String(page),
+      nome_situacao: status,
+    });
+
+    if (filters.data_inicio) params.set("data_inicio", filters.data_inicio);
+    if (filters.data_fim) params.set("data_fim", filters.data_fim);
+
+    const url = `${GC_BASE_URL}/api/orcamentos?${params.toString()}`;
+    const response = await rateLimitedFetch(url, { headers: gcHeaders });
+
+    if (response.status === 401) {
+      throw new Error("GC_AUTH_ERROR: Invalid credentials");
+    }
+    if (response.status === 429) {
+      await new Promise((r) => setTimeout(r, 2000));
+      continue;
+    }
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`GC API error ${response.status}: ${text}`);
+    }
+
+    const data = await response.json();
+    const gcData = data?.data || data;
+    const records = gcData?.data || [];
+    const meta = gcData?.meta || data?.meta || {};
+
+    allRecords.push(...records);
+    totalPages = meta?.total_paginas || 1;
+    console.log(`[sync-os] Status="${status}" Page ${page}/${totalPages} — ${records.length} records`);
+    page++;
+  }
+
+  return allRecords;
 }
 
 serve(async (req) => {
@@ -49,73 +106,31 @@ serve(async (req) => {
       "Content-Type": "application/json",
     };
 
-    // Parse optional filters from request body
-    let filters: { data_inicio?: string; data_fim?: string; situacao?: string } = {};
+    let filters: { data_inicio?: string; data_fim?: string } = {};
     try {
       const body = await req.json();
       filters = body || {};
     } catch {
-      // No body, sync all
+      // No body
     }
 
+    // Fetch all EXECUTADO statuses in sequence (rate limit)
     const allOS: any[] = [];
-    let page = 1;
-    let totalPages = 1;
+    const statusCounts: Record<string, number> = {};
 
-    // Paginate through GC — endpoint: /api/orcamentos (GC usa orçamentos para OS)
-    while (page <= totalPages) {
-      const params = new URLSearchParams({
-        limite: "100",
-        pagina: String(page),
-      });
-
-      if (filters.data_inicio) params.set("data_inicio", filters.data_inicio);
-      if (filters.data_fim) params.set("data_fim", filters.data_fim);
-      if (filters.situacao) params.set("situacao", filters.situacao);
-
-      const url = `${GC_BASE_URL}/api/orcamentos?${params.toString()}`;
-      const response = await rateLimitedFetch(url, { headers: gcHeaders });
-
-      if (response.status === 401) {
-        throw new Error("GC_AUTH_ERROR: Invalid credentials");
-      }
-      if (response.status === 429) {
-        await new Promise((r) => setTimeout(r, 2000));
-        continue; // retry same page
-      }
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`GC API error ${response.status}: ${text}`);
-      }
-
-      const data = await response.json();
-      const records = data?.data || [];
+    for (const status of EXECUTADO_STATUSES) {
+      const records = await fetchByStatus(status, gcHeaders, filters);
+      statusCounts[status] = records.length;
       allOS.push(...records);
-
-      totalPages = data?.meta?.total_paginas || 1;
-      console.log(`[sync-os] Page ${page}/${totalPages} — ${records.length} records fetched`);
-      page++;
     }
 
-    console.log(`[sync-os] Total records fetched from GC: ${allOS.length}`);
+    console.log(`[sync-os] Total EXECUTADO records fetched: ${allOS.length}`, statusCounts);
 
     // Upsert into os_index
     let upserted = 0;
     let errors = 0;
 
     for (const os of allOS) {
-      // ── Mapeamento confirmado do JSON real do GC ──
-      // os.id          = ID interno GC (ex: "355094680")
-      // os.codigo      = Número da OS/orçamento (ex: "4973")
-      // os.nome_cliente = nome do cliente ✅
-      // os.nome_situacao = status ✅
-      // os.valor_total  = valor total ✅ (string)
-      // os.valor_servicos = valor serviços ✅ (string)
-      // os.valor_produtos = valor peças/produtos ✅ (NÃO valor_pecas)
-      // os.modificado_em = última modificação (ex: "2026-03-09 13:45:10")
-      // os.data         = data do orçamento (ex: "2026-03-09")
-      // NÃO existe campo data_saida — usar modificado_em como proxy
-
       const osId = String(os.id || "");
       const osCodigo = String(os.codigo || "");
 
@@ -125,34 +140,29 @@ serve(async (req) => {
         continue;
       }
 
-      // Valores monetários (GC retorna como string)
       const valorTotal = parseFloat(os.valor_total || "0") || null;
       const valorServicos = parseFloat(os.valor_servicos || "0") || null;
       const valorProdutos = parseFloat(os.valor_produtos || "0") || null;
 
-      // data_saida: usar modificado_em como proxy (data da última mudança de status)
-      // Formato GC: "2026-03-09 13:45:10" → extrair só a data
+      // data_saida: usar modificado_em como proxy
       let dataSaida: string | null = null;
       const modificadoEm = os.modificado_em || os.data || null;
       if (modificadoEm) {
-        // "2026-03-09 13:45:10" → "2026-03-09"
         const match = modificadoEm.match(/^(\d{4}-\d{2}-\d{2})/);
-        if (match) {
-          dataSaida = match[1];
-        }
+        if (match) dataSaida = match[1];
       }
 
       const record = {
         os_id: osId,
         os_codigo: osCodigo,
-        orc_codigo: osCodigo, // No GC, cada orçamento é um registro único
+        orc_codigo: osCodigo,
         todos_orcs: null,
         nome_cliente: os.nome_cliente || null,
         nome_situacao: os.nome_situacao || null,
         data_saida: dataSaida,
         valor_total: valorTotal,
         valor_servicos: valorServicos,
-        valor_pecas: valorProdutos, // GC usa "valor_produtos"
+        valor_pecas: valorProdutos,
         numero_os: osCodigo,
         built_at: new Date().toISOString(),
       };
@@ -182,7 +192,7 @@ serve(async (req) => {
     await supabase.from("sync_log").insert({
       tipo: "sync-os",
       status: errors > 0 ? "partial" : "ok",
-      payload: { filters, total_fetched: allOS.length, upserted, errors },
+      payload: { filters, statusCounts, total_fetched: allOS.length, upserted, errors },
       duracao_ms: duration,
     });
 
@@ -191,6 +201,7 @@ serve(async (req) => {
       total_fetched: allOS.length,
       upserted,
       errors,
+      statusCounts,
       duration_ms: duration,
     };
 
