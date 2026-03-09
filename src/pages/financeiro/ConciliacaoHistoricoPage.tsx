@@ -46,7 +46,7 @@ export default function ConciliacaoHistoricoPage() {
     },
   });
 
-  // EXCEÇÕES
+  // NÃO CONCILIADO
   const { data: excecoes, isLoading: isLoadingExc } = useQuery({
     queryKey: ["conciliacao-excecoes"],
     queryFn: async () => {
@@ -60,173 +60,58 @@ export default function ConciliacaoHistoricoPage() {
     },
   });
 
-  // IDs dos extratos com múltiplas parcelas
-  const extratoIdsComParcelas = (items || [])
-    .filter((i: any) => Number(i.qtd_parcelas) > 1)
-    .map((i: any) => i.id);
-
-  const { data: extratoLancamentos } = useQuery({
-    queryKey: ["conc-hist-extrato-lanc", extratoIdsComParcelas.join(",")],
-    queryFn: async () => {
-      if (!extratoIdsComParcelas.length) return [];
-      const { data } = await supabase
-        .from("fin_extrato_lancamentos")
-        .select("extrato_id, lancamento_id, tabela, valor_alocado")
-        .in("extrato_id", extratoIdsComParcelas);
-      return data || [];
-    },
-    enabled: extratoIdsComParcelas.length > 0,
-  });
-
-  // Expand IDs to include parcela lancamentos
-  const lancIds = (items || []).map((i: any) => i.lancamento_id).filter(Boolean);
-  const parcelaLancIds = (extratoLancamentos || []).map((el: any) => el.lancamento_id).filter(Boolean);
-  const allLancIds = [...new Set([...lancIds, ...parcelaLancIds])];
-
-  const grupoRecIds = (items || []).map((i: any) => i.grupo_receber_id).filter(Boolean);
-  const grupoPagIds = (items || []).map((i: any) => i.grupo_pagar_id).filter(Boolean);
-
-  const { data: recebimentos } = useQuery({
-    queryKey: ["conc-hist-rec", allLancIds.join(",")],
-    queryFn: async () => {
-      if (!allLancIds.length) return [];
-      const { data } = await supabase
-        .from("fin_recebimentos")
-        .select("id, descricao, valor, nome_cliente, data_vencimento, data_liquidacao, status, gc_codigo, os_codigo, plano_contas_id, centro_custo_id, origem")
-        .in("id", allLancIds);
-      return data || [];
-    },
-    enabled: allLancIds.length > 0,
-  });
-
-  const { data: pagamentos } = useQuery({
-    queryKey: ["conc-hist-pag", allLancIds.join(",")],
-    queryFn: async () => {
-      if (!allLancIds.length) return [];
-      const { data } = await supabase
-        .from("fin_pagamentos")
-        .select("id, descricao, valor, nome_fornecedor, data_vencimento, data_liquidacao, status, gc_codigo, os_codigo, plano_contas_id, centro_custo_id, origem")
-        .in("id", allLancIds);
-      return data || [];
-    },
-    enabled: allLancIds.length > 0,
-  });
-
-  const { data: gruposReceber } = useQuery({
-    queryKey: ["conc-hist-grp-rec", grupoRecIds.join(",")],
-    queryFn: async () => {
-      if (!grupoRecIds.length) return [];
-      const { data } = await supabase
-        .from("fin_grupos_receber")
-        .select("id, nome, valor_total, nome_cliente, status")
-        .in("id", grupoRecIds);
-      return data || [];
-    },
-    enabled: grupoRecIds.length > 0,
-  });
-
-  const { data: gruposPagar } = useQuery({
-    queryKey: ["conc-hist-grp-pag", grupoPagIds.join(",")],
-    queryFn: async () => {
-      if (!grupoPagIds.length) return [];
-      const { data } = await supabase
-        .from("fin_grupos_pagar")
-        .select("id, nome, valor_total, nome_fornecedor, status")
-        .in("id", grupoPagIds);
-      return data || [];
-    },
-    enabled: grupoPagIds.length > 0,
-  });
-
-  const { data: syncLogs } = useQuery({
-    queryKey: ["conc-hist-logs"],
+  // FINANCEIRO NÃO CONCILIADO
+  const { data: financeirosNaoConciliados, isLoading: isLoadingFinNaoConc } = useQuery({
+    queryKey: ["conciliacao-financeiro-nao-conciliado"],
     queryFn: async () => {
       const { data } = await supabase
-        .from("fin_sync_log")
+        .from("vw_conciliacao_extrato" as any)
         .select("*")
-        .in("tipo", ["conciliacao_auto", "inter_webhook_recebimento", "inter_webhook_pagamento"])
-        .order("created_at", { ascending: false })
-        .limit(500);
-      return data || [];
+        .eq("reconciliado", false)
+        .is("reconciliation_rule", null)
+        .order("data_extrato", { ascending: false })
+        .limit(200);
+      return (data as any[]) || [];
     },
   });
 
-  // Build lookup maps
-  const recMap: Record<string, any> = {};
-  (recebimentos || []).forEach((r: any) => { recMap[r.id] = r; });
-  const pagMap: Record<string, any> = {};
-  (pagamentos || []).forEach((p: any) => { pagMap[p.id] = p; });
-  const grpRecMap: Record<string, any> = {};
-  (gruposReceber || []).forEach((g: any) => { grpRecMap[g.id] = g; });
-  const grpPagMap: Record<string, any> = {};
-  (gruposPagar || []).forEach((g: any) => { grpPagMap[g.id] = g; });
-  const logByRef: Record<string, any> = {};
-  (syncLogs || []).forEach((l: any) => { if (l.referencia_id) logByRef[l.referencia_id] = l; });
-
-  // Parcelas map by extrato_id
-  const parcelasMap: Record<string, { lancamento_id: string; tabela: string; valor_alocado: number }[]> = {};
-  (extratoLancamentos || []).forEach((el: any) => {
-    if (!parcelasMap[el.extrato_id]) parcelasMap[el.extrato_id] = [];
-    parcelasMap[el.extrato_id].push({
-      lancamento_id: el.lancamento_id,
-      tabela: el.tabela,
-      valor_alocado: Number(el.valor_alocado),
-    });
-  });
-
-  const getLancamento = (item: any) => {
-    if (item.lancamento_id) return recMap[item.lancamento_id] || pagMap[item.lancamento_id] || null;
-    return null;
-  };
-
-  const getGrupo = (item: any) => {
-    if (item.grupo_receber_id) return { ...grpRecMap[item.grupo_receber_id], _tipo: "receber" };
-    if (item.grupo_pagar_id) return { ...grpPagMap[item.grupo_pagar_id], _tipo: "pagar" };
-    return null;
-  };
-
-  const getVinculoLabel = (item: any) => {
-    if (item.lancamento_id) return "lancamento";
-    if (item.grupo_receber_id) return "grupo_receber";
-    if (item.grupo_pagar_id) return "grupo_pagar";
-    return "manual";
-  };
-
-  const filtered = (items || []).filter((i: any) => {
-    if (tipoFilter !== "todos" && i.tipo !== tipoFilter) return false;
-    const vinculo = getVinculoLabel(i);
-    if (vinculoFilter !== "todos" && vinculo !== vinculoFilter) return false;
-    if (search) {
-      const s = search.toLowerCase();
-      const lanc = getLancamento(i);
-      const grupo = getGrupo(i);
+  const filtered = (items || [])
+    .filter((i: any) => tipoFilter === "todos" || i.tipo === tipoFilter)
+    .filter((i: any) => vinculoFilter === "todos" || i[vinculoFilter] === true)
+    .filter((i: any) => {
+      const searchTerm = search.toLowerCase();
       return (
-        (i.contrapartida ?? "").toLowerCase().includes(s) ||
-        (i.cpf_cnpj ?? "").includes(s) ||
-        (i.end_to_end_id ?? "").toLowerCase().includes(s) ||
-        (i.descricao ?? "").toLowerCase().includes(s) ||
-        (lanc?.descricao ?? "").toLowerCase().includes(s) ||
-        (lanc?.gc_codigo ?? "").includes(s) ||
-        (lanc?.os_codigo ?? "").includes(s) ||
-        (grupo?.nome ?? "").toLowerCase().includes(s)
+        i.nome_cliente?.toLowerCase().includes(searchTerm) ||
+        i.documento_cliente?.toLowerCase().includes(searchTerm) ||
+        i.end_to_end_id?.toLowerCase().includes(searchTerm) ||
+        i.descricao?.toLowerCase().includes(searchTerm) ||
+        i.os_codigo?.toLowerCase().includes(searchTerm) ||
+        i.gc_codigo?.toLowerCase().includes(searchTerm)
       );
-    }
-    return true;
-  });
+    });
 
   const filteredExc = (excecoes || []).filter((i: any) => {
-    if (tipoFilter !== "todos" && i.tipo !== tipoFilter) return false;
-    if (search) {
-      const s = search.toLowerCase();
-      return (
-        (i.contrapartida ?? "").toLowerCase().includes(s) ||
-        (i.cpf_cnpj ?? "").includes(s) ||
-        (i.descricao ?? "").toLowerCase().includes(s) ||
-        (i.nome_contraparte ?? "").toLowerCase().includes(s) ||
-        (i.observacao ?? "").toLowerCase().includes(s)
-      );
-    }
-    return true;
+    const searchTerm = search.toLowerCase();
+    return (
+      i.nome_cliente?.toLowerCase().includes(searchTerm) ||
+      i.documento_cliente?.toLowerCase().includes(searchTerm) ||
+      i.end_to_end_id?.toLowerCase().includes(searchTerm) ||
+      i.descricao?.toLowerCase().includes(searchTerm) ||
+      i.os_codigo?.toLowerCase().includes(searchTerm) ||
+      i.gc_codigo?.toLowerCase().includes(searchTerm)
+    );
+  });
+
+  const filteredFinNaoConc = (financeirosNaoConciliados || []).filter((i: any) => {
+    const searchTerm = search.toLowerCase();
+    return (
+      i.nome_cliente?.toLowerCase().includes(searchTerm) ||
+      i.documento_cliente?.toLowerCase().includes(searchTerm) ||
+      i.end_to_end_id?.toLowerCase().includes(searchTerm) ||
+      i.descricao?.toLowerCase().includes(searchTerm) ||
+      i.os_codigo?.toLowerCase().includes(searchTerm) ||
+      i.gc_codigo?.toLowerCase().includes(searchTerm)
+    );
   });
 
   // Stats
@@ -237,8 +122,8 @@ export default function ConciliacaoHistoricoPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Histórico de Conciliação</h1>
-        <p className="text-sm text-muted-foreground">Registro detalhado de todas as transações reconciliadas</p>
+        <h1 className="text-2xl font-bold text-foreground">{"Histórico de Conciliação"}</h1>
+        <p className="text-sm text-muted-foreground">{"Registro detalhado de todas as transações reconciliadas"}</p>
       </div>
 
       {/* Summary cards */}
@@ -250,23 +135,23 @@ export default function ConciliacaoHistoricoPage() {
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="flex items-center gap-1">
             <TrendingUp className="h-3 w-3 text-wedo-green" />
-            <p className="text-[10px] uppercase text-muted-foreground font-semibold">Créditos</p>
+            <p className="text-[10px] uppercase text-muted-foreground font-semibold">{"Créditos"}</p>
           </div>
           <p className="text-lg font-bold text-wedo-green">{formatCurrency(totalCredito)}</p>
-          <p className="text-[10px] text-muted-foreground">{filtered.filter((i: any) => i.tipo === "CREDITO").length} transações</p>
+          <p className="text-[10px] text-muted-foreground">{filtered.filter((i: any) => i.tipo === "CREDITO").length} {"transações"}</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="flex items-center gap-1">
             <TrendingDown className="h-3 w-3 text-wedo-red" />
-            <p className="text-[10px] uppercase text-muted-foreground font-semibold">Débitos</p>
+            <p className="text-[10px] uppercase text-muted-foreground font-semibold">{"Débitos"}</p>
           </div>
           <p className="text-lg font-bold text-wedo-red">{formatCurrency(totalDebito)}</p>
-          <p className="text-[10px] text-muted-foreground">{filtered.filter((i: any) => i.tipo === "DEBITO").length} transações</p>
+          <p className="text-[10px] text-muted-foreground">{filtered.filter((i: any) => i.tipo === "DEBITO").length} {"transações"}</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="flex items-center gap-1">
             <ArrowLeftRight className="h-3 w-3 text-primary" />
-            <p className="text-[10px] uppercase text-muted-foreground font-semibold">Saldo Líquido</p>
+            <p className="text-[10px] uppercase text-muted-foreground font-semibold">{"Saldo Líquido"}</p>
           </div>
           <p className={`text-lg font-bold ${totalCredito - totalDebito >= 0 ? "text-wedo-green" : "text-wedo-red"}`}>
             {formatCurrency(totalCredito - totalDebito)}
@@ -275,7 +160,7 @@ export default function ConciliacaoHistoricoPage() {
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="flex items-center gap-1">
             <AlertTriangle className="h-3 w-3 text-wedo-orange" />
-            <p className="text-[10px] uppercase text-muted-foreground font-semibold">Não Conciliadoliado</p>
+            <p className="text-[10px] uppercase text-muted-foreground font-semibold">{"Não Conciliado"}</p>
           </div>
           <p className="text-lg font-bold text-wedo-orange">{(excecoes || []).length}</p>
           <p className="text-[10px] text-muted-foreground">{formatCurrency(totalExcecoes)}</p>
@@ -292,16 +177,16 @@ export default function ConciliacaoHistoricoPage() {
           <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="todos">Todos tipos</SelectItem>
-            <SelectItem value="CREDITO">Crédito</SelectItem>
-            <SelectItem value="DEBITO">Débito</SelectItem>
+            <SelectItem value="CREDITO">{"Crédito"}</SelectItem>
+            <SelectItem value="DEBITO">{"Débito"}</SelectItem>
           </SelectContent>
         </Select>
         {tab === "conciliados" && (
           <Select value={vinculoFilter} onValueChange={setVinculoFilter}>
             <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="todos">Todos vínculos</SelectItem>
-              <SelectItem value="lancamento">Lançamento</SelectItem>
+              <SelectItem value="todos">{"Todos vínculos"}</SelectItem>
+              <SelectItem value="lancamento">{"Lançamento"}</SelectItem>
               <SelectItem value="grupo_receber">Grupo Receber</SelectItem>
               <SelectItem value="grupo_pagar">Grupo Pagar</SelectItem>
             </SelectContent>
@@ -313,398 +198,216 @@ export default function ConciliacaoHistoricoPage() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="conciliados">Conciliados ({filtered.length})</TabsTrigger>
-          <TabsTrigger value="excecNão Conciliado�ões ({filteredExc.length})</TabsTrigger>
+          <TabsTrigger value="excecoes">{"Não Conciliado"} ({filteredExc.length})</TabsTrigger>
+          <TabsTrigger value="financeiro_nao_conciliado">Financeiro Não Conciliado ({filteredFinNaoConc.length})</TabsTrigger>
         </TabsList>
 
-        {/* === CONCILIADOS TAB === */}
-        <TabsContent value="conciliados">
-          <div className="rounded-lg border border-border bg-card">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                    <th className="px-3 py-3 w-[70px]">Tipo</th>
-                    <th className="px-3 py-3">Contrapartida</th>
-                    <th className="px-3 py-3">CPF/CNPJ</th>
-                    <th className="px-3 py-3 text-right">Valor Extrato</th>
-                    <th className="px-3 py-3">Lançamento Vinculado</th>
-                    <th className="px-3 py-3 text-right">Valor Lanç.</th>
-                    <th className="px-3 py-3">Diferença</th>
-                    <th className="px-3 py-3">Data Transação</th>
-                    <th className="px-3 py-3">Conciliado em</th>
-                    <th className="px-3 py-3">Método</th>
-                    <th className="px-3 py-3 w-[50px]"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {isLoading && (
-                    <tr><td colSpan={11} className="text-center py-8 text-muted-foreground">Carregando...</td></tr>
-                  )}
-                  {!isLoading && filtered.length === 0 && (
-                    <tr><td colSpan={11} className="text-center py-8 text-muted-foreground">Nenhum registro encontrado</td></tr>
-                  )}
-                  {filtered.map((item: any) => {
-                    const lanc = getLancamento(item);
-                    const grupo = getGrupo(item);
-                    const valorGc = item.valor_gc != null ? Number(item.valor_gc) : (lanc ? Number(lanc.valor) : grupo ? Number(grupo.valor_total) : null);
-                    const diff = item.diferenca != null ? Number(item.diferenca) : (valorGc !== null ? Math.abs(Math.abs(Number(item.valor_extrato ?? item.valor)) - valorGc) : null);
-                    const isExato = item.exato != null ? item.exato : (diff !== null && diff <= 0.02);
-                    const qtdParcelas = item.qtd_parcelas != null ? Number(item.qtd_parcelas) : null;
-                    const log = logByRef[item.id];
-                    const score = log?.payload?.score;
-                    const reasons = log?.payload?.reasons;
-                    const metodo = log?.tipo === "conciliacao_auto" ? "Auto" : log?.tipo?.includes("webhook") ? "Webhook" : "Manual";
-                    const valorExtrato = item.valor_extrato != null ? item.valor_extrato : item.valor;
-
-                    return (
-                      <tr key={item.id} className="border-b border-border/50 hover:bg-muted/20 cursor-pointer" onClick={() => setDetail({ item, lanc, grupo, log, score, reasons, metodo, valorGc, diff, isExato, qtdParcelas })}>
-                        <td className="px-3 py-2.5">
-                          <Badge variant="outline" className={`text-[10px] ${item.tipo === "CREDITO" ? "text-wedo-green" : "text-wedo-red"}`}>
-                            {item.tipo}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <p className="font-medium text-xs">{item.contrapartida || "—"}</p>
-                          {item.chave_pix && <p className="text-[10px] text-muted-foreground">PIX: {item.chave_pix}</p>}
-                        </td>
-                        <td className="px-3 py-2.5 text-muted-foreground text-[11px] font-mono">{item.cpf_cnpj || "—"}</td>
-                        <td className="px-3 py-2.5 text-right font-semibold">{formatCurrency(Math.abs(Number(valorExtrato)))}</td>
-                        <td className="px-3 py-2.5">
-                          {/* SOMA_PARCELAS: mostrar todos os GCs */}
-                          {qtdParcelas != null && qtdParcelas > 1 && parcelasMap[item.id]?.length > 0 ? (
-                            <div className="space-y-1">
-                              {parcelasMap[item.id].map((p, idx) => {
-                                const pLanc = recMap[p.lancamento_id] || pagMap[p.lancamento_id];
-                                if (!pLanc) return (
-                                  <p key={idx} className="text-[10px] text-muted-foreground italic">
-                                    ID: {p.lancamento_id?.slice(0, 8)}… — {formatCurrency(p.valor_alocado)}
-                                  </p>
-                                );
-                                return (
-                                  <div key={idx} className="flex items-center justify-between gap-2 text-xs border-b border-border/30 last:border-0 pb-0.5 last:pb-0">
-                                    <div className="min-w-0">
-                                      <p className="font-medium truncate max-w-[180px]">{pLanc.descricao}</p>
-                                      <p className="text-[10px] text-muted-foreground">
-                                        {pLanc.nome_cliente || pLanc.nome_fornecedor || ""}
-                                        {pLanc.gc_codigo && <span className="ml-1">· GC {pLanc.gc_codigo}</span>}
-                                        {pLanc.os_codigo && <span className="ml-1">· OS {pLanc.os_codigo}</span>}
-                                      </p>
-                                    </div>
-                                    <span className="text-[10px] font-semibold text-muted-foreground whitespace-nowrap">
-                                      {formatCurrency(p.valor_alocado)}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : lanc ? (
-                            /* 1:1 normal */
-                            <div>
-                              <p className="text-xs font-medium truncate max-w-[200px]">{lanc.descricao}</p>
-                              <p className="text-[10px] text-muted-foreground">
-                                {lanc.nome_cliente || lanc.nome_fornecedor || ""}
-                                {lanc.gc_codigo && <span className="ml-1">· GC {lanc.gc_codigo}</span>}
-                                {lanc.os_codigo && <span className="ml-1">· OS {lanc.os_codigo}</span>}
-                              </p>
-                            </div>
-                          ) : grupo ? (
-                            <div>
-                              <p className="text-xs font-medium truncate max-w-[200px]">{grupo.nome}</p>
-                              <p className="text-[10px] text-muted-foreground">{grupo.nome_cliente || grupo.nome_fornecedor || ""}</p>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5 text-right text-xs">
-                          {valorGc !== null ? formatCurrency(valorGc) : "—"}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          {diff !== null && (
-                            qtdParcelas != null && qtdParcelas > 1 ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Badge variant={isExato ? "default" : "destructive"} className="text-[10px] cursor-help">
-                                    {isExato ? "✓ Exato" : formatCurrency(diff)}
-                                  </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p className="text-xs">{qtdParcelas} parcelas — total GC {formatCurrency(valorGc ?? 0)}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              <Badge variant={isExato ? "default" : "destructive"} className="text-[10px]">
-                                {isExato ? "✓ Exato" : formatCurrency(diff)}
-                              </Badge>
-                            )
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5 text-[11px] text-muted-foreground whitespace-nowrap">
-                          {item.data_hora ? formatDateTime(item.data_hora) : "—"}
-                        </td>
-                        <td className="px-3 py-2.5 text-[11px] text-muted-foreground whitespace-nowrap">
-                          {item.reconciliado_em ? formatDateTime(item.reconciliado_em) : "—"}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-1.5">
-                            <Badge variant="outline" className={`text-[10px] ${metodo === "Auto" ? "text-wedo-green border-wedo-green/30" : metodo === "Webhook" ? "text-primary border-primary/30" : "text-muted-foreground"}`}>
-                              {metodo}
-                            </Badge>
-                            {score && <span className="text-[10px] text-muted-foreground">S:{score}</span>}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0"><Eye className="h-3.5 w-3.5" /></Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+        <TabsContent value="conciliados" className="space-y-3">
+          {isLoading ? (
+            <p>Carregando...</p>
+          ) : (
+            <div className="divide-y divide-border rounded-md border border-border">
+              {filtered.map((item: any) => (
+                <div key={item.id} className="grid grid-cols-12 items-center gap-2 p-3">
+                  <div className="col-span-2 text-xs text-muted-foreground">{formatDateTime(item.reconciliado_em)}</div>
+                  <div className="col-span-2 font-medium">{item.nome_cliente}</div>
+                  <div className="col-span-1 text-xs text-muted-foreground">{item.documento_cliente}</div>
+                  <div className="col-span-2">
+                    <Badge variant="outline">{item.tipo}</Badge>
+                    {item.lancamento && (
+                      <Tooltip>
+                        <TooltipTrigger><Badge className="ml-1" variant="secondary">Lançamento</Badge></TooltipTrigger>
+                        <TooltipContent>Conciliado automaticamente com um lançamento</TooltipContent>
+                      </Tooltip>
+                    )}
+                    {item.grupo_receber && (
+                      <Tooltip>
+                        <TooltipTrigger><Badge className="ml-1" variant="secondary">Grupo Receber</Badge></TooltipTrigger>
+                        <TooltipContent>Conciliado automaticamente com um grupo de recebimento</TooltipContent>
+                      </Tooltip>
+                    )}
+                    {item.grupo_pagar && (
+                      <Tooltip>
+                        <TooltipTrigger><Badge className="ml-1" variant="secondary">Grupo Pagar</Badge></TooltipTrigger>
+                        <TooltipContent>Conciliado automaticamente com um grupo de pagamento</TooltipContent>
+                      </Tooltip>
+                    )}
+                  </div>
+                  <div className="col-span-2 font-bold">{formatCurrency(item.valor_extrato ?? item.valor)}</div>
+                  <div className="col-span-3 flex items-center justify-end gap-2">
+                    {item.gc_codigo && (
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <Button size="icon" variant="ghost" asChild>
+                            <a href={item.tipo === "CREDITO" ? gcRecebimentoLink(item.gc_codigo) : gcPagamentoLink(item.gc_codigo)} target="_blank" rel="noreferrer">
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Ver no GestãoClick</TooltipContent>
+                      </Tooltip>
+                    )}
+                    {item.os_codigo && (
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <Button size="icon" variant="ghost" asChild>
+                            <a href={gcOsLink(item.os_codigo)} target="_blank" rel="noreferrer">
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Ver OS no GestãoClick</TooltipContent>
+                      </Tooltip>
+                    )}
+                    <Button size="icon" variant="ghost" onClick={() => setDetail(item)}>
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </div>
-            {filtered.length > 0 && (
-              <div className="px-4 py-2 text-xs text-muted-foreground border-t border-border flex justify-between">
-                <span>{filtered.length} registro(s)</span>
-                <span>Créditos: {formatCurrency(totalCredito)} · Débitos: {formatCurrency(totalDebito)}</span>
-              </div>
-            )}
-          </div>
+          )}
         </TabsContent>
 
-        {/* === EXCEÇÕES TAB === */}
-        <TabsContent value="excecoes">
-          <div className="rounded-lg border border-border bg-card">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                    <th className="px-3 py-3 w-[70px]">Tipo</th>
-                    <th className="px-3 py-3">Contrapartida</th>
-                    <th className="px-3 py-3">CPF/CNPJ</th>
-                    <th className="px-3 py-3 text-right">Valor Extrato</th>
-                    <th className="px-3 py-3">Motivo</th>
-                    <th className="px-3 py-3">Observação</th>
-                    <th className="px-3 py-3">Data Transação</th>
-                    <th className="px-3 py-3">Conciliado em</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {isLoadingExc && (
-                    <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">Carregando...</td></tr>
-                  )}
-                  {!isLoadingExc && filteredExc.length === 0 && (
-                    <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">Nenhuma exceção encontrada</td></tr>
-                  )}
-                  {filteredExc.map((item: any) => {
-                    const valorExtrato = item.valor_extrato != null ? item.valor_extrato : item.valor;
-                    return (
-                      <tr key={item.id} className="border-b border-border/50 hover:bg-muted/20">
-                        <td className="px-3 py-2.5">
-                          <Badge variant="outline" className={`text-[10px] ${item.tipo === "CREDITO" ? "text-wedo-green" : "text-wedo-red"}`}>
-                            {item.tipo}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <p className="font-medium text-xs">{item.contrapartida || item.nome_contraparte || "—"}</p>
-                          {item.chave_pix && <p className="text-[10px] text-muted-foreground">PIX: {item.chave_pix}</p>}
-                        </td>
-                        <td className="px-3 py-2.5 text-muted-foreground text-[11px] font-mono">{item.cpf_cnpj || "—"}</td>
-                        <td className="px-3 py-2.5 text-right font-semibold">{formatCurrency(Math.abs(Number(valorExtrato)))}</td>
-                        <td className="px-3 py-2.5">
-                          <Badge variant="outline" className="text-[10px] text-wedo-orange border-wedo-orange/30">
-                            {ruleLabels[item.reconciliation_rule] || item.reconciliation_rule || "—"}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2.5 text-xs text-muted-foreground max-w-[250px] truncate">
-                          {item.observacao || "—"}
-                        </td>
-                        <td className="px-3 py-2.5 text-[11px] text-muted-foreground whitespace-nowrap">
-                          {item.data_hora ? formatDateTime(item.data_hora) : "—"}
-                        </td>
-                        <td className="px-3 py-2.5 text-[11px] text-muted-foreground whitespace-nowrap">
-                          {item.reconciliado_em ? formatDateTime(item.reconciliado_em) : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+        <TabsContent value="excecoes" className="space-y-3">
+          {isLoadingExc ? (
+            <p>Carregando...</p>
+          ) : (
+            <div className="divide-y divide-border rounded-md border border-border">
+              {filteredExc.map((item: any) => (
+                <div key={item.id} className="grid grid-cols-12 items-center gap-2 p-3">
+                  <div className="col-span-2 text-xs text-muted-foreground">{formatDateTime(item.reconciliado_em)}</div>
+                  <div className="col-span-2 font-medium">{item.nome_cliente}</div>
+                  <div className="col-span-1 text-xs text-muted-foreground">{item.documento_cliente}</div>
+                  <div className="col-span-2">
+                    <Badge variant="destructive">{ruleLabels[item.reconciliation_rule]}</Badge>
+                  </div>
+                  <div className="col-span-2 font-bold">{formatCurrency(item.valor_extrato ?? item.valor)}</div>
+                  <div className="col-span-3 flex items-center justify-end gap-2">
+                    {item.gc_codigo && (
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <Button size="icon" variant="ghost" asChild>
+                            <a href={item.tipo === "CREDITO" ? gcRecebimentoLink(item.gc_codigo) : gcPagamentoLink(item.gc_codigo)} target="_blank" rel="noreferrer">
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Ver no GestãoClick</TooltipContent>
+                      </Tooltip>
+                    )}
+                    {item.os_codigo && (
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <Button size="icon" variant="ghost" asChild>
+                            <a href={gcOsLink(item.os_codigo)} target="_blank" rel="noreferrer">
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Ver OS no GestãoClick</TooltipContent>
+                      </Tooltip>
+                    )}
+                    <Button size="icon" variant="ghost" onClick={() => setDetail(item)}>
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </div>
-            {filteredExc.length > 0 && (
-              <div className="px-4 py-2 text-xs text-muted-foreground border-t border-border">
-                {filteredExc.length} exceção(ões) · Total: {formatCurrency(filteredExc.reduce((s: number, i: any) => s + Math.abs(Number(i.valor_extrato ?? i.valor)), 0))}
-              </div>
-            )}
-          </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="financeiro_nao_conciliado" className="space-y-3">
+          {isLoadingFinNaoConc ? (
+            <p>Carregando...</p>
+          ) : (
+            <div className="divide-y divide-border rounded-md border border-border">
+              {filteredFinNaoConc.map((item: any) => (
+                <div key={item.id} className="grid grid-cols-12 items-center gap-2 p-3">
+                  <div className="col-span-2 text-xs text-muted-foreground">{formatDateTime(item.data_extrato)}</div>
+                  <div className="col-span-2 font-medium">{item.nome_cliente}</div>
+                  <div className="col-span-1 text-xs text-muted-foreground">{item.documento_cliente}</div>
+                  <div className="col-span-2">
+                    <Badge variant="secondary">{"Não Conciliado"}</Badge>
+                  </div>
+                  <div className="col-span-2 font-bold">{formatCurrency(item.valor_extrato ?? item.valor)}</div>
+                  <div className="col-span-3 flex items-center justify-end gap-2">
+                    {item.gc_codigo && (
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <Button size="icon" variant="ghost" asChild>
+                            <a href={item.tipo === "CREDITO" ? gcRecebimentoLink(item.gc_codigo) : gcPagamentoLink(item.gc_codigo)} target="_blank" rel="noreferrer">
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Ver no GestãoClick</TooltipContent>
+                      </Tooltip>
+                    )}
+                    {item.os_codigo && (
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <Button size="icon" variant="ghost" asChild>
+                            <a href={gcOsLink(item.os_codigo)} target="_blank" rel="noreferrer">
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Ver OS no GestãoClick</TooltipContent>
+                      </Tooltip>
+                    )}
+                    <Button size="icon" variant="ghost" onClick={() => setDetail(item)}>
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 
       {/* Detail Modal */}
-      <Dialog open={!!detail} onOpenChange={o => { if (!o) setDetail(null); }}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <Dialog open={!!detail} onOpenChange={() => setDetail(null)}>
+        <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ArrowLeftRight className="h-4 w-4" />
-              Detalhes da Conciliação
-            </DialogTitle>
+            <DialogTitle>Detalhes</DialogTitle>
           </DialogHeader>
-          {detail && (
-            <div className="space-y-4 text-sm">
-              {/* Extrato */}
-              <div className="rounded-md border border-border p-4 space-y-2">
-                <h4 className="font-semibold text-xs uppercase text-muted-foreground flex items-center gap-1.5">
-                  🏦 Extrato Bancário
-                </h4>
-                <div className="grid grid-cols-2 gap-2">
-                  <Field label="Tipo" value={detail.item.tipo} />
-                  <Field label="Valor" value={formatCurrency(Math.abs(Number(detail.item.valor_extrato ?? detail.item.valor)))} className="font-semibold" />
-                  <Field label="Contrapartida" value={detail.item.contrapartida} />
-                  <Field label="CPF/CNPJ" value={detail.item.cpf_cnpj} mono />
-                  <Field label="Chave PIX" value={detail.item.chave_pix} mono />
-                  <Field label="End-to-End ID" value={detail.item.end_to_end_id} mono />
-                  <Field label="Data/Hora Transação" value={detail.item.data_hora ? formatDateTime(detail.item.data_hora) : "—"} />
-                  <Field label="Descrição" value={detail.item.descricao} />
-                </div>
-              </div>
-
-              {/* Lançamento vinculado (1:1) */}
-              {detail.lanc && !(detail.qtdParcelas > 1 && parcelasMap[detail.item.id]?.length > 0) && (
-                <div className="rounded-md border border-border p-4 space-y-2">
-                  <h4 className="font-semibold text-xs uppercase text-muted-foreground">📋 Lançamento Vinculado</h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="Descrição" value={detail.lanc.descricao} />
-                    <Field label="Valor" value={formatCurrency(Number(detail.lanc.valor))} className="font-semibold" />
-                    <Field label="Cliente/Fornecedor" value={detail.lanc.nome_cliente || detail.lanc.nome_fornecedor} />
-                    <Field label="Status" value={detail.lanc.status} />
-                    <div>
-                      <p className="text-[10px] text-muted-foreground uppercase font-semibold">Código GC</p>
-                      {detail.lanc.gc_id || detail.lanc.gc_codigo ? (
-                        <a href={detail.lanc._tipo === "pagar" ? gcPagamentoLink(detail.lanc.gc_id || detail.lanc.gc_codigo) : gcRecebimentoLink(detail.lanc.gc_id || detail.lanc.gc_codigo)} target="_blank" rel="noopener noreferrer" className="text-xs font-mono text-primary hover:underline inline-flex items-center gap-1">
-                          {detail.lanc.gc_codigo || detail.lanc.gc_id} <ExternalLink className="h-3 w-3" />
-                        </a>
-                      ) : <p className="text-xs">—</p>}
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-muted-foreground uppercase font-semibold">Código OS</p>
-                      {detail.lanc.os_codigo ? (
-                        <a href={gcOsLink(detail.lanc.gc_os_id || detail.lanc.os_codigo)} target="_blank" rel="noopener noreferrer" className="text-xs font-mono text-primary hover:underline inline-flex items-center gap-1">
-                          {detail.lanc.os_codigo} <ExternalLink className="h-3 w-3" />
-                        </a>
-                      ) : <p className="text-xs">—</p>}
-                    </div>
-                    <Field label="Data Vencimento" value={detail.lanc.data_vencimento} />
-                    <Field label="Data Liquidação" value={detail.lanc.data_liquidacao} />
-                    <Field label="Origem" value={detail.lanc.origem} />
-                  </div>
-                </div>
-              )}
-
-              {/* Parcelas múltiplas */}
-              {detail.qtdParcelas > 1 && parcelasMap[detail.item.id]?.length > 0 && (
-                <div className="rounded-md border border-border p-4 space-y-2">
-                  <h4 className="font-semibold text-xs uppercase text-muted-foreground">
-                    🔗 Lançamentos Vinculados ({parcelasMap[detail.item.id].length} parcelas)
-                  </h4>
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-[10px] text-muted-foreground uppercase border-b border-border">
-                        <th className="pb-1 text-left">Descrição</th>
-                        <th className="pb-1 text-left">Cliente/Fornecedor</th>
-                        <th className="pb-1 text-left">GC / OS</th>
-                        <th className="pb-1 text-right">Valor Alocado</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {parcelasMap[detail.item.id].map((p, idx) => {
-                        const pLanc = recMap[p.lancamento_id] || pagMap[p.lancamento_id];
-                        return (
-                          <tr key={idx} className="border-b border-border/30 last:border-0">
-                            <td className="py-1 pr-2">{pLanc?.descricao || `ID: ${p.lancamento_id?.slice(0, 8)}…`}</td>
-                            <td className="py-1 pr-2 text-muted-foreground">{pLanc?.nome_cliente || pLanc?.nome_fornecedor || "—"}</td>
-                            <td className="py-1 pr-2 font-mono text-muted-foreground">
-                              {pLanc?.gc_codigo ? (
-                                <a href={p.tabela === "fin_pagamentos" ? gcPagamentoLink(pLanc.gc_id || pLanc.gc_codigo) : gcRecebimentoLink(pLanc.gc_id || pLanc.gc_codigo)} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-0.5">
-                                  {pLanc.gc_codigo} <ExternalLink className="h-2.5 w-2.5" />
-                                </a>
-                              ) : "—"}
-                              {pLanc?.os_codigo && (
-                                <a href={gcOsLink(pLanc.gc_os_id || pLanc.os_codigo)} target="_blank" rel="noopener noreferrer" className="ml-1 text-primary hover:underline inline-flex items-center gap-0.5">
-                                  / {pLanc.os_codigo} <ExternalLink className="h-2.5 w-2.5" />
-                                </a>
-                              )}
-                            </td>
-                            <td className="py-1 text-right font-semibold">{formatCurrency(p.valor_alocado)}</td>
-                          </tr>
-                        );
-                      })}
-                      <tr className="font-bold">
-                        <td colSpan={3} className="pt-1">Total GC</td>
-                        <td className="pt-1 text-right">
-                          {formatCurrency(parcelasMap[detail.item.id].reduce((s, p) => s + p.valor_alocado, 0))}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* Grupo vinculado */}
-              {detail.grupo && (
-                <div className="rounded-md border border-border p-4 space-y-2">
-                  <h4 className="font-semibold text-xs uppercase text-muted-foreground">🗂️ Grupo Vinculado</h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="Nome" value={detail.grupo.nome} />
-                    <Field label="Valor Total" value={formatCurrency(Number(detail.grupo.valor_total))} className="font-semibold" />
-                    <Field label="Cliente/Fornecedor" value={detail.grupo.nome_cliente || detail.grupo.nome_fornecedor} />
-                    <Field label="Status" value={detail.grupo.status} />
-                    <Field label="Tipo" value={detail.grupo._tipo === "receber" ? "A Receber" : "A Pagar"} />
-                  </div>
-                </div>
-              )}
-
-              {/* Conciliação info */}
-              <div className="rounded-md border border-border p-4 space-y-2">
-                <h4 className="font-semibold text-xs uppercase text-muted-foreground">⚙️ Informações da Conciliação</h4>
-                <div className="grid grid-cols-2 gap-2">
-                  <Field label="Método" value={detail.metodo} />
-                  <Field label="Conciliado em" value={detail.item.reconciliado_em ? formatDateTime(detail.item.reconciliado_em) : "—"} />
-                  {detail.score && <Field label="Score" value={`${detail.score} pts`} />}
-                  {detail.reasons?.length > 0 && (
-                    <div className="col-span-2">
-                      <p className="text-[10px] text-muted-foreground uppercase font-semibold mb-1">Critérios de Match</p>
-                      <div className="flex flex-wrap gap-1">
-                        {detail.reasons.map((r: string, i: number) => (
-                          <Badge key={i} variant="secondary" className="text-[10px]">{r}</Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Diferença */}
-              {(detail.lanc || detail.valorGc != null) && (
-                <div className={`rounded-md p-3 text-xs flex items-center gap-2 ${detail.isExato ? "bg-wedo-green/10 text-wedo-green" : "bg-wedo-orange/10 text-wedo-orange"}`}>
-                  <CheckCircle className="h-4 w-4" />
-                  {detail.isExato
-                    ? `Valores idênticos — match exato${detail.qtdParcelas > 1 ? ` (${detail.qtdParcelas} parcelas)` : ""}`
-                    : `Diferença de ${formatCurrency(detail.diff)}${detail.qtdParcelas > 1 ? ` (${detail.qtdParcelas} parcelas, total GC ${formatCurrency(detail.valorGc)})` : ""}`
-                  }
-                </div>
-              )}
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="name" className="text-right text-sm font-medium leading-none text-muted-foreground">
+                Nome
+              </label>
+              <div className="col-span-3 text-foreground">{detail?.nome_cliente}</div>
             </div>
-          )}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="username" className="text-right text-sm font-medium leading-none text-muted-foreground">
+                Documento
+              </label>
+              <div className="col-span-3 text-foreground">{detail?.documento_cliente}</div>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="username" className="text-right text-sm font-medium leading-none text-muted-foreground">
+                Tipo
+              </label>
+              <div className="col-span-3 text-foreground">{detail?.tipo}</div>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="username" className="text-right text-sm font-medium leading-none text-muted-foreground">
+                Valor
+              </label>
+              <div className="col-span-3 text-foreground">{formatCurrency(detail?.valor_extrato ?? detail?.valor)}</div>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="username" className="text-right text-sm font-medium leading-none text-muted-foreground">
+                Descrição
+              </label>
+              <div className="col-span-3 text-foreground">{detail?.descricao}</div>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function Field({ label, value, className, mono }: { label: string; value?: string | null; className?: string; mono?: boolean }) {
-  return (
-    <div>
-      <p className="text-[10px] text-muted-foreground uppercase font-semibold">{label}</p>
-      <p className={`text-xs ${mono ? "font-mono" : ""} ${className || ""}`}>{value || "—"}</p>
     </div>
   );
 }
