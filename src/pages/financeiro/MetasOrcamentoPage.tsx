@@ -728,6 +728,7 @@ export default function MetasOrcamentoPage() {
           </div>
         </CardContent>
       </Card>
+      <MetasConfigDialog open={configOpen} onOpenChange={setConfigOpen} />
     </div>
   );
 }
