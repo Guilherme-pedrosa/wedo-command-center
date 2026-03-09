@@ -8,8 +8,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react";
+import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+const GC_BASE = "https://app.gestaoclick.com.br";
+const gcRecebimentoLink = (gcId: string) => `${GC_BASE}/recebimentos/${gcId}`;
+const gcPagamentoLink = (gcId: string) => `${GC_BASE}/pagamentos/${gcId}`;
+const gcOsLink = (osId: string) => `${GC_BASE}/ordens_servicos/${osId}`;
 
 const EXCECAO_RULES = ["SEM_PAR_GC", "TRANSFERENCIA_INTERNA", "PIX_DEVOLVIDO_MANUAL"];
 
@@ -571,8 +576,22 @@ export default function ConciliacaoHistoricoPage() {
                     <Field label="Valor" value={formatCurrency(Number(detail.lanc.valor))} className="font-semibold" />
                     <Field label="Cliente/Fornecedor" value={detail.lanc.nome_cliente || detail.lanc.nome_fornecedor} />
                     <Field label="Status" value={detail.lanc.status} />
-                    <Field label="Código GC" value={detail.lanc.gc_codigo} mono />
-                    <Field label="Código OS" value={detail.lanc.os_codigo} mono />
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-semibold">Código GC</p>
+                      {detail.lanc.gc_id || detail.lanc.gc_codigo ? (
+                        <a href={detail.lanc._tipo === "pagar" ? gcPagamentoLink(detail.lanc.gc_id || detail.lanc.gc_codigo) : gcRecebimentoLink(detail.lanc.gc_id || detail.lanc.gc_codigo)} target="_blank" rel="noopener noreferrer" className="text-xs font-mono text-primary hover:underline inline-flex items-center gap-1">
+                          {detail.lanc.gc_codigo || detail.lanc.gc_id} <ExternalLink className="h-3 w-3" />
+                        </a>
+                      ) : <p className="text-xs">—</p>}
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-semibold">Código OS</p>
+                      {detail.lanc.os_codigo ? (
+                        <a href={gcOsLink(detail.lanc.gc_os_id || detail.lanc.os_codigo)} target="_blank" rel="noopener noreferrer" className="text-xs font-mono text-primary hover:underline inline-flex items-center gap-1">
+                          {detail.lanc.os_codigo} <ExternalLink className="h-3 w-3" />
+                        </a>
+                      ) : <p className="text-xs">—</p>}
+                    </div>
                     <Field label="Data Vencimento" value={detail.lanc.data_vencimento} />
                     <Field label="Data Liquidação" value={detail.lanc.data_liquidacao} />
                     <Field label="Origem" value={detail.lanc.origem} />
@@ -603,8 +622,16 @@ export default function ConciliacaoHistoricoPage() {
                             <td className="py-1 pr-2">{pLanc?.descricao || `ID: ${p.lancamento_id?.slice(0, 8)}…`}</td>
                             <td className="py-1 pr-2 text-muted-foreground">{pLanc?.nome_cliente || pLanc?.nome_fornecedor || "—"}</td>
                             <td className="py-1 pr-2 font-mono text-muted-foreground">
-                              {pLanc?.gc_codigo || "—"}
-                              {pLanc?.os_codigo && <span className="ml-1">/ {pLanc.os_codigo}</span>}
+                              {pLanc?.gc_codigo ? (
+                                <a href={p.tabela === "fin_pagamentos" ? gcPagamentoLink(pLanc.gc_id || pLanc.gc_codigo) : gcRecebimentoLink(pLanc.gc_id || pLanc.gc_codigo)} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-0.5">
+                                  {pLanc.gc_codigo} <ExternalLink className="h-2.5 w-2.5" />
+                                </a>
+                              ) : "—"}
+                              {pLanc?.os_codigo && (
+                                <a href={gcOsLink(pLanc.gc_os_id || pLanc.os_codigo)} target="_blank" rel="noopener noreferrer" className="ml-1 text-primary hover:underline inline-flex items-center gap-0.5">
+                                  / {pLanc.os_codigo} <ExternalLink className="h-2.5 w-2.5" />
+                                </a>
+                              )}
                             </td>
                             <td className="py-1 text-right font-semibold">{formatCurrency(p.valor_alocado)}</td>
                           </tr>
