@@ -30,6 +30,7 @@ import toast from "react-hot-toast";
 import html2canvas from "html2canvas";
 
 const PAGE_SIZE = 50;
+const GC_BASE = "https://app.gestaoclick.com.br";
 
 export default function PagamentosPage() {
   const queryClient = useQueryClient();
