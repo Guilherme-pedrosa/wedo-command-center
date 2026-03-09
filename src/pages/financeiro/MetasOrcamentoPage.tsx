@@ -197,8 +197,8 @@ const useMetas = (year: number, month: number) => {
 
   // 4. Calcula EXEC_TOTAL — OS (AT+Ecolab) + receitas financeiras (PCM, Locação, etc.)
   const execTotal = useMemo(() => {
-    // GC IDs dos planos de receita que vêm de OS (AT+Coifa e Ecolab)
-    const receitaGcIds_OS = ['27867720']; // Execução de Serviços Aprovados
+    // GC IDs dos planos de receita cobertos por OS (AT+Coifa, Ecolab, Contratos)
+    const receitaGcIds_OS = ['27867720', '27867721']; // Execução de Serviços Aprovados + Contratos de serviços
     const receitaUuids_OS = receitaGcIds_OS
       .map(gcId => planoContasMap[gcId])
       .filter(Boolean);
