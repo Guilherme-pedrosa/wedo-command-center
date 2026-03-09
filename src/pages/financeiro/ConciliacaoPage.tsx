@@ -617,27 +617,6 @@ export default function ConciliacaoPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Sync Period Dialog */}
-      <SyncPeriodDialog
-        open={showSyncDialog}
-        onOpenChange={setShowSyncDialog}
-        title="Sincronizar GestãoClick → Conciliação"
-        loading={syncing}
-        onSync={async (filtros, onProgress, onStep) => {
-          setSyncing(true);
-          try {
-            const result = await syncByMonthChunks(filtros, onProgress, onStep);
-            invalidateAll();
-            toast.success(`Sincronizado: ${result.importados} registros importados`);
-          } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Erro ao sincronizar");
-            throw err;
-          } finally {
-            setSyncing(false);
-            invalidateAll();
-          }
-        }}
-      />
 
     </div>
   );
