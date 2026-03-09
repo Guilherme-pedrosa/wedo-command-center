@@ -47,6 +47,7 @@ export default function PagamentosPage() {
 
   // UI state
   const [syncing, setSyncing] = useState(false);
+  const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showBaixa, setShowBaixa] = useState(false);
   const [showNewDrawer, setShowNewDrawer] = useState(false);
