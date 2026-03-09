@@ -61,7 +61,7 @@ function splitMonthlyChunks(dataInicio: string, dataFim: string): Array<{ start:
   return chunks;
 }
 
-/** Fetch with retries and backoff for rate limits */
+/** Fetch with retries and backoff for rate limits (429, 500, 503) */
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
@@ -70,17 +70,16 @@ async function fetchWithRetry(
 ): Promise<Response> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const res = await fetch(url, options);
-    if (res.status === 429 || res.status === 503) {
+    if (res.status === 429 || res.status === 500 || res.status === 503) {
       if (attempt < maxRetries) {
-        const delay = (attempt + 1) * 5000; // 5s, 10s, 15s
-        console.warn(`[inter-extrato] ${label} → 429/503, aguardando ${delay / 1000}s (tentativa ${attempt + 1}/${maxRetries})...`);
+        const delay = (attempt + 1) * 6000; // 6s, 12s, 18s
+        console.warn(`[inter-extrato] ${label} → HTTP ${res.status}, aguardando ${delay / 1000}s (tentativa ${attempt + 1}/${maxRetries})...`);
         await sleep(delay);
         continue;
       }
     }
     return res;
   }
-  // Should not reach here, but safety
   return await fetch(url, options);
 }
 
@@ -121,46 +120,109 @@ serve(async (req) => {
 
     for (let ci = 0; ci < chunks.length; ci++) {
       const chunk = chunks[ci];
-      // Rate-limit protection between chunks
+      // Rate-limit protection between chunks — increased to 6s
       if (ci > 0) {
-        console.log(`[inter-extrato] Aguardando 3s entre chunks...`);
-        await sleep(3000);
+        console.log(`[inter-extrato] Aguardando 6s entre chunks...`);
+        await sleep(6000);
       }
 
       console.log(`[inter-extrato] Chunk ${ci + 1}/${chunks.length}: ${chunk.start} → ${chunk.end}`);
 
+      // ── Try paginated fetch first (v2/completo supports pagination) ──
+      let transacoes: any[] | null = null;
+
       const ENDPOINTS = [
+        {
+          path: `/banking/v2/extrato/completo?dataInicio=${chunk.start}&dataFim=${chunk.end}`,
+          label: "v2/completo",
+          extract: (d: any) => d.transacoes ?? d.resultado ?? (Array.isArray(d) ? d : null),
+          rich: false,
+          paginated: true,
+        },
         {
           path: `/banking/v3/extrato/enriquecido?dataInicio=${chunk.start}&dataFim=${chunk.end}`,
           label: "v3/enriquecido",
           extract: (d: any) => d.transacoes ?? d.resultado ?? (Array.isArray(d) ? d : null),
           rich: true,
+          paginated: false,
         },
         {
           path: `/banking/v3/extrato?dataInicio=${chunk.start}&dataFim=${chunk.end}&pagina=0&tamanhoPagina=500`,
           label: "v3/extrato",
           extract: (d: any) => d.transacoes ?? d.resultado ?? (Array.isArray(d) ? d : null),
           rich: true,
-        },
-        {
-          path: `/banking/v2/extrato/completo?dataInicio=${chunk.start}&dataFim=${chunk.end}`,
-          label: "v2/completo",
-          extract: (d: any) => d.transacoes ?? d.resultado ?? (Array.isArray(d) ? d : null),
-          rich: false,
+          paginated: false,
         },
         {
           path: `/banking/v2/extrato?dataInicio=${chunk.start}&dataFim=${chunk.end}`,
           label: "v2/extrato",
           extract: (d: any) => d.transacoes ?? d.resultado ?? (Array.isArray(d) ? d : null),
           rich: false,
+          paginated: false,
         },
       ];
-
-      let transacoes: any[] | null = null;
 
       for (const ep of ENDPOINTS) {
         try {
           console.log(`[inter-extrato] Tentando ${ep.label}...`);
+
+          if (ep.paginated) {
+            // Paginated fetch — collect all pages
+            let allTx: any[] = [];
+            let pagina = 0;
+            const tamanhoPagina = 50;
+            let hasMore = true;
+
+            while (hasMore) {
+              const paginatedPath = `${ep.path}&pagina=${pagina}&tamanhoPagina=${tamanhoPagina}`;
+              const res = await fetchWithRetry(proxyUrl, {
+                method: "POST",
+                headers: proxyHeaders,
+                body: JSON.stringify({ path: paginatedPath, method: "GET" }),
+              }, 3, `${ep.label} p${pagina}`);
+
+              if (res.status === 404 || res.status === 403 || res.status === 401) {
+                console.warn(`[inter-extrato] ${ep.label} → HTTP ${res.status}, próximo endpoint...`);
+                allTx = [];
+                break;
+              }
+
+              const data = await res.json().catch(() => ({}));
+              if (data?.error && String(data.error).match(/40[34]|not found/i)) {
+                allTx = [];
+                break;
+              }
+
+              const lista = ep.extract(data);
+              if (!Array.isArray(lista)) {
+                // If first page fails, try next endpoint
+                if (pagina === 0) { allTx = []; break; }
+                hasMore = false;
+                continue;
+              }
+
+              allTx = allTx.concat(lista);
+              console.log(`[inter-extrato] ${ep.label} p${pagina} → ${lista.length} tx (acumulado: ${allTx.length})`);
+
+              if (lista.length < tamanhoPagina) {
+                hasMore = false;
+              } else {
+                pagina++;
+                await sleep(2000); // 2s between pages
+              }
+            }
+
+            if (allTx.length > 0) {
+              transacoes = allTx;
+              endpointUsado = ep.label;
+              endpointRich = ep.rich;
+              console.log(`[inter-extrato] ✅ ${ep.label} → ${allTx.length} transações (${pagina + 1} páginas)`);
+              break;
+            }
+            continue;
+          }
+
+          // Non-paginated fetch
           const res = await fetchWithRetry(proxyUrl, {
             method: "POST",
             headers: proxyHeaders,
