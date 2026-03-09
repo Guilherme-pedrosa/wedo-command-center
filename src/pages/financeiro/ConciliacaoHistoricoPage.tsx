@@ -113,7 +113,7 @@ export default function ConciliacaoHistoricoPage() {
         .in("reconciliation_rule", EXCECAO_RULES);
 
       if (mesDateRange) {
-        query = query.gte("reconciliado_em", mesDateRange.from).lte("reconciliado_em", mesDateRange.to);
+        query = query.gte("data_hora", mesDateRange.from).lte("data_hora", mesDateRange.to);
       }
 
       const { data } = await query.order("reconciliado_em", { ascending: false }).limit(500);
