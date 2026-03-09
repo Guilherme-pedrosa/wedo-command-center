@@ -30,6 +30,16 @@ const NOMES_GENERICOS_DESC = new Set([
 
 function extrairNomeDescricao(descricao: unknown): string | null {
   if (!descricao || typeof descricao !== "string") return null;
+  
+  // Pattern: "TED RECEBIDA - 341 66 251687 NOME DA EMPRESA S A"
+  // Bank routing: 3-digit bank code, then branch, then account, then the actual name
+  const tedMatch = descricao.match(/(?:TED|DOC)\s+(?:RECEBIDA|ENVIADA?|RECEBIDO|ENVIADO)\s*[-–]\s*\d+\s+\d+\s+\d+\s+(.+)$/i);
+  if (tedMatch) {
+    const nome = tedMatch[1].trim();
+    if (nome.length >= 3) return nome;
+  }
+  
+  // Pattern: "DESCRIPTION - NOME"
   const match = descricao.match(/[-–]\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9 .&\/'",-]+)$/);
   if (!match) return null;
   const nome = match[1].trim();
@@ -291,7 +301,9 @@ serve(async (req) => {
             ? (det.nomePagador ?? det.nomeRemetente ?? det.nome ?? tx.nomeContraparte)
             : (det.nomeBeneficiario ?? det.nomeRecebedor ?? det.nomeDestinatario ?? det.nome ?? tx.nomeContraparte);
           const nomeContraparte = nomeValido(nomeRaw)
-            ?? extrairNomeDescricao(tx.descricao ?? tx.titulo ?? tx.historico);
+            ?? extrairNomeDescricao(tx.descricao)
+            ?? extrairNomeDescricao(tx.titulo)
+            ?? extrairNomeDescricao(tx.historico);
 
           const chavePix     = det.chavePixRecebedor ?? det.chavePixBeneficiario ?? det.chavePixPagador ?? det.chave ?? null;
           const codigoBarras = det.codigoBarras ?? null;
@@ -365,7 +377,7 @@ serve(async (req) => {
             tipo_transacao: tx.tipoTransacao ?? null,
             valor,
             data_hora: dataHora,
-            descricao: tx.titulo ?? tx.descricao ?? tx.historico ?? null,
+            descricao: tx.descricao ?? tx.titulo ?? tx.historico ?? null,
             payload_raw: tx,
           };
           if (nomeContraparte) {
