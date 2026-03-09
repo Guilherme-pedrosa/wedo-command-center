@@ -59,23 +59,53 @@ export default function ConciliacaoPage() {
   const [autoResult, setAutoResult] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
   const [showSyncDialog, setShowSyncDialog] = useState(false);
-  const [mesExtrato, setMesExtrato] = useState("all");
+  const [mesExtrato, setMesExtrato] = useState(format(new Date(), "yyyy-MM"));
+  const [dateFrom, setDateFrom] = useState(startOfMonth(new Date()));
+  const [dateTo, setDateTo] = useState(endOfMonth(new Date()));
   const [mesLanc, setMesLanc] = useState("all");
   const [searchLanc, setSearchLanc] = useState("");
   const [expandedExtrato, setExpandedExtrato] = useState<string | null>(null);
 
-  // Extrato query — fetch more, filter client-side by month
+  const handleMesChange = (val: string) => {
+    setMesExtrato(val);
+    if (val !== "all") {
+      const base = new Date(val + "-01");
+      setDateFrom(startOfMonth(base));
+      setDateTo(endOfMonth(base));
+    }
+  };
+
+  // Extrato query — server-side date filter, paginated
   const { data: extratoNR } = useQuery({
-    queryKey: ["conc-extrato"],
+    queryKey: ["conc-extrato", dateFrom.toISOString(), dateTo.toISOString()],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("fin_extrato_inter")
-        .select("*")
-        .eq("reconciliado", false)
-        .or("reconciliation_rule.is.null,reconciliation_rule.not.in.(SEM_PAR_GC,TRANSFERENCIA_INTERNA,PIX_DEVOLVIDO_MANUAL)")
-        .order("data_hora", { ascending: false })
-        .limit(1000);
-      return data || [];
+      const PAGE_SIZE = 500;
+      let allData: any[] = [];
+      let offset = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("fin_extrato_inter")
+          .select("*")
+          .eq("reconciliado", false)
+          .is("reconciliation_rule", null)
+          .gte("data_hora", dateFrom.toISOString())
+          .lte("data_hora", dateTo.toISOString())
+          .order("data_hora", { ascending: false })
+          .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) throw error;
+        if (!data || data.length < PAGE_SIZE) {
+          allData = [...allData, ...(data || [])];
+          hasMore = false;
+        } else {
+          allData = [...allData, ...data];
+          offset += PAGE_SIZE;
+          if (allData.length >= 2000) hasMore = false;
+        }
+      }
+      return allData;
     },
   });
 
