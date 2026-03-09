@@ -11,7 +11,7 @@ import {
   Target, TrendingUp, TrendingDown, AlertTriangle,
   RefreshCw, DollarSign, Percent, BarChart3, Loader2, Settings
 } from 'lucide-react';
-import { syncVendas, syncCompras, syncAuvoExpenses } from '@/api/syncService';
+import { syncVendas, syncCompras, syncAuvoExpenses, syncOS } from '@/api/syncService';
 import toast from 'react-hot-toast';
 import MetasConfigDialog from '@/components/financeiro/MetasConfigDialog';
 
@@ -527,6 +527,11 @@ export default function MetasOrcamentoPage() {
     let ok = 0;
     let fail = 0;
     const details: string[] = [];
+
+    try {
+      await syncOS();
+      ok++;
+    } catch (_e) { fail++; }
 
     try {
       const resVendas = await syncVendas(start, end);
