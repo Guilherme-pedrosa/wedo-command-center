@@ -169,8 +169,8 @@ export default function FinDashboardPage() {
   const totalAPagar = pagamentosMes.filter((p: any) => !p.liquidado).reduce((s: number, p: any) => s + Number(p.valor || 0), 0);
   const vencidosReceber = recebimentosMes.filter((r: any) => !r.liquidado && r.data_vencimento && r.data_vencimento < hoje).length;
   const vencidosPagar = pagamentosMes.filter((p: any) => !p.liquidado && p.data_vencimento && p.data_vencimento < hoje).length;
-  const recebidoMes = recebimentosMes.filter((r: any) => r.liquidado && r.data_liquidacao?.startsWith(mesSelecionado)).reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
-  const pagoMes = pagamentosMes.filter((p: any) => p.liquidado && p.data_liquidacao?.startsWith(mesSelecionado)).reduce((s: number, p: any) => s + Number(p.valor || 0), 0);
+  const recebidoMes = recebimentosMes.filter((r: any) => r.liquidado && (isTodos || r.data_liquidacao?.startsWith(mesSelecionado))).reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
+  const pagoMes = pagamentosMes.filter((p: any) => p.liquidado && (isTodos || p.data_liquidacao?.startsWith(mesSelecionado))).reduce((s: number, p: any) => s + Number(p.valor || 0), 0);
   const saldoLiquido = totalAReceber - totalAPagar;
   const baixasPendentesGC = recebimentosMes.filter((r: any) => r.pago_sistema && !r.gc_baixado).length;
 
