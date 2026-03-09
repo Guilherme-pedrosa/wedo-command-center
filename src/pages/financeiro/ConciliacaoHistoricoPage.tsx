@@ -275,7 +275,7 @@ export default function ConciliacaoHistoricoPage() {
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="flex items-center gap-1">
             <AlertTriangle className="h-3 w-3 text-wedo-orange" />
-            <p className="text-[10px] uppercase text-muted-foreground font-semibold">Exceções</p>
+            <p className="text-[10px] uppercase text-muted-foreground font-semibold">Não Conciliado</p>
           </div>
           <p className="text-lg font-bold text-wedo-orange">{(excecoes || []).length}</p>
           <p className="text-[10px] text-muted-foreground">{formatCurrency(totalExcecoes)}</p>
