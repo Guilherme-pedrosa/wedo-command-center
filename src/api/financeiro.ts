@@ -298,8 +298,8 @@ export async function importarPagamentosPendentes(
   } else {
     params.liquidado = "0";
   }
-  if (filtros?.dataInicio) params.data_vencimento_inicio = filtros.dataInicio;
-  if (filtros?.dataFim) params.data_vencimento_fim = filtros.dataFim;
+  if (filtros?.dataInicio) params.data_inicio = filtros.dataInicio;
+  if (filtros?.dataFim) params.data_fim = filtros.dataFim;
   return fetchPaginatedGC<GCPagamentoRaw>(
     "/api/pagamentos",
     params,
