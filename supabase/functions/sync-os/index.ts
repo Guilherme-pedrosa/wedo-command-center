@@ -64,6 +64,7 @@ function mapOsRecord(os: Record<string, unknown>) {
     orc_codigo: osCodigo,
     nome_cliente: String(os.nome_cliente || "") || null,
     nome_situacao: String(os.nome_situacao || ""),
+    nome_vendedor: String(os.nome_vendedor || "") || null,
     data_saida: dataSaida,
     valor_total: valorTotal,
     valor_servicos: valorServicos,
