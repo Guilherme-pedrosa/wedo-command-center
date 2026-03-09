@@ -62,7 +62,7 @@ serve(async (req) => {
     let page = 1;
     let totalPages = 1;
 
-    // Paginate through GC OS endpoint
+    // Paginate through GC — endpoint correto: /api/orcamentos (NÃO /api/os)
     while (page <= totalPages) {
       const params = new URLSearchParams({
         limite: "100",
@@ -73,7 +73,7 @@ serve(async (req) => {
       if (filters.data_fim) params.set("data_fim", filters.data_fim);
       if (filters.situacao) params.set("situacao", filters.situacao);
 
-      const url = `${GC_BASE_URL}/api/os?${params.toString()}`;
+      const url = `${GC_BASE_URL}/api/orcamentos?${params.toString()}`;
       const response = await rateLimitedFetch(url, { headers: gcHeaders });
 
       if (response.status === 401) {
@@ -93,58 +93,67 @@ serve(async (req) => {
       allOS.push(...records);
 
       totalPages = data?.meta?.total_paginas || 1;
-      console.log(`[sync-os] Page ${page}/${totalPages} — ${records.length} OS fetched`);
+      console.log(`[sync-os] Page ${page}/${totalPages} — ${records.length} records fetched`);
       page++;
     }
 
-    console.log(`[sync-os] Total OS fetched from GC: ${allOS.length}`);
+    console.log(`[sync-os] Total records fetched from GC: ${allOS.length}`);
 
     // Upsert into os_index
     let upserted = 0;
     let errors = 0;
 
     for (const os of allOS) {
-      const osId = String(os.codigo || os.id || "");
-      const osCodigo = String(os.numero || os.codigo || "");
-      
-      // Extract orçamentos
-      const orcamentos = os.orcamentos || os.budgets || [];
-      const orcCodigos = orcamentos.map((o: any) => String(o.codigo || o.numero || "")).filter(Boolean);
-      const primeiroOrc = orcCodigos[0] || osCodigo;
+      // ── Mapeamento confirmado do JSON real do GC ──
+      // os.id          = ID interno GC (ex: "355094680")
+      // os.codigo      = Número da OS/orçamento (ex: "4973")
+      // os.nome_cliente = nome do cliente ✅
+      // os.nome_situacao = status ✅
+      // os.valor_total  = valor total ✅ (string)
+      // os.valor_servicos = valor serviços ✅ (string)
+      // os.valor_produtos = valor peças/produtos ✅ (NÃO valor_pecas)
+      // os.modificado_em = última modificação (ex: "2026-03-09 13:45:10")
+      // os.data         = data do orçamento (ex: "2026-03-09")
+      // NÃO existe campo data_saida — usar modificado_em como proxy
 
-      // Extract values — GC may use different field names
-      const valorTotal = parseFloat(os.valor_total || os.valorTotal || os.total || "0") || null;
-      const valorServicos = parseFloat(os.valor_servicos || os.valorServicos || os.total_servicos || "0") || null;
-      const valorPecas = parseFloat(os.valor_pecas || os.valorPecas || os.total_pecas || os.total_produtos || "0") || null;
-      
-      // data_saida — try multiple field names
-      const dataSaidaRaw = os.data_saida || os.dataSaida || os.data_execucao || os.dataExecucao || null;
-      let dataSaida: string | null = null;
-      if (dataSaidaRaw) {
-        // Handle both YYYY-MM-DD and DD/MM/YYYY formats
-        if (/^\d{4}-\d{2}-\d{2}/.test(dataSaidaRaw)) {
-          dataSaida = dataSaidaRaw.substring(0, 10);
-        } else if (/^\d{2}\/\d{2}\/\d{4}/.test(dataSaidaRaw)) {
-          const [d, m, y] = dataSaidaRaw.split("/");
-          dataSaida = `${y}-${m}-${d}`;
-        }
+      const osId = String(os.id || "");
+      const osCodigo = String(os.codigo || "");
+
+      if (!osId || !osCodigo) {
+        console.warn(`[sync-os] Skipping record without id/codigo`);
+        errors++;
+        continue;
       }
 
-      const nomeCliente = os.nome_cliente || os.cliente_nome || os.cliente?.nome || null;
-      const nomeSituacao = os.nome_situacao || os.situacao_nome || os.situacao?.nome || os.status || null;
+      // Valores monetários (GC retorna como string)
+      const valorTotal = parseFloat(os.valor_total || "0") || null;
+      const valorServicos = parseFloat(os.valor_servicos || "0") || null;
+      const valorProdutos = parseFloat(os.valor_produtos || "0") || null;
+
+      // data_saida: usar modificado_em como proxy (data da última mudança de status)
+      // Formato GC: "2026-03-09 13:45:10" → extrair só a data
+      let dataSaida: string | null = null;
+      const modificadoEm = os.modificado_em || os.data || null;
+      if (modificadoEm) {
+        // "2026-03-09 13:45:10" → "2026-03-09"
+        const match = modificadoEm.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (match) {
+          dataSaida = match[1];
+        }
+      }
 
       const record = {
         os_id: osId,
         os_codigo: osCodigo,
-        orc_codigo: primeiroOrc,
-        todos_orcs: orcCodigos.length > 0 ? orcCodigos : null,
-        nome_cliente: nomeCliente,
-        nome_situacao: nomeSituacao,
+        orc_codigo: osCodigo, // No GC, cada orçamento é um registro único
+        todos_orcs: null,
+        nome_cliente: os.nome_cliente || null,
+        nome_situacao: os.nome_situacao || null,
         data_saida: dataSaida,
         valor_total: valorTotal,
         valor_servicos: valorServicos,
-        valor_pecas: valorPecas,
-        numero_os: os.numero || osCodigo,
+        valor_pecas: valorProdutos, // GC usa "valor_produtos"
+        numero_os: osCodigo,
         built_at: new Date().toISOString(),
       };
 
@@ -196,7 +205,6 @@ serve(async (req) => {
     const errorMsg = (error as Error).message;
     console.error("[sync-os] Fatal error:", errorMsg);
 
-    // Log error
     try {
       const supabase = createClient(
         Deno.env.get("SUPABASE_URL")!,
