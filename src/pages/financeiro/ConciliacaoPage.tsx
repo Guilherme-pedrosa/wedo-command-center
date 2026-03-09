@@ -14,7 +14,7 @@ import { format, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay } fro
 import { cn } from "@/lib/utils";
 import { ptBR } from "date-fns/locale";
 import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
-import { syncByMonthChunks, buscarExtratoInter } from "@/api/financeiro";
+import { syncByMonthChunks } from "@/api/financeiro";
 import toast from "react-hot-toast";
 
 const GC_BASE = "https://app.gestaoclick.com.br";
