@@ -431,6 +431,21 @@ export default function MetasOrcamentoPage() {
 
   const { metasComResultado, execTotal, isLoading, refetch, hasOsData } = useMetas(selectedYear, selectedMonth);
 
+  const [syncingVendas, setSyncingVendas] = useState(false);
+  const handleSyncVendas = useCallback(async () => {
+    setSyncingVendas(true);
+    try {
+      const { start, end } = getPeriodRange(selectedYear, selectedMonth);
+      const result = await syncVendas(start, end);
+      toast.success(`Vendas sincronizadas: ${result.upserted} registros`);
+      refetch();
+    } catch (err: any) {
+      toast.error(`Erro ao sincronizar vendas: ${err.message}`);
+    } finally {
+      setSyncingVendas(false);
+    }
+  }, [selectedYear, selectedMonth, refetch]);
+
   const receitas       = metasComResultado.filter(m => m.categoria === 'receita');
   const custosVar      = metasComResultado.filter(m => m.categoria === 'custo_variavel');
   const custosFixos    = metasComResultado.filter(m => m.categoria === 'custo_fixo');
