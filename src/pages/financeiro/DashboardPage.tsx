@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatTimeAgo, formatDate } from "@/lib/format";
-import { syncFornecedoresGC, syncClientesGC, syncPlanoContasGC, syncCentrosCustoGC, syncByMonthChunks } from "@/api/financeiro";
+import { syncFornecedoresGC, syncClientesGC, syncPlanoContasGC, syncCentrosCustoGC, syncFormasPagamentoGC, syncByMonthChunks } from "@/api/financeiro";
 import {
   Receipt, AlertTriangle, CheckCircle, CreditCard, RefreshCw,
   TrendingUp, Loader2, ArrowRight, Zap, FileWarning, Eye, CalendarIcon,
@@ -20,16 +20,18 @@ import {
 import { format, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
-// Generate month options: current + 11 past months
+// Generate month options: from Dec 2025 to current month, ascending
 function getMonthOptions() {
   const options: { value: string; label: string }[] = [];
   const now = new Date();
-  for (let i = 0; i < 12; i++) {
-    const d = subMonths(now, i);
+  // Start from Dec 2025
+  let cursor = new Date(2025, 11, 1); // Dec 2025
+  while (cursor <= now) {
     options.push({
-      value: format(d, "yyyy-MM"),
-      label: format(d, "MMMM yyyy", { locale: ptBR }),
+      value: format(cursor, "yyyy-MM"),
+      label: format(cursor, "MMMM yyyy", { locale: ptBR }),
     });
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
   }
   return options;
 }
@@ -198,10 +200,11 @@ export default function FinDashboardPage() {
 
       // Plano de Contas e Centros de Custo são extraídos dos payloads GC
       // Precisam rodar DEPOIS dos recebimentos/pagamentos estarem no banco
-      onStep?.("Extraindo Plano de Contas e Centros de Custo...");
+      onStep?.("Extraindo Plano de Contas, Centros de Custo e Formas de Pagamento...");
       await Promise.all([
         syncPlanoContasGC(),
         syncCentrosCustoGC(),
+        syncFormasPagamentoGC(),
       ]);
 
       onStep?.("Concluído!");
