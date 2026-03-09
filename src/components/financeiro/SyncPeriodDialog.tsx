@@ -62,7 +62,7 @@ export function SyncPeriodDialog({ open, onOpenChange, onSync, title = "Sincroni
         {
           dataInicio: format(dataInicio, "yyyy-MM-dd"),
           dataFim: format(dataFim, "yyyy-MM-dd"),
-          incluirLiquidados,
+          incluirLiquidados: true, // Always import all records
         },
         onProgress,
         onStep
