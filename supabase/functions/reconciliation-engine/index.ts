@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-09-v2
+// redeploy: 2026-03-09-v3
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -297,19 +297,33 @@ interface ParcelaSoma {
 async function saveSomaParcelas(
   supabase: any,
   extratoId: string,
+  extValor: number,
   parcelas: ParcelaSoma[],
   rule: string
 ) {
+  // VALIDAÇÃO: IDs devem ser únicos (evitar duplicatas no subset-sum)
+  const uniqueIds = new Set(parcelas.map(p => p.id));
+  if (uniqueIds.size !== parcelas.length) {
+    throw new Error(`SOMA_PARCELAS rejeitada: IDs duplicados (${parcelas.length} parcelas, ${uniqueIds.size} únicos)`);
+  }
+
+  // VALIDAÇÃO: soma das parcelas deve bater com valor do extrato (tolerância R$0,01)
+  const somaTotal = parcelas.reduce((s, p) => s + p.valor, 0);
+  if (Math.abs(somaTotal - extValor) > 0.01) {
+    throw new Error(`SOMA_PARCELAS rejeitada: soma R$${somaTotal.toFixed(2)} ≠ extrato R$${extValor.toFixed(2)}`);
+  }
+
   const now = new Date().toISOString();
   const maior = parcelas.reduce((a, b) => (a.valor > b.valor ? a : b));
 
   // 1. Marcar extrato como reconciliado (representante = maior parcela)
-  await supabase.from("fin_extrato_inter").update({
+  const { error: extErr } = await supabase.from("fin_extrato_inter").update({
     reconciliado: true,
     reconciliado_em: now,
     reconciliation_rule: rule,
     lancamento_id: maior.id,
   }).eq("id", extratoId);
+  if (extErr) throw new Error(`Erro atualizar extrato: ${extErr.message}`);
 
   // 2. Inserir todas as parcelas na tabela N:N
   const rows = parcelas.map(p => ({
@@ -319,10 +333,29 @@ async function saveSomaParcelas(
     valor_alocado: p.valor,
     reconciliation_rule: rule,
   }));
-  await supabase.from("fin_extrato_lancamentos")
+  const { error: linkErr } = await supabase.from("fin_extrato_lancamentos")
     .upsert(rows, { onConflict: "extrato_id,lancamento_id,tabela" });
+  if (linkErr) {
+    // Rollback extrato
+    await supabase.from("fin_extrato_inter").update({
+      reconciliado: false, reconciliado_em: null, reconciliation_rule: null, lancamento_id: null,
+    }).eq("id", extratoId);
+    throw new Error(`Erro inserir links: ${linkErr.message}`);
+  }
 
-  // 3. Log
+  // 3. Verificar que os links foram criados
+  const { data: created } = await supabase.from("fin_extrato_lancamentos")
+    .select("id").eq("extrato_id", extratoId);
+  if (!created || created.length !== parcelas.length) {
+    // Rollback
+    await supabase.from("fin_extrato_inter").update({
+      reconciliado: false, reconciliado_em: null, reconciliation_rule: null, lancamento_id: null,
+    }).eq("id", extratoId);
+    await supabase.from("fin_extrato_lancamentos").delete().eq("extrato_id", extratoId);
+    throw new Error(`SOMA_PARCELAS: esperava ${parcelas.length} links, criou ${created?.length ?? 0}`);
+  }
+
+  // 4. Log
   await supabase.from("fin_sync_log").insert({
     tipo: "conciliacao_soma_parcelas",
     referencia_id: extratoId,
@@ -702,10 +735,18 @@ serve(async (req) => {
             const extDocSoma = cleanDoc(ext.cpf_cnpj);
             const extDateSoma = ext.data_hora?.substring(0, 10) ?? "";
             const isDebitoSoma = ext.tipo === "DEBITO";
-            const allPool = [
+            
+            // DEDUPLICAR por ID para evitar que o mesmo registro apareça 2x
+            const rawPool = [
               ...(isDebitoSoma ? (pagamentos ?? []) : (recebimentos ?? [])),
               ...(isDebitoSoma ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? [])),
             ];
+            const seenPoolIds = new Set<string>();
+            const allPool = rawPool.filter((fin: any) => {
+              if (seenPoolIds.has(fin.id)) return false;
+              seenPoolIds.add(fin.id);
+              return true;
+            });
 
             const somaResult = tentarSomaParcelas(
               extValor, extDocSoma, extNomeSoma, extDateSoma,
@@ -714,7 +755,7 @@ serve(async (req) => {
 
             if (somaResult) {
               try {
-                await saveSomaParcelas(supabase, ext.id, somaResult.parcelas, somaResult.rule);
+                await saveSomaParcelas(supabase, ext.id, extValor, somaResult.parcelas, somaResult.rule);
                 somaResult.parcelas.forEach(p => usedIds.add(p.id));
                 stats.auto++;
               } catch (e) {
