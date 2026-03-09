@@ -313,18 +313,28 @@ serve(async (req) => {
             tipoTx === "ENTRADA";
           const tipo = isCredito ? "CREDITO" : "DEBITO";
 
+          // Extract structured CNPJ/CPF
           const cpfCnpjRaw = isCredito
             ? (det.cpfCnpjPagador ?? det.cpfCnpjRemetente ?? det.cpfCnpj ?? tx.cpfCnpjContraparte)
             : (det.cpfCnpjBeneficiario ?? det.cpfCnpjRecebedor ?? det.cpfCnpjDestinatario ?? det.cpfCnpj ?? tx.cpfCnpjContraparte);
-          const cpfCnpj = cpfCnpjRaw ? String(cpfCnpjRaw).replace(/\D/g, "") || null : null;
+          let cpfCnpj = cpfCnpjRaw ? String(cpfCnpjRaw).replace(/\D/g, "") || null : null;
+
+          // Extract name + fallback CNPJ from description
+          const descDados = extrairDadosDescricao(tx.descricao);
+          const descDadosTitulo = extrairDadosDescricao(tx.titulo);
 
           const nomeRaw = isCredito
             ? (det.nomePagador ?? det.nomeRemetente ?? det.nome ?? tx.nomeContraparte)
             : (det.nomeBeneficiario ?? det.nomeRecebedor ?? det.nomeDestinatario ?? det.nome ?? tx.nomeContraparte);
           const nomeContraparte = nomeValido(nomeRaw)
-            ?? extrairNomeDescricao(tx.descricao)
-            ?? extrairNomeDescricao(tx.titulo)
+            ?? descDados.nome
+            ?? descDadosTitulo.nome
             ?? extrairNomeDescricao(tx.historico);
+
+          // Fallback: extract CNPJ from description if not found in structured fields
+          if (!cpfCnpj) {
+            cpfCnpj = descDados.cnpj ?? descDadosTitulo.cnpj ?? null;
+          }
 
           const chavePix     = det.chavePixRecebedor ?? det.chavePixBeneficiario ?? det.chavePixPagador ?? det.chave ?? null;
           const codigoBarras = det.codigoBarras ?? null;
