@@ -85,11 +85,13 @@ export default function TvTecnicos() {
 
   // Agregar faturamento por técnico
   const resultados = useMemo(() => {
+    // Agrupa por primeiro nome do vendedor para bater com a meta (que usa só primeiro nome)
     const vendedorMap: Record<string, number> = {};
     for (const os of osData) {
-      const nome = os.nome_vendedor?.trim().toUpperCase();
-      if (!nome) continue;
-      vendedorMap[nome] = (vendedorMap[nome] || 0) + (os.valor_total ?? 0);
+      const nomeCompleto = os.nome_vendedor?.trim().toUpperCase();
+      if (!nomeCompleto) continue;
+      const primeiroNome = nomeCompleto.split(' ')[0];
+      vendedorMap[primeiroNome] = (vendedorMap[primeiroNome] || 0) + (os.valor_total ?? 0);
     }
 
     return metas.map(m => {
