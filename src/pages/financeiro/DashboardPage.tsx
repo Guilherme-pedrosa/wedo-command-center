@@ -39,7 +39,9 @@ export default function FinDashboardPage() {
   const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
   const [showSyncDialog, setShowSyncDialog] = useState(false);
-  const [mesSelecionado, setMesSelecionado] = useState(format(new Date(), "yyyy-MM"));
+  const [mesSelecionado, setMesSelecionado] = useState(() => {
+    return localStorage.getItem("fin-dash-mes-selecionado") || format(new Date(), "yyyy-MM");
+  });
 
   const monthOptions = useMemo(() => getMonthOptions(), []);
   const hoje = new Date().toISOString().split("T")[0];
@@ -197,6 +199,9 @@ export default function FinDashboardPage() {
       const result = await syncByMonthChunks(filtros, onProgress, onStep);
 
       onStep?.("Concluído!");
+      const mesSync = filtros.dataInicio.substring(0, 7);
+      setMesSelecionado(mesSync);
+      localStorage.setItem("fin-dash-mes-selecionado", mesSync);
       toast.success(`Sync: ${result.importados} registros importados${result.erros > 0 ? `, ${result.erros} erros` : ""}`);
       queryClient.invalidateQueries({ queryKey: ["fin-dash"] });
       setShowSyncDialog(false);
@@ -241,7 +246,7 @@ export default function FinDashboardPage() {
           <p className="text-sm text-muted-foreground">{"Vis\u00e3o consolidada do m\u00f3dulo financeiro"}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
+          <Select value={mesSelecionado} onValueChange={(v) => { setMesSelecionado(v); localStorage.setItem("fin-dash-mes-selecionado", v); }}>
             <SelectTrigger className="w-[200px]">
               <CalendarIcon className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
               <SelectValue />
@@ -284,7 +289,7 @@ export default function FinDashboardPage() {
             {"Exibindo dados de "}
             <strong className="capitalize">{mesLabel} {format(mesDate, "yyyy")}</strong>
           </span>
-          <Button variant="ghost" size="sm" className="ml-auto text-xs" onClick={() => setMesSelecionado(format(new Date(), "yyyy-MM"))}>
+          <Button variant="ghost" size="sm" className="ml-auto text-xs" onClick={() => { const m = format(new Date(), "yyyy-MM"); setMesSelecionado(m); localStorage.setItem("fin-dash-mes-selecionado", m); }}>
             Voltar ao {"m\u00eas"} atual
           </Button>
         </div>
