@@ -379,16 +379,34 @@ export default function PagamentosPage() {
                   <td className="p-3">
                     {canSelect(p) ? <Checkbox checked={selected.has(p.id)} onCheckedChange={() => { const n = new Set(selected); n.has(p.id) ? n.delete(p.id) : n.add(p.id); setSelected(n); }} /> : <Checkbox disabled />}
                   </td>
-                  <td className="p-3 font-mono text-xs">{p.gc_codigo || "—"}</td>
+                  <td className="p-3 font-mono text-xs">
+                    {p.gc_id ? (
+                      <a href={`${GC_BASE}/pagamentos/${p.gc_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                        {p.gc_codigo || p.gc_id}
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : (
+                      <span>{p.gc_codigo || "\u2014"}</span>
+                    )}
+                  </td>
                   <td className="p-3 max-w-[200px] truncate text-foreground">{p.descricao}</td>
-                  <td className="p-3 text-foreground">{p.nome_fornecedor || "—"}</td>
+                  <td className="p-3 text-foreground">{p.nome_fornecedor || "\u2014"}</td>
                   <td className="p-3 text-right font-semibold text-foreground">{formatCurrency(Number(p.valor))}</td>
-                  <td className="p-3 text-foreground">{p.data_vencimento ? formatDate(p.data_vencimento) : "—"}</td>
+                  <td className="p-3 text-foreground">{p.data_vencimento ? formatDate(p.data_vencimento) : "\u2014"}</td>
                   <td className="p-3 text-center">
                     <div className="flex items-center justify-center gap-1">
                       {statusBadge(p)}
                       {aguardandoNfBadge(p)}
                     </div>
+                  </td>
+                  <td className="p-3 text-center">
+                    {conciliadoIds?.has(p.id) ? (
+                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30 text-[10px]">
+                        <Link2 className="h-3 w-3 mr-1" />Sim
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-[10px]">{"\u2014"}</span>
+                    )}
                   </td>
                   <td className="p-3 text-center">{baixaGCBadge(p)}</td>
                   <td className="p-3 text-center">
