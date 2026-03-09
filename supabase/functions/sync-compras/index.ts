@@ -59,8 +59,9 @@ serve(async (req) => {
       situacaoId = body?.situacao_id ?? null;
     } catch { /* no body */ }
 
-    // Step 1: If no situacao_id provided, fetch all situações de compras and find "Finalizado (Mercadoria Chegou)"
-    if (!situacaoId) {
+    // Step 1: Fetch all situações and find target ones
+    let situacaoIds: string[] = situacaoId ? [situacaoId] : [];
+    if (situacaoIds.length === 0) {
       console.log("[sync-compras] Fetching situacoes_compras...");
       const sitResp = await rateLimitedFetch(
         `${GC_BASE_URL}/api/situacoes_compras`,
@@ -71,10 +72,12 @@ serve(async (req) => {
         const situacoes = Array.isArray(sitData?.data) ? sitData.data : [];
         for (const sit of situacoes) {
           const nome = String(sit.nome || "").toLowerCase().trim();
-          if (nome.includes("finalizado") && nome.includes("mercadoria chegou")) {
-            situacaoId = String(sit.id);
+          if (
+            (nome.includes("finalizado") && nome.includes("mercadoria chegou")) ||
+            (nome.includes("comprado") && nome.includes("ag chegada"))
+          ) {
+            situacaoIds.push(String(sit.id));
             console.log(`[sync-compras] Found situacao: ${sit.nome} (id=${sit.id})`);
-            break;
           }
         }
       } else {
@@ -82,9 +85,9 @@ serve(async (req) => {
       }
     }
 
-    if (!situacaoId) {
+    if (situacaoIds.length === 0) {
       return new Response(
-        JSON.stringify({ error: "No matching situacao_id found for 'Finalizado (Mercadoria Chegou)'" }),
+        JSON.stringify({ error: "No matching situacao_ids found" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
