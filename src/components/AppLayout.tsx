@@ -133,6 +133,7 @@ export function AppLayout() {
           </main>
         </div>
       </div>
+      <ARGUSChat />
     </SidebarProvider>
   );
 }
