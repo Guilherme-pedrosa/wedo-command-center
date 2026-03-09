@@ -1893,6 +1893,7 @@ export type Database = {
           end_to_end_id: string | null
           exato: boolean | null
           gc_codigo_vinculado: string | null
+          gc_id_vinculado: string | null
           grupo_pagar_id: string | null
           grupo_receber_id: string | null
           id: string | null
@@ -1922,6 +1923,7 @@ export type Database = {
           end_to_end_id?: string | null
           exato?: never
           gc_codigo_vinculado?: never
+          gc_id_vinculado?: never
           grupo_pagar_id?: string | null
           grupo_receber_id?: string | null
           id?: string | null
@@ -1951,6 +1953,7 @@ export type Database = {
           end_to_end_id?: string | null
           exato?: never
           gc_codigo_vinculado?: never
+          gc_id_vinculado?: never
           grupo_pagar_id?: string | null
           grupo_receber_id?: string | null
           id?: string | null
