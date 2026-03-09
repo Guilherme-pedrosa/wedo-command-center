@@ -1720,35 +1720,50 @@ export type Database = {
         Row: {
           agrupado: boolean | null
           built_at: string | null
+          data_saida: string | null
           id: string
           nome_cliente: string | null
           nome_situacao: string | null
+          numero_os: string | null
           orc_codigo: string
           os_codigo: string
           os_id: string
           todos_orcs: string[] | null
+          valor_pecas: number | null
+          valor_servicos: number | null
+          valor_total: number | null
         }
         Insert: {
           agrupado?: boolean | null
           built_at?: string | null
+          data_saida?: string | null
           id?: string
           nome_cliente?: string | null
           nome_situacao?: string | null
+          numero_os?: string | null
           orc_codigo: string
           os_codigo: string
           os_id: string
           todos_orcs?: string[] | null
+          valor_pecas?: number | null
+          valor_servicos?: number | null
+          valor_total?: number | null
         }
         Update: {
           agrupado?: boolean | null
           built_at?: string | null
+          data_saida?: string | null
           id?: string
           nome_cliente?: string | null
           nome_situacao?: string | null
+          numero_os?: string | null
           orc_codigo?: string
           os_codigo?: string
           os_id?: string
           todos_orcs?: string[] | null
+          valor_pecas?: number | null
+          valor_servicos?: number | null
+          valor_total?: number | null
         }
         Relationships: []
       }

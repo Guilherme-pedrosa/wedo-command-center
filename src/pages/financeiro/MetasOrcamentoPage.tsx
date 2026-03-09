@@ -141,7 +141,6 @@ const useMetas = (year: number, month: number) => {
     staleTime: 10 * 60 * 1000,
   });
 
-  // 2. Busca recebimentos do período (liquidados)
   // 2. Busca recebimentos do período (liquidados OU pago_sistema)
   const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec } = useQuery({
     queryKey: ['fin_recebimentos_metas', start, end],
@@ -172,38 +171,115 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
+  // 3b. Busca OS executadas do período (para AT+Coifa e Ecolab)
+  const OS_EXECUTADOS_STATUS = [
+    'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
+    'EXECUTADO - AGUARDANDO PAGAMENTO',
+    'EXECUTADO COM NOTA EMITIDA',
+    'EXECUTADO - FINANCEIRO SEPARADO',
+    'EXECUTADO - CIGAM',
+  ];
+
+  const { data: osExecutadas = [], isLoading: loadingOS, refetch: refetchOS } = useQuery({
+    queryKey: ['os_executadas_metas', start, end],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('os_index')
+        .select('os_id, os_codigo, nome_cliente, nome_situacao, valor_total, data_saida')
+        .in('nome_situacao', OS_EXECUTADOS_STATUS)
+        .gte('data_saida', start)
+        .lte('data_saida', end);
+      if (error) throw error;
+      return data as { os_id: string; os_codigo: string; nome_cliente: string | null; nome_situacao: string | null; valor_total: number | null; data_saida: string | null }[];
+    },
+  });
+
   // 4. Calcula EXEC_TOTAL — traduz GC IDs para UUIDs antes de filtrar
   const execTotal = useMemo(() => {
     const receitaGcIds = ['27867720', '27867721', '27867722', '27867718', '27867719'];
     const receitaUuids = receitaGcIds
       .map(gcId => planoContasMap[gcId])
       .filter(Boolean);
-    return recebimentos
+    
+    // Base from fin_recebimentos
+    const recTotal = recebimentos
       .filter(r => r.plano_contas_id && receitaUuids.includes(r.plano_contas_id))
       .reduce((acc, r) => acc + (r.valor || 0), 0);
-  }, [recebimentos, planoContasMap]);
+    
+    // Add OS executadas (AT+Coifa + Ecolab) that aren't yet in fin_recebimentos
+    const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total || 0), 0);
+    
+    // Use the larger of the two to avoid double-counting
+    // If OS data is available and larger, it's more complete
+    return Math.max(recTotal, recTotal > 0 ? recTotal : osTotal);
+  }, [recebimentos, planoContasMap, osExecutadas]);
 
-  // 5. Calcula realizado por meta — traduz GC IDs para UUIDs
+  // 5. Calcula realizado por meta
   const metasComResultado = useMemo((): MetaComResultado[] => {
     return metas.map(meta => {
       const links = mapeamentos.filter(m => m.meta_id === meta.id);
       let realizado = 0;
+      const nome = meta.nome.toLowerCase();
 
-      for (const link of links) {
-        const planoUuid = planoContasMap[link.plano_contas_id];
-        const centroUuid = link.centro_custo_id ? centrosCustoMap[link.centro_custo_id] : null;
-
-        if (!planoUuid) continue;
-
-        const source = meta.categoria === 'receita' ? recebimentos : pagamentos;
-        const soma = source
-          .filter(r =>
-            // Bug 3 fix: só filtra plano se o lançamento TEM o campo preenchido
-            (r.plano_contas_id ? r.plano_contas_id === planoUuid : true) &&
-            (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
-          )
-          .reduce((acc, r) => acc + (r.valor || 0), 0);
-        realizado += soma * (link.peso || 1);
+      // AT + Coifa: OS executadas exceto Ecolab/Tenda
+      if (meta.categoria === 'receita' && (nome.includes('at') || nome.includes('coifa') || nome.includes('higienização'))) {
+        realizado = osExecutadas
+          .filter(os => {
+            const cliente = (os.nome_cliente ?? '').toLowerCase();
+            return !cliente.includes('ecolab') && !cliente.includes('tenda');
+          })
+          .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
+        
+        // Fallback to fin_recebimentos if no OS data
+        if (realizado === 0 && osExecutadas.length === 0) {
+          for (const link of links) {
+            const planoUuid = planoContasMap[link.plano_contas_id];
+            const centroUuid = link.centro_custo_id ? centrosCustoMap[link.centro_custo_id] : null;
+            if (!planoUuid) continue;
+            const soma = recebimentos
+              .filter(r => (r.plano_contas_id ? r.plano_contas_id === planoUuid : true) && (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
+              .reduce((acc, r) => acc + (r.valor || 0), 0);
+            realizado += soma * (link.peso || 1);
+          }
+        }
+      }
+      // Ecolab / Chamados: OS executadas de Ecolab ou Tenda
+      else if (meta.categoria === 'receita' && (nome.includes('ecolab') || nome.includes('chamado'))) {
+        realizado = osExecutadas
+          .filter(os => {
+            const cliente = (os.nome_cliente ?? '').toLowerCase();
+            return cliente.includes('ecolab') || cliente.includes('tenda');
+          })
+          .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
+        
+        // Fallback to fin_recebimentos if no OS data
+        if (realizado === 0 && osExecutadas.length === 0) {
+          for (const link of links) {
+            const planoUuid = planoContasMap[link.plano_contas_id];
+            const centroUuid = link.centro_custo_id ? centrosCustoMap[link.centro_custo_id] : null;
+            if (!planoUuid) continue;
+            const soma = recebimentos
+              .filter(r => (r.plano_contas_id ? r.plano_contas_id === planoUuid : true) && (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
+              .reduce((acc, r) => acc + (r.valor || 0), 0);
+            realizado += soma * (link.peso || 1);
+          }
+        }
+      }
+      // All other metas: use fin_recebimentos or fin_pagamentos
+      else {
+        for (const link of links) {
+          const planoUuid = planoContasMap[link.plano_contas_id];
+          const centroUuid = link.centro_custo_id ? centrosCustoMap[link.centro_custo_id] : null;
+          if (!planoUuid) continue;
+          const source = meta.categoria === 'receita' ? recebimentos : pagamentos;
+          const soma = source
+            .filter(r =>
+              (r.plano_contas_id ? r.plano_contas_id === planoUuid : true) &&
+              (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
+            )
+            .reduce((acc, r) => acc + (r.valor || 0), 0);
+          realizado += soma * (link.peso || 1);
+        }
       }
 
       const meta_calculada =
@@ -220,12 +296,14 @@ const useMetas = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, execTotal, planoContasMap, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, osExecutadas, execTotal, planoContasMap, centrosCustoMap]);
 
-  const refetch = () => { refetchRec(); refetchPag(); };
-  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingCentros || loadingRec || loadingPag;
+  const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
-  return { metasComResultado, execTotal, isLoading, refetch };
+  const refetch = () => { refetchRec(); refetchPag(); refetchOS(); };
+  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingCentros || loadingRec || loadingPag || loadingOS;
+
+  return { metasComResultado, execTotal, isLoading, refetch, hasOsData };
 };
 
 // ─── COMPONENTE ROW ──────────────────────────────────────────────────────────
@@ -293,7 +371,7 @@ export default function MetasOrcamentoPage() {
   const [selectedYear, setSelectedYear]   = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
 
-  const { metasComResultado, execTotal, isLoading, refetch } = useMetas(selectedYear, selectedMonth);
+  const { metasComResultado, execTotal, isLoading, refetch, hasOsData } = useMetas(selectedYear, selectedMonth);
 
   const receitas       = metasComResultado.filter(m => m.categoria === 'receita');
   const custosVar      = metasComResultado.filter(m => m.categoria === 'custo_variavel');
@@ -363,6 +441,17 @@ export default function MetasOrcamentoPage() {
           </Button>
         </div>
       </div>
+
+      {!hasOsData && (
+        <div className="rounded-md bg-yellow-500/10 border border-yellow-500/30 p-3 text-sm text-yellow-700 dark:text-yellow-400 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>
+            Tabela de OS ainda não possui dados de <strong>data_saida</strong> e <strong>valor_total</strong>.
+            Execute o sync do GestãoClick para popular os campos.
+            Até lá, AT+Coifa e Ecolab usam fin_recebimentos como fallback.
+          </span>
+        </div>
+      )}
 
       {/* CARDS RESUMO */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
