@@ -17,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
-import { syncRecebimentosGC, type SyncDateFilter } from "@/api/financeiro";
+import { syncByMonthChunks, type SyncDateFilter } from "@/api/financeiro";
 import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
 import { cn } from "@/lib/utils";
 import {
@@ -178,13 +178,8 @@ export default function RecebimentosPage() {
   ) => {
     setSyncing(true);
     try {
-      onStep?.("Importando recebimentos do GestãoClick...");
-      const result = await syncRecebimentosGC(onProgress, {
-        dataInicio: filtros.dataInicio,
-        dataFim: filtros.dataFim,
-        incluirLiquidados: filtros.incluirLiquidados,
-      });
-      toast.success(`Importados: ${result.importados} recebimentos`);
+      const result = await syncByMonthChunks(filtros, onProgress, onStep);
+      toast.success(`Importados: ${result.importados} registros`);
       queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
       setShowSyncDialog(false);
     } catch (err) {

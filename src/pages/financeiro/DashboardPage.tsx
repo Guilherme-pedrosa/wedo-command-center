@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatTimeAgo, formatDate } from "@/lib/format";
-import { syncRecebimentosGC, syncPagamentosGC, syncFornecedoresGC, syncClientesGC } from "@/api/financeiro";
+import { syncFornecedoresGC, syncClientesGC, syncPlanoContasGC, syncCentrosCustoGC, syncByMonthChunks } from "@/api/financeiro";
 import {
   Receipt, AlertTriangle, CheckCircle, CreditCard, RefreshCw,
   TrendingUp, Loader2, ArrowRight, Zap, FileWarning, Eye, CalendarIcon,
@@ -185,20 +185,19 @@ export default function FinDashboardPage() {
   ) => {
     setSyncing(true);
     try {
-      onStep?.("Importando fornecedores...");
-      const f = await syncFornecedoresGC();
+      onStep?.("Importando cadastros (fornecedores, clientes, plano de contas, centros de custo)...");
+      await Promise.all([
+        syncFornecedoresGC(),
+        syncClientesGC(),
+        syncPlanoContasGC(),
+        syncCentrosCustoGC(),
+      ]);
 
-      onStep?.("Importando clientes...");
-      const c = await syncClientesGC();
-
-      onStep?.("Importando recebimentos do GestãoClick...");
-      const r = await syncRecebimentosGC(onProgress, filtros);
-
-      onStep?.("Importando pagamentos do GestãoClick...");
-      const p = await syncPagamentosGC(onProgress, filtros);
+      onStep?.("Iniciando sincronização por período...");
+      const result = await syncByMonthChunks(filtros, onProgress, onStep);
 
       onStep?.("Concluído!");
-      toast.success(`Sync: ${r.importados} recebimentos, ${p.importados} pagamentos, ${f.importados} fornecedores, ${c.importados} clientes`);
+      toast.success(`Sync: ${result.importados} registros importados${result.erros > 0 ? `, ${result.erros} erros` : ""}`);
       queryClient.invalidateQueries({ queryKey: ["fin-dash"] });
       setShowSyncDialog(false);
     } catch (err) {

@@ -16,7 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
-import { syncPagamentosGC, type SyncDateFilter } from "@/api/financeiro";
+import { syncByMonthChunks, type SyncDateFilter } from "@/api/financeiro";
 import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
 import { cn } from "@/lib/utils";
 import {
@@ -161,13 +161,8 @@ export default function PagamentosPage() {
   ) => {
     setSyncing(true);
     try {
-      onStep?.("Importando pagamentos do GestãoClick...");
-      const r = await syncPagamentosGC(onProgress, {
-        dataInicio: filtros.dataInicio,
-        dataFim: filtros.dataFim,
-        incluirLiquidados: filtros.incluirLiquidados,
-      });
-      toast.success(`Importados: ${r.importados} pagamentos`);
+      const result = await syncByMonthChunks(filtros, onProgress, onStep);
+      toast.success(`Importados: ${result.importados} registros`);
       queryClient.invalidateQueries({ queryKey: ["fin-pagamentos"] });
       setShowSyncDialog(false);
     } catch (err) {

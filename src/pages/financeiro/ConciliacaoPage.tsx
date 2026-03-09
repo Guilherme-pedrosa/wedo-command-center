@@ -11,7 +11,7 @@ import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw, ExternalLink, F
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
-import { syncRecebimentosGC, syncPagamentosGC } from "@/api/financeiro";
+import { syncByMonthChunks } from "@/api/financeiro";
 import toast from "react-hot-toast";
 
 const GC_BASE = "https://app.gestaoclick.com.br";
@@ -236,20 +236,17 @@ export default function ConciliacaoPage() {
           <p className="text-sm text-muted-foreground">Vincule transações do extrato a lançamentos do sistema</p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => {
-            invalidateAll();
-            toast.success("Dados recarregados");
-          }} variant="outline" size="sm" className="gap-2">
+          <Button onClick={() => { invalidateAll(); toast.success("Dados recarregados"); }} variant="outline" size="sm" className="gap-2">
             <RefreshCw className="h-4 w-4" />
             Atualizar
+          </Button>
+          <Button onClick={() => setShowSyncDialog(true)} disabled={syncing} size="sm" className="gap-2">
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Sincronizar GC
           </Button>
           <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" className="gap-2">
             {autoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
             Conciliação Automática
-          </Button>
-          <Button onClick={() => setShowSyncDialog(true)} disabled={syncing} variant="ghost" size="sm" className="gap-2 text-muted-foreground">
-            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            Re-importar GC
           </Button>
         </div>
       </div>
@@ -574,29 +571,20 @@ export default function ConciliacaoPage() {
       <SyncPeriodDialog
         open={showSyncDialog}
         onOpenChange={setShowSyncDialog}
-        title="Sincronizar dados do GestãoClick"
+        title="Sincronizar GestãoClick → Conciliação"
+        loading={syncing}
         onSync={async (filtros, onProgress, onStep) => {
           setSyncing(true);
           try {
-            onStep?.("Importando recebimentos do GestãoClick...");
-            const r = await syncRecebimentosGC(onProgress, {
-              dataInicio: filtros.dataInicio,
-              dataFim: filtros.dataFim,
-            });
-
-            onStep?.("Importando pagamentos do GestãoClick...");
-            const p = await syncPagamentosGC(onProgress, {
-              dataInicio: filtros.dataInicio,
-              dataFim: filtros.dataFim,
-            });
-
-            onStep?.("Concluído!");
+            const result = await syncByMonthChunks(filtros, onProgress, onStep);
             invalidateAll();
-            toast.success(`Sincronizado: ${r.importados} recebimentos, ${p.importados} pagamentos`);
+            toast.success(`Sincronizado: ${result.importados} registros importados`);
           } catch (err) {
             toast.error(err instanceof Error ? err.message : "Erro ao sincronizar");
+            throw err;
           } finally {
             setSyncing(false);
+            invalidateAll();
           }
         }}
       />

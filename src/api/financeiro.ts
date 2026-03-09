@@ -1,5 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { callGC } from "@/lib/gc-client";
+import { startOfMonth, endOfMonth, addMonths, format as fnsFormat } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -567,6 +569,65 @@ export interface SyncDateFilter {
   dataInicio?: string;
   dataFim?: string;
   incluirLiquidados?: boolean;
+}
+
+// ─── Chunked sync by month (splits large ranges) ────────────────────
+
+export async function syncByMonthChunks(
+  filtros: SyncDateFilter,
+  onProgress?: (atual: number, total: number) => void,
+  onStep?: (etapa: string) => void
+): Promise<{ importados: number; atualizados: number; erros: number }> {
+  const start = new Date((filtros.dataInicio || fnsFormat(new Date(), "yyyy-MM-dd")) + "T00:00:00");
+  const end = new Date((filtros.dataFim || fnsFormat(new Date(), "yyyy-MM-dd")) + "T23:59:59");
+
+  // Build monthly chunks
+  const chunks: { from: string; to: string; label: string }[] = [];
+  let cursor = startOfMonth(start);
+  while (cursor <= end) {
+    const chunkEnd = endOfMonth(cursor);
+    chunks.push({
+      from: fnsFormat(cursor < start ? start : cursor, "yyyy-MM-dd"),
+      to: fnsFormat(chunkEnd > end ? end : chunkEnd, "yyyy-MM-dd"),
+      label: fnsFormat(cursor, "MMMM yyyy", { locale: ptBR }),
+    });
+    cursor = startOfMonth(addMonths(cursor, 1));
+  }
+
+  const totals = { importados: 0, atualizados: 0, erros: 0 };
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    onStep?.(`[${i + 1}/${chunks.length}] Sincronizando ${chunk.label}...`);
+
+    const chunkFiltros: SyncDateFilter = {
+      dataInicio: chunk.from,
+      dataFim: chunk.to,
+      incluirLiquidados: filtros.incluirLiquidados,
+    };
+
+    try {
+      const [r, p] = await Promise.all([
+        syncRecebimentosGC(
+          (atual, total) => onProgress?.(
+            i * 100 + Math.round((atual / Math.max(total, 1)) * 100),
+            chunks.length * 100
+          ),
+          chunkFiltros
+        ),
+        syncPagamentosGC(undefined, chunkFiltros),
+      ]);
+      totals.importados += r.importados + p.importados;
+      totals.atualizados += r.atualizados + p.atualizados;
+      totals.erros += r.erros + p.erros;
+    } catch (err) {
+      console.error(`[syncByMonthChunks] Erro no chunk ${chunk.label}:`, err);
+      totals.erros++;
+      // Continue to next chunk even if this one fails
+    }
+  }
+
+  return totals;
 }
 
 export async function syncRecebimentosGC(
