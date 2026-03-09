@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { formatCurrency, formatDateTime } from "@/lib/format";
@@ -359,16 +360,14 @@ export default function ConciliacaoPage() {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">🏦 Extrato não reconciliado ({(extratoNR || []).length})</h3>
           <div className="flex items-center gap-2">
-            <Select value={mesExtrato} onValueChange={handleMesChange}>
-              <SelectTrigger className="w-[160px] h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {monthOptions.map(o => (
-                  <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={mesExtrato}
+              onValueChange={handleMesChange}
+              options={monthOptions.map(o => ({ value: o.value, label: o.label }))}
+              placeholder="Mês"
+              searchPlaceholder="Buscar mês..."
+              className="w-[160px] h-8 text-xs"
+            />
             <div className="flex items-center gap-1">
               <Popover>
                 <PopoverTrigger asChild>

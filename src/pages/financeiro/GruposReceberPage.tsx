@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { EmptyState } from "@/components/EmptyState";
@@ -86,17 +87,21 @@ export default function GruposReceberPage() {
           <h1 className="text-2xl font-bold text-foreground">Grupos a Receber</h1>
           <p className="text-sm text-muted-foreground">Grupos de recebimentos para cobrança</p>
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[180px]"><SelectValue placeholder="Filtrar status" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos</SelectItem>
-            <SelectItem value="aberto">Aberto</SelectItem>
-            <SelectItem value="aguardando_pagamento">Aguardando</SelectItem>
-            <SelectItem value="pago">Pago</SelectItem>
-            <SelectItem value="pago_parcial">Parcial</SelectItem>
-            <SelectItem value="cancelado">Cancelado</SelectItem>
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={statusFilter}
+          onValueChange={v => setStatusFilter(v || "todos")}
+          options={[
+            { value: "todos", label: "Todos" },
+            { value: "aberto", label: "Aberto" },
+            { value: "aguardando_pagamento", label: "Aguardando" },
+            { value: "pago", label: "Pago" },
+            { value: "pago_parcial", label: "Parcial" },
+            { value: "cancelado", label: "Cancelado" },
+          ]}
+          placeholder="Filtrar status"
+          searchPlaceholder="Buscar status..."
+          className="w-[180px] h-9"
+        />
       </div>
 
       <div className="rounded-lg border border-border bg-card overflow-hidden">

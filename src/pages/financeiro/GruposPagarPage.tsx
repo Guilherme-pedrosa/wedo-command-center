@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
@@ -47,7 +48,20 @@ export default function GruposPagarPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-bold text-foreground">Grupos a Pagar</h1><p className="text-sm text-muted-foreground">Grupos de pagamentos</p></div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todos</SelectItem><SelectItem value="aberto">Aberto</SelectItem><SelectItem value="aguardando_pagamento">Aguardando</SelectItem><SelectItem value="pago">Pago</SelectItem><SelectItem value="pago_parcial">Parcial</SelectItem></SelectContent></Select>
+        <SearchableSelect
+          value={statusFilter}
+          onValueChange={v => setStatusFilter(v || "todos")}
+          options={[
+            { value: "todos", label: "Todos" },
+            { value: "aberto", label: "Aberto" },
+            { value: "aguardando_pagamento", label: "Aguardando" },
+            { value: "pago", label: "Pago" },
+            { value: "pago_parcial", label: "Parcial" },
+          ]}
+          placeholder="Status"
+          searchPlaceholder="Buscar status..."
+          className="w-[180px] h-9"
+        />
       </div>
 
       <div className="rounded-lg border border-border bg-card overflow-hidden">

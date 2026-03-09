@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
@@ -348,42 +349,56 @@ export default function RecebimentosPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Buscar cliente, descrição, OS..." value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} className="pl-9" />
         </div>
-        <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setPage(0); }}>
-          <SelectTrigger className="w-[130px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos</SelectItem>
-            <SelectItem value="pendente">Pendente</SelectItem>
-            <SelectItem value="pago">Pago</SelectItem>
-            <SelectItem value="vencido">Vencido</SelectItem>
-            <SelectItem value="cancelado">Cancelado</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={tipoFilter} onValueChange={v => { setTipoFilter(v); setPage(0); }}>
-          <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Tipo: Todos</SelectItem>
-            <SelectItem value="os">OS</SelectItem>
-            <SelectItem value="venda">Venda</SelectItem>
-            <SelectItem value="contrato">Contrato</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={origemFilter} onValueChange={v => { setOrigemFilter(v); setPage(0); }}>
-          <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Origem: Todos</SelectItem>
-            <SelectItem value="gc">GestãoClick</SelectItem>
-            <SelectItem value="manual">Manual</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={formaFilter} onValueChange={v => { setFormaFilter(v); setPage(0); }}>
-          <SelectTrigger className="w-[180px]"><SelectValue placeholder="Forma Pgto" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Forma: Todas</SelectItem>
-            {(formasPagamento || []).map((f: any) => (
-              <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={statusFilter}
+          onValueChange={v => { setStatusFilter(v || "todos"); setPage(0); }}
+          options={[
+            { value: "todos", label: "Todos" },
+            { value: "pendente", label: "Pendente" },
+            { value: "pago", label: "Pago" },
+            { value: "vencido", label: "Vencido" },
+            { value: "cancelado", label: "Cancelado" },
+          ]}
+          placeholder="Status"
+          searchPlaceholder="Buscar status..."
+          className="w-[130px] h-9"
+        />
+        <SearchableSelect
+          value={tipoFilter}
+          onValueChange={v => { setTipoFilter(v || "todos"); setPage(0); }}
+          options={[
+            { value: "todos", label: "Tipo: Todos" },
+            { value: "os", label: "OS" },
+            { value: "venda", label: "Venda" },
+            { value: "contrato", label: "Contrato" },
+          ]}
+          placeholder="Tipo"
+          searchPlaceholder="Buscar tipo..."
+          className="w-[120px] h-9"
+        />
+        <SearchableSelect
+          value={origemFilter}
+          onValueChange={v => { setOrigemFilter(v || "todos"); setPage(0); }}
+          options={[
+            { value: "todos", label: "Origem: Todos" },
+            { value: "gc", label: "GestãoClick" },
+            { value: "manual", label: "Manual" },
+          ]}
+          placeholder="Origem"
+          searchPlaceholder="Buscar origem..."
+          className="w-[120px] h-9"
+        />
+        <SearchableSelect
+          value={formaFilter}
+          onValueChange={v => { setFormaFilter(v || "todos"); setPage(0); }}
+          options={[
+            { value: "todos", label: "Forma: Todas" },
+            ...(formasPagamento || []).map((f: any) => ({ value: f.id, label: f.nome })),
+          ]}
+          placeholder="Forma Pgto"
+          searchPlaceholder="Buscar forma..."
+          className="w-[180px] h-9"
+        />
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
