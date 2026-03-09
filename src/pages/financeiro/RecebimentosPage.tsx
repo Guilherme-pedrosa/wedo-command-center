@@ -17,7 +17,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
-import { syncRecebimentosGC } from "@/api/financeiro";
+import { syncRecebimentosGC, type SyncDateFilter } from "@/api/financeiro";
+import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
 import { cn } from "@/lib/utils";
 import {
   Receipt, Search, RefreshCw, Plus, Loader2, Zap, CalendarIcon,
@@ -48,6 +49,7 @@ export default function RecebimentosPage() {
 
   // UI state
   const [syncing, setSyncing] = useState(false);
+  const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showBaixa, setShowBaixa] = useState(false);
   const [showNewDrawer, setShowNewDrawer] = useState(false);
@@ -156,12 +158,17 @@ export default function RecebimentosPage() {
     setSelected(n);
   };
 
-  const handleSync = async () => {
+  const handleSync = async (filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean }) => {
     setSyncing(true);
     try {
-      const result = await syncRecebimentosGC();
+      const result = await syncRecebimentosGC(undefined, {
+        dataInicio: filtros.dataInicio,
+        dataFim: filtros.dataFim,
+        incluirLiquidados: filtros.incluirLiquidados,
+      });
       toast.success(`Importados: ${result.importados} recebimentos`);
       queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
+      setShowSyncDialog(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
     } finally {
@@ -292,7 +299,7 @@ export default function RecebimentosPage() {
             <FileText className="h-3.5 w-3.5 mr-1.5" />
             Fechamento do Dia
           </Button>
-          <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing}>
+          <Button size="sm" variant="outline" onClick={() => setShowSyncDialog(true)} disabled={syncing}>
             {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
             Sync GC
           </Button>
@@ -373,7 +380,7 @@ export default function RecebimentosPage() {
               {isLoading ? (
                 <tr><td colSpan={11} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></td></tr>
               ) : paged.length === 0 ? (
-                <tr><td colSpan={11}><EmptyState icon={Receipt} title="Nenhum recebimento" description="Sincronize os dados do GC ou crie manualmente." action={{ label: "Sincronizar", onClick: handleSync }} /></td></tr>
+                <tr><td colSpan={11}><EmptyState icon={Receipt} title="Nenhum recebimento" description="Sincronize os dados do GC ou crie manualmente." action={{ label: "Sincronizar", onClick: () => setShowSyncDialog(true) }} /></td></tr>
               ) : paged.map((r: any) => (
                 <tr key={r.id} className="border-b border-border hover:bg-muted/30 transition-colors">
                   <td className="p-3">
@@ -758,6 +765,14 @@ export default function RecebimentosPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <SyncPeriodDialog
+        open={showSyncDialog}
+        onOpenChange={setShowSyncDialog}
+        onSync={handleSync}
+        loading={syncing}
+        title="Sincronizar Recebimentos (GC)"
+      />
     </div>
   );
 }

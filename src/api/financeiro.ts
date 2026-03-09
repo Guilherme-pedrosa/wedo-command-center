@@ -199,11 +199,17 @@ export async function listRecebimentos(params?: {
 }
 
 export async function importarRecebimentosPendentes(
-  onProgress?: (current: number, total: number) => void
+  onProgress?: (current: number, total: number) => void,
+  filtros?: { dataInicio?: string; dataFim?: string; liquidado?: string }
 ): Promise<GCRecebimentoRaw[]> {
+  const params: Record<string, string> = {};
+  if (filtros?.liquidado !== undefined) params.liquidado = filtros.liquidado;
+  else params.liquidado = "0";
+  if (filtros?.dataInicio) params.data_vencimento_inicio = filtros.dataInicio;
+  if (filtros?.dataFim) params.data_vencimento_fim = filtros.dataFim;
   return fetchPaginatedGC<GCRecebimentoRaw>(
     "/api/recebimentos",
-    { liquidado: "0" },
+    params,
     onProgress
   );
 }
@@ -274,11 +280,17 @@ export async function listPagamentos(params?: {
 }
 
 export async function importarPagamentosPendentes(
-  onProgress?: (current: number, total: number) => void
+  onProgress?: (current: number, total: number) => void,
+  filtros?: { dataInicio?: string; dataFim?: string; liquidado?: string }
 ): Promise<GCPagamentoRaw[]> {
+  const params: Record<string, string> = {};
+  if (filtros?.liquidado !== undefined) params.liquidado = filtros.liquidado;
+  else params.liquidado = "0";
+  if (filtros?.dataInicio) params.data_vencimento_inicio = filtros.dataInicio;
+  if (filtros?.dataFim) params.data_vencimento_fim = filtros.dataFim;
   return fetchPaginatedGC<GCPagamentoRaw>(
     "/api/pagamentos",
-    { liquidado: "0" },
+    params,
     onProgress
   );
 }
@@ -541,11 +553,23 @@ async function buildPcCcMaps(): Promise<{
 
 // ─── Sync Service (GC → fin_* tables) ───────────────────────────────
 
+export interface SyncDateFilter {
+  dataInicio?: string;
+  dataFim?: string;
+  incluirLiquidados?: boolean;
+}
+
 export async function syncRecebimentosGC(
-  onProgress?: (atual: number, total: number) => void
+  onProgress?: (atual: number, total: number) => void,
+  filtros?: SyncDateFilter
 ): Promise<{ importados: number; atualizados: number; erros: number }> {
   const inicio = Date.now();
-  const raws = await importarRecebimentosPendentes(onProgress);
+  const fetchFiltros = {
+    dataInicio: filtros?.dataInicio,
+    dataFim: filtros?.dataFim,
+    ...(filtros?.incluirLiquidados ? { liquidado: undefined } : {}),
+  };
+  const raws = await importarRecebimentosPendentes(onProgress, fetchFiltros as any);
   const { pcMap, ccMap } = await buildPcCcMaps();
   let importados = 0;
   let atualizados = 0;
@@ -596,10 +620,16 @@ export async function syncRecebimentosGC(
 }
 
 export async function syncPagamentosGC(
-  onProgress?: (atual: number, total: number) => void
+  onProgress?: (atual: number, total: number) => void,
+  filtros?: SyncDateFilter
 ): Promise<{ importados: number; atualizados: number; erros: number }> {
   const inicio = Date.now();
-  const raws = await importarPagamentosPendentes(onProgress);
+  const fetchFiltros = {
+    dataInicio: filtros?.dataInicio,
+    dataFim: filtros?.dataFim,
+    ...(filtros?.incluirLiquidados ? { liquidado: undefined } : {}),
+  };
+  const raws = await importarPagamentosPendentes(onProgress, fetchFiltros as any);
   const { pcMap, ccMap } = await buildPcCcMaps();
   let importados = 0;
   let atualizados = 0;

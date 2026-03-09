@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ export default function FinDashboardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
+  const [showSyncDialog, setShowSyncDialog] = useState(false);
   const hoje = new Date().toISOString().split("T")[0];
   const mesAtual = format(new Date(), "yyyy-MM");
   const inicioSemana = format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd");
@@ -107,14 +109,17 @@ export default function FinDashboardPage() {
     return { name: label, recebimentos: rec, pagamentos: pag };
   });
 
-  const handleSyncAll = async () => {
+  const handleSyncAll = async (filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean }) => {
     setSyncing(true);
     try {
-      // Sync fornecedores/clientes first (needed for reconciliation CPF matching)
       const [f, c] = await Promise.all([syncFornecedoresGC(), syncClientesGC()]);
-      const [r, p] = await Promise.all([syncRecebimentosGC(), syncPagamentosGC()]);
+      const [r, p] = await Promise.all([
+        syncRecebimentosGC(undefined, filtros),
+        syncPagamentosGC(undefined, filtros),
+      ]);
       toast.success(`Sync: ${r.importados} recebimentos, ${p.importados} pagamentos, ${f.importados} fornecedores, ${c.importados} clientes`);
       queryClient.invalidateQueries({ queryKey: ["fin-dash"] });
+      setShowSyncDialog(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao sincronizar");
     } finally {
@@ -150,7 +155,7 @@ export default function FinDashboardPage() {
           <h1 className="text-2xl font-bold text-foreground">Dashboard Financeiro</h1>
           <p className="text-sm text-muted-foreground">Visão consolidada do módulo financeiro</p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleSyncAll} disabled={syncing}>
+        <Button variant="outline" size="sm" onClick={() => setShowSyncDialog(true)} disabled={syncing}>
           {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
           Sincronizar Tudo
         </Button>
@@ -271,6 +276,14 @@ export default function FinDashboardPage() {
           <p className="text-sm text-muted-foreground">Nenhuma atividade registrada.</p>
         )}
       </div>
+
+      <SyncPeriodDialog
+        open={showSyncDialog}
+        onOpenChange={setShowSyncDialog}
+        onSync={handleSyncAll}
+        loading={syncing}
+        title="Sincronizar Tudo (GC)"
+      />
     </div>
   );
 }
