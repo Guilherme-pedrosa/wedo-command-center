@@ -112,8 +112,10 @@ export default function FinDashboardPage() {
   const handleSyncAll = async (filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean }) => {
     setSyncing(true);
     try {
-      const [f, c] = await Promise.all([syncFornecedoresGC(), syncClientesGC()]);
-      const [r, p] = await Promise.all([
+      // Run ALL syncs in parallel instead of sequentially
+      const [f, c, r, p] = await Promise.all([
+        syncFornecedoresGC(),
+        syncClientesGC(),
         syncRecebimentosGC(undefined, filtros),
         syncPagamentosGC(undefined, filtros),
       ]);
