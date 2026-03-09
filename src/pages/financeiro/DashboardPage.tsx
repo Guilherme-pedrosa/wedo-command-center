@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatTimeAgo, formatDate } from "@/lib/format";
-import { syncFornecedoresGC, syncClientesGC, syncPlanoContasGC, syncCentrosCustoGC, syncByMonthChunks } from "@/api/financeiro";
+import { syncFornecedoresGC, syncClientesGC, syncPlanoContasGC, syncCentrosCustoGC, syncFormasPagamentoGC, syncByMonthChunks } from "@/api/financeiro";
 import {
   Receipt, AlertTriangle, CheckCircle, CreditCard, RefreshCw,
   TrendingUp, Loader2, ArrowRight, Zap, FileWarning, Eye, CalendarIcon,
