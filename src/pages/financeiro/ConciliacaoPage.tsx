@@ -55,6 +55,8 @@ export default function ConciliacaoPage() {
   const [syncing, setSyncing] = useState(false);
   const [mesExtrato, setMesExtrato] = useState("all");
   const [mesLanc, setMesLanc] = useState("all");
+  const [searchLanc, setSearchLanc] = useState("");
+  const [expandedExtrato, setExpandedExtrato] = useState<string | null>(null);
 
   // Extrato query — fetch more, filter client-side by month
   const { data: extratoNR } = useQuery({
