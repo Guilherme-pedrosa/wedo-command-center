@@ -30,7 +30,21 @@ export default function TvResultados() {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
-  const { metasComResultado, execTotal, isLoading, refetch } = useMetasResultados(year, month);
+  const { metasComResultado, execTotal, isLoading, refetch, osExecutadas } = useMetasResultados(year, month);
+
+  // Top 3 vendedores by faturamento (only chamados + executados)
+  const top3Vendedores = useMemo(() => {
+    const vendedorMap: Record<string, number> = {};
+    for (const os of osExecutadas) {
+      const nome = os.nome_vendedor?.trim();
+      if (!nome) continue;
+      vendedorMap[nome] = (vendedorMap[nome] || 0) + (os.valor_total ?? 0);
+    }
+    return Object.entries(vendedorMap)
+      .map(([nome, total]) => ({ nome, total }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 3);
+  }, [osExecutadas]);
 
   // Auto-refresh every 5 minutes
   useEffect(() => {
