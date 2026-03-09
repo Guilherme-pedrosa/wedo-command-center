@@ -298,27 +298,20 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
-  // 4. Calcula EXEC_TOTAL — OS (AT+Ecolab) + receitas financeiras (PCM, Locação, etc.) + vendas
-  // Use gc_recebimentos (GC IDs) as primary source since it has ALL records from GC
+  // 4. Calcula EXEC_TOTAL — OS executadas + gc_vendas + Contratos PCM + Locação
+  // NÃO inclui "Vendas de produtos" (27867718) nem "Vendas no balcão" (27867719) dos recebimentos
   const execTotal = useMemo(() => {
-    const receitaGcIds_OS = ['27867720', '27867721'];
-    const receitaGcIds_Vendas = ['27867722'];
-    const receitaGcIds = ['27867720', '27867721', '27867722', '27867718', '27867719'];
+    // Fontes de receita financeira (gc_recebimentos): apenas Contratos e Locação
+    const receitaFinanceiraGcIds = ['27867721', '27867722']; // Contratos de serviços + Locação de equipamentos
 
     const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
     const vendasTotal = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
 
-    const excludedGcIds = [...receitaGcIds_OS, ...receitaGcIds_Vendas];
     const recFinanceiro = gcRecebimentos
-      .filter(r => r.plano_contas_id && receitaGcIds.includes(r.plano_contas_id) && !excludedGcIds.includes(r.plano_contas_id))
+      .filter(r => r.plano_contas_id && receitaFinanceiraGcIds.includes(r.plano_contas_id))
       .reduce((acc, r) => acc + (r.valor || 0), 0);
 
-    const hasExternalData = osExecutadas.length > 0 || vendasConcretizadas.length > 0;
-    if (hasExternalData) return osTotal + vendasTotal + recFinanceiro;
-
-    return gcRecebimentos
-      .filter(r => r.plano_contas_id && receitaGcIds.includes(r.plano_contas_id))
-      .reduce((acc, r) => acc + (r.valor || 0), 0);
+    return osTotal + vendasTotal + recFinanceiro;
   }, [gcRecebimentos, osExecutadas, vendasConcretizadas]);
 
   // 5. Calcula realizado por meta
