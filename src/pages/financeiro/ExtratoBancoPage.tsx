@@ -85,7 +85,6 @@ export default function ExtratoBancoPage() {
   const [aiTargetId, setAiTargetId] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<any>(null);
-  const [aiCommand, setAiCommand] = useState("");
   const [aiVinculando, setAiVinculando] = useState<string | null>(null);
   const [aiVinculados, setAiVinculados] = useState<Set<string>>(new Set());
 
