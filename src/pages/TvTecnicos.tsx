@@ -220,9 +220,22 @@ export default function TvTecnicos() {
                 />
               </div>
 
+              {/* OS list */}
+              <div className="mt-2 max-h-28 overflow-y-auto space-y-0.5 scrollbar-thin">
+                {t.osList.map((os, idx) => (
+                  <div key={idx} className="flex justify-between text-xs text-white/50">
+                    <span>OS {os.codigo}</span>
+                    <span>{formatBRL(os.valor)}</span>
+                  </div>
+                ))}
+                {t.osList.length === 0 && (
+                  <p className="text-xs text-white/30 italic">Sem OS no período</p>
+                )}
+              </div>
+
               {/* Meta */}
               <p className="text-xs text-white/40 mt-2">
-                Meta: {formatBRL(t.meta)}
+                Meta: {formatBRL(t.meta)} • {t.osList.length} OS
               </p>
             </div>
           );
