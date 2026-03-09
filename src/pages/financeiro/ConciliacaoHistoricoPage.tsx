@@ -272,8 +272,8 @@ export default function ConciliacaoHistoricoPage() {
         {formatDateTime(item.reconciliado_em || item.data_hora)}
       </div>
       {/* Nome contraparte */}
-      <div className="col-span-2 font-medium text-foreground truncate" title={item.nome_contraparte}>
-        {item.nome_contraparte || "—"}
+      <div className="col-span-2 font-medium text-foreground truncate" title={item.nome_contraparte || item.descricao || ""}>
+        {item.nome_contraparte || item.descricao || "—"}
       </div>
       {/* CPF/CNPJ */}
       <div className="col-span-1 text-xs text-muted-foreground font-mono truncate" title={item.cpf_cnpj}>
