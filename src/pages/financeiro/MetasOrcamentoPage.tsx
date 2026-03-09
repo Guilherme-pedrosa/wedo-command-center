@@ -11,7 +11,7 @@ import {
   Target, TrendingUp, TrendingDown, AlertTriangle,
   RefreshCw, DollarSign, Percent, BarChart3, Loader2, Settings
 } from 'lucide-react';
-import { syncVendas, syncCompras, syncAuvoExpenses, syncOS } from '@/api/syncService';
+import { syncVendas, syncCompras, syncAuvoExpenses, syncOS, syncRecebimentos, syncPagamentos } from '@/api/syncService';
 import toast from 'react-hot-toast';
 import MetasConfigDialog from '@/components/financeiro/MetasConfigDialog';
 
@@ -552,6 +552,17 @@ export default function MetasOrcamentoPage() {
       if (bt['48782']) details.push(`Combustível R$ ${(bt['48782'].total || 0).toFixed(2)}`);
       if (bt['48784']) details.push(`Hospedagem R$ ${(bt['48784'].total || 0).toFixed(2)}`);
       if (bt['49032']) details.push(`Pedágio R$ ${(bt['49032'].total || 0).toFixed(2)}`);
+    } catch (_e) { fail++; }
+
+    // Sync GC Recebimentos + Pagamentos
+    try {
+      const resRec = await syncRecebimentos();
+      ok += resRec.importados;
+    } catch (_e) { fail++; }
+
+    try {
+      const resPag = await syncPagamentos();
+      ok += resPag.importados;
     } catch (_e) { fail++; }
 
     if (fail === 0) {
