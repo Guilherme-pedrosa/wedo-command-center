@@ -735,10 +735,18 @@ serve(async (req) => {
             const extDocSoma = cleanDoc(ext.cpf_cnpj);
             const extDateSoma = ext.data_hora?.substring(0, 10) ?? "";
             const isDebitoSoma = ext.tipo === "DEBITO";
-            const allPool = [
+            
+            // DEDUPLICAR por ID para evitar que o mesmo registro apareça 2x
+            const rawPool = [
               ...(isDebitoSoma ? (pagamentos ?? []) : (recebimentos ?? [])),
               ...(isDebitoSoma ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? [])),
             ];
+            const seenPoolIds = new Set<string>();
+            const allPool = rawPool.filter((fin: any) => {
+              if (seenPoolIds.has(fin.id)) return false;
+              seenPoolIds.add(fin.id);
+              return true;
+            });
 
             const somaResult = tentarSomaParcelas(
               extValor, extDocSoma, extNomeSoma, extDateSoma,
@@ -747,7 +755,7 @@ serve(async (req) => {
 
             if (somaResult) {
               try {
-                await saveSomaParcelas(supabase, ext.id, somaResult.parcelas, somaResult.rule);
+                await saveSomaParcelas(supabase, ext.id, extValor, somaResult.parcelas, somaResult.rule);
                 somaResult.parcelas.forEach(p => usedIds.add(p.id));
                 stats.auto++;
               } catch (e) {
