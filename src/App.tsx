@@ -93,6 +93,7 @@ const App = () => (
             <Route path="/financeiro/centros-custo" element={<Suspense fallback={<LazyFallback />}><FinCentrosCusto /></Suspense>} />
             <Route path="/financeiro/clientes" element={<Suspense fallback={<LazyFallback />}><FinClientes /></Suspense>} />
           <Route path="/financeiro/fornecedores" element={<Suspense fallback={<LazyFallback />}><FinFornecedores /></Suspense>} />
+          <Route path="/financeiro/paineis-tv" element={<Suspense fallback={<LazyFallback />}><FinPaineisTv /></Suspense>} />
           </Route>
 
           {/* Standalone pages (no sidebar) */}
