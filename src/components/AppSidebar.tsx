@@ -54,9 +54,10 @@ const finRelatorios = [
 ];
 
 const finAdmin = [
-  { title: "📋 Plano Contas", url: "/financeiro/plano-contas", icon: BookOpen },
-  { title: "⚙️ Config Inter", url: "/financeiro/config-banco", icon: Landmark },
-  { title: "🔍 Log API", url: "/financeiro/log", icon: Search },
+  { title: "\uD83D\uDCCB Plano Contas", url: "/financeiro/plano-contas", icon: BookOpen },
+  { title: "\uD83C\uDFE2 Centros de Custo", url: "/financeiro/centros-custo", icon: BookOpen },
+  { title: "\u2699\uFE0F Config Inter", url: "/financeiro/config-banco", icon: Landmark },
+  { title: "\uD83D\uDD0D Log API", url: "/financeiro/log", icon: Search },
 ];
 
 const bottomItems = [

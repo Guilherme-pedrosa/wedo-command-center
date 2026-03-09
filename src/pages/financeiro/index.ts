@@ -11,3 +11,4 @@ export { default as FluxoCaixaPage } from "./FluxoCaixaPage";
 export { default as PlanoContasPage } from "./PlanoContasPage";
 export { default as ConfigBancoPage } from "./ConfigBancoPage";
 export { default as LogPage } from "./LogPage";
+export { default as CentrosCustoPage } from "./CentrosCustoPage";

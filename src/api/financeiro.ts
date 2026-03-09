@@ -819,6 +819,111 @@ export async function syncClientesGC(
   return { importados, erros };
 }
 
+// ─── Sync Plano de Contas (GC → fin_plano_contas) ───────────────────
+
+export async function syncPlanoContasGC(
+  onProgress?: (atual: number, total: number) => void
+): Promise<{ importados: number; erros: number }> {
+  const inicio = Date.now();
+  const raws = await fetchPaginatedGC<Record<string, any>>(
+    "/api/plano_contas",
+    {},
+    onProgress
+  );
+  let importados = 0;
+  let erros = 0;
+
+  const batchSize = 50;
+  for (let i = 0; i < raws.length; i += batchSize) {
+    const batch = raws.slice(i, i + batchSize).map((raw) => ({
+      gc_id: String(raw.id),
+      nome: raw.nome || "Sem nome",
+      codigo: raw.codigo || null,
+      tipo: (raw.tipo === "despesa" ? "despesa" : "receita") as "receita" | "despesa",
+      ativo: raw.ativo !== "0" && raw.ativo !== false,
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { error } = await supabase
+      .from("fin_plano_contas" as any)
+      .upsert(batch, { onConflict: "gc_id" });
+
+    if (error) {
+      console.error("Upsert plano_contas error:", error);
+      erros += batch.length;
+    } else {
+      importados += batch.length;
+    }
+  }
+
+  await supabase.from("fin_sync_log" as any).insert({
+    tipo: "gc_import_plano_contas",
+    status: erros === 0 ? "success" : "partial",
+    resposta: { importados, erros, total: raws.length },
+    duracao_ms: Date.now() - inicio,
+  });
+
+  return { importados, erros };
+}
+
+// ─── Sync Centros de Custo (GC → fin_centros_custo) ─────────────────
+
+export async function syncCentrosCustoGC(
+  onProgress?: (atual: number, total: number) => void
+): Promise<{ importados: number; erros: number }> {
+  const inicio = Date.now();
+  const raws = await fetchPaginatedGC<Record<string, any>>(
+    "/api/centros_custo",
+    {},
+    onProgress
+  );
+  let importados = 0;
+  let erros = 0;
+
+  const batchSize = 50;
+  for (let i = 0; i < raws.length; i += batchSize) {
+    const batch = raws.slice(i, i + batchSize).map((raw) => ({
+      id: undefined as any, // let DB auto-generate
+      nome: raw.nome || "Sem nome",
+      codigo: String(raw.id), // store GC id as codigo for mapping
+      ativo: raw.ativo !== "0" && raw.ativo !== false,
+    }));
+
+    // Upsert by codigo (GC id stored there)
+    const { error } = await supabase
+      .from("fin_centros_custo" as any)
+      .upsert(batch.map(b => ({ nome: b.nome, codigo: b.codigo, ativo: b.ativo })), { onConflict: "codigo" } as any);
+
+    if (error) {
+      // If no unique constraint on codigo, do manual check
+      for (const b of batch) {
+        const { data: existing } = await supabase
+          .from("fin_centros_custo" as any)
+          .select("id")
+          .eq("codigo", b.codigo)
+          .maybeSingle();
+        if (existing) {
+          await supabase.from("fin_centros_custo" as any).update({ nome: b.nome, ativo: b.ativo }).eq("id", (existing as any).id);
+        } else {
+          await supabase.from("fin_centros_custo" as any).insert({ nome: b.nome, codigo: b.codigo, ativo: b.ativo });
+        }
+      }
+      importados += batch.length;
+    } else {
+      importados += batch.length;
+    }
+  }
+
+  await supabase.from("fin_sync_log" as any).insert({
+    tipo: "gc_import_centros_custo",
+    status: erros === 0 ? "success" : "partial",
+    resposta: { importados, erros, total: raws.length },
+    duracao_ms: Date.now() - inicio,
+  });
+
+  return { importados, erros };
+}
+
 // ─── Inter: Gerar Cobrança PIX ──────────────────────────────────────
 
 export async function gerarCobrancaPix(grupoId: string): Promise<{
