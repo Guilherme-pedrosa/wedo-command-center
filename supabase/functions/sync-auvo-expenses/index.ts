@@ -43,7 +43,7 @@ async function fetchExpensesByType(
       break;
     }
     const json = await res.json();
-    const results = json?.result?.entities || json?.data?.entities || json?.result || [];
+    const results = json?.result?.entityList ?? json?.result?.entities ?? [];
     if (!Array.isArray(results) || results.length === 0) break;
     all.push(...results);
     if (results.length < pageSize) break;
