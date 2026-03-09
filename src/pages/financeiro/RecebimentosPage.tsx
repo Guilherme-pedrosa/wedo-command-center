@@ -88,6 +88,18 @@ export default function RecebimentosPage() {
     },
   });
 
+  // IDs conciliados (vinculados no extrato)
+  const { data: conciliadoIds } = useQuery({
+    queryKey: ["fin-recebimentos-conciliados"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("fin_extrato_lancamentos")
+        .select("lancamento_id")
+        .eq("tabela", "fin_recebimentos");
+      return new Set((data || []).map((d: any) => d.lancamento_id));
+    },
+  });
+
   // Fechamento do dia query
   const { data: fechamentoItems, isLoading: loadingFechamento } = useQuery({
     queryKey: ["fin-recebimentos-fechamento", hoje],
