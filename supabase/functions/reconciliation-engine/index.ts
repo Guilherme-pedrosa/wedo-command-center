@@ -61,18 +61,7 @@ function nomeSimilarScore(a: string | null, b: string | null): number {
 }
 
 function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): boolean {
-  if (!a || !b) return false;
-  const normalize = (s: string) =>
-    s.toLowerCase()
-     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-     .replace(/[^a-z0-9\s]/g, "")
-     .split(/\s+/).filter(w => w.length > 2);
-  const wa = normalize(a);
-  const wb = normalize(b);
-  if (!wa.length || !wb.length) return false;
-  const inter = wa.filter(w => wb.includes(w)).length;
-  const union = new Set([...wa, ...wb]).size;
-  return inter / union >= threshold;
+  return nomeSimilarScore(a, b) >= threshold;
 }
 
 type MatchRule =
