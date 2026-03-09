@@ -464,6 +464,7 @@ export default function MetasOrcamentoPage() {
 
   const { metasComResultado, execTotal, isLoading, refetch, hasOsData } = useMetas(selectedYear, selectedMonth);
 
+  const [configOpen, setConfigOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
   const handleSyncAll = useCallback(async () => {
     setSyncingAll(true);
