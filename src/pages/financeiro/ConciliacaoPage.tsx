@@ -137,7 +137,11 @@ export default function ConciliacaoPage() {
 
     const filterFn = (l: any) => {
       if (!q) return true;
-      const fields = [l.descricao, l.nome_cliente, l.nome_fornecedor, l.os_codigo, l.gc_codigo, l.nf_numero, l.nfe_numero, String(l.valor)].filter(Boolean).join(" ").toLowerCase();
+      const valorStr = Number(l.valor || 0).toFixed(2);
+      const fields = [l.descricao, l.nome_cliente, l.nome_fornecedor, l.os_codigo, l.gc_codigo, l.nf_numero, l.nfe_numero, valorStr, String(l.valor)].filter(Boolean).join(" ").toLowerCase();
+      // Also try matching as numeric value comparison
+      const numQuery = parseFloat(q.replace(",", "."));
+      if (!isNaN(numQuery) && Math.abs(Number(l.valor) - numQuery) < 0.01) return true;
       return fields.includes(q);
     };
 
