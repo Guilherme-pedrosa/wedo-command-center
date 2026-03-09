@@ -237,7 +237,7 @@ export default function ConciliacaoHistoricoPage() {
       {/* A\u00e7\u00f5es */}
       <div className="col-span-2 flex items-center justify-end gap-1">
         <TooltipProvider>
-          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setDetail(item)}>
+          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openDetail(item)}>
             <Eye className="h-3.5 w-3.5" />
           </Button>
         </TooltipProvider>
