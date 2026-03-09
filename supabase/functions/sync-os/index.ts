@@ -22,6 +22,7 @@ const EXECUTADO_SITUACAO_IDS = [
   "7720756",  // EXECUTADO - FINANCEIRO SEPARADO
   "8677491",  // EXECUTADO - CIGAM
   "8760417",  // EXECUTADO - LIBERADO P/ FATURAMENTO (CIGAM SEM BAIXA ESTOQ)
+  "8889036",  // EXECUTADO - FECHADO CHAMADO
 ];
 
 async function rateLimitedFetch(url: string, options: RequestInit): Promise<Response> {
