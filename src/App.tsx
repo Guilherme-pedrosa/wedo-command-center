@@ -34,7 +34,8 @@ const FinMetas = lazy(() => import("@/pages/financeiro/MetasOrcamentoPage"));
 const FinCentrosCusto = lazy(() => import("@/pages/financeiro/CentrosCustoPage"));
 const FinClientes = lazy(() => import("@/pages/financeiro/ClientesPage"));
 const FinFornecedores = lazy(() => import("@/pages/financeiro/FornecedoresPage"));
-
+const RelatorioResultados = lazy(() => import("@/pages/RelatorioResultados"));
+const TvResultados = lazy(() => import("@/pages/TvResultados"));
 const queryClient = new QueryClient();
 
 function LazyFallback() {
