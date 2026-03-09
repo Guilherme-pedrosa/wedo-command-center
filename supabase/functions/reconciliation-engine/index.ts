@@ -38,20 +38,26 @@ function dataProxima(a: string, b: string, dias = 3): boolean {
   return Math.abs(new Date(a).getTime() - new Date(b).getTime()) <= dias * 86400000;
 }
 
-// Similaridade de nome por palavras em comum (Jaccard simplificado)
+// Similaridade de nome por palavras em comum (Jaccard simplificado + containment fallback)
 function nomeSimilarScore(a: string | null, b: string | null): number {
   if (!a || !b) return 0;
   const normalize = (s: string) =>
     s.toLowerCase()
      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
      .replace(/[^a-z0-9\s]/g, "")
-     .split(/\s+/).filter(w => w.length > 2);
+     .split(/\s+/).filter(w => w.length > 2 && !/^\d+$/.test(w)); // exclude pure numeric tokens like CNPJ fragments
   const wa = normalize(a);
   const wb = normalize(b);
   if (!wa.length || !wb.length) return 0;
   const inter = wa.filter(w => wb.includes(w)).length;
   const union = new Set([...wa, ...wb]).size;
-  return inter / union;
+  const jaccard = inter / union;
+  // Containment: if the smaller set is fully contained in the larger, boost score
+  const smaller = wa.length <= wb.length ? wa : wb;
+  const larger = wa.length > wb.length ? wa : wb;
+  const containment = smaller.filter(w => larger.includes(w)).length / smaller.length;
+  // Return the best of jaccard and containment (containment handles "Filipe" ⊂ "Filipe Farias de Carvalho")
+  return Math.max(jaccard, containment);
 }
 
 function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): boolean {
