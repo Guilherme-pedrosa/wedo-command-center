@@ -14,7 +14,7 @@ import { format, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay } fro
 import { cn } from "@/lib/utils";
 import { ptBR } from "date-fns/locale";
 import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
-import { syncByMonthChunks } from "@/api/financeiro";
+import { syncByMonthChunks, buscarExtratoInter } from "@/api/financeiro";
 import toast from "react-hot-toast";
 
 const GC_BASE = "https://app.gestaoclick.com.br";
@@ -60,6 +60,8 @@ export default function ConciliacaoPage() {
   const [autoResult, setAutoResult] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
   const [showSyncDialog, setShowSyncDialog] = useState(false);
+  const [showExtratoDialog, setShowExtratoDialog] = useState(false);
+  const [importingExtrato, setImportingExtrato] = useState(false);
   const [mesExtrato, setMesExtrato] = useState(format(new Date(), "yyyy-MM"));
   const [dateFrom, setDateFrom] = useState(startOfMonth(new Date()));
   const [dateTo, setDateTo] = useState(endOfMonth(new Date()));
@@ -261,6 +263,10 @@ export default function ConciliacaoPage() {
           <Button onClick={() => { invalidateAll(); toast.success("Dados recarregados"); }} variant="outline" size="sm" className="gap-2">
             <RefreshCw className="h-4 w-4" />
             Atualizar
+          </Button>
+          <Button onClick={() => setShowExtratoDialog(true)} disabled={importingExtrato} variant="outline" size="sm" className="gap-2">
+            {importingExtrato ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Importar Extrato Inter
           </Button>
           <Button onClick={() => setShowSyncDialog(true)} disabled={syncing} size="sm" className="gap-2">
             {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
@@ -642,6 +648,30 @@ export default function ConciliacaoPage() {
           } finally {
             setSyncing(false);
             invalidateAll();
+          }
+        }}
+      />
+
+      {/* Import Extrato Inter Dialog */}
+      <SyncPeriodDialog
+        open={showExtratoDialog}
+        onOpenChange={setShowExtratoDialog}
+        title="Importar Extrato Banco Inter"
+        loading={importingExtrato}
+        onSync={async (filtros, onProgress, onStep) => {
+          setImportingExtrato(true);
+          try {
+            onStep?.("Importando extrato do Banco Inter...");
+            const registros = await buscarExtratoInter(filtros.dataInicio, filtros.dataFim);
+            const total = Array.isArray(registros) ? registros.length : 0;
+            onProgress?.(total, total);
+            toast.success(`Extrato Inter: ${total} transações importadas`);
+            invalidateAll();
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Erro ao importar extrato Inter");
+            throw err;
+          } finally {
+            setImportingExtrato(false);
           }
         }}
       />
