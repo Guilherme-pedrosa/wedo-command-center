@@ -72,8 +72,9 @@ serve(async (req) => {
         const sitData = await sitResp.json();
         const situacoes = Array.isArray(sitData?.data) ? sitData.data : [];
         for (const sit of situacoes) {
-          const nome = String(sit.nome || "").toLowerCase();
-          if (nome.includes("concretizado") || nome.includes("concretizada") || nome.includes("venda futura")) {
+          const nome = String(sit.nome || "").toLowerCase().trim();
+          // Somente "Concretizado" (exato) e "Venda Futura" — NÃO incluir "Concretizado Peças Reserva" etc.
+          if (nome === "concretizado" || nome === "concretizada" || nome === "venda futura") {
             situacaoIds.push(String(sit.id));
             console.log(`[sync-vendas] Found situacao: ${sit.nome} (id=${sit.id})`);
           }
