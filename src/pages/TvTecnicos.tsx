@@ -21,9 +21,24 @@ interface OsRow {
 
 export default function TvTecnicos() {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const [selectedDate, setSelectedDate] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 });
+  const { year, month } = selectedDate;
   const mesLabel = `${meses[month - 1]} ${year}`;
+
+  const navigateMonth = (dir: number) => {
+    setSelectedDate(prev => {
+      let m = prev.month + dir;
+      let y = prev.year;
+      if (m < 1) { m = 12; y--; }
+      if (m > 12) { m = 1; y++; }
+      const nowY = now.getFullYear();
+      const nowM = now.getMonth() + 1;
+      if (y > nowY || (y === nowY && m > nowM)) return prev;
+      return { year: y, month: m };
+    });
+  };
+
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
 
   const start = `${year}-${String(month).padStart(2, '0')}-01`;
   const lastDay = new Date(year, month, 0).getDate();
