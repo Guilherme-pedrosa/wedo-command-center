@@ -197,7 +197,7 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
-  // 3c. Busca vendas concretizadas do período (para Venda de Produtos e Químicos)
+  // 3c. Busca vendas concretizadas do período (para Venda de Produtos / Peças)
   const { data: vendasConcretizadas = [], isLoading: loadingVendas, refetch: refetchVendas } = useQuery({
     queryKey: ['gc_vendas_metas', start, end],
     queryFn: async () => {
