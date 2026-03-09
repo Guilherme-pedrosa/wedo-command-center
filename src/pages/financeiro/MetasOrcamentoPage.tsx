@@ -352,12 +352,12 @@ const useMetas = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, osExecutadas, execTotal, planoContasMap, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, osExecutadas, vendasConcretizadas, execTotal, planoContasMap, centrosCustoMap]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
-  const refetch = () => { refetchRec(); refetchPag(); refetchOS(); };
-  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingCentros || loadingRec || loadingPag || loadingOS;
+  const refetch = () => { refetchRec(); refetchPag(); refetchOS(); refetchVendas(); };
+  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingCentros || loadingRec || loadingPag || loadingOS || loadingVendas;
 
   return { metasComResultado, execTotal, isLoading, refetch, hasOsData };
 };
