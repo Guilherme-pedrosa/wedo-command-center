@@ -280,6 +280,17 @@ export default function ConciliacaoHistoricoPage() {
             </Tooltip>
           </TooltipProvider>
         )}
+        {item.gc_codigo_vinculado && (
+          <a
+            href={item._tabela === "fin_recebimentos" ? gcRecebimentoLink(item.gc_codigo_vinculado) : gcPagamentoLink(item.gc_codigo_vinculado)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-0.5 text-[10px] text-primary hover:underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            GC {item.gc_codigo_vinculado} <ExternalLink className="h-2.5 w-2.5" />
+          </a>
+        )}
       </div>
       {/* Valor extrato */}
       <div className="col-span-1 text-right font-bold text-foreground">
