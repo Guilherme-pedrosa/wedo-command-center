@@ -254,7 +254,7 @@ const useMetas = (year: number, month: number) => {
             const centroUuid = link.centro_custo_id ? centrosCustoMap[link.centro_custo_id] : null;
             if (!planoUuid) continue;
             const soma = recebimentos
-              .filter(r => (r.plano_contas_id ? r.plano_contas_id === planoUuid : true) && (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
+              .filter(r => r.plano_contas_id === planoUuid && (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
               .reduce((acc, r) => acc + (r.valor || 0), 0);
             realizado += soma * (link.peso || 1);
           }
