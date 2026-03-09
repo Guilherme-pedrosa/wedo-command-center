@@ -200,10 +200,11 @@ export default function FinDashboardPage() {
 
       // Plano de Contas e Centros de Custo são extraídos dos payloads GC
       // Precisam rodar DEPOIS dos recebimentos/pagamentos estarem no banco
-      onStep?.("Extraindo Plano de Contas e Centros de Custo...");
+      onStep?.("Extraindo Plano de Contas, Centros de Custo e Formas de Pagamento...");
       await Promise.all([
         syncPlanoContasGC(),
         syncCentrosCustoGC(),
+        syncFormasPagamentoGC(),
       ]);
 
       onStep?.("Concluído!");
