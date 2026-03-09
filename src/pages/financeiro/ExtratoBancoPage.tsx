@@ -448,7 +448,7 @@ export default function ExtratoBancoPage() {
                               size="icon"
                               variant="ghost"
                               className="h-7 w-7 text-primary"
-                              onClick={() => handleAiAnalyze(e.id)}
+                              onClick={() => handleAiAnalyze(e.id, e)}
                               disabled={aiLoading && aiTargetId === e.id}
                               title="IA sugerir match"
                             >
