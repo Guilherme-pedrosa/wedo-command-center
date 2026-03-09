@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
@@ -7,8 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatCurrency, formatDateTime } from "@/lib/format";
-import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Link2 } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { formatCurrency, formatDateTime, formatDate } from "@/lib/format";
+import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Link2, Loader2, Banknote, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const GC_BASE = "https://app.gestaoclick.com.br";
@@ -19,7 +20,7 @@ const EXCECAO_RULES = ["SEM_PAR_GC", "TRANSFERENCIA_INTERNA", "PIX_DEVOLVIDO_MAN
 
 const ruleLabels: Record<string, string> = {
   SEM_PAR_GC: "Sem Par GC",
-  TRANSFERENCIA_INTERNA: "Transfer\u00eancia Interna",
+  TRANSFERENCIA_INTERNA: "Transferência Interna",
   PIX_DEVOLVIDO_MANUAL: "PIX Devolvido",
   LINK_JA_PAGO_GC: "Rastreabilidade",
   MATCH_VALOR_DATA: "Valor + Data",
@@ -27,6 +28,13 @@ const ruleLabels: Record<string, string> = {
   MATCH_GRUPO_RECEBER: "Grupo Receber",
   MATCH_GRUPO_PAGAR: "Grupo Pagar",
   MATCH_AGENDA: "Agenda",
+  NOME_VALOR_EXATO: "Nome + Valor Exato",
+  CNPJ_VALOR_EXATO: "CNPJ + Valor Exato",
+  CNPJ_VALOR_TOLERANCIA: "CNPJ + Valor ~2%",
+  PIX_KEY_VALOR: "Chave PIX + Valor",
+  REGRA_0_MAX_CONFIANCA: "Máx. Confiança",
+  SOMA_PARCELAS: "Soma Parcelas",
+  DATA_PROXIMA: "Data Próxima",
 };
 
 export default function ConciliacaoHistoricoPage() {
@@ -34,6 +42,8 @@ export default function ConciliacaoHistoricoPage() {
   const [tipoFilter, setTipoFilter] = useState<string>("todos");
   const [vinculoFilter, setVinculoFilter] = useState<string>("todos");
   const [detail, setDetail] = useState<any>(null);
+  const [detailLancamentos, setDetailLancamentos] = useState<any[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [tab, setTab] = useState("conciliados");
 
   // CONCILIADOS REAIS
