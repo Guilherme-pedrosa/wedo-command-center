@@ -21,7 +21,7 @@ import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
 import { cn } from "@/lib/utils";
 import {
   CreditCard, Search, RefreshCw, Plus, Loader2, Zap, CalendarIcon,
-  Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight, FileText, Camera,
+  Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight, FileText, Camera, ExternalLink, Link2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
@@ -30,6 +30,7 @@ import toast from "react-hot-toast";
 import html2canvas from "html2canvas";
 
 const PAGE_SIZE = 50;
+const GC_BASE = "https://app.gestaoclick.com.br";
 
 export default function PagamentosPage() {
   const queryClient = useQueryClient();
@@ -82,6 +83,18 @@ export default function PagamentosPage() {
         .order("data_vencimento", { ascending: true })
         .limit(1000);
       return data || [];
+    },
+  });
+
+  // IDs conciliados (vinculados no extrato)
+  const { data: conciliadoIds } = useQuery({
+    queryKey: ["fin-pagamentos-conciliados"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("fin_extrato_lancamentos")
+        .select("lancamento_id")
+        .eq("tabela", "fin_pagamentos");
+      return new Set((data || []).map((d: any) => d.lancamento_id));
     },
   });
 
@@ -351,30 +364,49 @@ export default function PagamentosPage() {
                 <th className="p-3 text-right text-xs font-medium text-muted-foreground uppercase">Valor</th>
                 <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Vencimento</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Status</th>
+                <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Conciliado</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Baixa GC</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Ações</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={9} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
+                <tr><td colSpan={10} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
               ) : paged.length === 0 ? (
-                <tr><td colSpan={9}><EmptyState icon={CreditCard} title="Nenhum pagamento" description="Sincronize os dados." action={{ label: "Sincronizar", onClick: () => setShowSyncDialog(true) }} /></td></tr>
+                <tr><td colSpan={10}><EmptyState icon={CreditCard} title="Nenhum pagamento" description="Sincronize os dados." action={{ label: "Sincronizar", onClick: () => setShowSyncDialog(true) }} /></td></tr>
               ) : paged.map((p: any) => (
                 <tr key={p.id} className="border-b border-border hover:bg-muted/30 transition-colors">
                   <td className="p-3">
                     {canSelect(p) ? <Checkbox checked={selected.has(p.id)} onCheckedChange={() => { const n = new Set(selected); n.has(p.id) ? n.delete(p.id) : n.add(p.id); setSelected(n); }} /> : <Checkbox disabled />}
                   </td>
-                  <td className="p-3 font-mono text-xs">{p.gc_codigo || "—"}</td>
+                  <td className="p-3 font-mono text-xs">
+                    {p.gc_id ? (
+                      <a href={`${GC_BASE}/pagamentos/${p.gc_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                        {p.gc_codigo || p.gc_id}
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : (
+                      <span>{p.gc_codigo || "\u2014"}</span>
+                    )}
+                  </td>
                   <td className="p-3 max-w-[200px] truncate text-foreground">{p.descricao}</td>
-                  <td className="p-3 text-foreground">{p.nome_fornecedor || "—"}</td>
+                  <td className="p-3 text-foreground">{p.nome_fornecedor || "\u2014"}</td>
                   <td className="p-3 text-right font-semibold text-foreground">{formatCurrency(Number(p.valor))}</td>
-                  <td className="p-3 text-foreground">{p.data_vencimento ? formatDate(p.data_vencimento) : "—"}</td>
+                  <td className="p-3 text-foreground">{p.data_vencimento ? formatDate(p.data_vencimento) : "\u2014"}</td>
                   <td className="p-3 text-center">
                     <div className="flex items-center justify-center gap-1">
                       {statusBadge(p)}
                       {aguardandoNfBadge(p)}
                     </div>
+                  </td>
+                  <td className="p-3 text-center">
+                    {conciliadoIds?.has(p.id) ? (
+                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30 text-[10px]">
+                        <Link2 className="h-3 w-3 mr-1" />Sim
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-[10px]">{"\u2014"}</span>
+                    )}
                   </td>
                   <td className="p-3 text-center">{baixaGCBadge(p)}</td>
                   <td className="p-3 text-center">

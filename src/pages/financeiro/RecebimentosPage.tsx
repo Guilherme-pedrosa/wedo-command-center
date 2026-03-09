@@ -22,7 +22,7 @@ import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
 import { cn } from "@/lib/utils";
 import {
   Receipt, Search, RefreshCw, Plus, Loader2, Zap, CalendarIcon,
-  Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight, FileText, Lock, Camera,
+  Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight, FileText, Lock, Camera, ExternalLink, Link2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
@@ -31,6 +31,7 @@ import toast from "react-hot-toast";
 import html2canvas from "html2canvas";
 
 const PAGE_SIZE = 50;
+const GC_BASE = "https://app.gestaoclick.com.br";
 
 export default function RecebimentosPage() {
   const queryClient = useQueryClient();
@@ -84,6 +85,18 @@ export default function RecebimentosPage() {
         .order("data_vencimento", { ascending: true })
         .limit(1000);
       return data || [];
+    },
+  });
+
+  // IDs conciliados (vinculados no extrato)
+  const { data: conciliadoIds } = useQuery({
+    queryKey: ["fin-recebimentos-conciliados"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("fin_extrato_lancamentos")
+        .select("lancamento_id")
+        .eq("tabela", "fin_recebimentos");
+      return new Set((data || []).map((d: any) => d.lancamento_id));
     },
   });
 
@@ -371,6 +384,7 @@ export default function RecebimentosPage() {
                 <th className="p-3 text-right text-xs font-medium text-muted-foreground uppercase">Valor</th>
                 <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Vencimento</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Status</th>
+                <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Conciliado</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">NF</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Baixa GC</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Ações</th>
@@ -378,21 +392,39 @@ export default function RecebimentosPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={11} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></td></tr>
+                <tr><td colSpan={12} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></td></tr>
               ) : paged.length === 0 ? (
-                <tr><td colSpan={11}><EmptyState icon={Receipt} title="Nenhum recebimento" description="Sincronize os dados do GC ou crie manualmente." action={{ label: "Sincronizar", onClick: () => setShowSyncDialog(true) }} /></td></tr>
+                <tr><td colSpan={12}><EmptyState icon={Receipt} title="Nenhum recebimento" description="Sincronize os dados do GC ou crie manualmente." action={{ label: "Sincronizar", onClick: () => setShowSyncDialog(true) }} /></td></tr>
               ) : paged.map((r: any) => (
                 <tr key={r.id} className="border-b border-border hover:bg-muted/30 transition-colors">
                   <td className="p-3">
                     {canSelect(r) ? <Checkbox checked={selected.has(r.id)} onCheckedChange={() => toggle(r.id)} /> : <Checkbox disabled checked={false} />}
                   </td>
-                  <td className="p-3 font-mono text-xs text-foreground">{r.gc_codigo || "—"}</td>
+                  <td className="p-3 font-mono text-xs text-foreground">
+                    {r.gc_id ? (
+                      <a href={`${GC_BASE}/recebimentos/${r.gc_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                        {r.gc_codigo || r.gc_id}
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : (
+                      <span>{r.gc_codigo || "\u2014"}</span>
+                    )}
+                  </td>
                   <td className="p-3 font-semibold text-primary">{r.os_codigo || "—"}</td>
                   <td className="p-3 text-foreground max-w-[200px] truncate">{r.descricao}</td>
                   <td className="p-3 text-foreground">{r.nome_cliente || "—"}</td>
                   <td className="p-3 text-right font-semibold text-foreground">{formatCurrency(Number(r.valor))}</td>
                   <td className="p-3 text-foreground">{r.data_vencimento ? formatDate(r.data_vencimento) : "—"}</td>
                   <td className="p-3 text-center">{statusBadge(r)}</td>
+                  <td className="p-3 text-center">
+                    {conciliadoIds?.has(r.id) ? (
+                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30 text-[10px]">
+                        <Link2 className="h-3 w-3 mr-1" />Sim
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-[10px]">{"\u2014"}</span>
+                    )}
+                  </td>
                   <td className="p-3 text-center">
                     {r.nfe_chave ? (
                       <TooltipProvider>
