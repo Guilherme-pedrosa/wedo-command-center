@@ -6,9 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw, ExternalLink, FileText, Hash, Search, X, ChevronDown, ChevronUp, Download } from "lucide-react";
-import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
+import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw, ExternalLink, FileText, Hash, Search, X, ChevronDown, ChevronUp, Download, CalendarIcon } from "lucide-react";
+import { format, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay } from "date-fns";
+import { cn } from "@/lib/utils";
 import { ptBR } from "date-fns/locale";
 import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
 import { syncByMonthChunks } from "@/api/financeiro";
@@ -27,6 +30,7 @@ function buildMonthOptions() {
       label: format(d, "MMMM yyyy", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase()),
     });
   }
+  opts.push({ value: "custom", label: "Período personalizado" });
   return opts;
 }
 
@@ -56,23 +60,53 @@ export default function ConciliacaoPage() {
   const [autoResult, setAutoResult] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
   const [showSyncDialog, setShowSyncDialog] = useState(false);
-  const [mesExtrato, setMesExtrato] = useState("all");
+  const [mesExtrato, setMesExtrato] = useState(format(new Date(), "yyyy-MM"));
+  const [dateFrom, setDateFrom] = useState(startOfMonth(new Date()));
+  const [dateTo, setDateTo] = useState(endOfMonth(new Date()));
   const [mesLanc, setMesLanc] = useState("all");
   const [searchLanc, setSearchLanc] = useState("");
   const [expandedExtrato, setExpandedExtrato] = useState<string | null>(null);
 
-  // Extrato query — fetch more, filter client-side by month
+  const handleMesChange = (val: string) => {
+    setMesExtrato(val);
+    if (val !== "all") {
+      const base = new Date(val + "-01");
+      setDateFrom(startOfMonth(base));
+      setDateTo(endOfMonth(base));
+    }
+  };
+
+  // Extrato query — server-side date filter, paginated
   const { data: extratoNR } = useQuery({
-    queryKey: ["conc-extrato"],
+    queryKey: ["conc-extrato", dateFrom.toISOString(), dateTo.toISOString()],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("fin_extrato_inter")
-        .select("*")
-        .eq("reconciliado", false)
-        .or("reconciliation_rule.is.null,reconciliation_rule.not.in.(SEM_PAR_GC,TRANSFERENCIA_INTERNA,PIX_DEVOLVIDO_MANUAL)")
-        .order("data_hora", { ascending: false })
-        .limit(1000);
-      return data || [];
+      const PAGE_SIZE = 500;
+      let allData: any[] = [];
+      let offset = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("fin_extrato_inter")
+          .select("*")
+          .eq("reconciliado", false)
+          .is("reconciliation_rule", null)
+          .gte("data_hora", dateFrom.toISOString())
+          .lte("data_hora", dateTo.toISOString())
+          .order("data_hora", { ascending: false })
+          .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) throw error;
+        if (!data || data.length < PAGE_SIZE) {
+          allData = [...allData, ...(data || [])];
+          hasMore = false;
+        } else {
+          allData = [...allData, ...data];
+          offset += PAGE_SIZE;
+          if (allData.length >= 2000) hasMore = false;
+        }
+      }
+      return allData;
     },
   });
 
@@ -104,18 +138,6 @@ export default function ConciliacaoPage() {
     },
   });
 
-  // Client-side month filtering
-  const filteredExtrato = useMemo(() => {
-    if (!extratoNR) return [];
-    if (mesExtrato === "all") return extratoNR;
-    const start = startOfMonth(new Date(mesExtrato + "-01"));
-    const end = endOfMonth(start);
-    return extratoNR.filter((e: any) => {
-      if (!e.data_hora) return false;
-      const d = new Date(e.data_hora);
-      return d >= start && d <= end;
-    });
-  }, [extratoNR, mesExtrato]);
 
 
   const handleSelectExtrato = (e: any) => {
@@ -263,20 +285,59 @@ export default function ConciliacaoPage() {
       {/* Single-panel: Extrato with expandable search */}
       <div className="rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold flex items-center gap-2">🏦 Extrato não reconciliado ({filteredExtrato.length})</h3>
-          <Select value={mesExtrato} onValueChange={setMesExtrato}>
-            <SelectTrigger className="w-[160px] h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {monthOptions.map(o => (
-                <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <h3 className="text-sm font-semibold flex items-center gap-2">🏦 Extrato não reconciliado ({(extratoNR || []).length})</h3>
+          <div className="flex items-center gap-2">
+            <Select value={mesExtrato} onValueChange={handleMesChange}>
+              <SelectTrigger className="w-[160px] h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {monthOptions.map(o => (
+                  <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex items-center gap-1">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs gap-1">
+                    <CalendarIcon className="h-3 w-3" />
+                    {format(dateFrom, "dd/MM/yy")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dateFrom}
+                    onSelect={(d) => { if (d) { setDateFrom(startOfDay(d)); setMesExtrato("custom"); } }}
+                    initialFocus
+                    className={cn("p-3 pointer-events-auto")}
+                  />
+                </PopoverContent>
+              </Popover>
+              <span className="text-xs text-muted-foreground">→</span>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs gap-1">
+                    <CalendarIcon className="h-3 w-3" />
+                    {format(dateTo, "dd/MM/yy")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dateTo}
+                    onSelect={(d) => { if (d) { setDateTo(endOfDay(d)); setMesExtrato("custom"); } }}
+                    initialFocus
+                    className={cn("p-3 pointer-events-auto")}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
         </div>
         <div className="space-y-2 max-h-[70vh] overflow-y-auto">
-          {filteredExtrato.map((e: any) => (
+          {(extratoNR || []).map((e: any) => (
             <div key={e.id} className="rounded-md border border-border transition-colors">
               {/* Extrato row - clickable */}
               <div
@@ -437,7 +498,7 @@ export default function ConciliacaoPage() {
               )}
             </div>
           ))}
-          {!filteredExtrato.length && <p className="text-sm text-muted-foreground text-center py-8">{mesExtrato === "all" ? "Tudo reconciliado ✅" : "Nenhuma transação neste mês"}</p>}
+          {!(extratoNR || []).length && <p className="text-sm text-muted-foreground text-center py-8">Nenhuma transação neste período</p>}
         </div>
       </div>
 
