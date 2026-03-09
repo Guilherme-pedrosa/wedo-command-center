@@ -48,16 +48,19 @@ export default function FinDashboardPage() {
   const monthOptions = useMemo(() => getMonthOptions(), []);
   const hoje = new Date().toISOString().split("T")[0];
 
+  const isTodos = mesSelecionado === "todos";
+
   // Derive date boundaries from selected month
   const mesDate = useMemo(() => {
+    if (isTodos) return new Date();
     const [y, m] = mesSelecionado.split("-").map(Number);
     return new Date(y, m - 1, 1);
-  }, [mesSelecionado]);
-  const mesInicio = format(startOfMonth(mesDate), "yyyy-MM-dd");
-  const mesFim = format(endOfMonth(mesDate), "yyyy-MM-dd");
+  }, [mesSelecionado, isTodos]);
+  const mesInicio = isTodos ? "2025-12-01" : format(startOfMonth(mesDate), "yyyy-MM-dd");
+  const mesFim = isTodos ? "2099-12-31" : format(endOfMonth(mesDate), "yyyy-MM-dd");
   const inicioSemana = format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd");
   const fimSemana = format(endOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd");
-  const isMesAtual = mesSelecionado === format(new Date(), "yyyy-MM");
+  const isMesAtual = !isTodos && mesSelecionado === format(new Date(), "yyyy-MM");
 
   const { data: recebimentos } = useQuery({
     queryKey: ["fin-dash-recebimentos"],
