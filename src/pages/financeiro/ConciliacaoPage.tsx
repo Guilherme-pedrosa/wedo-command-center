@@ -11,7 +11,7 @@ import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw, ExternalLink, F
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
-import { syncRecebimentosGC, syncPagamentosGC } from "@/api/financeiro";
+import { syncByMonthChunks } from "@/api/financeiro";
 import toast from "react-hot-toast";
 
 const GC_BASE = "https://app.gestaoclick.com.br";
