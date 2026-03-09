@@ -144,6 +144,22 @@ export default function ConciliacaoHistoricoPage() {
         .select("lancamento_id, tabela, valor_alocado, reconciliation_rule")
         .eq("extrato_id", item.id);
 
+      if (!links?.length && item.lancamento_id) {
+        // Fallback: conciliação 1:1 sem registro em fin_extrato_lancamentos
+        // Tentar buscar em ambas as tabelas
+        const isDebito = item.tipo === "DEBITO";
+        const fallbackTable = isDebito ? "fin_pagamentos" : "fin_recebimentos";
+        const { data: rec } = await supabase
+          .from(fallbackTable as any)
+          .select("id, gc_id, gc_codigo, descricao, valor, data_vencimento, data_liquidacao, data_competencia, liquidado, status, gc_baixado, gc_baixado_em, os_codigo, nome_cliente, nome_fornecedor, plano_contas_id, centro_custo_id, origem, tipo")
+          .eq("id", item.lancamento_id)
+          .single();
+        if (rec) {
+          setDetailLancamentos([{ ...(rec as any), _tabela: fallbackTable, _valor_alocado: null, _rule: item.reconciliation_rule }]);
+        }
+        setDetailLoading(false);
+        return;
+      }
       if (!links?.length) {
         setDetailLoading(false);
         return;
@@ -151,9 +167,11 @@ export default function ConciliacaoHistoricoPage() {
 
       const results: any[] = [];
       for (const link of links) {
-        const table = link.tabela as "fin_recebimentos" | "fin_pagamentos";
+        // Engine stores "pagamentos"/"recebimentos", need full table name
+        const rawTabela = link.tabela as string;
+        const table = rawTabela.startsWith("fin_") ? rawTabela : `fin_${rawTabela}`;
         const { data: rec } = await supabase
-          .from(table)
+          .from(table as "fin_recebimentos" | "fin_pagamentos")
           .select("id, gc_id, gc_codigo, descricao, valor, data_vencimento, data_liquidacao, data_competencia, liquidado, status, gc_baixado, gc_baixado_em, os_codigo, nome_cliente, nome_fornecedor, plano_contas_id, centro_custo_id, origem, tipo")
           .eq("id", link.lancamento_id)
           .single();
