@@ -233,7 +233,7 @@ const useMetas = (year: number, month: number) => {
     // Total de OS executadas (substitui AT+Coifa e Ecolab de fin_recebimentos)
     const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
 
-    // Total de vendas concretizadas (substitui Venda Produtos e Químicos de fin_recebimentos)
+    // Total de vendas concretizadas (substitui Venda Produtos de fin_recebimentos)
     const vendasTotal = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
 
     // Receitas financeiras excluindo planos cobertos por OS e vendas
