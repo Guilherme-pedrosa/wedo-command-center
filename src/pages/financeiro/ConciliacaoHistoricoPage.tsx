@@ -157,7 +157,7 @@ export default function ConciliacaoHistoricoPage() {
             .eq("id", lancId)
             .single();
           console.log(`[openDetail] fin_pagamentos id=${lancId}`, data, error);
-          return data ? { ...data, _tabela: "fin_pagamentos" } : null;
+          return data ? { ...(data as any), _tabela: "fin_pagamentos" } : null;
         } else {
           const { data, error } = await supabase
             .from("fin_recebimentos")
