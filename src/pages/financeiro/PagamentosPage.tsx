@@ -285,7 +285,7 @@ export default function PagamentosPage() {
             <FileText className="h-3.5 w-3.5 mr-1.5" />
             Fechamento do Dia
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowSyncDialog(true)howSyncDialog(true)} disabled={syncing}>
+          <Button size="sm" variant="outline" onClick={() => setShowSyncDialog(true)} disabled={syncing}>
             {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
             Sync GC
           </Button>
