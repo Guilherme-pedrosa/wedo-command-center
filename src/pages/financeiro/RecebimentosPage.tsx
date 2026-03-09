@@ -95,6 +95,15 @@ export default function RecebimentosPage() {
     },
   });
 
+  // Formas de pagamento for filter
+  const { data: formasPagamento } = useQuery({
+    queryKey: ["fin-formas-pagamento"],
+    queryFn: async () => {
+      const { data } = await supabase.from("fin_formas_pagamento").select("id, nome").eq("ativo", true).order("nome");
+      return data || [];
+    },
+  });
+
   // IDs conciliados (vinculados no extrato)
   const { data: conciliadoIds } = useQuery({
     queryKey: ["fin-recebimentos-conciliados"],
