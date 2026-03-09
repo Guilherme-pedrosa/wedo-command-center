@@ -521,7 +521,7 @@ export async function syncCompras(
     });
     throw err;
   }
-): Promise<{ totalFetched: number; upserted: number; errors: number }> {
+}
   const startTime = Date.now();
   try {
     const { data, error } = await supabase.functions.invoke("sync-vendas", {
