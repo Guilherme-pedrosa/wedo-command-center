@@ -63,6 +63,7 @@ export default function ConciliacaoPage() {
         .from("fin_extrato_inter")
         .select("*")
         .eq("reconciliado", false)
+        .not("reconciliation_rule", "in", '("SEM_PAR_GC","TRANSFERENCIA_INTERNA","PIX_DEVOLVIDO_MANUAL")')
         .order("data_hora", { ascending: false })
         .limit(500);
       return data || [];
