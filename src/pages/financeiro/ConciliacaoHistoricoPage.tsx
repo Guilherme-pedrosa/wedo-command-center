@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, formatDateTime, formatDate } from "@/lib/format";
-import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Link2, Loader2, Banknote, FileText, AlertCircle, Link } from "lucide-react";
+import { CheckCircle, Search, Eye, ArrowLeftRight, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Link2, Loader2, Banknote, FileText, AlertCircle, Link, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { subMonths, startOfMonth, endOfMonth, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -224,6 +224,61 @@ export default function ConciliacaoHistoricoPage() {
       queryClient.invalidateQueries({ queryKey: ["conciliacao-historico"] });
     } else {
       toast.error(`Erro ao vincular: ${error.message}`);
+    }
+  };
+
+  // Desfazer conciliação
+  const [desfazendo, setDesfazendo] = useState(false);
+  const handleDesfazerConciliacao = async (item: any) => {
+    if (!confirm("Tem certeza que deseja desfazer esta conciliação? O extrato voltará para 'não conciliado'.")) return;
+    setDesfazendo(true);
+    try {
+      // 1. Remover links N:N
+      await supabase.from("fin_extrato_lancamentos").delete().eq("extrato_id", item.id);
+
+      // 2. Reverter status dos lançamentos vinculados
+      for (const lanc of detailLancamentos) {
+        if (lanc._tabela === "fin_pagamentos") {
+          await supabase.from("fin_pagamentos").update({
+            pago_sistema: false,
+            pago_sistema_em: null,
+            status: "pendente",
+          }).eq("id", lanc.id);
+        } else if (lanc._tabela === "fin_recebimentos") {
+          await supabase.from("fin_recebimentos").update({
+            pago_sistema: false,
+            pago_sistema_em: null,
+            status: "pendente",
+          }).eq("id", lanc.id);
+        }
+      }
+
+      // 3. Reverter extrato
+      await supabase.from("fin_extrato_inter").update({
+        reconciliado: false,
+        reconciliado_em: null,
+        reconciliation_rule: null,
+        lancamento_id: null,
+      }).eq("id", item.id);
+
+      // 4. Log
+      await supabase.from("fin_sync_log").insert({
+        tipo: "conciliacao_desfeita",
+        referencia_id: item.id,
+        status: "success",
+        payload: { extrato_id: item.id, lancamentos: detailLancamentos.map((l: any) => l.id) },
+      });
+
+      toast.success("Conciliação desfeita com sucesso");
+      setDetail(null);
+      setDetailLancamentos([]);
+      queryClient.invalidateQueries({ queryKey: ["conciliacao-historico"] });
+      queryClient.invalidateQueries({ queryKey: ["conciliacao-excecoes"] });
+      queryClient.invalidateQueries({ queryKey: ["conciliacao-financeiro-nao-conciliado"] });
+    } catch (err) {
+      toast.error("Erro ao desfazer: " + (err instanceof Error ? err.message : "erro desconhecido"));
+    } finally {
+      setDesfazendo(false);
     }
   };
 
@@ -728,6 +783,22 @@ export default function ConciliacaoHistoricoPage() {
                   </div>
                 )}
               </div>
+
+              {/* Botão Desfazer */}
+              {detail.reconciliado && (
+                <div className="pt-2">
+                  <Separator className="mb-4" />
+                  <Button
+                    variant="destructive"
+                    className="w-full gap-2"
+                    disabled={desfazendo || detailLoading}
+                    onClick={() => handleDesfazerConciliacao(detail)}
+                  >
+                    {desfazendo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />}
+                    Desfazer Conciliação
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
