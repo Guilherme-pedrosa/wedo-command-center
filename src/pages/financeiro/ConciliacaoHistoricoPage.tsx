@@ -576,8 +576,22 @@ export default function ConciliacaoHistoricoPage() {
                     <Field label="Valor" value={formatCurrency(Number(detail.lanc.valor))} className="font-semibold" />
                     <Field label="Cliente/Fornecedor" value={detail.lanc.nome_cliente || detail.lanc.nome_fornecedor} />
                     <Field label="Status" value={detail.lanc.status} />
-                    <Field label="Código GC" value={detail.lanc.gc_codigo} mono />
-                    <Field label="Código OS" value={detail.lanc.os_codigo} mono />
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-semibold">Código GC</p>
+                      {detail.lanc.gc_id || detail.lanc.gc_codigo ? (
+                        <a href={detail.lanc._tipo === "pagar" ? gcPagamentoLink(detail.lanc.gc_id || detail.lanc.gc_codigo) : gcRecebimentoLink(detail.lanc.gc_id || detail.lanc.gc_codigo)} target="_blank" rel="noopener noreferrer" className="text-xs font-mono text-primary hover:underline inline-flex items-center gap-1">
+                          {detail.lanc.gc_codigo || detail.lanc.gc_id} <ExternalLink className="h-3 w-3" />
+                        </a>
+                      ) : <p className="text-xs">—</p>}
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-semibold">Código OS</p>
+                      {detail.lanc.os_codigo ? (
+                        <a href={gcOsLink(detail.lanc.gc_os_id || detail.lanc.os_codigo)} target="_blank" rel="noopener noreferrer" className="text-xs font-mono text-primary hover:underline inline-flex items-center gap-1">
+                          {detail.lanc.os_codigo} <ExternalLink className="h-3 w-3" />
+                        </a>
+                      ) : <p className="text-xs">—</p>}
+                    </div>
                     <Field label="Data Vencimento" value={detail.lanc.data_vencimento} />
                     <Field label="Data Liquidação" value={detail.lanc.data_liquidacao} />
                     <Field label="Origem" value={detail.lanc.origem} />
