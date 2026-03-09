@@ -1,8 +1,8 @@
 // src/pages/TvTecnicos.tsx — TV: Metas de Faturamento por Técnico
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Loader2, Trophy } from 'lucide-react';
+import { Loader2, Trophy, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
