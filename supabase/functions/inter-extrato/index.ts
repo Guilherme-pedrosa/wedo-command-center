@@ -377,7 +377,7 @@ serve(async (req) => {
             tipo_transacao: tx.tipoTransacao ?? null,
             valor,
             data_hora: dataHora,
-            descricao: tx.titulo ?? tx.descricao ?? tx.historico ?? null,
+            descricao: tx.descricao ?? tx.titulo ?? tx.historico ?? null,
             payload_raw: tx,
           };
           if (nomeContraparte) {
