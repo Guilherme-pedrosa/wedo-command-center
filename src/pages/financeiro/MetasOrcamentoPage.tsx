@@ -284,23 +284,14 @@ const useMetas = (year: number, month: number) => {
           }
         }
       }
-      // Contratos PCM: OS com status "EXECUTADO POR CONTRATO" + recebimentos do plano "Contratos de serviços"
+      // Contratos PCM: busca direto de fin_recebimentos pelo plano "Contratos de serviços" (gc_id: 27867721)
       else if (meta.categoria === 'receita' && (nome.includes('contrato') || nome.includes('pcm'))) {
-        // OS com status EXECUTADO POR CONTRATO
-        const osContratos = osExecutadas
-          .filter(os => os.nome_situacao === 'EXECUTADO POR CONTRATO')
-          .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
-        
-        // Recebimentos do plano "Contratos de serviços" (gc_id: 27867721)
         const contratosUuid = planoContasMap['27867721'];
-        const recContratos = contratosUuid
-          ? recebimentos
-              .filter(r => r.plano_contas_id === contratosUuid)
-              .reduce((acc, r) => acc + (r.valor || 0), 0)
-          : 0;
-        
-        // Usa o maior entre OS e recebimentos para evitar dupla contagem
-        realizado = Math.max(osContratos, recContratos);
+        if (contratosUuid) {
+          realizado = recebimentos
+            .filter(r => r.plano_contas_id === contratosUuid)
+            .reduce((acc, r) => acc + (r.valor || 0), 0);
+        }
       }
       // All other metas: use fin_recebimentos or fin_pagamentos
       else {
