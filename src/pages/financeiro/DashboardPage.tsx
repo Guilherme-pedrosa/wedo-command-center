@@ -199,6 +199,9 @@ export default function FinDashboardPage() {
       const result = await syncByMonthChunks(filtros, onProgress, onStep);
 
       onStep?.("Concluído!");
+      const mesSync = filtros.dataInicio.substring(0, 7);
+      setMesSelecionado(mesSync);
+      localStorage.setItem("fin-dash-mes-selecionado", mesSync);
       toast.success(`Sync: ${result.importados} registros importados${result.erros > 0 ? `, ${result.erros} erros` : ""}`);
       queryClient.invalidateQueries({ queryKey: ["fin-dash"] });
       setShowSyncDialog(false);
