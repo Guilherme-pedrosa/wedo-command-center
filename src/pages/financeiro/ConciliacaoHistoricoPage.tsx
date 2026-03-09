@@ -548,7 +548,7 @@ export default function ConciliacaoHistoricoPage() {
               {filteredFinNaoConc.map((item: any) => (
                 <div key={item.id} className="grid grid-cols-12 items-center gap-2 p-3 hover:bg-muted/30 transition-colors">
                   <div className="col-span-2 text-xs text-muted-foreground">{formatDateTime(item.data_hora)}</div>
-                  <div className="col-span-2 font-medium text-foreground truncate">{item.nome_contraparte || "—"}</div>
+                  <div className="col-span-2 font-medium text-foreground truncate">{item.nome_contraparte || item.descricao || "—"}</div>
                   <div className="col-span-1 text-xs text-muted-foreground font-mono truncate">{item.cpf_cnpj || "—"}</div>
                   <div className="col-span-2 flex flex-wrap items-center gap-1">
                     <Badge variant="outline" className="text-[10px]">{item.tipo}</Badge>
