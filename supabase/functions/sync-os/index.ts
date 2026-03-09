@@ -62,7 +62,7 @@ serve(async (req) => {
     let page = 1;
     let totalPages = 1;
 
-    // Paginate through GC — endpoint correto: /api/orcamentos (NÃO /api/os)
+    // Paginate through GC — endpoint: /api/os (Ordens de Serviço)
     while (page <= totalPages) {
       const params = new URLSearchParams({
         limite: "100",
@@ -73,7 +73,7 @@ serve(async (req) => {
       if (filters.data_fim) params.set("data_fim", filters.data_fim);
       if (filters.situacao) params.set("situacao", filters.situacao);
 
-      const url = `${GC_BASE_URL}/api/orcamentos?${params.toString()}`;
+      const url = `${GC_BASE_URL}/api/os?${params.toString()}`;
       const response = await rateLimitedFetch(url, { headers: gcHeaders });
 
       if (response.status === 401) {
