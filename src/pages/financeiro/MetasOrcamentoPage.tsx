@@ -231,22 +231,26 @@ const useMetas = (year: number, month: number) => {
     // Total de OS executadas (substitui AT+Coifa e Ecolab de fin_recebimentos)
     const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
 
-    // Receitas financeiras excluindo planos cobertos por OS (PCM, Locação, Venda, Químicos)
+    // Total de vendas concretizadas (substitui Venda Produtos e Químicos de fin_recebimentos)
+    const vendasTotal = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
+
+    // Receitas financeiras excluindo planos cobertos por OS e vendas
+    const excludedUuids = [...receitaUuids_OS, ...receitaUuids_Vendas];
     const recFinanceiro = recebimentos
-      .filter(r => r.plano_contas_id && receitaUuids.includes(r.plano_contas_id) && !receitaUuids_OS.includes(r.plano_contas_id))
+      .filter(r => r.plano_contas_id && receitaUuids.includes(r.plano_contas_id) && !excludedUuids.includes(r.plano_contas_id))
       .reduce((acc, r) => acc + (r.valor || 0), 0);
 
-    // Se há dados de OS, combinar: OS + receitas financeiras não-OS
-    // Se não há OS data, fallback total para fin_recebimentos
-    if (osExecutadas.length > 0) {
-      return osTotal + recFinanceiro;
+    // Combinar: OS + vendas + receitas financeiras restantes
+    const hasExternalData = osExecutadas.length > 0 || vendasConcretizadas.length > 0;
+    if (hasExternalData) {
+      return osTotal + vendasTotal + recFinanceiro;
     }
 
     // Fallback: tudo de fin_recebimentos
     return recebimentos
       .filter(r => r.plano_contas_id && receitaUuids.includes(r.plano_contas_id))
       .reduce((acc, r) => acc + (r.valor || 0), 0);
-  }, [recebimentos, planoContasMap, osExecutadas]);
+  }, [recebimentos, planoContasMap, osExecutadas, vendasConcretizadas]);
 
   // 5. Calcula realizado por meta
   const metasComResultado = useMemo((): MetaComResultado[] => {
