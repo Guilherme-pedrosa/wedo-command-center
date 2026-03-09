@@ -24,10 +24,19 @@ export default function ExtratoBancoPage() {
   const [tipoFilter, setTipoFilter] = useState("todos");
   const [reconcFilter, setReconcFilter] = useState("todos");
 
+  const fromISO = format(dateFrom, "yyyy-MM-dd") + "T00:00:00";
+  const toISO = format(dateTo, "yyyy-MM-dd") + "T23:59:59";
+
   const { data: extrato, isLoading } = useQuery({
-    queryKey: ["fin-extrato"],
+    queryKey: ["fin-extrato", fromISO, toISO],
     queryFn: async () => {
-      const { data } = await supabase.from("fin_extrato_inter").select("*").order("data_hora", { ascending: false }).limit(200);
+      const { data } = await supabase
+        .from("fin_extrato_inter")
+        .select("*")
+        .gte("data_hora", fromISO)
+        .lte("data_hora", toISO)
+        .order("data_hora", { ascending: false })
+        .limit(2000);
       return data || [];
     },
   });
