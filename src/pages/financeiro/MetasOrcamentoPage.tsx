@@ -201,6 +201,7 @@ const useMetas = (year: number, month: number) => {
     'EXECUTADO - FINANCEIRO SEPARADO',
     'EXECUTADO - CIGAM',
     'EXECUTADO POR CONTRATO',
+    'EXECUTADO - FECHADO CHAMADO',
   ];
 
   const { data: osExecutadas = [], isLoading: loadingOS, refetch: refetchOS } = useQuery({
