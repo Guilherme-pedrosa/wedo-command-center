@@ -371,9 +371,9 @@ export default function PagamentosPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={9} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
+                <tr><td colSpan={10} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
               ) : paged.length === 0 ? (
-                <tr><td colSpan={9}><EmptyState icon={CreditCard} title="Nenhum pagamento" description="Sincronize os dados." action={{ label: "Sincronizar", onClick: () => setShowSyncDialog(true) }} /></td></tr>
+                <tr><td colSpan={10}><EmptyState icon={CreditCard} title="Nenhum pagamento" description="Sincronize os dados." action={{ label: "Sincronizar", onClick: () => setShowSyncDialog(true) }} /></td></tr>
               ) : paged.map((p: any) => (
                 <tr key={p.id} className="border-b border-border hover:bg-muted/30 transition-colors">
                   <td className="p-3">
