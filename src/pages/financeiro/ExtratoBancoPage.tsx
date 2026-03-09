@@ -15,7 +15,8 @@ import { syncRecebimentos, syncPagamentos } from "@/api/syncService";
 import {
   Building2, RefreshCw, Loader2, CalendarIcon, Download, CloudDownload,
   Wand2, Brain, ArrowLeftRight, CheckCircle, ChevronDown, ChevronUp,
-  Search, X, ExternalLink, Hash, FileText, Send, Sparkles,
+  Search, X, ExternalLink, Hash, FileText, Send, Sparkles, Zap,
+  AlertTriangle, MessageSquare,
 } from "lucide-react";
 import { format, subDays, subMonths, startOfMonth, endOfMonth, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -58,6 +59,14 @@ function GCLink({ href, children }: { href: string; children: React.ReactNode })
   );
 }
 
+const AI_SHORTCUTS = [
+  { label: "Analisar tudo", cmd: "analisa tudo" },
+  { label: "Só créditos", cmd: "analisa créditos" },
+  { label: "Só débitos", cmd: "analisa débitos" },
+  { label: "Mercado Pago", cmd: "concilia Mercado Pago" },
+  { label: "PIX sem match", cmd: "concilia PIX" },
+];
+
 export default function ExtratoBancoPage() {
   const queryClient = useQueryClient();
   const [mesExtrato, setMesExtrato] = useState("all");
@@ -81,12 +90,18 @@ export default function ExtratoBancoPage() {
   const [selectedLanc, setSelectedLanc] = useState<any>(null);
   const [linking, setLinking] = useState(false);
 
-  // AI panel for specific transaction
+  // AI — inline per-row
   const [aiTargetId, setAiTargetId] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<any>(null);
   const [aiVinculando, setAiVinculando] = useState<string | null>(null);
   const [aiVinculados, setAiVinculados] = useState<Set<string>>(new Set());
+
+  // AI — bulk panel
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiPanelCmd, setAiPanelCmd] = useState("");
+  const [aiPanelLoading, setAiPanelLoading] = useState(false);
+  const [aiPanelResult, setAiPanelResult] = useState<any>(null);
 
   // Reconciliation detail for reconciled items
   const [detailItem, setDetailItem] = useState<any>(null);
@@ -163,6 +178,7 @@ export default function ExtratoBancoPage() {
   const totalDebito = filtered.filter((e: any) => e.tipo === "DEBITO").reduce((s: number, e: any) => s + Number(e.valor || 0), 0);
   const totalReconciliado = filtered.filter((e: any) => e.reconciliado).length;
   const totalNaoReconciliado = filtered.filter((e: any) => !e.reconciliado && !EXCECAO_RULES.includes(e.reconciliation_rule)).length;
+  const pctConciliado = filtered.length > 0 ? Math.round((totalReconciliado / filtered.length) * 100) : 0;
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["extrato-unified"] });
@@ -255,7 +271,7 @@ export default function ExtratoBancoPage() {
     return parts.join(", ");
   };
 
-  // AI analysis for a specific transaction
+  // AI analysis — single row
   const handleAiAnalyze = async (extratoId: string, item?: any) => {
     const autoCmd = item ? buildAutoCommand(item) : null;
     setAiTargetId(extratoId);
@@ -268,22 +284,38 @@ export default function ExtratoBancoPage() {
       if (error) throw new Error(error.message);
       if (!data?.success) throw new Error(data?.error ?? "Erro");
       setAiResult(data);
-      toast.success(`IA: ${data.stats.sugestoes_total} sugestões`);
+      toast.success(`ARGUS: ${data.stats.sugestoes_total} sugestões`);
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro IA"); }
     finally { setAiLoading(false); }
   };
 
-  const handleAiVincular = async (s: any) => {
-    setAiVinculando(s.extrato_id);
+  // AI analysis — bulk panel
+  const handleAiPanelAnalyze = async (cmd: string) => {
+    setAiPanelLoading(true);
+    setAiPanelResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("ai-reconciliation", {
+        body: { command: cmd || null },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error ?? "Erro");
+      setAiPanelResult(data);
+      toast.success(`ARGUS: ${data.stats.sugestoes_total} sugestões encontradas`);
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro IA"); }
+    finally { setAiPanelLoading(false); }
+  };
+
+  const handleAiVincular = async (candidato: any, extratoId: string) => {
+    setAiVinculando(extratoId + candidato.lancamento_id);
     try {
       const now = new Date().toISOString();
-      const table = s.lancamento_tipo === "recebimento" ? "fin_recebimentos" : "fin_pagamentos";
-      const tabela = s.lancamento_tipo === "recebimento" ? "recebimentos" : "pagamentos";
-      await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: s.lancamento_id, reconciliado_em: now, reconciliation_rule: "AI_GPT5" }).eq("id", s.extrato_id);
-      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", s.lancamento_id);
-      await supabase.from("fin_extrato_lancamentos").upsert({ extrato_id: s.extrato_id, lancamento_id: s.lancamento_id, tabela, valor_alocado: s.valor_lancamento, reconciliation_rule: "AI_GPT5" }, { onConflict: "extrato_id,lancamento_id,tabela" });
-      setAiVinculados(prev => new Set([...prev, s.extrato_id]));
-      toast.success("Vinculado via IA!");
+      const table = candidato.lancamento_tipo === "recebimento" ? "fin_recebimentos" : "fin_pagamentos";
+      const tabela = candidato.lancamento_tipo === "recebimento" ? "recebimentos" : "pagamentos";
+      await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: candidato.lancamento_id, reconciliado_em: now, reconciliation_rule: "AI_GPT5" }).eq("id", extratoId);
+      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", candidato.lancamento_id);
+      await supabase.from("fin_extrato_lancamentos").upsert({ extrato_id: extratoId, lancamento_id: candidato.lancamento_id, tabela, valor_alocado: candidato.valor_lancamento, reconciliation_rule: "AI_GPT5" }, { onConflict: "extrato_id,lancamento_id,tabela" });
+      setAiVinculados(prev => new Set([...prev, extratoId]));
+      toast.success("Vinculado via ARGUS!");
       invalidateAll();
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
     finally { setAiVinculando(null); }
@@ -327,13 +359,56 @@ export default function ExtratoBancoPage() {
     return chips.length ? <div className="flex flex-wrap gap-2 mt-0.5">{chips}</div> : null;
   };
 
+  // Render candidato card (shared between inline and panel)
+  const renderCandidatoCard = (c: any, extratoId: string, idx: number) => {
+    const isVinculado = aiVinculados.has(extratoId);
+    const confColor = c.confianca === "ALTA" ? "green" : (c.confianca === "MEDIA" || c.confianca === "MÉDIA") ? "yellow" : "red";
+    const canConfirm = c.confianca === "ALTA" || c.confianca === "MEDIA" || c.confianca === "MÉDIA";
+    return (
+      <div key={idx} className={cn(
+        "rounded-md border p-2.5 space-y-1.5 text-xs",
+        isVinculado ? "opacity-50 border-green-500/30" :
+          confColor === "green" ? "border-green-500/30 bg-green-500/5" :
+          confColor === "yellow" ? "border-yellow-500/30 bg-yellow-500/5" :
+          "border-red-500/30 bg-red-500/5"
+      )}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <Badge variant="outline" className={`text-[9px] shrink-0 ${
+              confColor === "green" ? "text-green-600 bg-green-500/10" :
+              confColor === "yellow" ? "text-yellow-600 bg-yellow-500/10" :
+              "text-red-500 bg-red-500/10"
+            }`}>
+              {c.confianca} ({c.confianca_pct}%)
+            </Badge>
+            <span className="font-medium truncate">{c.lancamento_resumo}</span>
+            <span className="font-bold text-primary shrink-0">{formatCurrency(c.valor_lancamento)}</span>
+            {c.diferenca > 0.01 && <span className="text-yellow-600 text-[10px] shrink-0">Δ {formatCurrency(c.diferenca)}</span>}
+          </div>
+          {!isVinculado && canConfirm && (
+            <Button size="sm" variant={confColor === "green" ? "default" : "outline"} className="h-6 text-[10px] shrink-0" 
+              onClick={() => handleAiVincular(c, extratoId)} disabled={aiVinculando === extratoId + c.lancamento_id}>
+              {aiVinculando === extratoId + c.lancamento_id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <CheckCircle className="h-3 w-3 mr-1" />}Confirmar
+            </Button>
+          )}
+          {isVinculado && <Badge className="text-[9px] bg-green-600 shrink-0">✓ Vinculado</Badge>}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {c.evidencias?.map((ev: string, i: number) => (
+            <span key={i} className="text-[9px] bg-muted/50 rounded px-1.5 py-0.5">{ev}</span>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Extrato & Conciliação</h1>
-          <p className="text-sm text-muted-foreground">Todas as transações do Banco Inter com status de conciliação</p>
+          <p className="text-sm text-muted-foreground">Transações do Banco Inter com conciliação e assistente ARGUS</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button onClick={handleFetch} disabled={fetching} variant="outline" size="sm" className="gap-1.5">
@@ -345,17 +420,120 @@ export default function ExtratoBancoPage() {
           <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" size="sm" className="gap-1.5">
             {autoRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}Conciliação Auto
           </Button>
+          <Button onClick={() => setAiPanelOpen(!aiPanelOpen)} variant={aiPanelOpen ? "default" : "outline"} size="sm" className="gap-1.5">
+            <Brain className="h-3.5 w-3.5" />ARGUS IA
+          </Button>
           <Button onClick={() => { invalidateAll(); toast.success("Atualizado"); }} variant="ghost" size="sm" className="gap-1.5">
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
 
+      {/* AI Panel (collapsible) */}
+      {aiPanelOpen && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Brain className="h-4 w-4 text-primary" />
+            <span className="font-semibold text-sm text-primary">ARGUS — Assistente de Conciliação</span>
+            <Button size="sm" variant="ghost" className="h-6 text-[10px] ml-auto" onClick={() => { setAiPanelOpen(false); setAiPanelResult(null); }}>
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+          
+          {/* Command input */}
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <MessageSquare className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Digite um comando... ex: 'analisa PIX de hoje', 'concilia Mercado Pago', 'OS 1234'"
+                value={aiPanelCmd}
+                onChange={e => setAiPanelCmd(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && aiPanelCmd.trim()) handleAiPanelAnalyze(aiPanelCmd.trim()); }}
+                className="pl-8 h-9 text-sm"
+              />
+            </div>
+            <Button size="sm" className="h-9 gap-1.5" onClick={() => handleAiPanelAnalyze(aiPanelCmd.trim())} disabled={aiPanelLoading}>
+              {aiPanelLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}Enviar
+            </Button>
+          </div>
+
+          {/* Shortcut buttons */}
+          <div className="flex flex-wrap gap-1.5">
+            {AI_SHORTCUTS.map(s => (
+              <Button key={s.cmd} size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={() => { setAiPanelCmd(s.cmd); handleAiPanelAnalyze(s.cmd); }} disabled={aiPanelLoading}>
+                <Sparkles className="h-3 w-3" />{s.label}
+              </Button>
+            ))}
+          </div>
+
+          {/* Loading state */}
+          {aiPanelLoading && (
+            <div className="flex items-center gap-2 py-4 justify-center text-primary">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-sm font-medium">ARGUS analisando...</span>
+            </div>
+          )}
+
+          {/* Results */}
+          {aiPanelResult && !aiPanelLoading && (
+            <div className="space-y-3">
+              {/* General analysis */}
+              {aiPanelResult.analise_geral && (
+                <div className="rounded-md bg-muted/50 p-2.5 text-xs text-muted-foreground">{aiPanelResult.analise_geral}</div>
+              )}
+
+              {/* Stats bar */}
+              <div className="flex items-center gap-3 flex-wrap text-[11px]">
+                <span className="text-muted-foreground">{aiPanelResult.stats?.extratos_analisados} analisados</span>
+                {aiPanelResult.stats?.alta_confianca > 0 && <Badge variant="outline" className="text-[9px] bg-green-500/10 text-green-600">🟢 {aiPanelResult.stats.alta_confianca} ALTA</Badge>}
+                {aiPanelResult.stats?.media_confianca > 0 && <Badge variant="outline" className="text-[9px] bg-yellow-500/10 text-yellow-600">🟡 {aiPanelResult.stats.media_confianca} MÉDIA</Badge>}
+                {aiPanelResult.stats?.baixa_confianca > 0 && <Badge variant="outline" className="text-[9px] bg-red-500/10 text-red-500">🔴 {aiPanelResult.stats.baixa_confianca} BAIXA</Badge>}
+              </div>
+
+              {/* Suggestions */}
+              {aiPanelResult.sugestoes?.length > 0 && (
+                <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+                  {aiPanelResult.sugestoes.map((s: any, sIdx: number) => (
+                    <div key={sIdx} className="rounded-md border border-border p-3 space-y-2">
+                      <div className="flex items-center gap-2 text-xs">
+                        <Badge variant="outline" className="text-[9px]">{s.extrato_resumo}</Badge>
+                      </div>
+                      {s.candidatos?.map((c: any, cIdx: number) => renderCandidatoCard(c, s.extrato_id, cIdx))}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Sem match */}
+              {aiPanelResult.sem_match?.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase">Sem match</p>
+                  {aiPanelResult.sem_match.map((sm: any, i: number) => (
+                    <div key={i} className="text-[10px] text-muted-foreground bg-muted/30 rounded px-2 py-1">
+                      {typeof sm === "string" ? sm : <><span className="font-medium">{sm.extrato_resumo}</span> — {sm.classificacao}: {sm.motivo}</>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Alertas */}
+              {aiPanelResult.alertas?.length > 0 && (
+                <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 p-2.5 space-y-1">
+                  <div className="flex items-center gap-1 text-[10px] font-semibold text-yellow-600"><AlertTriangle className="h-3 w-3" />Alertas</div>
+                  {aiPanelResult.alertas.map((a: string, i: number) => <p key={i} className="text-[10px] text-yellow-700">{a}</p>)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Stats + Filters */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="rounded-md bg-accent/30 px-3 py-1.5 text-xs"><span className="text-muted-foreground">Créditos:</span> <span className="font-semibold text-green-500">{formatCurrency(totalCredito)}</span></div>
         <div className="rounded-md bg-accent/30 px-3 py-1.5 text-xs"><span className="text-muted-foreground">Débitos:</span> <span className="font-semibold text-red-500">{formatCurrency(totalDebito)}</span></div>
         <div className="rounded-md bg-accent/30 px-3 py-1.5 text-xs"><span className="text-muted-foreground">Saldo:</span> <span className="font-semibold">{formatCurrency(totalCredito - totalDebito)}</span></div>
+        <div className="rounded-md bg-accent/30 px-3 py-1.5 text-xs"><span className="text-muted-foreground">Conciliado:</span> <span className="font-semibold">{pctConciliado}%</span></div>
         <Badge variant="outline" className="text-[10px] bg-green-500/10 text-green-500">✅ {totalReconciliado}</Badge>
         <Badge variant="outline" className="text-[10px] bg-red-500/10 text-red-500">❌ {totalNaoReconciliado}</Badge>
 
@@ -449,9 +627,9 @@ export default function ExtratoBancoPage() {
                               className="h-7 w-7 text-primary"
                               onClick={() => handleAiAnalyze(e.id, e)}
                               disabled={aiLoading && aiTargetId === e.id}
-                              title="IA sugerir match"
+                              title="⚡ Pedir ARGUS IA"
                             >
-                              {aiLoading && aiTargetId === e.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Brain className="h-3.5 w-3.5" />}
+                              {aiLoading && aiTargetId === e.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
                             </Button>
                           </>
                         )}
@@ -463,36 +641,34 @@ export default function ExtratoBancoPage() {
                       <div className="px-4 pb-3 bg-primary/5 space-y-2 border-t border-primary/20">
                         <div className="flex items-center gap-2 pt-2">
                           <Brain className="h-3.5 w-3.5 text-primary" />
-                          <span className="text-xs font-semibold text-primary">Sugestões IA</span>
+                          <span className="text-xs font-semibold text-primary">Sugestões ARGUS</span>
                           <Button size="sm" variant="ghost" className="h-6 text-[10px] ml-auto" onClick={() => { setAiTargetId(null); setAiResult(null); }}>
                             <X className="h-3 w-3" />
                           </Button>
                         </div>
-                        {aiResult.analise && <p className="text-[10px] text-muted-foreground bg-muted/50 rounded p-2">{aiResult.analise}</p>}
-                        {aiResult.sugestoes?.length > 0 ? aiResult.sugestoes.map((s: any, idx: number) => {
-                          const isVinculado = aiVinculados.has(s.extrato_id);
-                          return (
-                            <div key={idx} className={cn("rounded-md border p-2 space-y-1.5 text-xs", isVinculado ? "opacity-50 border-green-500/30" : s.confianca === "ALTA" ? "border-green-500/30 bg-green-500/5" : s.confianca === "MEDIA" ? "border-yellow-500/30 bg-yellow-500/5" : "border-red-500/30 bg-red-500/5")}>
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="outline" className={`text-[9px] ${s.confianca === "ALTA" ? "text-green-600 bg-green-500/10" : s.confianca === "MEDIA" ? "text-yellow-600 bg-yellow-500/10" : "text-red-500 bg-red-500/10"}`}>
-                                    {s.confianca} ({s.confianca_pct}%)
-                                  </Badge>
-                                  <span className="font-medium">{s.lancamento_resumo}</span>
-                                  <span className="font-bold text-primary">{formatCurrency(s.valor_lancamento)}</span>
-                                  {s.diferenca > 0.01 && <span className="text-yellow-600 text-[10px]">Δ {formatCurrency(s.diferenca)}</span>}
-                                </div>
-                                {!isVinculado && (
-                                  <Button size="sm" variant={s.confianca === "ALTA" ? "default" : "outline"} className="h-6 text-[10px]" onClick={() => handleAiVincular(s)} disabled={aiVinculando === s.extrato_id}>
-                                    {aiVinculando === s.extrato_id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}Confirmar
-                                  </Button>
-                                )}
-                                {isVinculado && <Badge className="text-[9px] bg-green-600">✓</Badge>}
-                              </div>
-                              <div className="flex flex-wrap gap-1">{s.evidencias?.map((ev: string, i: number) => <span key={i} className="text-[9px] bg-muted/50 rounded px-1.5 py-0.5">{ev}</span>)}</div>
-                            </div>
-                          );
-                        }) : <p className="text-[10px] text-muted-foreground">Nenhuma sugestão encontrada pela IA.</p>}
+                        {aiResult.analise_geral && <p className="text-[10px] text-muted-foreground bg-muted/50 rounded p-2">{aiResult.analise_geral}</p>}
+                        {aiResult.sugestoes?.length > 0 ? aiResult.sugestoes.map((s: any, sIdx: number) => (
+                          <div key={sIdx} className="space-y-1.5">
+                            {s.candidatos?.map((c: any, cIdx: number) => renderCandidatoCard(c, s.extrato_id, cIdx))}
+                          </div>
+                        )) : <p className="text-[10px] text-muted-foreground">Nenhuma sugestão encontrada pelo ARGUS.</p>}
+                        
+                        {/* Sem match inline */}
+                        {aiResult.sem_match?.length > 0 && (
+                          <div className="text-[10px] text-muted-foreground bg-muted/30 rounded px-2 py-1">
+                            {aiResult.sem_match.map((sm: any, i: number) => (
+                              <span key={i}>{typeof sm === "string" ? sm : `${sm.classificacao}: ${sm.motivo}`}</span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Alertas inline */}
+                        {aiResult.alertas?.length > 0 && (
+                          <div className="text-[10px] text-yellow-600 bg-yellow-500/5 rounded px-2 py-1 flex items-start gap-1">
+                            <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                            <div>{aiResult.alertas.map((a: string, i: number) => <p key={i}>{a}</p>)}</div>
+                          </div>
+                        )}
                       </div>
                     )}
 
