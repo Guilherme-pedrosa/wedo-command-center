@@ -1,0 +1,484 @@
+// src/pages/financeiro/MetasOrcamentoPage.tsx
+import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Target, TrendingUp, TrendingDown, AlertTriangle,
+  RefreshCw, DollarSign, Percent, BarChart3
+} from 'lucide-react';
+
+// ─── TIPOS ─────────────────────────────────────────────────────────────────
+interface Meta {
+  id: string;
+  nome: string;
+  categoria: 'receita' | 'custo_variavel' | 'custo_fixo';
+  tipo_meta: 'absoluto' | 'percentual';
+  meta_valor: number | null;
+  meta_percentual: number | null;
+}
+
+interface MetaPlanoContas {
+  meta_id: string;
+  plano_contas_id: string;
+  centro_custo_id: string | null;
+  peso: number;
+}
+
+interface MetaComResultado extends Meta {
+  realizado: number;
+  meta_calculada: number;
+  delta: number;
+  pct_faturamento: number;
+  status: 'verde' | 'amarelo' | 'vermelho';
+  progresso: number;
+}
+
+// ─── UTILITÁRIOS ────────────────────────────────────────────────────────────
+const formatBRL = (v: number) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+
+const formatPct = (v: number) => `${(v * 100).toFixed(1)}%`;
+
+const getPeriodRange = (year: number, month: number) => {
+  const start = `${year}-${String(month).padStart(2, '0')}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const end = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
+  return { start, end };
+};
+
+const calcStatus = (
+  categoria: string,
+  realizado: number,
+  meta_calculada: number
+): 'verde' | 'amarelo' | 'vermelho' => {
+  const ratio = meta_calculada > 0 ? realizado / meta_calculada : 0;
+  if (categoria === 'receita') {
+    if (ratio >= 1) return 'verde';
+    if (ratio >= 0.8) return 'amarelo';
+    return 'vermelho';
+  } else {
+    // custo_fixo e custo_variavel — menor = melhor
+    if (ratio <= 1) return 'verde';
+    if (ratio <= 1.15) return 'amarelo';
+    return 'vermelho';
+  }
+};
+
+const statusBadge = (status: 'verde' | 'amarelo' | 'vermelho') => {
+  const map = {
+    verde:    { label: 'OK',       class: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+    amarelo:  { label: 'ATENÇÃO',  class: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+    vermelho: { label: 'ALERTA',   class: 'bg-red-100 text-red-800 border-red-200' },
+  };
+  return map[status];
+};
+
+// ─── HOOK DE DADOS ──────────────────────────────────────────────────────────
+const useMetas = (year: number, month: number) => {
+  const { start, end } = getPeriodRange(year, month);
+
+  // 1. Busca metas e mapeamentos
+  const { data: metas = [], isLoading: loadingMetas } = useQuery({
+    queryKey: ['fin_metas'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('fin_metas')
+        .select('*')
+        .eq('ativo', true);
+      if (error) throw error;
+      return data as Meta[];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: mapeamentos = [], isLoading: loadingMap } = useQuery({
+    queryKey: ['fin_meta_plano_contas'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('fin_meta_plano_contas')
+        .select('*');
+      if (error) throw error;
+      return data as MetaPlanoContas[];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // 2. Busca recebimentos do período (liquidados)
+  const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec } = useQuery({
+    queryKey: ['fin_recebimentos_metas', start, end],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('fin_recebimentos')
+        .select('plano_contas_id, centro_custo_id, valor')
+        .eq('liquidado', true)
+        .gte('data_vencimento', start)
+        .lte('data_vencimento', end);
+      if (error) throw error;
+      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number }[];
+    },
+  });
+
+  // 3. Busca pagamentos do período (liquidados)
+  const { data: pagamentos = [], isLoading: loadingPag, refetch: refetchPag } = useQuery({
+    queryKey: ['fin_pagamentos_metas', start, end],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('fin_pagamentos')
+        .select('plano_contas_id, centro_custo_id, valor')
+        .eq('liquidado', true)
+        .gte('data_vencimento', start)
+        .lte('data_vencimento', end);
+      if (error) throw error;
+      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number }[];
+    },
+  });
+
+  // 4. Calcula EXEC_TOTAL (soma de todas receitas liquidadas do período)
+  const execTotal = useMemo(() => {
+    const receitaPlanos = ['27867720', '27867721', '27867722', '27867718', '27867719'];
+    return recebimentos
+      .filter(r => receitaPlanos.includes(r.plano_contas_id))
+      .reduce((acc, r) => acc + (r.valor || 0), 0);
+  }, [recebimentos]);
+
+  // 5. Calcula realizado por meta
+  const metasComResultado = useMemo((): MetaComResultado[] => {
+    return metas.map(meta => {
+      const links = mapeamentos.filter(m => m.meta_id === meta.id);
+      let realizado = 0;
+
+      if (meta.categoria === 'receita') {
+        for (const link of links) {
+          const soma = recebimentos
+            .filter(r =>
+              r.plano_contas_id === link.plano_contas_id &&
+              (link.centro_custo_id === null || r.centro_custo_id === link.centro_custo_id)
+            )
+            .reduce((acc, r) => acc + (r.valor || 0), 0);
+          realizado += soma * (link.peso || 1);
+        }
+      } else {
+        for (const link of links) {
+          const soma = pagamentos
+            .filter(p =>
+              p.plano_contas_id === link.plano_contas_id &&
+              (link.centro_custo_id === null || p.centro_custo_id === link.centro_custo_id)
+            )
+            .reduce((acc, r) => acc + (r.valor || 0), 0);
+          realizado += soma * (link.peso || 1);
+        }
+      }
+
+      const meta_calculada =
+        meta.tipo_meta === 'absoluto'
+          ? (meta.meta_valor || 0)
+          : (meta.meta_percentual || 0) * execTotal;
+
+      const delta = realizado - meta_calculada;
+      const pct_faturamento = execTotal > 0 ? realizado / execTotal : 0;
+      const status = calcStatus(meta.categoria, realizado, meta_calculada);
+      const progresso = meta_calculada > 0
+        ? Math.min(Math.round((realizado / meta_calculada) * 100), 150)
+        : 0;
+
+      return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
+    });
+  }, [metas, mapeamentos, recebimentos, pagamentos, execTotal]);
+
+  const refetch = () => { refetchRec(); refetchPag(); };
+  const isLoading = loadingMetas || loadingMap || loadingRec || loadingPag;
+
+  return { metasComResultado, execTotal, isLoading, refetch };
+};
+
+// ─── COMPONENTE ROW ──────────────────────────────────────────────────────────
+const MetaRow = ({ m, execTotal }: { m: MetaComResultado; execTotal: number }) => {
+  const badge = statusBadge(m.status);
+  const isCusto = m.categoria !== 'receita';
+  const isAcima = m.delta > 0;
+
+  return (
+    <div className="flex flex-col gap-1 p-3 rounded-lg border border-border bg-card hover:bg-accent/30 transition-colors">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-medium text-sm truncate text-foreground">{m.nome}</span>
+          {m.tipo_meta === 'percentual' && (
+            <span className="text-xs text-muted-foreground">
+              ({formatPct(m.meta_percentual || 0)} do fatur.)
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`text-xs font-medium ${isCusto && isAcima ? 'text-destructive' : !isCusto && !isAcima ? 'text-destructive' : 'text-muted-foreground'}`}>
+            {isCusto
+              ? (isAcima ? `+${formatBRL(m.delta)}` : formatBRL(m.delta))
+              : (isAcima ? `+${formatBRL(m.delta)}` : formatBRL(m.delta))
+            }
+          </span>
+          <Badge variant="outline" className={`text-xs ${badge.class}`}>
+            {badge.label}
+          </Badge>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+        <div>
+          <span className="block text-[10px] uppercase tracking-wide">Meta</span>
+          <span className="font-medium text-foreground">{formatBRL(m.meta_calculada)}</span>
+        </div>
+        <div>
+          <span className="block text-[10px] uppercase tracking-wide">Realizado</span>
+          <span className="font-medium text-foreground">{formatBRL(m.realizado)}</span>
+        </div>
+        <div>
+          <span className="block text-[10px] uppercase tracking-wide">% Fatur.</span>
+          <span className="font-medium text-foreground">
+            {execTotal > 0 ? formatPct(m.pct_faturamento) : '—'}
+          </span>
+        </div>
+      </div>
+
+      <Progress
+        value={Math.min(m.progresso, 100)}
+        className={`h-1.5 mt-1 ${
+          m.status === 'verde' ? '[&>div]:bg-emerald-500' :
+          m.status === 'amarelo' ? '[&>div]:bg-yellow-500' :
+          '[&>div]:bg-red-500'
+        }`}
+      />
+    </div>
+  );
+};
+
+// ─── COMPONENTE PRINCIPAL ───────────────────────────────────────────────────
+export default function MetasOrcamentoPage() {
+  const now = new Date();
+  const [selectedYear, setSelectedYear]   = useState(now.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
+
+  const { metasComResultado, execTotal, isLoading, refetch } = useMetas(selectedYear, selectedMonth);
+
+  const receitas       = metasComResultado.filter(m => m.categoria === 'receita');
+  const custosVar      = metasComResultado.filter(m => m.categoria === 'custo_variavel');
+  const custosFixos    = metasComResultado.filter(m => m.categoria === 'custo_fixo');
+
+  const totalMetaReceita  = receitas.reduce((a, m) => a + m.meta_calculada, 0);
+  const totalRealReceita  = receitas.reduce((a, m) => a + m.realizado, 0);
+  const totalCustos       = [...custosVar, ...custosFixos].reduce((a, m) => a + m.realizado, 0);
+  const margemLiquida     = execTotal > 0 ? (execTotal - totalCustos) / execTotal : 0;
+  const totalAlertas      = metasComResultado.filter(m => m.status !== 'verde').length;
+
+  const margemColor =
+    margemLiquida >= 0.30 ? 'text-emerald-600' :
+    margemLiquida >= 0.15 ? 'text-yellow-600' : 'text-destructive';
+
+  const meses = [
+    'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+    'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'
+  ];
+  const anos = [2025, 2026, 2027];
+
+  return (
+    <div className="flex flex-col gap-6 p-6">
+      {/* HEADER */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2 text-foreground">
+            <Target className="h-6 w-6 text-primary" />
+            Metas & Orçamento
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Acompanhamento em tempo real vs. metas orçadas
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Select
+            value={String(selectedMonth)}
+            onValueChange={v => setSelectedMonth(Number(v))}
+          >
+            <SelectTrigger className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {meses.map((m, i) => (
+                <SelectItem key={i + 1} value={String(i + 1)}>{m}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={String(selectedYear)}
+            onValueChange={v => setSelectedYear(Number(v))}
+          >
+            <SelectTrigger className="w-24">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {anos.map(a => (
+                <SelectItem key={a} value={String(a)}>{a}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Button variant="outline" size="icon" onClick={refetch} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
+      </div>
+
+      {/* CARDS RESUMO */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+              <DollarSign className="h-3.5 w-3.5" />
+              Faturamento Executado
+            </div>
+            <div className="text-xl font-bold text-foreground">{formatBRL(execTotal)}</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              Meta: {formatBRL(totalMetaReceita)}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+              <Percent className="h-3.5 w-3.5" />
+              Margem Líquida
+            </div>
+            <div className={`text-xl font-bold ${margemColor}`}>
+              {formatPct(margemLiquida)}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">Meta: ≥ 30%</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+              <BarChart3 className="h-3.5 w-3.5" />
+              Total Custos Realizados
+            </div>
+            <div className="text-xl font-bold text-foreground">{formatBRL(totalCustos)}</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {execTotal > 0 ? formatPct(totalCustos / execTotal) : '—'} do fatur.
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+              <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" />
+              Alertas Ativos
+            </div>
+            <div className={`text-xl font-bold ${totalAlertas > 0 ? 'text-destructive' : 'text-emerald-600'}`}>
+              {totalAlertas}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              de {metasComResultado.length} indicadores
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* SEÇÃO RECEITAS */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-emerald-500" />
+            Receitas
+            <Badge variant="outline" className="text-xs ml-auto">
+              {formatBRL(totalRealReceita)} / {formatBRL(totalMetaReceita)}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          {isLoading
+            ? <p className="text-sm text-muted-foreground">Carregando...</p>
+            : receitas.length === 0
+            ? <p className="text-sm text-muted-foreground">Nenhuma meta de receita cadastrada.</p>
+            : receitas.map(m => <MetaRow key={m.id} m={m} execTotal={execTotal} />)
+          }
+        </CardContent>
+      </Card>
+
+      {/* SEÇÃO CUSTOS VARIÁVEIS */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Percent className="h-4 w-4 text-blue-500" />
+            Custos Variáveis
+            <span className="text-xs text-muted-foreground font-normal">(% sobre faturamento executado)</span>
+            <Badge variant="outline" className="text-xs ml-auto">
+              {formatBRL(custosVar.reduce((a, m) => a + m.realizado, 0))}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          {isLoading
+            ? <p className="text-sm text-muted-foreground">Carregando...</p>
+            : custosVar.length === 0
+            ? <p className="text-sm text-muted-foreground">Nenhuma meta de custo variável cadastrada.</p>
+            : custosVar.map(m => <MetaRow key={m.id} m={m} execTotal={execTotal} />)
+          }
+        </CardContent>
+      </Card>
+
+      {/* SEÇÃO CUSTOS FIXOS */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <TrendingDown className="h-4 w-4 text-red-400" />
+            Custos Fixos
+            <span className="text-xs text-muted-foreground font-normal">(R$ absoluto mensal)</span>
+            <Badge variant="outline" className="text-xs ml-auto">
+              {formatBRL(custosFixos.reduce((a, m) => a + m.realizado, 0))}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          {isLoading
+            ? <p className="text-sm text-muted-foreground">Carregando...</p>
+            : custosFixos.length === 0
+            ? <p className="text-sm text-muted-foreground">Nenhuma meta de custo fixo cadastrada.</p>
+            : custosFixos.map(m => <MetaRow key={m.id} m={m} execTotal={execTotal} />)
+          }
+        </CardContent>
+      </Card>
+
+      {/* RODAPÉ MARGEM */}
+      <Card className={`border-2 ${
+        margemLiquida >= 0.30 ? 'border-emerald-400' :
+        margemLiquida >= 0.15 ? 'border-yellow-400' : 'border-red-400'
+      }`}>
+        <CardContent className="pt-4 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div>
+            <p className="text-sm text-muted-foreground">Resultado do Período</p>
+            <p className="text-2xl font-bold text-foreground">
+              {formatBRL(execTotal - totalCustos)}
+            </p>
+          </div>
+          <div className="text-center">
+            <p className="text-sm text-muted-foreground">Margem Líquida</p>
+            <p className={`text-3xl font-bold ${margemColor}`}>
+              {formatPct(margemLiquida)}
+            </p>
+            <p className="text-xs text-muted-foreground">Meta: ≥ 30%</p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-muted-foreground">Faturamento Executado</p>
+            <p className="text-2xl font-bold text-foreground">{formatBRL(execTotal)}</p>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
