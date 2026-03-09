@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-09-v6
+// redeploy: 2026-03-10-v7-nome-enrichment
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,35 +38,30 @@ function dataProxima(a: string, b: string, dias = 3): boolean {
   return Math.abs(new Date(a).getTime() - new Date(b).getTime()) <= dias * 86400000;
 }
 
-// Similaridade de nome por palavras em comum (Jaccard simplificado)
+// Similaridade de nome por palavras em comum (Jaccard simplificado + containment fallback)
 function nomeSimilarScore(a: string | null, b: string | null): number {
   if (!a || !b) return 0;
   const normalize = (s: string) =>
     s.toLowerCase()
      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
      .replace(/[^a-z0-9\s]/g, "")
-     .split(/\s+/).filter(w => w.length > 2);
+     .split(/\s+/).filter(w => w.length > 2 && !/^\d+$/.test(w)); // exclude pure numeric tokens like CNPJ fragments
   const wa = normalize(a);
   const wb = normalize(b);
   if (!wa.length || !wb.length) return 0;
   const inter = wa.filter(w => wb.includes(w)).length;
   const union = new Set([...wa, ...wb]).size;
-  return inter / union;
+  const jaccard = inter / union;
+  // Containment: if the smaller set is fully contained in the larger, boost score
+  const smaller = wa.length <= wb.length ? wa : wb;
+  const larger = wa.length > wb.length ? wa : wb;
+  const containment = smaller.filter(w => larger.includes(w)).length / smaller.length;
+  // Return the best of jaccard and containment (containment handles "Filipe" ⊂ "Filipe Farias de Carvalho")
+  return Math.max(jaccard, containment);
 }
 
 function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): boolean {
-  if (!a || !b) return false;
-  const normalize = (s: string) =>
-    s.toLowerCase()
-     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-     .replace(/[^a-z0-9\s]/g, "")
-     .split(/\s+/).filter(w => w.length > 2);
-  const wa = normalize(a);
-  const wb = normalize(b);
-  if (!wa.length || !wb.length) return false;
-  const inter = wa.filter(w => wb.includes(w)).length;
-  const union = new Set([...wa, ...wb]).size;
-  return inter / union >= threshold;
+  return nomeSimilarScore(a, b) >= threshold;
 }
 
 type MatchRule =
@@ -591,7 +586,10 @@ serve(async (req) => {
           const lookup = isDebito ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
           const doc = cleanDoc(fin.recipient_document) || lookup?.cpf_cnpj || "";
           const chavePix = (isDebito && lookup) ? (lookup as any).chave_pix ?? "" : "";
-          const nome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? lookup?.nome ?? "";
+          // Prefer the full name from the lookup table (cadastro) when the lançamento name is too short
+          const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? "";
+          const lookupNome = lookup?.nome ?? "";
+          const nome = (finNome.split(/\s+/).filter((w: string) => w.length > 2).length >= 2) ? finNome : (lookupNome || finNome);
           return { fin, tipo: (isDebito ? "pagar" : "receber") as "pagar" | "receber", doc, chavePix, nome };
         });
 
