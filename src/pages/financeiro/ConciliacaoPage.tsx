@@ -337,13 +337,14 @@ export default function ConciliacaoPage() {
                             }}
                             className="p-2 rounded-md border border-border cursor-pointer transition-colors text-xs hover:bg-primary/10 hover:border-primary"
                           >
-                            <div className="flex justify-between">
-                              <span className="truncate font-medium">{r.descricao}</span>
-                              <span className="font-semibold">{formatCurrency(Number(r.valor))}</span>
+                            <div className="flex justify-between items-center gap-2">
+                              <span className="truncate font-medium flex-1">{r.descricao}</span>
+                              <span className="font-bold text-sm whitespace-nowrap text-primary">{formatCurrency(Number(r.valor))}</span>
                             </div>
-                            <div className="flex items-center gap-2 mt-0.5">
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                               <span className="text-[10px] text-muted-foreground">{r.nome_cliente}</span>
                               {r.data_vencimento && <span className="text-[10px] text-muted-foreground">Venc: {r.data_vencimento}</span>}
+                              {r.gc_codigo && <span className="text-[10px] text-muted-foreground">GC {r.gc_codigo}</span>}
                               {r.liquidado && <Badge variant="secondary" className="text-[9px] h-4">Liquidado</Badge>}
                               {r.pago_sistema && <Badge variant="secondary" className="text-[9px] h-4">Pago Sistema</Badge>}
                             </div>
