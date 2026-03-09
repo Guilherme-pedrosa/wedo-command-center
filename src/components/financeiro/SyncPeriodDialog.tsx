@@ -32,7 +32,7 @@ interface SyncPeriodDialogProps {
 export function SyncPeriodDialog({ open, onOpenChange, onSync, title = "Sincronizar com GestãoClick", loading }: SyncPeriodDialogProps) {
   const [dataInicio, setDataInicio] = useState<Date>(startOfMonth(subMonths(new Date(), 1)));
   const [dataFim, setDataFim] = useState<Date>(new Date());
-  const [incluirLiquidados, setIncluirLiquidados] = useState(false);
+  const [incluirLiquidados, setIncluirLiquidados] = useState(true);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [etapasConcluidas, setEtapasConcluidas] = useState<string[]>([]);
 
