@@ -142,13 +142,14 @@ const useMetas = (year: number, month: number) => {
   });
 
   // 2. Busca recebimentos do período (liquidados)
+  // 2. Busca recebimentos do período (liquidados OU pago_sistema)
   const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec } = useQuery({
     queryKey: ['fin_recebimentos_metas', start, end],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fin_recebimentos')
         .select('plano_contas_id, centro_custo_id, valor')
-        .eq('liquidado', true)
+        .or('liquidado.eq.true,and(pago_sistema.eq.true,status.eq.pago)')
         .gte('data_vencimento', start)
         .lte('data_vencimento', end);
       if (error) throw error;
@@ -156,14 +157,14 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
-  // 3. Busca pagamentos do período (liquidados)
+  // 3. Busca pagamentos do período (liquidados OU pago_sistema)
   const { data: pagamentos = [], isLoading: loadingPag, refetch: refetchPag } = useQuery({
     queryKey: ['fin_pagamentos_metas', start, end],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fin_pagamentos')
         .select('plano_contas_id, centro_custo_id, valor')
-        .eq('liquidado', true)
+        .or('liquidado.eq.true,and(pago_sistema.eq.true,status.eq.pago)')
         .gte('data_vencimento', start)
         .lte('data_vencimento', end);
       if (error) throw error;
@@ -189,17 +190,17 @@ const useMetas = (year: number, month: number) => {
       let realizado = 0;
 
       for (const link of links) {
-        // Traduz GC IDs do mapeamento para UUIDs usados nas tabelas
         const planoUuid = planoContasMap[link.plano_contas_id];
         const centroUuid = link.centro_custo_id ? centrosCustoMap[link.centro_custo_id] : null;
 
-        if (!planoUuid) continue; // plano não encontrado, pula
+        if (!planoUuid) continue;
 
         const source = meta.categoria === 'receita' ? recebimentos : pagamentos;
         const soma = source
           .filter(r =>
-            r.plano_contas_id === planoUuid &&
-            (centroUuid === null || r.centro_custo_id === centroUuid)
+            // Bug 3 fix: só filtra plano se o lançamento TEM o campo preenchido
+            (r.plano_contas_id ? r.plano_contas_id === planoUuid : true) &&
+            (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
           )
           .reduce((acc, r) => acc + (r.valor || 0), 0);
         realizado += soma * (link.peso || 1);
