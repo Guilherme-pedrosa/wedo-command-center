@@ -272,29 +272,27 @@ const useMetas = (year: number, month: number) => {
   });
 
   // 4. Calcula EXEC_TOTAL — OS (AT+Ecolab) + receitas financeiras (PCM, Locação, etc.) + vendas
+  // Use gc_recebimentos (GC IDs) as primary source since it has ALL records from GC
   const execTotal = useMemo(() => {
     const receitaGcIds_OS = ['27867720', '27867721'];
     const receitaGcIds_Vendas = ['27867722'];
-    const receitaUuids_OS = receitaGcIds_OS.map(gcId => planoContasMap[gcId]).filter(Boolean);
-    const receitaUuids_Vendas = receitaGcIds_Vendas.map(gcId => planoContasMap[gcId]).filter(Boolean);
     const receitaGcIds = ['27867720', '27867721', '27867722', '27867718', '27867719'];
-    const receitaUuids = receitaGcIds.map(gcId => planoContasMap[gcId]).filter(Boolean);
 
     const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
     const vendasTotal = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
 
-    const excludedUuids = [...receitaUuids_OS, ...receitaUuids_Vendas];
-    const recFinanceiro = recebimentos
-      .filter(r => r.plano_contas_id && receitaUuids.includes(r.plano_contas_id) && !excludedUuids.includes(r.plano_contas_id))
+    const excludedGcIds = [...receitaGcIds_OS, ...receitaGcIds_Vendas];
+    const recFinanceiro = gcRecebimentos
+      .filter(r => r.plano_contas_id && receitaGcIds.includes(r.plano_contas_id) && !excludedGcIds.includes(r.plano_contas_id))
       .reduce((acc, r) => acc + (r.valor || 0), 0);
 
     const hasExternalData = osExecutadas.length > 0 || vendasConcretizadas.length > 0;
     if (hasExternalData) return osTotal + vendasTotal + recFinanceiro;
 
-    return recebimentos
-      .filter(r => r.plano_contas_id && receitaUuids.includes(r.plano_contas_id))
+    return gcRecebimentos
+      .filter(r => r.plano_contas_id && receitaGcIds.includes(r.plano_contas_id))
       .reduce((acc, r) => acc + (r.valor || 0), 0);
-  }, [recebimentos, planoContasMap, osExecutadas, vendasConcretizadas]);
+  }, [gcRecebimentos, osExecutadas, vendasConcretizadas]);
 
   // 5. Calcula realizado por meta
   const metasComResultado = useMemo((): MetaComResultado[] => {
