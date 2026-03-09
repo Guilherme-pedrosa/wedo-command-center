@@ -59,6 +59,8 @@ export default function ConciliacaoPage() {
   const [linking, setLinking] = useState(false);
   const [autoRunning, setAutoRunning] = useState(false);
   const [autoResult, setAutoResult] = useState<any>(null);
+  const [fetchingInter, setFetchingInter] = useState(false);
+  const [syncingGC, setSyncingGC] = useState(false);
   const [mesExtrato, setMesExtrato] = useState("all");
   const [dateFrom, setDateFrom] = useState(new Date('2024-10-01'));
   const [dateTo, setDateTo] = useState(endOfMonth(new Date()));
