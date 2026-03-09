@@ -1,0 +1,1 @@
+DELETE FROM gc_vendas WHERE lower(trim(nome_situacao)) NOT IN ('concretizado', 'concretizada', 'venda futura');
