@@ -10,12 +10,15 @@ const AUVO_BASE = "https://api.auvo.com.br/v2";
 const TYPE_IDS = [48782, 48784, 49032, 48783, 48799, 50758];
 
 async function auvoLogin(apiKey: string, apiToken: string): Promise<string> {
-  const url = `${AUVO_BASE}/login/?apiKey=${encodeURIComponent(apiKey)}&apiToken=${encodeURIComponent(apiToken)}`;
-  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+  const res = await fetch(`${AUVO_BASE}/login/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiKey, apiToken }),
+  });
   if (!res.ok) throw new Error(`Auvo login failed: ${res.status}`);
   const json = await res.json();
-  const token = json?.result?.token || json?.data?.token || json?.token;
-  if (!token) throw new Error("Auvo login: token not found in response");
+  const token = json?.result?.accessToken ?? json?.result?.token ?? json?.token;
+  if (!token) throw new Error("Auvo login: accessToken not found");
   return token;
 }
 
@@ -40,7 +43,7 @@ async function fetchExpensesByType(
       break;
     }
     const json = await res.json();
-    const results = json?.result?.entities || json?.data?.entities || json?.result || [];
+    const results = json?.result?.entityList ?? json?.result?.entities ?? [];
     if (!Array.isArray(results) || results.length === 0) break;
     all.push(...results);
     if (results.length < pageSize) break;
@@ -91,7 +94,7 @@ Deno.serve(async (req) => {
 
       if (expenses.length > 0) {
         const rows = expenses.map((e: any) => ({
-          auvo_id: e.expenseID || e.id,
+          auvo_id: e.id,
           type_id: typeId,
           type_name: e.expenseTypeName || e.typeName || null,
           user_to_id: e.userToID || e.userToId || null,

@@ -125,11 +125,13 @@ serve(async (req) => {
       const batch = [];
       for (const compra of records) {
         totalFetched++;
-        const gcId = String(compra.id || "");
+        // Unwrap GC nested structure: { Compra: { ... } }
+        const c = (compra as any).Compra ?? compra;
+        const gcId = String(c.id || "");
         if (!gcId) { errors++; continue; }
 
         let dataCompra: string | null = null;
-        const rawData = String(compra.data || compra.data_compra || "");
+        const rawData = String(c.data_emissao || c.data || c.data_compra || "");
         if (rawData) {
           const match = rawData.match(/^(\d{4}-\d{2}-\d{2})/);
           if (match) dataCompra = match[1];
@@ -137,17 +139,17 @@ serve(async (req) => {
 
         batch.push({
           gc_id: gcId,
-          codigo: String(compra.codigo || compra.numero || ""),
-          nome_fornecedor: String(compra.nome_fornecedor || compra.fornecedor_nome || "") || null,
-          fornecedor_id: String(compra.fornecedor_id || "") || null,
-          nome_situacao: String(compra.nome_situacao || compra.situacao_nome || ""),
+          codigo: String(c.codigo || c.numero || ""),
+          nome_fornecedor: String(c.nome_fornecedor || c.fornecedor_nome || "") || null,
+          fornecedor_id: String(c.fornecedor_id || "") || null,
+          nome_situacao: String(c.nome_situacao || c.situacao_nome || ""),
           situacao_id: situacaoId,
           data: dataCompra,
-          valor_total: parseFloat(String(compra.valor_total || "0")) || null,
-          valor_produtos: parseFloat(String(compra.valor_produtos || "0")) || null,
-          valor_frete: parseFloat(String(compra.valor_frete || "0")) || null,
-          desconto: parseFloat(String(compra.desconto || "0")) || 0,
-          observacao: String(compra.observacao || "") || null,
+          valor_total: parseFloat(String(c.valor_total || "0")) || null,
+          valor_produtos: parseFloat(String(c.valor_produtos || "0")) || null,
+          valor_frete: parseFloat(String(c.valor_frete || "0")) || null,
+          desconto: parseFloat(String(c.desconto || "0")) || 0,
+          observacao: String(c.observacao || c.observacoes || "") || null,
           gc_payload_raw: compra,
           last_synced_at: new Date().toISOString(),
         });
