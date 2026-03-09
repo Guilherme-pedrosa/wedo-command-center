@@ -117,7 +117,7 @@ export default function ConciliacaoHistoricoPage() {
           .eq("id", link.lancamento_id)
           .single();
         if (rec) {
-          results.push({ ...rec, _tabela: table, _valor_alocado: link.valor_alocado, _rule: link.reconciliation_rule });
+          results.push({ ...(rec as any), _tabela: table, _valor_alocado: link.valor_alocado, _rule: link.reconciliation_rule });
         }
       }
       setDetailLancamentos(results);
