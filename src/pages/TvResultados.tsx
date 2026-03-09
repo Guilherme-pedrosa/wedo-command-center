@@ -27,8 +27,24 @@ const statusLabelColor = (s: CatStatus) =>
 
 export default function TvResultados() {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const [selectedDate, setSelectedDate] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 });
+  const { year, month } = selectedDate;
+
+  const navigateMonth = (dir: number) => {
+    setSelectedDate(prev => {
+      let m = prev.month + dir;
+      let y = prev.year;
+      if (m < 1) { m = 12; y--; }
+      if (m > 12) { m = 1; y++; }
+      // Don't go past current month
+      const nowY = now.getFullYear();
+      const nowM = now.getMonth() + 1;
+      if (y > nowY || (y === nowY && m > nowM)) return prev;
+      return { year: y, month: m };
+    });
+  };
+
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
 
   const { metasComResultado, execTotal, isLoading, refetch, osExecutadas } = useMetasResultados(year, month);
 
