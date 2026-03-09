@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -21,8 +21,9 @@ import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
 import { cn } from "@/lib/utils";
 import {
   CreditCard, Search, RefreshCw, Plus, Loader2, Zap, CalendarIcon,
-  Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight, FileText, Camera, ExternalLink, Link2,
+  Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight, FileText, Camera, ExternalLink, Link2, X,
 } from "lucide-react";
+import { SortableHeader, useSortConfig } from "@/components/financeiro/SortableHeader";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -42,6 +43,12 @@ export default function PagamentosPage() {
   const [tipoFilter, setTipoFilter] = useState("todos");
   const [pendenteBaixaGC, setPendenteBaixaGC] = useState(false);
   const [semGrupo, setSemGrupo] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [formaFilter, setFormaFilter] = useState("todos");
+  
+  // Sorting
+  const { sort, handleSort, sortFn } = useSortConfig("data_vencimento", "asc");
 
   // Selection
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -82,6 +89,15 @@ export default function PagamentosPage() {
         .select("*")
         .order("data_vencimento", { ascending: true })
         .limit(1000);
+      return data || [];
+    },
+  });
+
+  // Formas de pagamento for filter
+  const { data: formasPagamento } = useQuery({
+    queryKey: ["fin-formas-pagamento"],
+    queryFn: async () => {
+      const { data } = await supabase.from("fin_formas_pagamento").select("id, nome").eq("ativo", true).order("nome");
       return data || [];
     },
   });
@@ -130,9 +146,12 @@ export default function PagamentosPage() {
 
   const filtered = useMemo(() => {
     if (!pagamentos) return [];
-    return pagamentos.filter((p: any) => {
+    const base = pagamentos.filter((p: any) => {
       if (statusFilter !== "todos" && p.status !== statusFilter) return false;
       if (tipoFilter !== "todos" && p.tipo !== tipoFilter) return false;
+      if (formaFilter !== "todos" && p.forma_pagamento_id !== formaFilter) return false;
+      if (dateFrom && p.data_vencimento && p.data_vencimento < dateFrom) return false;
+      if (dateTo && p.data_vencimento && p.data_vencimento > dateTo) return false;
       if (pendenteBaixaGC && !(p.pago_sistema && !p.gc_baixado)) return false;
       if (semGrupo && p.grupo_id) return false;
       if (search) {
@@ -145,7 +164,8 @@ export default function PagamentosPage() {
       }
       return true;
     });
-  }, [pagamentos, search, statusFilter, tipoFilter, pendenteBaixaGC, semGrupo]);
+    return sortFn(base);
+  }, [pagamentos, search, statusFilter, tipoFilter, formaFilter, dateFrom, dateTo, pendenteBaixaGC, semGrupo, sort]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -333,6 +353,30 @@ export default function PagamentosPage() {
             <SelectItem value="outro">Outro</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={formaFilter} onValueChange={v => { setFormaFilter(v); setPage(0); }}>
+          <SelectTrigger className="w-[180px]"><SelectValue placeholder="Forma Pgto" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Forma: Todas</SelectItem>
+            {(formasPagamento || []).map((f: any) => (
+              <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground whitespace-nowrap">De:</Label>
+          <Input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(0); }} className="w-[150px] h-9" />
+        </div>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground whitespace-nowrap">Até:</Label>
+          <Input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(0); }} className="w-[150px] h-9" />
+        </div>
+        {(dateFrom || dateTo) && (
+          <Button size="sm" variant="ghost" onClick={() => { setDateFrom(""); setDateTo(""); setPage(0); }}>
+            <X className="h-3.5 w-3.5 mr-1" /> Limpar datas
+          </Button>
+        )}
         <div className="flex items-center gap-2">
           <Switch id="baixa-gc-p" checked={pendenteBaixaGC} onCheckedChange={v => { setPendenteBaixaGC(v); setPage(0); }} />
           <Label htmlFor="baixa-gc-p" className="text-xs text-muted-foreground">Pendente baixa GC</Label>
@@ -358,12 +402,12 @@ export default function PagamentosPage() {
                     }}
                   />
                 </th>
-                <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Cód GC</th>
-                <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Descrição</th>
-                <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Fornecedor</th>
-                <th className="p-3 text-right text-xs font-medium text-muted-foreground uppercase">Valor</th>
-                <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Vencimento</th>
-                <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Status</th>
+                <SortableHeader label="Cód GC" sortKey="gc_codigo" currentSort={sort} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Descrição" sortKey="descricao" currentSort={sort} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Fornecedor" sortKey="nome_fornecedor" currentSort={sort} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Valor" sortKey="valor" currentSort={sort} onSort={handleSort} className="text-right" />
+                <SortableHeader label="Vencimento" sortKey="data_vencimento" currentSort={sort} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Status" sortKey="status" currentSort={sort} onSort={handleSort} className="text-center" />
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Conciliado</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Baixa GC</th>
                 <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Ações</th>

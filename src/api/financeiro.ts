@@ -1173,10 +1173,11 @@ export async function syncFormasPagamentoGC(
   let importados = 0;
   let erros = 0;
   const sampleErrors: string[] = [];
-  
-  // Debug: log first raw to understand structure
+  let sampleRawFull: any = null;
+
+  // Debug: capture first raw completely
   if (raws.length > 0) {
-    console.log("Forma pagamento sample keys:", Object.keys(raws[0]), "sample:", JSON.stringify(raws[0]).substring(0, 300));
+    sampleRawFull = raws[0];
   }
 
   // Fetch existing gc_ids to decide insert vs update
@@ -1186,54 +1187,65 @@ export async function syncFormasPagamentoGC(
   const existingMap: Record<string, string> = {};
   (existing || []).forEach((e: any) => { if (e.gc_id) existingMap[e.gc_id] = e.id; });
 
-  const batchSize = 50;
-  for (let i = 0; i < raws.length; i += batchSize) {
-    const slice = raws.slice(i, i + batchSize);
+  for (const raw of raws) {
+    // Try multiple possible field names for the GC ID
+    const gcId = String(raw.codigo || raw.id || raw.codigo_forma_pagamento || "");
+    if (!gcId || gcId === "undefined" || gcId === "null") {
+      if (sampleErrors.length < 3) sampleErrors.push(`no_id: keys=${Object.keys(raw).join(",")}`);
+      erros++;
+      continue;
+    }
     
-    for (const raw of slice) {
-      // GC returns codigo as the ID field for formas_pagamentos
-      const gcId = String(raw.codigo || raw.id || "");
-      if (!gcId || gcId === "undefined") {
-        console.warn("Forma pagamento sem ID, raw keys:", Object.keys(raw), "sample:", JSON.stringify(raw).substring(0, 200));
-        erros++;
-        continue;
-      }
-      const record = {
-        gc_id: gcId,
-        nome: raw.descricao || raw.nome || "Sem nome",
-        tipo: raw.tipo || null,
-        ativo: true,
-      };
+    const nome = raw.descricao || raw.nome || raw.nome_forma_pagamento || "Sem nome";
+    const record = {
+      gc_id: gcId,
+      nome,
+      tipo: raw.tipo || null,
+      ativo: raw.ativo !== false && raw.ativo !== "0",
+    };
 
-      let error: any;
-      if (existingMap[gcId]) {
-        const res = await supabase
+    let error: any;
+    if (existingMap[gcId]) {
+      const res = await supabase
+        .from("fin_formas_pagamento")
+        .update(record)
+        .eq("id", existingMap[gcId]);
+      error = res.error;
+    } else {
+      const res = await supabase
+        .from("fin_formas_pagamento")
+        .insert(record);
+      error = res.error;
+      // If duplicate key error, try update instead
+      if (error && (error.code === "23505" || error.message?.includes("duplicate"))) {
+        const { data: dup } = await supabase
           .from("fin_formas_pagamento")
-          .update(record)
-          .eq("id", existingMap[gcId]);
-        error = res.error;
-      } else {
-        const res = await supabase
-          .from("fin_formas_pagamento")
-          .insert(record);
-        error = res.error;
+          .select("id")
+          .eq("gc_id", gcId)
+          .maybeSingle();
+        if (dup) {
+          const res2 = await supabase
+            .from("fin_formas_pagamento")
+            .update(record)
+            .eq("id", dup.id);
+          error = res2.error;
+        }
       }
+    }
 
-      if (error) {
-        const errMsg = `${gcId}: ${error.message}`;
-        console.error(`Formas pagamento error:`, errMsg);
-        if (sampleErrors.length < 5) sampleErrors.push(errMsg);
-        erros++;
-      } else {
-        importados++;
-      }
+    if (error) {
+      if (sampleErrors.length < 5) sampleErrors.push(`${gcId}/${nome}: ${error.message} (code:${error.code})`);
+      erros++;
+    } else {
+      importados++;
+      existingMap[gcId] = existingMap[gcId] || "inserted";
     }
   }
 
   await supabase.from("fin_sync_log").insert({
     tipo: "gc_import_formas_pagamento",
     status: erros === 0 ? "success" : "partial",
-    resposta: { importados, erros, total: raws.length, sampleErrors, sampleRaw: raws.length > 0 ? Object.keys(raws[0]) : [] } as any,
+    resposta: { importados, erros, total: raws.length, sampleErrors, sampleRaw: sampleRawFull } as any,
     duracao_ms: Date.now() - inicio,
   });
 
