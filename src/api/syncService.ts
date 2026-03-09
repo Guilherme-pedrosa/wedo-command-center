@@ -523,3 +523,30 @@ export async function syncCompras(
   }
 }
 
+// ─── Sync Auvo Expenses ──────────────────────────────────────────────
+
+export async function syncAuvoExpenses(
+  mes?: number,
+  ano?: number
+): Promise<{ synced: number; by_type: Record<string, { count: number; total: number }> }> {
+  const startTime = Date.now();
+  try {
+    const { data, error } = await supabase.functions.invoke("sync-auvo-expenses", {
+      body: { mes, ano },
+    });
+
+    if (error) throw error;
+    return {
+      synced: data?.synced ?? 0,
+      by_type: data?.by_type ?? {},
+    };
+  } catch (err: any) {
+    await logSync({
+      tipo: "sync-auvo",
+      status: "erro",
+      erro: err.message,
+      duracao_ms: Date.now() - startTime,
+    });
+    throw err;
+  }
+}
