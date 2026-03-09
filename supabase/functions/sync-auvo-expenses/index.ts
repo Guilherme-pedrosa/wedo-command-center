@@ -11,7 +11,7 @@ const TYPE_IDS = [48782, 48784, 49032, 48783, 48799, 50758];
 
 async function auvoLogin(apiKey: string, apiToken: string): Promise<string> {
   const url = `${AUVO_BASE}/login/?apiKey=${encodeURIComponent(apiKey)}&apiToken=${encodeURIComponent(apiToken)}`;
-  const res = await fetch(url, { method: "POST" });
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
   if (!res.ok) throw new Error(`Auvo login failed: ${res.status}`);
   const json = await res.json();
   const token = json?.result?.token || json?.data?.token || json?.token;
