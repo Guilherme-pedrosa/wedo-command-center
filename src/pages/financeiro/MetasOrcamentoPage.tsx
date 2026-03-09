@@ -468,6 +468,7 @@ export default function MetasOrcamentoPage() {
     const { start, end } = getPeriodRange(selectedYear, selectedMonth);
     let ok = 0;
     let fail = 0;
+    const details: string[] = [];
 
     try {
       const resVendas = await syncVendas(start, end);
@@ -479,8 +480,18 @@ export default function MetasOrcamentoPage() {
       ok += resCompras.upserted;
     } catch (_e) { fail++; }
 
+    try {
+      const resAuvo = await syncAuvoExpenses(selectedMonth, selectedYear);
+      ok += resAuvo.synced;
+      const bt = resAuvo.by_type;
+      if (bt['48782']) details.push(`Combustível R$ ${(bt['48782'].total || 0).toFixed(2)}`);
+      if (bt['48784']) details.push(`Hospedagem R$ ${(bt['48784'].total || 0).toFixed(2)}`);
+      if (bt['49032']) details.push(`Pedágio R$ ${(bt['49032'].total || 0).toFixed(2)}`);
+    } catch (_e) { fail++; }
+
     if (fail === 0) {
-      toast.success(`Tudo sincronizado: ${ok} registros`);
+      const auvoInfo = details.length > 0 ? ` | Auvo: ${details.join(', ')}` : '';
+      toast.success(`Tudo sincronizado: ${ok} registros${auvoInfo}`);
     } else {
       toast.error(`Sincronização parcial: ${ok} registros ok, ${fail} erros`);
     }
