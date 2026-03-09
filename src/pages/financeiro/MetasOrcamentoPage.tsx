@@ -554,14 +554,15 @@ export default function MetasOrcamentoPage() {
       if (bt['49032']) details.push(`Pedágio R$ ${(bt['49032'].total || 0).toFixed(2)}`);
     } catch (_e) { fail++; }
 
-    // Sync GC Recebimentos + Pagamentos
+    // Sync GC Recebimentos + Pagamentos (with date filter for selected period)
+    const dateFilter = { dataInicio: start, dataFim: end };
     try {
-      const resRec = await syncRecebimentos();
+      const resRec = await syncRecebimentos(undefined, dateFilter);
       ok += resRec.importados;
     } catch (_e) { fail++; }
 
     try {
-      const resPag = await syncPagamentos();
+      const resPag = await syncPagamentos(undefined, dateFilter);
       ok += resPag.importados;
     } catch (_e) { fail++; }
 
