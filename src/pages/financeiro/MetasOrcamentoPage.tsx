@@ -220,6 +220,7 @@ const useMetas = (year: number, month: number) => {
       const { data, error } = await supabase
         .from('gc_compras' as any)
         .select('gc_id, codigo, nome_fornecedor, nome_situacao, valor_total, data')
+        .eq('nome_situacao', 'Finalizado (Mercadoria Chegou)')
         .gte('data', start)
         .lte('data', end);
       if (error) throw error;
