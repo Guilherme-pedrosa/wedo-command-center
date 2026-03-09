@@ -297,19 +297,33 @@ interface ParcelaSoma {
 async function saveSomaParcelas(
   supabase: any,
   extratoId: string,
+  extValor: number,
   parcelas: ParcelaSoma[],
   rule: string
 ) {
+  // VALIDAÇÃO: IDs devem ser únicos (evitar duplicatas no subset-sum)
+  const uniqueIds = new Set(parcelas.map(p => p.id));
+  if (uniqueIds.size !== parcelas.length) {
+    throw new Error(`SOMA_PARCELAS rejeitada: IDs duplicados (${parcelas.length} parcelas, ${uniqueIds.size} únicos)`);
+  }
+
+  // VALIDAÇÃO: soma das parcelas deve bater com valor do extrato (tolerância R$0,01)
+  const somaTotal = parcelas.reduce((s, p) => s + p.valor, 0);
+  if (Math.abs(somaTotal - extValor) > 0.01) {
+    throw new Error(`SOMA_PARCELAS rejeitada: soma R$${somaTotal.toFixed(2)} ≠ extrato R$${extValor.toFixed(2)}`);
+  }
+
   const now = new Date().toISOString();
   const maior = parcelas.reduce((a, b) => (a.valor > b.valor ? a : b));
 
   // 1. Marcar extrato como reconciliado (representante = maior parcela)
-  await supabase.from("fin_extrato_inter").update({
+  const { error: extErr } = await supabase.from("fin_extrato_inter").update({
     reconciliado: true,
     reconciliado_em: now,
     reconciliation_rule: rule,
     lancamento_id: maior.id,
   }).eq("id", extratoId);
+  if (extErr) throw new Error(`Erro atualizar extrato: ${extErr.message}`);
 
   // 2. Inserir todas as parcelas na tabela N:N
   const rows = parcelas.map(p => ({
@@ -319,10 +333,29 @@ async function saveSomaParcelas(
     valor_alocado: p.valor,
     reconciliation_rule: rule,
   }));
-  await supabase.from("fin_extrato_lancamentos")
+  const { error: linkErr } = await supabase.from("fin_extrato_lancamentos")
     .upsert(rows, { onConflict: "extrato_id,lancamento_id,tabela" });
+  if (linkErr) {
+    // Rollback extrato
+    await supabase.from("fin_extrato_inter").update({
+      reconciliado: false, reconciliado_em: null, reconciliation_rule: null, lancamento_id: null,
+    }).eq("id", extratoId);
+    throw new Error(`Erro inserir links: ${linkErr.message}`);
+  }
 
-  // 3. Log
+  // 3. Verificar que os links foram criados
+  const { data: created } = await supabase.from("fin_extrato_lancamentos")
+    .select("id").eq("extrato_id", extratoId);
+  if (!created || created.length !== parcelas.length) {
+    // Rollback
+    await supabase.from("fin_extrato_inter").update({
+      reconciliado: false, reconciliado_em: null, reconciliation_rule: null, lancamento_id: null,
+    }).eq("id", extratoId);
+    await supabase.from("fin_extrato_lancamentos").delete().eq("extrato_id", extratoId);
+    throw new Error(`SOMA_PARCELAS: esperava ${parcelas.length} links, criou ${created?.length ?? 0}`);
+  }
+
+  // 4. Log
   await supabase.from("fin_sync_log").insert({
     tipo: "conciliacao_soma_parcelas",
     referencia_id: extratoId,
