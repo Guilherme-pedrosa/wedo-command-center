@@ -427,11 +427,9 @@ export default function ConciliacaoPage() {
                             }}
                             className="p-2 rounded-md border border-border cursor-pointer transition-colors text-xs hover:bg-primary/10 hover:border-primary"
                           >
-                            <div className="flex justify-between items-start gap-2">
-                              <span className="font-medium text-xs break-words" style={{ maxWidth: "60%" }}>{p.descricao}</span>
-                              <span className="font-bold text-sm whitespace-nowrap text-primary shrink-0">{formatCurrency(Number(p.valor))}</span>
-                            </div>
+                            <div className="font-medium text-xs break-words">{p.descricao}</div>
                             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                              <span className="font-bold text-xs text-primary">{formatCurrency(Number(p.valor))}</span>
                               <span className="text-[10px] text-muted-foreground">{p.nome_fornecedor}</span>
                               {p.data_vencimento && <span className="text-[10px] text-muted-foreground">Venc: {p.data_vencimento}</span>}
                               {p.gc_codigo && <span className="text-[10px] text-muted-foreground">GC {p.gc_codigo}</span>}
