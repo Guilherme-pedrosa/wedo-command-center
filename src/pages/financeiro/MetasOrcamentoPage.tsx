@@ -211,6 +211,20 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
+  // 3d. Busca compras finalizadas do período (para Custo com Peças e Estoque)
+  const { data: comprasFinalizadas = [], isLoading: loadingCompras, refetch: refetchCompras } = useQuery({
+    queryKey: ['gc_compras_metas', start, end],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('gc_compras' as any)
+        .select('gc_id, codigo, nome_fornecedor, nome_situacao, valor_total, data')
+        .gte('data', start)
+        .lte('data', end);
+      if (error) throw error;
+      return data as any[];
+    },
+  });
+
   // 4. Calcula EXEC_TOTAL — OS (AT+Ecolab) + receitas financeiras (PCM, Locação, etc.) + vendas
   const execTotal = useMemo(() => {
     // GC IDs dos planos de receita cobertos por OS (AT+Coifa, Ecolab, Contratos)
