@@ -332,13 +332,15 @@ const useMetas = (year: number, month: number) => {
           .reduce((acc, r) => acc + (r.valor || 0), 0);
       }
       else if (meta.categoria === 'receita' && (nome.includes('at') || nome.includes('coifa') || nome.includes('higienização'))) {
+        // Somente OS nas 4 situações de execução de serviço (exclui FECHADO CHAMADO e POR CONTRATO)
+        const EXEC_SERVICO_STATUS = [
+          'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
+          'EXECUTADO - AGUARDANDO PAGAMENTO',
+          'EXECUTADO - FINANCEIRO SEPARADO',
+          'EXECUTADO COM NOTA EMITIDA',
+        ];
         realizado = osExecutadas
-          .filter(os => {
-            const cliente = (os.nome_cliente ?? '').toLowerCase();
-            const sit = os.nome_situacao ?? '';
-            return sit !== 'EXECUTADO POR CONTRATO' &&
-              !cliente.includes('ecolab') && !cliente.includes('tenda');
-          })
+          .filter(os => EXEC_SERVICO_STATUS.includes(os.nome_situacao ?? ''))
           .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
         if (realizado === 0 && osExecutadas.length === 0) {
           for (const link of links) {
