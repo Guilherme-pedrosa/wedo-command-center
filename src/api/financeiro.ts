@@ -1172,6 +1172,12 @@ export async function syncFormasPagamentoGC(
   );
   let importados = 0;
   let erros = 0;
+  const sampleErrors: string[] = [];
+  
+  // Debug: log first raw to understand structure
+  if (raws.length > 0) {
+    console.log("Forma pagamento sample keys:", Object.keys(raws[0]), "sample:", JSON.stringify(raws[0]).substring(0, 300));
+  }
 
   // Fetch existing gc_ids to decide insert vs update
   const { data: existing } = await supabase
@@ -1214,7 +1220,9 @@ export async function syncFormasPagamentoGC(
       }
 
       if (error) {
-        console.error(`Formas pagamento ${gcId} error:`, error.message);
+        const errMsg = `${gcId}: ${error.message}`;
+        console.error(`Formas pagamento error:`, errMsg);
+        if (sampleErrors.length < 5) sampleErrors.push(errMsg);
         erros++;
       } else {
         importados++;
@@ -1225,7 +1233,7 @@ export async function syncFormasPagamentoGC(
   await supabase.from("fin_sync_log").insert({
     tipo: "gc_import_formas_pagamento",
     status: erros === 0 ? "success" : "partial",
-    resposta: { importados, erros, total: raws.length } as any,
+    resposta: { importados, erros, total: raws.length, sampleErrors, sampleRaw: raws.length > 0 ? Object.keys(raws[0]) : [] } as any,
     duracao_ms: Date.now() - inicio,
   });
 
