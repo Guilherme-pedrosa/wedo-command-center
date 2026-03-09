@@ -553,11 +553,23 @@ async function buildPcCcMaps(): Promise<{
 
 // ─── Sync Service (GC → fin_* tables) ───────────────────────────────
 
+export interface SyncDateFilter {
+  dataInicio?: string;
+  dataFim?: string;
+  incluirLiquidados?: boolean;
+}
+
 export async function syncRecebimentosGC(
-  onProgress?: (atual: number, total: number) => void
+  onProgress?: (atual: number, total: number) => void,
+  filtros?: SyncDateFilter
 ): Promise<{ importados: number; atualizados: number; erros: number }> {
   const inicio = Date.now();
-  const raws = await importarRecebimentosPendentes(onProgress);
+  const fetchFiltros = {
+    dataInicio: filtros?.dataInicio,
+    dataFim: filtros?.dataFim,
+    ...(filtros?.incluirLiquidados ? { liquidado: undefined } : {}),
+  };
+  const raws = await importarRecebimentosPendentes(onProgress, fetchFiltros as any);
   const { pcMap, ccMap } = await buildPcCcMaps();
   let importados = 0;
   let atualizados = 0;
