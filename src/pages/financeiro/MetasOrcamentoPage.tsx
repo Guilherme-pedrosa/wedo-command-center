@@ -76,64 +76,6 @@ const MetaRow = ({ m, execTotal }: { m: MetaComResultado; execTotal: number }) =
   );
 };
 
-// ─── COMPONENTE ROW ──────────────────────────────────────────────────────────
-const MetaRow = ({ m, execTotal }: { m: MetaComResultado; execTotal: number }) => {
-  const badge = statusBadge(m.status);
-  const isCusto = m.categoria !== 'receita';
-  const isAcima = m.delta > 0;
-
-  return (
-    <div className="flex flex-col gap-1 p-3 rounded-lg border border-border bg-card hover:bg-accent/30 transition-colors">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="font-medium text-sm truncate text-foreground">{m.nome}</span>
-          {m.tipo_meta === 'percentual' && (
-            <span className="text-xs text-muted-foreground">
-              ({formatPct(m.meta_percentual || 0)} do fatur.)
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className={`text-xs font-medium ${isCusto && isAcima ? 'text-destructive' : !isCusto && !isAcima ? 'text-destructive' : 'text-muted-foreground'}`}>
-            {isCusto
-              ? (isAcima ? `+${formatBRL(m.delta)}` : formatBRL(m.delta))
-              : (isAcima ? `+${formatBRL(m.delta)}` : formatBRL(m.delta))
-            }
-          </span>
-          <Badge variant="outline" className={`text-xs ${badge.class}`}>
-            {badge.label}
-          </Badge>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-        <div>
-          <span className="block text-[10px] uppercase tracking-wide">Meta</span>
-          <span className="font-medium text-foreground">{formatBRL(m.meta_calculada)}</span>
-        </div>
-        <div>
-          <span className="block text-[10px] uppercase tracking-wide">Realizado</span>
-          <span className="font-medium text-foreground">{formatBRL(m.realizado)}</span>
-        </div>
-        <div>
-          <span className="block text-[10px] uppercase tracking-wide">% Fatur.</span>
-          <span className="font-medium text-foreground">
-            {execTotal > 0 ? formatPct(m.pct_faturamento) : '—'}
-          </span>
-        </div>
-      </div>
-
-      <Progress
-        value={Math.min(m.progresso, 100)}
-        className={`h-1.5 mt-1 ${
-          m.status === 'verde' ? '[&>div]:bg-emerald-500' :
-          m.status === 'amarelo' ? '[&>div]:bg-yellow-500' :
-          '[&>div]:bg-red-500'
-        }`}
-      />
-    </div>
-  );
-};
 
 // ─── COMPONENTE PRINCIPAL ───────────────────────────────────────────────────
 export default function MetasOrcamentoPage() {
