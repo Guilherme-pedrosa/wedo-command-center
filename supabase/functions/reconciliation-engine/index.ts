@@ -513,35 +513,39 @@ serve(async (req) => {
       .eq("reconciliado", false)
       .or(`reconciliation_rule.is.null,reconciliation_rule.not.in.(${MANUAL_EXCEPTIONS.join(",")})`)
       .order("data_hora", { ascending: true })
-      .limit(1000);
+      .limit(500);
 
     if (errE) throw new Error(`fin_extrato_inter: ${errE.message}`);
 
+    // Select only needed columns (avoid gc_payload_raw which is huge)
+    const finSelectPag = "id, valor, descricao, data_vencimento, data_emissao, data_competencia, data_liquidacao, status, fornecedor_gc_id, nome_fornecedor, recipient_document, gc_codigo, gc_id, os_codigo, pago_sistema, liquidado, grupo_id";
+    const finSelectRec = "id, valor, descricao, data_vencimento, data_emissao, data_competencia, data_liquidacao, status, cliente_gc_id, nome_cliente, recipient_document, gc_codigo, gc_id, os_codigo, pago_sistema, liquidado, grupo_id";
+
     // 2. Lançamentos candidatos + lookup tables
     const [{ data: pagamentos }, { data: recebimentos }, { data: fornecedores }, { data: clientes }] = await Promise.all([
-      supabase.from("fin_pagamentos").select("*")
+      supabase.from("fin_pagamentos").select(finSelectPag)
         .not("status", "in", '("cancelado")')
         .order("data_vencimento", { ascending: false })
-        .limit(2000),
-      supabase.from("fin_recebimentos").select("*")
+        .limit(1500),
+      supabase.from("fin_recebimentos").select(finSelectRec)
         .not("status", "in", '("cancelado")')
         .order("data_vencimento", { ascending: false })
-        .limit(2000),
+        .limit(1500),
       supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj, chave_pix, nome"),
       supabase.from("fin_clientes").select("gc_id, cpf_cnpj, nome"),
     ]);
 
     // Pool secundário: lançamentos já pagos (para rastreabilidade retroativa)
-    const cutoff90 = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    const cutoff90 = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     const [{ data: pagamentosJaPagos }, { data: recebimentosJaPagos }] = await Promise.all([
       supabase.from("fin_pagamentos").select("id, valor, recipient_document, fornecedor_gc_id, nome_fornecedor, descricao, data_vencimento, data_liquidacao, gc_codigo")
         .eq("status", "pago")
         .gte("data_vencimento", cutoff90)
-        .limit(2000),
+        .limit(1000),
       supabase.from("fin_recebimentos").select("id, valor, recipient_document, cliente_gc_id, nome_cliente, descricao, data_vencimento, data_liquidacao, gc_codigo")
         .eq("status", "pago")
         .gte("data_vencimento", cutoff90)
-        .limit(2000),
+        .limit(1000),
     ]);
 
     // IDs já vinculados para evitar duplicatas
