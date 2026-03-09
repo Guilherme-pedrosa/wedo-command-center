@@ -6,7 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { CalendarIcon, Loader2, RefreshCw, CheckCircle } from "lucide-react";
+import { CalendarIcon, Loader2, RefreshCw, CheckCircle, AlertTriangle } from "lucide-react";
 import { format, subMonths, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -30,15 +30,19 @@ interface SyncPeriodDialogProps {
 }
 
 export function SyncPeriodDialog({ open, onOpenChange, onSync, title = "Sincronizar com GestãoClick", loading }: SyncPeriodDialogProps) {
-  const [dataInicio, setDataInicio] = useState<Date>(startOfMonth(subMonths(new Date(), 1)));
+  const [dataInicio, setDataInicio] = useState<Date>(startOfMonth(subMonths(new Date(), 3)));
   const [dataFim, setDataFim] = useState<Date>(new Date());
   const [incluirLiquidados, setIncluirLiquidados] = useState(true);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [etapasConcluidas, setEtapasConcluidas] = useState<string[]>([]);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
 
   const handleSync = async () => {
     setProgress({ etapa: "Iniciando...", atual: 0, total: 0 });
     setEtapasConcluidas([]);
+    setSyncResult(null);
+    setRunning(true);
     
     const onStep = (etapa: string) => {
       setProgress(prev => {
@@ -53,23 +57,32 @@ export function SyncPeriodDialog({ open, onOpenChange, onSync, title = "Sincroni
       setProgress(prev => ({ etapa: prev?.etapa || "Importando...", atual, total }));
     };
 
-    await onSync(
-      {
-        dataInicio: format(dataInicio, "yyyy-MM-dd"),
-        dataFim: format(dataFim, "yyyy-MM-dd"),
-        incluirLiquidados,
-      },
-      onProgress,
-      onStep
-    );
-    setProgress(null);
-    setEtapasConcluidas([]);
+    try {
+      await onSync(
+        {
+          dataInicio: format(dataInicio, "yyyy-MM-dd"),
+          dataFim: format(dataFim, "yyyy-MM-dd"),
+          incluirLiquidados,
+        },
+        onProgress,
+        onStep
+      );
+      setProgress(null);
+      setSyncResult("✅ Sincronização concluída! Verifique os dados nas páginas de Recebimentos e Pagamentos.");
+    } catch (err) {
+      setProgress(null);
+      setSyncResult("⚠️ Erro na sincronização. Tente novamente com um período menor.");
+    } finally {
+      setRunning(false);
+      setEtapasConcluidas([]);
+    }
   };
 
+  const isDisabled = loading || running;
   const pct = progress && progress.total > 0 ? Math.round((progress.atual / progress.total) * 100) : 0;
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!loading) onOpenChange(v); }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!isDisabled) onOpenChange(v); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -88,7 +101,7 @@ export function SyncPeriodDialog({ open, onOpenChange, onSync, title = "Sincroni
               <Label className="text-xs font-medium">Data início</Label>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("w-full justify-start text-left font-normal text-sm")} disabled={loading}>
+                  <Button variant="outline" className={cn("w-full justify-start text-left font-normal text-sm")} disabled={isDisabled}>
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {format(dataInicio, "dd/MM/yyyy")}
                   </Button>
@@ -103,7 +116,7 @@ export function SyncPeriodDialog({ open, onOpenChange, onSync, title = "Sincroni
               <Label className="text-xs font-medium">Data fim</Label>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("w-full justify-start text-left font-normal text-sm")} disabled={loading}>
+                  <Button variant="outline" className={cn("w-full justify-start text-left font-normal text-sm")} disabled={isDisabled}>
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {format(dataFim, "dd/MM/yyyy")}
                   </Button>
@@ -115,20 +128,25 @@ export function SyncPeriodDialog({ open, onOpenChange, onSync, title = "Sincroni
             </div>
           </div>
 
+          <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+            O filtro usa a data de vencimento do GestãoClick. Para sincronizar registros de meses anteriores, selecione o período correto e ative "Incluir liquidados".
+          </p>
+
           <div className="flex items-center gap-2">
             <Switch
               id="incluir-liquidados"
               checked={incluirLiquidados}
               onCheckedChange={setIncluirLiquidados}
-              disabled={loading}
+              disabled={isDisabled}
             />
             <Label htmlFor="incluir-liquidados" className="text-sm">
               Incluir liquidados (já pagos)
             </Label>
           </div>
 
-          {/* Progress section */}
-          {loading && progress && (
+          {/* Progress section — no dependency on external loading prop */}
+          {progress && (
             <div className="space-y-3 pt-2 border-t border-border">
               {/* Etapas concluídas */}
               {etapasConcluidas.map((etapa, i) => (
@@ -161,14 +179,21 @@ export function SyncPeriodDialog({ open, onOpenChange, onSync, title = "Sincroni
               )}
             </div>
           )}
+
+          {/* Result section */}
+          {!progress && syncResult && (
+            <div className="rounded-md border border-border bg-muted/30 p-3 text-sm text-foreground">
+              {syncResult}
+            </div>
+          )}
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-            Cancelar
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isDisabled}>
+            {syncResult ? "Fechar" : "Cancelar"}
           </Button>
-          <Button onClick={handleSync} disabled={loading}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+          <Button onClick={handleSync} disabled={isDisabled}>
+            {isDisabled ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
             Sincronizar
           </Button>
         </DialogFooter>
