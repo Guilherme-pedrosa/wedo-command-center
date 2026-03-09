@@ -108,6 +108,39 @@ const useMetas = (year: number, month: number) => {
     staleTime: 5 * 60 * 1000,
   });
 
+  // 1b. Busca mapas de tradução GC_ID → UUID
+  const { data: planoContasMap = {}, isLoading: loadingPlanos } = useQuery({
+    queryKey: ['fin_plano_contas_gc_map'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('fin_plano_contas')
+        .select('id, gc_id');
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      for (const row of data || []) {
+        if (row.gc_id) map[row.gc_id] = row.id;
+      }
+      return map;
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const { data: centrosCustoMap = {}, isLoading: loadingCentros } = useQuery({
+    queryKey: ['fin_centros_custo_gc_map'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('fin_centros_custo')
+        .select('id, codigo');
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      for (const row of data || []) {
+        if (row.codigo) map[row.codigo] = row.id;
+      }
+      return map;
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+
   // 2. Busca recebimentos do período (liquidados)
   const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec } = useQuery({
     queryKey: ['fin_recebimentos_metas', start, end],
@@ -138,40 +171,38 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
-  // 4. Calcula EXEC_TOTAL (soma de todas receitas liquidadas do período)
+  // 4. Calcula EXEC_TOTAL — traduz GC IDs para UUIDs antes de filtrar
   const execTotal = useMemo(() => {
-    const receitaPlanos = ['27867720', '27867721', '27867722', '27867718', '27867719'];
+    const receitaGcIds = ['27867720', '27867721', '27867722', '27867718', '27867719'];
+    const receitaUuids = receitaGcIds
+      .map(gcId => planoContasMap[gcId])
+      .filter(Boolean);
     return recebimentos
-      .filter(r => receitaPlanos.includes(r.plano_contas_id))
+      .filter(r => r.plano_contas_id && receitaUuids.includes(r.plano_contas_id))
       .reduce((acc, r) => acc + (r.valor || 0), 0);
-  }, [recebimentos]);
+  }, [recebimentos, planoContasMap]);
 
-  // 5. Calcula realizado por meta
+  // 5. Calcula realizado por meta — traduz GC IDs para UUIDs
   const metasComResultado = useMemo((): MetaComResultado[] => {
     return metas.map(meta => {
       const links = mapeamentos.filter(m => m.meta_id === meta.id);
       let realizado = 0;
 
-      if (meta.categoria === 'receita') {
-        for (const link of links) {
-          const soma = recebimentos
-            .filter(r =>
-              r.plano_contas_id === link.plano_contas_id &&
-              (link.centro_custo_id === null || r.centro_custo_id === link.centro_custo_id)
-            )
-            .reduce((acc, r) => acc + (r.valor || 0), 0);
-          realizado += soma * (link.peso || 1);
-        }
-      } else {
-        for (const link of links) {
-          const soma = pagamentos
-            .filter(p =>
-              p.plano_contas_id === link.plano_contas_id &&
-              (link.centro_custo_id === null || p.centro_custo_id === link.centro_custo_id)
-            )
-            .reduce((acc, r) => acc + (r.valor || 0), 0);
-          realizado += soma * (link.peso || 1);
-        }
+      for (const link of links) {
+        // Traduz GC IDs do mapeamento para UUIDs usados nas tabelas
+        const planoUuid = planoContasMap[link.plano_contas_id];
+        const centroUuid = link.centro_custo_id ? centrosCustoMap[link.centro_custo_id] : null;
+
+        if (!planoUuid) continue; // plano não encontrado, pula
+
+        const source = meta.categoria === 'receita' ? recebimentos : pagamentos;
+        const soma = source
+          .filter(r =>
+            r.plano_contas_id === planoUuid &&
+            (centroUuid === null || r.centro_custo_id === centroUuid)
+          )
+          .reduce((acc, r) => acc + (r.valor || 0), 0);
+        realizado += soma * (link.peso || 1);
       }
 
       const meta_calculada =
@@ -188,10 +219,10 @@ const useMetas = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, execTotal]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, execTotal, planoContasMap, centrosCustoMap]);
 
   const refetch = () => { refetchRec(); refetchPag(); };
-  const isLoading = loadingMetas || loadingMap || loadingRec || loadingPag;
+  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingCentros || loadingRec || loadingPag;
 
   return { metasComResultado, execTotal, isLoading, refetch };
 };
