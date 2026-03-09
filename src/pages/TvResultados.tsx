@@ -1,7 +1,7 @@
 // src/pages/TvResultados.tsx — TV Summary: resumo por categoria
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMetasResultados, formatBRL, formatPct, calcStatus } from '@/hooks/useMetasResultados';
-import { CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, Percent, Trophy, Wrench, Fuel, BedDouble, CircleDollarSign, UtensilsCrossed } from 'lucide-react';
+import { CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, Percent, Trophy, Wrench, Fuel, BedDouble, CircleDollarSign, UtensilsCrossed, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
