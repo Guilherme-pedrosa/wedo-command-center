@@ -148,34 +148,41 @@ export default function ConciliacaoHistoricoPage() {
 
       const selectFields = "id, gc_id, gc_codigo, descricao, valor, data_vencimento, data_liquidacao, data_competencia, liquidado, status, gc_baixado, gc_baixado_em, os_codigo, nome_cliente, nome_fornecedor, plano_contas_id, centro_custo_id, conta_bancaria_id, forma_pagamento_id, origem, tipo, nf_numero, nfe_chave";
 
+      const fetchLancamento = async (lancId: string, rawTabela: string) => {
+        const isPagamento = rawTabela === "pagamentos" || rawTabela === "fin_pagamentos";
+        if (isPagamento) {
+          const { data, error } = await supabase
+            .from("fin_pagamentos")
+            .select(selectFields)
+            .eq("id", lancId)
+            .single();
+          console.log(`[openDetail] fin_pagamentos id=${lancId}`, data, error);
+          return data ? { ...(data as any), _tabela: "fin_pagamentos" } : null;
+        } else {
+          const { data, error } = await supabase
+            .from("fin_recebimentos")
+            .select(selectFields)
+            .eq("id", lancId)
+            .single();
+          console.log(`[openDetail] fin_recebimentos id=${lancId}`, data, error);
+          return data ? { ...(data as any), _tabela: "fin_recebimentos" } : null;
+        }
+      };
+
       if (links && links.length > 0) {
         const results: any[] = [];
         for (const link of links) {
-          const rawTabela = link.tabela as string;
-          const table = rawTabela.startsWith("fin_") ? rawTabela : `fin_${rawTabela}`;
-          const { data: rec, error: recErr } = await supabase
-            .from(table as "fin_recebimentos" | "fin_pagamentos")
-            .select(selectFields)
-            .eq("id", link.lancamento_id)
-            .single();
-          console.log(`[openDetail] table=${table} id=${link.lancamento_id} rec:`, rec, "err:", recErr);
+          const rec = await fetchLancamento(link.lancamento_id, link.tabela as string);
           if (rec) {
-            results.push({ ...(rec as any), _tabela: table, _valor_alocado: link.valor_alocado, _rule: link.reconciliation_rule });
+            results.push({ ...rec, _valor_alocado: link.valor_alocado, _rule: link.reconciliation_rule });
           }
         }
         setDetailLancamentos(results);
       } else if (item.lancamento_id) {
-        // Fallback: conciliação 1:1 sem registro em fin_extrato_lancamentos
-        const isDebito = item.tipo === "DEBITO";
-        const fallbackTable = isDebito ? "fin_pagamentos" : "fin_recebimentos";
-        const { data: rec } = await supabase
-          .from(fallbackTable as any)
-          .select(selectFields)
-          .eq("id", item.lancamento_id)
-          .single();
-        console.log(`[openDetail] fallback table=${fallbackTable} rec:`, rec);
+        const fallbackTabela = item.tipo === "DEBITO" ? "pagamentos" : "recebimentos";
+        const rec = await fetchLancamento(item.lancamento_id, fallbackTabela);
         if (rec) {
-          setDetailLancamentos([{ ...(rec as any), _tabela: fallbackTable, _valor_alocado: null, _rule: item.reconciliation_rule }]);
+          setDetailLancamentos([{ ...rec, _valor_alocado: null, _rule: item.reconciliation_rule }]);
         }
       }
     } catch (e) {
