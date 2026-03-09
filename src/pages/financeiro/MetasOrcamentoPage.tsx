@@ -81,11 +81,19 @@ const statusBadge = (status: 'verde' | 'amarelo' | 'vermelho') => {
   return map[status];
 };
 
+// Auvo typeId → plano gc_id mapping
+const AUVO_SOURCE_MAP: Record<string, number[]> = {
+  '27867667': [48782],  // Combustivel → Auvo Deslocamento
+  '27912040': [48784],  // Hospedagem → Auvo Estadia
+  '28160784': [49032],  // Pedágios → Auvo Pedágio/Estacionamento
+  '28223100': [49032],  // Estacionamento → Auvo Pedágio/Estacionamento
+};
+
 // ─── HOOK DE DADOS ──────────────────────────────────────────────────────────
 const useMetas = (year: number, month: number) => {
   const { start, end } = getPeriodRange(year, month);
 
-  // 1. Busca metas e mapeamentos
+  // 1. Busca metas e mapeamentos (plano_contas_id = UUID after migration)
   const { data: metas = [], isLoading: loadingMetas } = useQuery({
     queryKey: ['fin_metas'],
     queryFn: async () => {
@@ -111,7 +119,8 @@ const useMetas = (year: number, month: number) => {
     staleTime: 5 * 60 * 1000,
   });
 
-  // 1b. Busca mapas de tradução GC_ID → UUID
+  // 1b. gc_id → UUID map (still needed for hardcoded revenue GC IDs in execTotal)
+  // Also build reverse UUID → gc_id for Auvo source detection
   const { data: planoContasMap = {}, isLoading: loadingPlanos } = useQuery({
     queryKey: ['fin_plano_contas_gc_map'],
     queryFn: async () => {
@@ -128,21 +137,14 @@ const useMetas = (year: number, month: number) => {
     staleTime: 10 * 60 * 1000,
   });
 
-  const { data: centrosCustoMap = {}, isLoading: loadingCentros } = useQuery({
-    queryKey: ['fin_centros_custo_gc_map'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_centros_custo')
-        .select('id, codigo');
-      if (error) throw error;
-      const map: Record<string, string> = {};
-      for (const row of data || []) {
-        if (row.codigo) map[row.codigo] = row.id;
-      }
-      return map;
-    },
-    staleTime: 10 * 60 * 1000,
-  });
+  // Reverse map: UUID → gc_id
+  const uuidToGcId = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const [gcId, uuid] of Object.entries(planoContasMap)) {
+      map[uuid] = gcId;
+    }
+    return map;
+  }, [planoContasMap]);
 
   // 2. Busca recebimentos do período (liquidados OU pago_sistema)
   const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec } = useQuery({
@@ -159,18 +161,17 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
-  // 3. Busca pagamentos do período (liquidados OU pago_sistema)
+  // 3. Busca pagamentos do período — ALL, filter realized vs projected in code
   const { data: pagamentos = [], isLoading: loadingPag, refetch: refetchPag } = useQuery({
     queryKey: ['fin_pagamentos_metas', start, end],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fin_pagamentos')
-        .select('plano_contas_id, centro_custo_id, valor')
-        .or('liquidado.eq.true,and(pago_sistema.eq.true,status.eq.pago)')
+        .select('plano_contas_id, centro_custo_id, valor, status, data_liquidacao')
         .gte('data_vencimento', start)
         .lte('data_vencimento', end);
       if (error) throw error;
-      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number }[];
+      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null }[];
     },
   });
 
@@ -198,7 +199,7 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
-  // 3c. Busca vendas concretizadas do período (para Venda de Produtos / Peças)
+  // 3c. Busca vendas concretizadas do período
   const { data: vendasConcretizadas = [], isLoading: loadingVendas, refetch: refetchVendas } = useQuery({
     queryKey: ['gc_vendas_metas', start, end],
     queryFn: async () => {
@@ -212,7 +213,7 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
-  // 3d. Busca compras finalizadas do período (para Custo com Peças e Estoque)
+  // 3d. Busca compras finalizadas do período
   const { data: comprasFinalizadas = [], isLoading: loadingCompras, refetch: refetchCompras } = useQuery({
     queryKey: ['gc_compras_metas', start, end],
     queryFn: async () => {
@@ -226,44 +227,40 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
+  // 3e. Busca despesas Auvo do período
+  const { data: auvoExpenses = [], isLoading: loadingAuvo, refetch: refetchAuvo } = useQuery({
+    queryKey: ['auvo_expenses_metas', start, end],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('auvo_expenses_sync' as any)
+        .select('type_id, amount, expense_date')
+        .gte('expense_date', start)
+        .lte('expense_date', end);
+      if (error) throw error;
+      return data as { type_id: number; amount: number; expense_date: string }[];
+    },
+  });
+
   // 4. Calcula EXEC_TOTAL — OS (AT+Ecolab) + receitas financeiras (PCM, Locação, etc.) + vendas
   const execTotal = useMemo(() => {
-    // GC IDs dos planos de receita cobertos por OS (AT+Coifa, Ecolab, Contratos)
-    const receitaGcIds_OS = ['27867720', '27867721']; // Execução de Serviços Aprovados + Contratos de serviços
-    // GC IDs cobertos por gc_vendas (Venda de Produtos/Peças)
-    const receitaGcIds_Vendas = ['27867722']; // Venda de Produtos
-    const receitaUuids_OS = receitaGcIds_OS
-      .map(gcId => planoContasMap[gcId])
-      .filter(Boolean);
-    const receitaUuids_Vendas = receitaGcIds_Vendas
-      .map(gcId => planoContasMap[gcId])
-      .filter(Boolean);
-
-    // Todos os planos de receita (para fallback total)
+    const receitaGcIds_OS = ['27867720', '27867721'];
+    const receitaGcIds_Vendas = ['27867722'];
+    const receitaUuids_OS = receitaGcIds_OS.map(gcId => planoContasMap[gcId]).filter(Boolean);
+    const receitaUuids_Vendas = receitaGcIds_Vendas.map(gcId => planoContasMap[gcId]).filter(Boolean);
     const receitaGcIds = ['27867720', '27867721', '27867722', '27867718', '27867719'];
-    const receitaUuids = receitaGcIds
-      .map(gcId => planoContasMap[gcId])
-      .filter(Boolean);
+    const receitaUuids = receitaGcIds.map(gcId => planoContasMap[gcId]).filter(Boolean);
 
-    // Total de OS executadas (substitui AT+Coifa e Ecolab de fin_recebimentos)
     const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
-
-    // Total de vendas concretizadas (substitui Venda Produtos de fin_recebimentos)
     const vendasTotal = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
 
-    // Receitas financeiras excluindo planos cobertos por OS e vendas
     const excludedUuids = [...receitaUuids_OS, ...receitaUuids_Vendas];
     const recFinanceiro = recebimentos
       .filter(r => r.plano_contas_id && receitaUuids.includes(r.plano_contas_id) && !excludedUuids.includes(r.plano_contas_id))
       .reduce((acc, r) => acc + (r.valor || 0), 0);
 
-    // Combinar: OS + vendas + receitas financeiras restantes
     const hasExternalData = osExecutadas.length > 0 || vendasConcretizadas.length > 0;
-    if (hasExternalData) {
-      return osTotal + vendasTotal + recFinanceiro;
-    }
+    if (hasExternalData) return osTotal + vendasTotal + recFinanceiro;
 
-    // Fallback: tudo de fin_recebimentos
     return recebimentos
       .filter(r => r.plano_contas_id && receitaUuids.includes(r.plano_contas_id))
       .reduce((acc, r) => acc + (r.valor || 0), 0);
@@ -271,12 +268,14 @@ const useMetas = (year: number, month: number) => {
 
   // 5. Calcula realizado por meta
   const metasComResultado = useMemo((): MetaComResultado[] => {
+    const hoje = new Date().toISOString().split('T')[0];
+
     return metas.map(meta => {
       const links = mapeamentos.filter(m => m.meta_id === meta.id);
       let realizado = 0;
       const nome = meta.nome.toLowerCase();
 
-      // AT + Coifa: OS executadas exceto Ecolab/Tenda e exceto Contratos
+      // ─── REVENUE METAS (unchanged logic, using UUID directly) ──────
       if (meta.categoria === 'receita' && (nome.includes('at') || nome.includes('coifa') || nome.includes('higienização'))) {
         realizado = osExecutadas
           .filter(os => {
@@ -286,13 +285,10 @@ const useMetas = (year: number, month: number) => {
               !cliente.includes('ecolab') && !cliente.includes('tenda');
           })
           .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
-        
-        // Fallback to fin_recebimentos if no OS data
         if (realizado === 0 && osExecutadas.length === 0) {
           for (const link of links) {
-            const planoUuid = planoContasMap[link.plano_contas_id];
-            const centroUuid = link.centro_custo_id ? centrosCustoMap[link.centro_custo_id] : null;
-            if (!planoUuid) continue;
+            const planoUuid = link.plano_contas_id; // Already UUID
+            const centroUuid = link.centro_custo_id || null; // Already UUID
             const soma = recebimentos
               .filter(r => r.plano_contas_id === planoUuid && (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
               .reduce((acc, r) => acc + (r.valor || 0), 0);
@@ -300,7 +296,6 @@ const useMetas = (year: number, month: number) => {
           }
         }
       }
-      // Ecolab / Chamados: OS executadas de Ecolab ou Tenda (exceto Contratos)
       else if (meta.categoria === 'receita' && (nome.includes('ecolab') || nome.includes('chamado'))) {
         realizado = osExecutadas
           .filter(os => {
@@ -310,13 +305,10 @@ const useMetas = (year: number, month: number) => {
               (cliente.includes('ecolab') || cliente.includes('tenda'));
           })
           .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
-        
-        // Fallback to fin_recebimentos if no OS data
         if (realizado === 0 && osExecutadas.length === 0) {
           for (const link of links) {
-            const planoUuid = planoContasMap[link.plano_contas_id];
-            const centroUuid = link.centro_custo_id ? centrosCustoMap[link.centro_custo_id] : null;
-            if (!planoUuid) continue;
+            const planoUuid = link.plano_contas_id;
+            const centroUuid = link.centro_custo_id || null;
             const soma = recebimentos
               .filter(r => r.plano_contas_id === planoUuid && (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
               .reduce((acc, r) => acc + (r.valor || 0), 0);
@@ -324,7 +316,6 @@ const useMetas = (year: number, month: number) => {
           }
         }
       }
-      // Contratos PCM: busca direto de fin_recebimentos pelo plano "Contratos de serviços" (gc_id: 27867721)
       else if (meta.categoria === 'receita' && (nome.includes('contrato') || nome.includes('pcm'))) {
         const contratosUuid = planoContasMap['27867721'];
         if (contratosUuid) {
@@ -333,43 +324,49 @@ const useMetas = (year: number, month: number) => {
             .reduce((acc, r) => acc + (r.valor || 0), 0);
         }
       }
-      // Venda de Produtos / Peças: busca de gc_vendas (Concretizado + Venda Futura)
       else if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto') || nome.includes('peça'))) {
-        realizado = vendasConcretizadas
-          .reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
+        realizado = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
       }
-      // Custo com Peças e Estoque: busca de gc_compras (Finalizado - Mercadoria Chegou)
+      // ─── COST: Peças e Estoque from gc_compras ──────
       else if (meta.categoria === 'custo_variavel' && (nome.includes('peça') || nome.includes('estoque'))) {
-        realizado = comprasFinalizadas
-          .reduce((acc, c) => acc + (c.valor_total ?? 0), 0);
-        
-        // Fallback to fin_pagamentos if no compras data
+        realizado = comprasFinalizadas.reduce((acc, c) => acc + (c.valor_total ?? 0), 0);
         if (realizado === 0 && comprasFinalizadas.length === 0) {
           for (const link of links) {
-            const planoUuid = planoContasMap[link.plano_contas_id];
-            const centroUuid = link.centro_custo_id ? centrosCustoMap[link.centro_custo_id] : null;
-            if (!planoUuid) continue;
             const soma = pagamentos
-              .filter(r => r.plano_contas_id === planoUuid && (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
-              .reduce((acc, r) => acc + (r.valor || 0), 0);
+              .filter(r => r.plano_contas_id === link.plano_contas_id &&
+                (link.centro_custo_id === null || !r.centro_custo_id || r.centro_custo_id === link.centro_custo_id))
+              .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
             realizado += soma * (link.peso || 1);
           }
         }
       }
-      // All other metas: use fin_recebimentos or fin_pagamentos
+      // ─── ALL OTHER COSTS & REVENUE: UUID-based direct join ──────
       else {
         for (const link of links) {
-          const planoUuid = planoContasMap[link.plano_contas_id];
-          const centroUuid = link.centro_custo_id ? centrosCustoMap[link.centro_custo_id] : null;
-          if (!planoUuid) continue;
-          const source = meta.categoria === 'receita' ? recebimentos : pagamentos;
-          const soma = source
-            .filter(r =>
-              r.plano_contas_id === planoUuid &&
-              (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
-            )
-            .reduce((acc, r) => acc + (r.valor || 0), 0);
-          realizado += soma * (link.peso || 1);
+          const planoUuid = link.plano_contas_id; // Already UUID after migration
+          const centroUuid = link.centro_custo_id || null; // Already UUID after migration
+
+          // Check if this plano maps to Auvo data
+          const gcId = uuidToGcId[planoUuid];
+          const auvoTypeIds = gcId ? AUVO_SOURCE_MAP[gcId] : undefined;
+
+          if (auvoTypeIds && auvoExpenses.length > 0) {
+            // Use Auvo data for this link
+            const auvoSum = auvoExpenses
+              .filter(e => auvoTypeIds.includes(e.type_id))
+              .reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+            realizado += auvoSum * (link.peso || 1);
+          } else {
+            // Use fin_pagamentos or fin_recebimentos
+            const source = meta.categoria === 'receita' ? recebimentos : pagamentos;
+            const soma = source
+              .filter(r =>
+                r.plano_contas_id === planoUuid &&
+                (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
+              )
+              .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
+            realizado += soma * (link.peso || 1);
+          }
         }
       }
 
@@ -387,12 +384,12 @@ const useMetas = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, osExecutadas, vendasConcretizadas, comprasFinalizadas, execTotal, planoContasMap, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, planoContasMap, uuidToGcId]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
-  const refetch = () => { refetchRec(); refetchPag(); refetchOS(); refetchVendas(); refetchCompras(); };
-  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingCentros || loadingRec || loadingPag || loadingOS || loadingVendas || loadingCompras;
+  const refetch = () => { refetchRec(); refetchPag(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo(); };
+  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
 
   return { metasComResultado, execTotal, isLoading, refetch, hasOsData };
 };
