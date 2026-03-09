@@ -442,6 +442,17 @@ export default function MetasOrcamentoPage() {
         </div>
       </div>
 
+      {!hasOsData && (
+        <div className="rounded-md bg-yellow-500/10 border border-yellow-500/30 p-3 text-sm text-yellow-700 dark:text-yellow-400 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>
+            Tabela de OS ainda não possui dados de <strong>data_saida</strong> e <strong>valor_total</strong>.
+            Execute o sync do GestãoClick para popular os campos.
+            Até lá, AT+Coifa e Ecolab usam fin_recebimentos como fallback.
+          </span>
+        </div>
+      )}
+
       {/* CARDS RESUMO */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
