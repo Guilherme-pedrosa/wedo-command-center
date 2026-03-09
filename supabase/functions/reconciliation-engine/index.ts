@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-09-v4
+// redeploy: 2026-03-09-v5
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -386,9 +386,9 @@ function tentarSomaParcelas(
     const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? lkp?.nome ?? "";
     const finDate = fin.data_vencimento ?? fin.data_emissao ?? "";
 
-    // Must match by CNPJ root or name similarity
+    // Must match by CNPJ root or name similarity (higher threshold to avoid false positives like "Casa da Madeira" ≠ "Casa das Resistências")
     const docOk = extDoc && finDoc && docMatches(extDoc, finDoc);
-    const nomeOk = extNome && nomeSimilar(extNome, finNome, 0.3);
+    const nomeOk = extNome && nomeSimilar(extNome, finNome, 0.5);
     if (!docOk && !nomeOk) return false;
 
     // Must be within ±30 days
