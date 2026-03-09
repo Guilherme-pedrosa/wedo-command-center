@@ -705,7 +705,7 @@ export async function syncPagamentosGC(
     incluirTodos: filtros?.incluirLiquidados || false,
   };
   const raws = await importarPagamentosPendentes(onProgress, fetchFiltros);
-  const { pcMap, ccMap } = await buildPcCcMaps();
+  const { pcMap, ccMap, fpMap } = await buildPcCcMaps();
   let importados = 0;
   let atualizados = 0;
   let erros = 0;
