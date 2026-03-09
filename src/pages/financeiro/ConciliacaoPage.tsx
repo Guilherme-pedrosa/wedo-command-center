@@ -137,18 +137,6 @@ export default function ConciliacaoPage() {
     },
   });
 
-  // Client-side month filtering
-  const filteredExtrato = useMemo(() => {
-    if (!extratoNR) return [];
-    if (mesExtrato === "all") return extratoNR;
-    const start = startOfMonth(new Date(mesExtrato + "-01"));
-    const end = endOfMonth(start);
-    return extratoNR.filter((e: any) => {
-      if (!e.data_hora) return false;
-      const d = new Date(e.data_hora);
-      return d >= start && d <= end;
-    });
-  }, [extratoNR, mesExtrato]);
 
 
   const handleSelectExtrato = (e: any) => {
