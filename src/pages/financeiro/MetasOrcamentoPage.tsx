@@ -195,7 +195,21 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
-  // 4. Calcula EXEC_TOTAL — OS (AT+Ecolab) + receitas financeiras (PCM, Locação, etc.)
+  // 3c. Busca vendas concretizadas do período (para Venda de Produtos e Químicos)
+  const { data: vendasConcretizadas = [], isLoading: loadingVendas, refetch: refetchVendas } = useQuery({
+    queryKey: ['gc_vendas_metas', start, end],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('gc_vendas')
+        .select('gc_id, codigo, nome_cliente, nome_situacao, valor_total, data')
+        .gte('data', start)
+        .lte('data', end);
+      if (error) throw error;
+      return data as { gc_id: string; codigo: string; nome_cliente: string | null; nome_situacao: string | null; valor_total: number | null; data: string | null }[];
+    },
+  });
+
+  // 4. Calcula EXEC_TOTAL — OS (AT+Ecolab) + receitas financeiras (PCM, Locação, etc.) + vendas
   const execTotal = useMemo(() => {
     // GC IDs dos planos de receita cobertos por OS (AT+Coifa, Ecolab, Contratos)
     const receitaGcIds_OS = ['27867720', '27867721']; // Execução de Serviços Aprovados + Contratos de serviços
