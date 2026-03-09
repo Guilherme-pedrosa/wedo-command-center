@@ -108,14 +108,17 @@ export default function FinDashboardPage() {
     return { name: label, recebimentos: rec, pagamentos: pag };
   });
 
-  const handleSyncAll = async () => {
+  const handleSyncAll = async (filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean }) => {
     setSyncing(true);
     try {
-      // Sync fornecedores/clientes first (needed for reconciliation CPF matching)
       const [f, c] = await Promise.all([syncFornecedoresGC(), syncClientesGC()]);
-      const [r, p] = await Promise.all([syncRecebimentosGC(), syncPagamentosGC()]);
+      const [r, p] = await Promise.all([
+        syncRecebimentosGC(undefined, filtros),
+        syncPagamentosGC(undefined, filtros),
+      ]);
       toast.success(`Sync: ${r.importados} recebimentos, ${p.importados} pagamentos, ${f.importados} fornecedores, ${c.importados} clientes`);
       queryClient.invalidateQueries({ queryKey: ["fin-dash"] });
+      setShowSyncDialog(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao sincronizar");
     } finally {
