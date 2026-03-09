@@ -215,8 +215,8 @@ const useMetas = (year: number, month: number) => {
   const execTotal = useMemo(() => {
     // GC IDs dos planos de receita cobertos por OS (AT+Coifa, Ecolab, Contratos)
     const receitaGcIds_OS = ['27867720', '27867721']; // Execução de Serviços Aprovados + Contratos de serviços
-    // GC IDs cobertos por gc_vendas (Venda de Produtos/Peças e Químicos)
-    const receitaGcIds_Vendas = ['27867722', '27867718']; // Venda de Produtos + Venda de Químicos
+    // GC IDs cobertos por gc_vendas (Venda de Produtos/Peças)
+    const receitaGcIds_Vendas = ['27867722']; // Venda de Produtos
     const receitaUuids_OS = receitaGcIds_OS
       .map(gcId => planoContasMap[gcId])
       .filter(Boolean);
