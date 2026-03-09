@@ -14,7 +14,6 @@ import { format, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay } fro
 import { cn } from "@/lib/utils";
 import { ptBR } from "date-fns/locale";
 import toast from "react-hot-toast";
-import toast from "react-hot-toast";
 
 const GC_BASE = "https://app.gestaoclick.com.br";
 
