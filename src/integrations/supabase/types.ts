@@ -172,31 +172,64 @@ export type Database = {
       }
       fin_clientes: {
         Row: {
+          bairro: string | null
+          cep: string | null
+          cidade: string | null
           cpf_cnpj: string | null
+          data_cadastro: string | null
           email: string | null
+          endereco: string | null
+          estado: string | null
           gc_id: string
           id: string
           last_synced: string | null
           nome: string
+          nome_fantasia: string | null
+          observacao: string | null
+          payload_raw: Json | null
+          razao_social: string | null
           telefone: string | null
+          tipo_pessoa: string | null
         }
         Insert: {
+          bairro?: string | null
+          cep?: string | null
+          cidade?: string | null
           cpf_cnpj?: string | null
+          data_cadastro?: string | null
           email?: string | null
+          endereco?: string | null
+          estado?: string | null
           gc_id: string
           id?: string
           last_synced?: string | null
           nome: string
+          nome_fantasia?: string | null
+          observacao?: string | null
+          payload_raw?: Json | null
+          razao_social?: string | null
           telefone?: string | null
+          tipo_pessoa?: string | null
         }
         Update: {
+          bairro?: string | null
+          cep?: string | null
+          cidade?: string | null
           cpf_cnpj?: string | null
+          data_cadastro?: string | null
           email?: string | null
+          endereco?: string | null
+          estado?: string | null
           gc_id?: string
           id?: string
           last_synced?: string | null
           nome?: string
+          nome_fantasia?: string | null
+          observacao?: string | null
+          payload_raw?: Json | null
+          razao_social?: string | null
           telefone?: string | null
+          tipo_pessoa?: string | null
         }
         Relationships: []
       }
@@ -440,34 +473,67 @@ export type Database = {
       }
       fin_fornecedores: {
         Row: {
+          bairro: string | null
+          cep: string | null
           chave_pix: string | null
+          cidade: string | null
           cpf_cnpj: string | null
+          data_cadastro: string | null
           email: string | null
+          endereco: string | null
+          estado: string | null
           gc_id: string
           id: string
           last_synced: string | null
           nome: string
+          nome_fantasia: string | null
+          observacao: string | null
+          payload_raw: Json | null
+          razao_social: string | null
           telefone: string | null
+          tipo_pessoa: string | null
         }
         Insert: {
+          bairro?: string | null
+          cep?: string | null
           chave_pix?: string | null
+          cidade?: string | null
           cpf_cnpj?: string | null
+          data_cadastro?: string | null
           email?: string | null
+          endereco?: string | null
+          estado?: string | null
           gc_id: string
           id?: string
           last_synced?: string | null
           nome: string
+          nome_fantasia?: string | null
+          observacao?: string | null
+          payload_raw?: Json | null
+          razao_social?: string | null
           telefone?: string | null
+          tipo_pessoa?: string | null
         }
         Update: {
+          bairro?: string | null
+          cep?: string | null
           chave_pix?: string | null
+          cidade?: string | null
           cpf_cnpj?: string | null
+          data_cadastro?: string | null
           email?: string | null
+          endereco?: string | null
+          estado?: string | null
           gc_id?: string
           id?: string
           last_synced?: string | null
           nome?: string
+          nome_fantasia?: string | null
+          observacao?: string | null
+          payload_raw?: Json | null
+          razao_social?: string | null
           telefone?: string | null
+          tipo_pessoa?: string | null
         }
         Relationships: []
       }
