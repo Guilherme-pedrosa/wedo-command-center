@@ -30,6 +30,16 @@ const NOMES_GENERICOS_DESC = new Set([
 
 function extrairNomeDescricao(descricao: unknown): string | null {
   if (!descricao || typeof descricao !== "string") return null;
+  
+  // Pattern: "TED RECEBIDA - 341 66 251687 NOME DA EMPRESA S A"
+  // Bank routing: 3-digit bank code, then branch, then account, then the actual name
+  const tedMatch = descricao.match(/(?:TED|DOC)\s+(?:RECEBIDA|ENVIADA?|RECEBIDO|ENVIADO)\s*[-–]\s*\d+\s+\d+\s+\d+\s+(.+)$/i);
+  if (tedMatch) {
+    const nome = tedMatch[1].trim();
+    if (nome.length >= 3) return nome;
+  }
+  
+  // Pattern: "DESCRIPTION - NOME"
   const match = descricao.match(/[-–]\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9 .&\/'",-]+)$/);
   if (!match) return null;
   const nome = match[1].trim();
