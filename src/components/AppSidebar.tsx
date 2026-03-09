@@ -35,6 +35,11 @@ const finLancamentos = [
   { title: "💸 A Pagar", url: "/financeiro/pagamentos", icon: CreditCard },
 ];
 
+const finCadastros = [
+  { title: "👥 Clientes", url: "/financeiro/clientes", icon: Users },
+  { title: "🏢 Fornecedores", url: "/financeiro/fornecedores", icon: Building },
+];
+
 const finGrupos = [
   { title: "🗂️ Grupos Receber", url: "/financeiro/grupos-receber", icon: Layers },
   { title: "🗂️ Grupos Pagar", url: "/financeiro/grupos-pagar", icon: Layers },
