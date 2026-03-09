@@ -118,7 +118,7 @@ export default function TvResultados() {
       </div>
 
       {/* Big numbers */}
-      <div className={`grid grid-cols-3 gap-8 p-8 rounded-2xl border-3 ${statusBorder(margemStatus)} ${statusBg(margemStatus)}`}>
+      <div className={`grid grid-cols-2 gap-8 p-8 rounded-2xl border-3 ${statusBorder(margemStatus)} ${statusBg(margemStatus)}`}>
         <div className="text-center">
           <p className="text-sm text-muted-foreground uppercase tracking-widest mb-2">Meta Faturamento</p>
           {(() => {
@@ -126,14 +126,13 @@ export default function TvResultados() {
             return <p className={`text-5xl font-black ${statusLabelColor(recStatus)}`}>{pctFat.toFixed(0)}%</p>;
           })()}
         </div>
-        <div className="text-center">
+        <div className="text-center flex flex-col items-center">
           <p className="text-sm text-muted-foreground uppercase tracking-widest mb-2">Margem Líquida</p>
-          <p className={`text-6xl font-black ${statusLabelColor(margemStatus)}`}>{formatPct(margemLiquida)}</p>
+          <div className="flex items-center gap-4">
+            <span className="text-6xl">{margemLiquida >= 0.30 ? '😄' : margemLiquida >= 0.15 ? '😐' : '😟'}</span>
+            <p className={`text-6xl font-black ${statusLabelColor(margemStatus)}`}>{formatPct(margemLiquida)}</p>
+          </div>
           <p className={`text-lg font-semibold mt-2 ${statusLabelColor(margemStatus)}`}>{statusLabel(margemStatus)}</p>
-        </div>
-        <div className="text-center">
-          <p className="text-sm text-muted-foreground uppercase tracking-widest mb-2">Resultado</p>
-          <p className="text-5xl font-black">{formatBRL(resultado)}</p>
         </div>
       </div>
 
