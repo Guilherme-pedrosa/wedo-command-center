@@ -381,7 +381,7 @@ export default function PagamentosPage() {
                   </td>
                   <td className="p-3 font-mono text-xs">
                     {p.gc_id ? (
-                      <a href={`${GC_BASE}/pagamentos/${p.gc_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                      <a href={`${GC_BASE}/movimentacoes_financeiras/visualizar_pagamento/${p.gc_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
                         {p.gc_codigo || p.gc_id}
                         <ExternalLink className="h-3 w-3" />
                       </a>

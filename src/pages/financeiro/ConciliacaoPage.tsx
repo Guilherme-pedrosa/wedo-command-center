@@ -36,8 +36,8 @@ const monthOptions = buildMonthOptions();
 
 // GC link helpers
 const gcOsLink = (osCode: string) => `${GC_BASE}/ordens_servicos/${osCode}`;
-const gcRecebimentoLink = (gcId: string) => `${GC_BASE}/recebimentos/${gcId}`;
-const gcPagamentoLink = (gcId: string) => `${GC_BASE}/pagamentos/${gcId}`;
+const gcRecebimentoLink = (gcId: string) => `${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${gcId}`;
+const gcPagamentoLink = (gcId: string) => `${GC_BASE}/movimentacoes_financeiras/visualizar_pagamento/${gcId}`;
 
 function GCLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
