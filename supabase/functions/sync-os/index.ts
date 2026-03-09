@@ -34,6 +34,44 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
   return fetch(url, options);
 }
 
+function mapOsRecord(os: Record<string, unknown>) {
+  const osId = String(os.id || "");
+  const osCodigo = String(os.codigo || "");
+  if (!osId || !osCodigo) return null;
+
+  const valorTotal = parseFloat(String(os.valor_total || "0")) || null;
+  const valorServicos = parseFloat(String(os.valor_servicos || "0")) || null;
+  const valorProdutos = parseFloat(String(os.valor_produtos || "0")) || null;
+
+  let dataSaida: string | null = null;
+  const rawDataSaida = String(os.data_saida || "");
+  if (rawDataSaida) {
+    const match = rawDataSaida.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) dataSaida = match[1];
+  }
+  if (!dataSaida) {
+    const fallback = String(os.modificado_em || os.data_entrada || "");
+    if (fallback) {
+      const match = fallback.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (match) dataSaida = match[1];
+    }
+  }
+
+  return {
+    os_id: osId,
+    os_codigo: osCodigo,
+    orc_codigo: osCodigo,
+    nome_cliente: String(os.nome_cliente || "") || null,
+    nome_situacao: String(os.nome_situacao || ""),
+    data_saida: dataSaida,
+    valor_total: valorTotal,
+    valor_servicos: valorServicos,
+    valor_pecas: valorProdutos,
+    numero_os: osCodigo,
+    built_at: new Date().toISOString(),
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -61,13 +99,15 @@ serve(async (req) => {
       "Content-Type": "application/json",
     };
 
-    // Optional: filter by specific situacao_ids (default: all EXECUTADO)
+    // Accept optional params: situacao_ids, page_start (for resuming large batches)
     let situacaoIds = EXECUTADO_SITUACAO_IDS;
+    let pageStart = 1;
     try {
       const body = await req.json();
       if (body?.situacao_ids && Array.isArray(body.situacao_ids)) {
         situacaoIds = body.situacao_ids;
       }
+      if (body?.page_start) pageStart = body.page_start;
     } catch { /* no body */ }
 
     let totalFetched = 0;
@@ -75,9 +115,8 @@ serve(async (req) => {
     let errors = 0;
     const statusCounts: Record<string, number> = {};
 
-    // Iterate over each EXECUTADO situation, paginating through all results
     for (const sitId of situacaoIds) {
-      let page = 1;
+      let page = pageStart;
       let totalPages = 999;
 
       while (page <= totalPages) {
@@ -94,8 +133,7 @@ serve(async (req) => {
           continue;
         }
         if (!response.ok) {
-          const text = await response.text();
-          console.error(`[sync-os] GC API error for situacao_id=${sitId}: ${response.status} ${text}`);
+          console.error(`[sync-os] GC API error for situacao_id=${sitId}: ${response.status}`);
           errors++;
           break;
         }
@@ -105,56 +143,37 @@ serve(async (req) => {
         const meta = data?.meta || {};
         totalPages = meta?.total_paginas || 1;
 
+        // Batch map records
+        const batch = [];
         for (const os of records) {
           totalFetched++;
-          const nomeSituacao = os.nome_situacao || "";
+          const nomeSituacao = String(os.nome_situacao || "");
           statusCounts[nomeSituacao] = (statusCounts[nomeSituacao] || 0) + 1;
 
-          const osId = String(os.id || "");
-          const osCodigo = String(os.codigo || "");
-          if (!osId || !osCodigo) { errors++; continue; }
-
-          const valorTotal = parseFloat(os.valor_total || "0") || null;
-          const valorServicos = parseFloat(os.valor_servicos || "0") || null;
-          const valorProdutos = parseFloat(os.valor_produtos || "0") || null;
-
-          // Use data_saida from OS; fallback to modificado_em or data_entrada
-          let dataSaida: string | null = null;
-          const rawDataSaida = os.data_saida || "";
-          if (rawDataSaida) {
-            const match = rawDataSaida.match(/^(\d{4}-\d{2}-\d{2})/);
-            if (match) dataSaida = match[1];
-          }
-          if (!dataSaida) {
-            const fallback = os.modificado_em || os.data_entrada || null;
-            if (fallback) {
-              const match = fallback.match(/^(\d{4}-\d{2}-\d{2})/);
-              if (match) dataSaida = match[1];
-            }
-          }
-
-          const { error: upsertErr } = await supabase
-            .from("os_index")
-            .upsert({
-              os_id: osId,
-              os_codigo: osCodigo,
-              orc_codigo: osCodigo,
-              nome_cliente: os.nome_cliente || null,
-              nome_situacao: nomeSituacao,
-              data_saida: dataSaida,
-              valor_total: valorTotal,
-              valor_servicos: valorServicos,
-              valor_pecas: valorProdutos,
-              numero_os: osCodigo,
-              built_at: new Date().toISOString(),
-            }, { onConflict: "os_id,orc_codigo" });
-
-          if (upsertErr) { errors++; } else { upserted++; }
+          const mapped = mapOsRecord(os);
+          if (mapped) batch.push(mapped);
+          else errors++;
         }
 
-        console.log(`[sync-os] situacao_id=${sitId} page ${page}/${totalPages} — ${records.length} records, ${upserted} upserted so far`);
+        // Batch upsert (up to 100 at once)
+        if (batch.length > 0) {
+          const { error: upsertErr, count } = await supabase
+            .from("os_index")
+            .upsert(batch, { onConflict: "os_id,orc_codigo", count: "exact" });
+
+          if (upsertErr) {
+            console.error(`[sync-os] Batch upsert error: ${upsertErr.message}`);
+            errors += batch.length;
+          } else {
+            upserted += count || batch.length;
+          }
+        }
+
+        console.log(`[sync-os] sit=${sitId} page ${page}/${totalPages} — ${records.length} recs, ${upserted} total`);
         page++;
       }
+      // Reset page_start for subsequent situacao_ids
+      pageStart = 1;
     }
 
     const duration = Date.now() - startTime;
@@ -166,7 +185,7 @@ serve(async (req) => {
     await supabase.from("sync_log").insert({
       tipo: "sync-os",
       status: errors > 0 ? "partial" : "ok",
-      payload: { totalFetched, upserted, errors, statusCounts, situacaoIds: situacaoIds.length },
+      payload: { totalFetched, upserted, errors, statusCounts, situacaoCount: situacaoIds.length },
       duracao_ms: duration,
     });
 
