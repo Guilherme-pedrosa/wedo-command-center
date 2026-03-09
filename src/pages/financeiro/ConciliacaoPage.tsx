@@ -139,14 +139,34 @@ export default function ConciliacaoPage() {
   }, [pagamentosNL, mesLanc]);
 
   const handleSelectExtrato = (e: any) => {
-    setSelectedExtrato(e);
-    if (selectedLanc) setShowConfirm(true);
+    if (expandedExtrato === e.id) {
+      setExpandedExtrato(null);
+      setSearchLanc("");
+    } else {
+      setExpandedExtrato(e.id);
+      setSelectedExtrato(e);
+      setSearchLanc("");
+    }
   };
 
-  const handleSelectLanc = (l: any, tipo: "receber" | "pagar") => {
-    setSelectedLanc({ ...l, _tipo: tipo });
-    if (selectedExtrato) setShowConfirm(true);
-  };
+  // Search-filtered lancamentos for the expanded extrato
+  const searchedLancamentos = useMemo(() => {
+    if (!expandedExtrato || !selectedExtrato) return { recebimentos: [], pagamentos: [] };
+    const isCredito = selectedExtrato.tipo === "CREDITO";
+    const q = searchLanc.toLowerCase().trim();
+
+    const filterFn = (l: any) => {
+      if (!q) return true;
+      const fields = [l.descricao, l.nome_cliente, l.nome_fornecedor, l.os_codigo, l.gc_codigo, l.nf_numero, l.nfe_numero, String(l.valor)].filter(Boolean).join(" ").toLowerCase();
+      return fields.includes(q);
+    };
+
+    if (isCredito) {
+      return { recebimentos: (recebimentosNL || []).filter(filterFn).slice(0, 50), pagamentos: [] };
+    } else {
+      return { recebimentos: [], pagamentos: (pagamentosNL || []).filter(filterFn).slice(0, 50) };
+    }
+  }, [expandedExtrato, selectedExtrato, searchLanc, recebimentosNL, pagamentosNL]);
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["conc-extrato"] });
