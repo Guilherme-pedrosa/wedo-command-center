@@ -20,16 +20,18 @@ import {
 import { format, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
-// Generate month options: current + 11 past months
+// Generate month options: from Dec 2025 to current month, ascending
 function getMonthOptions() {
   const options: { value: string; label: string }[] = [];
   const now = new Date();
-  for (let i = 0; i < 12; i++) {
-    const d = subMonths(now, i);
+  // Start from Dec 2025
+  let cursor = new Date(2025, 11, 1); // Dec 2025
+  while (cursor <= now) {
     options.push({
-      value: format(d, "yyyy-MM"),
-      label: format(d, "MMMM yyyy", { locale: ptBR }),
+      value: format(cursor, "yyyy-MM"),
+      label: format(cursor, "MMMM yyyy", { locale: ptBR }),
     });
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
   }
   return options;
 }

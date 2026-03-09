@@ -30,7 +30,7 @@ interface SyncPeriodDialogProps {
 }
 
 export function SyncPeriodDialog({ open, onOpenChange, onSync, title = "Sincronizar com GestãoClick", loading }: SyncPeriodDialogProps) {
-  const [dataInicio, setDataInicio] = useState<Date>(startOfMonth(subMonths(new Date(), 3)));
+  const [dataInicio, setDataInicio] = useState<Date>(new Date(2025, 11, 1)); // Dec 2025
   const [dataFim, setDataFim] = useState<Date>(new Date());
   const [incluirLiquidados, setIncluirLiquidados] = useState(true);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
