@@ -78,12 +78,6 @@ export function AppLayout() {
                   </DropdownMenuItem>
 
                   <DropdownMenuSeparator />
-
-                  <DropdownMenuItem asChild>
-                    <Link to="/financeiro/extrato" className="flex items-center gap-2">
-                      <Building2 className="h-3.5 w-3.5" /> Extrato Banco
-                    </Link>
-                  </DropdownMenuItem>
                   <DropdownMenuItem asChild>
                     <Link to="/financeiro/conciliacao" className="flex items-center gap-2">
                       <ArrowLeftRight className="h-3.5 w-3.5" /> Conciliação
