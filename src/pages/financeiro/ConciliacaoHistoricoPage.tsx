@@ -685,19 +685,30 @@ export default function ConciliacaoHistoricoPage() {
                       <div key={idx} className="rounded-lg border border-border bg-muted/30 p-3 space-y-2 text-sm">
                         <div className="flex items-center justify-between">
                           <Badge variant="outline" className="text-[10px]">{lanc._tabela === "fin_recebimentos" ? "Recebimento" : "Pagamento"}</Badge>
-                          {lanc.gc_codigo && (
+                          {lanc.gc_id && (
                             <a
-                              href={lanc._tabela === "fin_recebimentos" ? gcRecebimentoLink(lanc.gc_codigo) : gcPagamentoLink(lanc.gc_codigo)}
+                              href={lanc._tabela === "fin_recebimentos" ? gcRecebimentoLink(lanc.gc_id) : gcPagamentoLink(lanc.gc_id)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="flex items-center gap-1 text-xs text-primary hover:underline"
                             >
-                              Abrir no GestãoClick <ExternalLink className="h-3 w-3" />
+                              Financeiro GC {lanc.gc_codigo || ""} <ExternalLink className="h-3 w-3" />
                             </a>
                           )}
+                          {(() => {
+                            const compraNum = extractCompraNumero(lanc.descricao);
+                            return compraNum ? (
+                              <a
+                                href={gcCompraLink(compraNum)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-xs text-primary hover:underline"
+                              >
+                                Pedido Compra nº {compraNum} <ExternalLink className="h-3 w-3" />
+                              </a>
+                            ) : null;
+                          })()}
                         </div>
-                        <DetailRow label="ID Local" value={lanc.id} mono small />
-                        <DetailRow label="GC ID" value={lanc.gc_id || "—"} mono />
                         <DetailRow label="Cód GC" value={lanc.gc_codigo || "—"} mono />
                         <DetailRow label="Descrição" value={lanc.descricao} />
                         <DetailRow label={lanc._tabela === "fin_recebimentos" ? "Cliente" : "Fornecedor"} value={lanc.nome_cliente || lanc.nome_fornecedor || "—"} />
@@ -712,8 +723,6 @@ export default function ConciliacaoHistoricoPage() {
                         } />
                         <DetailRow label="Baixado GC" value={lanc.gc_baixado ? "✅ Sim" : "❌ Não"} />
                         {lanc.os_codigo && <DetailRow label="OS" value={lanc.os_codigo} />}
-                        {lanc.plano_contas_id && <DetailRow label="Plano Contas ID" value={lanc.plano_contas_id} mono small />}
-                        {lanc.centro_custo_id && <DetailRow label="Centro Custo ID" value={lanc.centro_custo_id} mono small />}
                       </div>
                     ))}
                   </div>
