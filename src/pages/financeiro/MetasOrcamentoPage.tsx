@@ -236,12 +236,14 @@ const useMetas = (year: number, month: number) => {
       let realizado = 0;
       const nome = meta.nome.toLowerCase();
 
-      // AT + Coifa: OS executadas exceto Ecolab/Tenda
+      // AT + Coifa: OS executadas exceto Ecolab/Tenda e exceto Contratos
       if (meta.categoria === 'receita' && (nome.includes('at') || nome.includes('coifa') || nome.includes('higienização'))) {
         realizado = osExecutadas
           .filter(os => {
             const cliente = (os.nome_cliente ?? '').toLowerCase();
-            return !cliente.includes('ecolab') && !cliente.includes('tenda');
+            const sit = os.nome_situacao ?? '';
+            return sit !== 'EXECUTADO POR CONTRATO' &&
+              !cliente.includes('ecolab') && !cliente.includes('tenda');
           })
           .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
         
@@ -258,12 +260,14 @@ const useMetas = (year: number, month: number) => {
           }
         }
       }
-      // Ecolab / Chamados: OS executadas de Ecolab ou Tenda
+      // Ecolab / Chamados: OS executadas de Ecolab ou Tenda (exceto Contratos)
       else if (meta.categoria === 'receita' && (nome.includes('ecolab') || nome.includes('chamado'))) {
         realizado = osExecutadas
           .filter(os => {
             const cliente = (os.nome_cliente ?? '').toLowerCase();
-            return cliente.includes('ecolab') || cliente.includes('tenda');
+            const sit = os.nome_situacao ?? '';
+            return sit !== 'EXECUTADO POR CONTRATO' &&
+              (cliente.includes('ecolab') || cliente.includes('tenda'));
           })
           .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
         
@@ -279,6 +283,24 @@ const useMetas = (year: number, month: number) => {
             realizado += soma * (link.peso || 1);
           }
         }
+      }
+      // Contratos PCM: OS com status "EXECUTADO POR CONTRATO" + recebimentos do plano "Contratos de serviços"
+      else if (meta.categoria === 'receita' && (nome.includes('contrato') || nome.includes('pcm'))) {
+        // OS com status EXECUTADO POR CONTRATO
+        const osContratos = osExecutadas
+          .filter(os => os.nome_situacao === 'EXECUTADO POR CONTRATO')
+          .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
+        
+        // Recebimentos do plano "Contratos de serviços" (gc_id: 27867721)
+        const contratosUuid = planoContasMap['27867721'];
+        const recContratos = contratosUuid
+          ? recebimentos
+              .filter(r => r.plano_contas_id === contratosUuid)
+              .reduce((acc, r) => acc + (r.valor || 0), 0)
+          : 0;
+        
+        // Usa o maior entre OS e recebimentos para evitar dupla contagem
+        realizado = Math.max(osContratos, recContratos);
       }
       // All other metas: use fin_recebimentos or fin_pagamentos
       else {
