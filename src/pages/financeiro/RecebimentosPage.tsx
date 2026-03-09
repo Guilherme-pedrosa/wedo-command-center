@@ -417,6 +417,15 @@ export default function RecebimentosPage() {
                   <td className="p-3 text-foreground">{r.data_vencimento ? formatDate(r.data_vencimento) : "—"}</td>
                   <td className="p-3 text-center">{statusBadge(r)}</td>
                   <td className="p-3 text-center">
+                    {conciliadoIds?.has(r.id) ? (
+                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30 text-[10px]">
+                        <Link2 className="h-3 w-3 mr-1" />Sim
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-[10px]">{"\u2014"}</span>
+                    )}
+                  </td>
+                  <td className="p-3 text-center">
                     {r.nfe_chave ? (
                       <TooltipProvider>
                         <Tooltip>
