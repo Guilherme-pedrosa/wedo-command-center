@@ -106,10 +106,18 @@ serve(async (req) => {
         const valorProdutos = parseFloat(os.valor_produtos || "0") || null;
 
         let dataSaida: string | null = null;
-        const modificadoEm = os.modificado_em || os.data || null;
-        if (modificadoEm) {
-          const match = modificadoEm.match(/^(\d{4}-\d{2}-\d{2})/);
+        // Use data_saida from OS; fallback to modificado_em or data_entrada
+        const rawDataSaida = os.data_saida || "";
+        if (rawDataSaida) {
+          const match = rawDataSaida.match(/^(\d{4}-\d{2}-\d{2})/);
           if (match) dataSaida = match[1];
+        }
+        if (!dataSaida) {
+          const fallback = os.modificado_em || os.data_entrada || null;
+          if (fallback) {
+            const match = fallback.match(/^(\d{4}-\d{2}-\d{2})/);
+            if (match) dataSaida = match[1];
+          }
         }
 
         const { error: upsertErr } = await supabase
