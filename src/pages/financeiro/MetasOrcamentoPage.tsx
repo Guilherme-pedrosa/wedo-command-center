@@ -406,11 +406,13 @@ const useMetas = (year: number, month: number) => {
             realizado += auvoSum * (link.peso || 1);
           } else if (gcId) {
             // Use gc_recebimentos or gc_pagamentos (GC plano_contas_id = text)
+            // Convert centro_custo UUID to GC codigo for comparison
+            const centroCodigo = centroUuid ? centrosCustoMap[centroUuid] : null;
             const source = meta.categoria === 'receita' ? gcRecebimentos : gcPagamentos;
             const soma = source
               .filter(r =>
                 r.plano_contas_id === gcId &&
-                (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
+                (centroCodigo === null || centroCodigo === undefined || !r.centro_custo_id || r.centro_custo_id === centroCodigo)
               )
               .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
             realizado += soma * (link.peso || 1);
