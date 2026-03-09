@@ -95,7 +95,7 @@ export default function ConciliacaoHistoricoPage() {
         .not("reconciliation_rule", "in", '("SEM_PAR_GC","TRANSFERENCIA_INTERNA","PIX_DEVOLVIDO_MANUAL")');
 
       if (mesDateRange) {
-        query = query.gte("reconciliado_em", mesDateRange.from).lte("reconciliado_em", mesDateRange.to);
+        query = query.gte("data_hora", mesDateRange.from).lte("data_hora", mesDateRange.to);
       }
 
       const { data } = await query.order("reconciliado_em", { ascending: false }).limit(2000);
@@ -113,7 +113,7 @@ export default function ConciliacaoHistoricoPage() {
         .in("reconciliation_rule", EXCECAO_RULES);
 
       if (mesDateRange) {
-        query = query.gte("reconciliado_em", mesDateRange.from).lte("reconciliado_em", mesDateRange.to);
+        query = query.gte("data_hora", mesDateRange.from).lte("data_hora", mesDateRange.to);
       }
 
       const { data } = await query.order("reconciliado_em", { ascending: false }).limit(500);
