@@ -620,9 +620,9 @@ export default function ConciliacaoHistoricoPage() {
                       <div key={idx} className="rounded-lg border border-border bg-muted/30 p-3 space-y-2 text-sm">
                         <div className="flex items-center justify-between">
                           <Badge variant="outline" className="text-[10px]">{lanc._tabela === "fin_recebimentos" ? "Recebimento" : "Pagamento"}</Badge>
-                          {lanc.gc_id && (
+                          {lanc.gc_codigo && (
                             <a
-                              href={lanc._tabela === "fin_recebimentos" ? gcRecebimentoLink(lanc.gc_id) : gcPagamentoLink(lanc.gc_id)}
+                              href={lanc._tabela === "fin_recebimentos" ? gcRecebimentoLink(lanc.gc_codigo) : gcPagamentoLink(lanc.gc_codigo)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="flex items-center gap-1 text-xs text-primary hover:underline"
