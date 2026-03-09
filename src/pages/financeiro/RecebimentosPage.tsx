@@ -187,11 +187,6 @@ export default function RecebimentosPage() {
     } finally {
       setSyncing(false);
     }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro");
-    } finally {
-      setSyncing(false);
-    }
   };
 
   const handleCreateGroup = async () => {
