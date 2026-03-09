@@ -22,7 +22,9 @@ import { ptBR } from "date-fns/locale";
 
 // Generate month options: from Dec 2025 to current month, ascending + "Todos"
 function getMonthOptions() {
-  const options: { value: string; label: string }[] = [];
+  const options: { value: string; label: string }[] = [
+    { value: "todos", label: "Todos os meses" },
+  ];
   const now = new Date();
   let cursor = new Date(2025, 11, 1); // Dec 2025
   while (cursor <= now) {
@@ -32,7 +34,6 @@ function getMonthOptions() {
     });
     cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
   }
-  options.push({ value: "todos", label: "Todos os meses" });
   return options;
 }
 
