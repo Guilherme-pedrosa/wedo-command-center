@@ -158,15 +158,15 @@ export default function FinDashboardPage() {
     return { name: label, recebimentos: rec, pagamentos: pag, isSelected };
   }), [mesDate, mesSelecionado, recebimentos, pagamentos]);
 
-  const handleSyncAll = async (filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean }) => {
+  const handleSyncAll = async (filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean }, onProgress?: (atual: number, total: number) => void) => {
     setSyncing(true);
     try {
-      const [f, c, r, p] = await Promise.all([
-        syncFornecedoresGC(),
-        syncClientesGC(),
-        syncRecebimentosGC(undefined, filtros),
-        syncPagamentosGC(undefined, filtros),
-      ]);
+      // Sync sequentially so progress makes sense
+      onProgress?.(0, 0);
+      const f = await syncFornecedoresGC();
+      const c = await syncClientesGC();
+      const r = await syncRecebimentosGC(onProgress, filtros);
+      const p = await syncPagamentosGC(onProgress, filtros);
       toast.success(`Sync: ${r.importados} recebimentos, ${p.importados} pagamentos, ${f.importados} fornecedores, ${c.importados} clientes`);
       queryClient.invalidateQueries({ queryKey: ["fin-dash"] });
       setShowSyncDialog(false);

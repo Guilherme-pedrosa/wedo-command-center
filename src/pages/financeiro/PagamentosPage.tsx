@@ -154,10 +154,10 @@ export default function PagamentosPage() {
   const selectedTotal = selectedItems.reduce((s: number, p: any) => s + Number(p.valor || 0), 0);
   const canSelect = (p: any) => !p.liquidado && !p.grupo_id;
 
-  const handleSync = async (filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean }) => {
+  const handleSync = async (filtros: { dataInicio: string; dataFim: string; incluirLiquidados: boolean }, onProgress?: (atual: number, total: number) => void) => {
     setSyncing(true);
     try {
-      const r = await syncPagamentosGC(undefined, {
+      const r = await syncPagamentosGC(onProgress, {
         dataInicio: filtros.dataInicio,
         dataFim: filtros.dataFim,
         incluirLiquidados: filtros.incluirLiquidados,
