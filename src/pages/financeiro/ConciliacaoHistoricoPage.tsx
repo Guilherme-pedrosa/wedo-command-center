@@ -75,8 +75,9 @@ export default function ConciliacaoHistoricoPage() {
 
   const mesDateRange = useMemo(() => {
     if (mesSelecionado === "all") return null;
-    const base = new Date(mesSelecionado + "-01");
-    return { from: startOfMonth(base).toISOString(), to: endOfMonth(base).toISOString() };
+    const [year, month] = mesSelecionado.split("-").map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
+    return { from: `${mesSelecionado}-01T00:00:00-03:00`, to: `${mesSelecionado}-${String(lastDay).padStart(2, "0")}T23:59:59-03:00` };
   }, [mesSelecionado]);
 
   // Manual linking state
