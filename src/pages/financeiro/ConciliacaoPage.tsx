@@ -56,8 +56,8 @@ export default function ConciliacaoPage() {
   const [linking, setLinking] = useState(false);
   const [autoRunning, setAutoRunning] = useState(false);
   const [autoResult, setAutoResult] = useState<any>(null);
-  const [mesExtrato, setMesExtrato] = useState(format(new Date(), "yyyy-MM"));
-  const [dateFrom, setDateFrom] = useState(startOfMonth(new Date()));
+  const [mesExtrato, setMesExtrato] = useState("all");
+  const [dateFrom, setDateFrom] = useState(new Date('2024-10-01'));
   const [dateTo, setDateTo] = useState(endOfMonth(new Date()));
   const [mesLanc, setMesLanc] = useState("all");
   const [searchLanc, setSearchLanc] = useState("");
@@ -65,7 +65,10 @@ export default function ConciliacaoPage() {
 
   const handleMesChange = (val: string) => {
     setMesExtrato(val);
-    if (val !== "all") {
+    if (val === "all") {
+      setDateFrom(new Date('2024-10-01'));
+      setDateTo(endOfMonth(new Date()));
+    } else if (val !== "custom") {
       const base = new Date(val + "-01");
       setDateFrom(startOfMonth(base));
       setDateTo(endOfMonth(base));
@@ -81,15 +84,17 @@ export default function ConciliacaoPage() {
       let offset = 0;
       let hasMore = true;
 
+      const MANUAL_EXCEPTIONS_UI = ['SEM_PAR_GC', 'TRANSFERENCIA_INTERNA', 'PIX_DEVOLVIDO_MANUAL'];
+
       while (hasMore) {
         const { data, error } = await supabase
           .from("fin_extrato_inter")
           .select("*")
           .eq("reconciliado", false)
-          .is("reconciliation_rule", null)
+          .or(`reconciliation_rule.is.null,reconciliation_rule.not.in.(${MANUAL_EXCEPTIONS_UI.join(",")})`)
           .gte("data_hora", dateFrom.toISOString())
           .lte("data_hora", dateTo.toISOString())
-          .order("data_hora", { ascending: false })
+          .order("data_hora", { ascending: true })
           .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) throw error;
@@ -276,6 +281,21 @@ export default function ConciliacaoPage() {
 
       {/* Single-panel: Extrato with expandable search */}
       <div className="rounded-lg border border-border bg-card p-4">
+        {/* Monthly breakdown counter */}
+        {(extratoNR || []).length > 0 && (() => {
+          const byMonth: Record<string, number> = {};
+          for (const e of (extratoNR || [])) {
+            const m = e.data_hora ? format(new Date(e.data_hora), "MMM/yy", { locale: ptBR }) : "S/D";
+            byMonth[m] = (byMonth[m] || 0) + 1;
+          }
+          return (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {Object.entries(byMonth).map(([m, qty]) => (
+                <Badge key={m} variant="secondary" className="text-[10px]">{m}: {qty}</Badge>
+              ))}
+            </div>
+          );
+        })()}
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">🏦 Extrato não reconciliado ({(extratoNR || []).length})</h3>
           <div className="flex items-center gap-2">

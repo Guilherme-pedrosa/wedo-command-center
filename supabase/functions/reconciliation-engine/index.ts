@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-09-v3
+// redeploy: 2026-03-09-v4
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -457,8 +457,8 @@ serve(async (req) => {
       .select("*")
       .eq("reconciliado", false)
       .or(`reconciliation_rule.is.null,reconciliation_rule.not.in.(${MANUAL_EXCEPTIONS.join(",")})`)
-      .order("data_hora", { ascending: false })
-      .limit(500);
+      .order("data_hora", { ascending: true })
+      .limit(1000);
 
     if (errE) throw new Error(`fin_extrato_inter: ${errE.message}`);
 
@@ -466,10 +466,12 @@ serve(async (req) => {
     const [{ data: pagamentos }, { data: recebimentos }, { data: fornecedores }, { data: clientes }] = await Promise.all([
       supabase.from("fin_pagamentos").select("*")
         .not("status", "in", '("cancelado")')
-        .limit(1000),
+        .order("data_vencimento", { ascending: false })
+        .limit(2000),
       supabase.from("fin_recebimentos").select("*")
         .not("status", "in", '("cancelado")')
-        .limit(1000),
+        .order("data_vencimento", { ascending: false })
+        .limit(2000),
       supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj, chave_pix, nome"),
       supabase.from("fin_clientes").select("gc_id, cpf_cnpj, nome"),
     ]);
