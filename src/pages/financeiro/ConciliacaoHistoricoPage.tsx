@@ -783,6 +783,22 @@ export default function ConciliacaoHistoricoPage() {
                   </div>
                 )}
               </div>
+
+              {/* Botão Desfazer */}
+              {detail.reconciliado && (
+                <div className="pt-2">
+                  <Separator className="mb-4" />
+                  <Button
+                    variant="destructive"
+                    className="w-full gap-2"
+                    disabled={desfazendo || detailLoading}
+                    onClick={() => handleDesfazerConciliacao(detail)}
+                  >
+                    {desfazendo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />}
+                    Desfazer Conciliação
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
