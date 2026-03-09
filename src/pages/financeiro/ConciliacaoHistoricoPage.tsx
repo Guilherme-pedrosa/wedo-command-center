@@ -146,14 +146,15 @@ export default function ConciliacaoHistoricoPage() {
 
       console.log("[openDetail] links:", links, "err:", linksErr);
 
-      const selectFields = "id, gc_id, gc_codigo, descricao, valor, data_vencimento, data_liquidacao, data_competencia, liquidado, status, gc_baixado, gc_baixado_em, os_codigo, nome_cliente, nome_fornecedor, plano_contas_id, centro_custo_id, conta_bancaria_id, forma_pagamento_id, origem, tipo, nf_numero, nfe_chave";
+      const pagamentoFields = "id, gc_id, gc_codigo, descricao, valor, data_vencimento, data_liquidacao, data_competencia, liquidado, status, gc_baixado, gc_baixado_em, os_codigo, nome_fornecedor, plano_contas_id, centro_custo_id, conta_bancaria_id, forma_pagamento_id, origem, tipo, nf_numero, nfe_chave";
+      const recebimentoFields = "id, gc_id, gc_codigo, descricao, valor, data_vencimento, data_liquidacao, data_competencia, liquidado, status, gc_baixado, gc_baixado_em, os_codigo, nome_cliente, plano_contas_id, centro_custo_id, conta_bancaria_id, forma_pagamento_id, origem, tipo, nf_numero, nfe_chave";
 
       const fetchLancamento = async (lancId: string, rawTabela: string) => {
         const isPagamento = rawTabela === "pagamentos" || rawTabela === "fin_pagamentos";
         if (isPagamento) {
           const { data, error } = await supabase
             .from("fin_pagamentos")
-            .select(selectFields)
+            .select(pagamentoFields)
             .eq("id", lancId)
             .single();
           console.log(`[openDetail] fin_pagamentos id=${lancId}`, data, error);
@@ -161,7 +162,7 @@ export default function ConciliacaoHistoricoPage() {
         } else {
           const { data, error } = await supabase
             .from("fin_recebimentos")
-            .select(selectFields)
+            .select(recebimentoFields)
             .eq("id", lancId)
             .single();
           console.log(`[openDetail] fin_recebimentos id=${lancId}`, data, error);
