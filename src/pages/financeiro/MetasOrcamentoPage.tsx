@@ -337,6 +337,24 @@ const useMetas = (year: number, month: number) => {
         realizado = vendasConcretizadas
           .reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
       }
+      // Custo com Peças e Estoque: busca de gc_compras (Finalizado - Mercadoria Chegou)
+      else if (meta.categoria === 'custo_variavel' && (nome.includes('peça') || nome.includes('estoque'))) {
+        realizado = comprasFinalizadas
+          .reduce((acc, c) => acc + (c.valor_total ?? 0), 0);
+        
+        // Fallback to fin_pagamentos if no compras data
+        if (realizado === 0 && comprasFinalizadas.length === 0) {
+          for (const link of links) {
+            const planoUuid = planoContasMap[link.plano_contas_id];
+            const centroUuid = link.centro_custo_id ? centrosCustoMap[link.centro_custo_id] : null;
+            if (!planoUuid) continue;
+            const soma = pagamentos
+              .filter(r => r.plano_contas_id === planoUuid && (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
+              .reduce((acc, r) => acc + (r.valor || 0), 0);
+            realizado += soma * (link.peso || 1);
+          }
+        }
+      }
       // All other metas: use fin_recebimentos or fin_pagamentos
       else {
         for (const link of links) {
