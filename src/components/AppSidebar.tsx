@@ -2,7 +2,7 @@ import {
   LayoutDashboard, ShoppingCart, DollarSign, Receipt,
   Layers, CreditCard, CalendarClock, ScrollText, Settings,
   ChevronDown, TrendingUp, Building2, ArrowLeftRight, FileText,
-  BarChart3, LineChart, BookOpen, Landmark, Search, Users, Building,
+  BarChart3, LineChart, BookOpen, Landmark, Search, Users, Building, Tv,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -61,6 +61,7 @@ const finRelatorios = [
 const finAdmin = [
   { title: "\uD83D\uDCCB Plano Contas", url: "/financeiro/plano-contas", icon: BookOpen },
   { title: "\uD83C\uDFE2 Centros de Custo", url: "/financeiro/centros-custo", icon: BookOpen },
+  { title: "📺 Painéis TV", url: "/financeiro/paineis-tv", icon: Tv },
   { title: "\u2699\uFE0F Config Inter", url: "/financeiro/config-banco", icon: Landmark },
   { title: "\uD83D\uDD0D Log API", url: "/financeiro/log", icon: Search },
 ];

@@ -32,6 +32,7 @@ const FinConfigBanco = lazy(() => import("@/pages/financeiro/ConfigBancoPage"));
 const FinLog = lazy(() => import("@/pages/financeiro/LogPage"));
 const FinMetas = lazy(() => import("@/pages/financeiro/MetasOrcamentoPage"));
 const FinCentrosCusto = lazy(() => import("@/pages/financeiro/CentrosCustoPage"));
+const FinPaineisTv = lazy(() => import("@/pages/financeiro/PaineisTvPage"));
 const FinClientes = lazy(() => import("@/pages/financeiro/ClientesPage"));
 const FinFornecedores = lazy(() => import("@/pages/financeiro/FornecedoresPage"));
 const RelatorioResultados = lazy(() => import("@/pages/RelatorioResultados"));
@@ -92,6 +93,7 @@ const App = () => (
             <Route path="/financeiro/centros-custo" element={<Suspense fallback={<LazyFallback />}><FinCentrosCusto /></Suspense>} />
             <Route path="/financeiro/clientes" element={<Suspense fallback={<LazyFallback />}><FinClientes /></Suspense>} />
           <Route path="/financeiro/fornecedores" element={<Suspense fallback={<LazyFallback />}><FinFornecedores /></Suspense>} />
+          <Route path="/financeiro/paineis-tv" element={<Suspense fallback={<LazyFallback />}><FinPaineisTv /></Suspense>} />
           </Route>
 
           {/* Standalone pages (no sidebar) */}
