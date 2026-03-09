@@ -1172,6 +1172,12 @@ export async function syncFormasPagamentoGC(
   );
   let importados = 0;
   let erros = 0;
+  const sampleErrors: string[] = [];
+  
+  // Debug: log first raw to understand structure
+  if (raws.length > 0) {
+    console.log("Forma pagamento sample keys:", Object.keys(raws[0]), "sample:", JSON.stringify(raws[0]).substring(0, 300));
+  }
 
   // Fetch existing gc_ids to decide insert vs update
   const { data: existing } = await supabase
