@@ -139,16 +139,16 @@ export default function FinDashboardPage() {
 
   // Filter data by selected month
   const recebimentosMes = useMemo(() =>
-    (recebimentos || []).filter((r: any) =>
+    isTodos ? (recebimentos || []) : (recebimentos || []).filter((r: any) =>
       (r.data_vencimento && r.data_vencimento >= mesInicio && r.data_vencimento <= mesFim) ||
       (r.data_liquidacao && r.data_liquidacao >= mesInicio && r.data_liquidacao <= mesFim)
-    ), [recebimentos, mesInicio, mesFim]);
+    ), [recebimentos, mesInicio, mesFim, isTodos]);
 
   const pagamentosMes = useMemo(() =>
-    (pagamentos || []).filter((p: any) =>
+    isTodos ? (pagamentos || []) : (pagamentos || []).filter((p: any) =>
       (p.data_vencimento && p.data_vencimento >= mesInicio && p.data_vencimento <= mesFim) ||
       (p.data_liquidacao && p.data_liquidacao >= mesInicio && p.data_liquidacao <= mesFim)
-    ), [pagamentos, mesInicio, mesFim]);
+    ), [pagamentos, mesInicio, mesFim, isTodos]);
 
   // Vencimentos da semana (only show for current month)
   const vencimentosSemana = isMesAtual
