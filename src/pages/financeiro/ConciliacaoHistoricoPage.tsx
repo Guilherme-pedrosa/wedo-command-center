@@ -90,7 +90,44 @@ export default function ConciliacaoHistoricoPage() {
     },
   });
 
-  const searchFilter = (i: any) => {
+  // Fetch linked lancamentos when detail opens
+  const openDetail = async (item: any) => {
+    setDetail(item);
+    setDetailLancamentos([]);
+    if (!item.id) return;
+    setDetailLoading(true);
+    try {
+      // Get all links from fin_extrato_lancamentos
+      const { data: links } = await supabase
+        .from("fin_extrato_lancamentos")
+        .select("lancamento_id, tabela, valor_alocado, reconciliation_rule")
+        .eq("extrato_id", item.id);
+
+      if (!links?.length) {
+        setDetailLoading(false);
+        return;
+      }
+
+      const results: any[] = [];
+      for (const link of links) {
+        const table = link.tabela as "fin_recebimentos" | "fin_pagamentos";
+        const { data: rec } = await supabase
+          .from(table)
+          .select("id, gc_id, gc_codigo, descricao, valor, data_vencimento, data_liquidacao, data_competencia, liquidado, status, gc_baixado, gc_baixado_em, os_codigo, nome_cliente, nome_fornecedor, plano_contas_id, centro_custo_id, origem, tipo")
+          .eq("id", link.lancamento_id)
+          .single();
+        if (rec) {
+          results.push({ ...rec, _tabela: table, _valor_alocado: link.valor_alocado, _rule: link.reconciliation_rule });
+        }
+      }
+      setDetailLancamentos(results);
+    } catch (e) {
+      console.error("Erro ao buscar lançamentos vinculados:", e);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
     if (!search) return true;
     const s = search.toLowerCase();
     return (
