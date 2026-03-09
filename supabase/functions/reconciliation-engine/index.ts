@@ -415,11 +415,13 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // 1. Extrato não reconciliado
+    // 1. Extrato não reconciliado (excluindo exceções manuais)
+    const MANUAL_EXCEPTIONS = ['SEM_PAR_GC', 'TRANSFERENCIA_INTERNA', 'PIX_DEVOLVIDO_MANUAL'];
     const { data: extratos, error: errE } = await supabase
       .from("fin_extrato_inter")
       .select("*")
       .eq("reconciliado", false)
+      .not("reconciliation_rule", "in", `(${MANUAL_EXCEPTIONS.join(",")})`)
       .order("data_hora", { ascending: false })
       .limit(200);
 

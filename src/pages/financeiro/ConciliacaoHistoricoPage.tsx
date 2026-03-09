@@ -48,7 +48,6 @@ export default function ConciliacaoHistoricoPage() {
       const { data } = await supabase
         .from("vw_conciliacao_extrato" as any)
         .select("*")
-        .eq("reconciliado", true)
         .in("reconciliation_rule", EXCECAO_RULES)
         .order("reconciliado_em", { ascending: false })
         .limit(200);
