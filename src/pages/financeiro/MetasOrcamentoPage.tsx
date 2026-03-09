@@ -194,24 +194,38 @@ const useMetas = (year: number, month: number) => {
     },
   });
 
-  // 4. Calcula EXEC_TOTAL — traduz GC IDs para UUIDs antes de filtrar
+  // 4. Calcula EXEC_TOTAL — OS (AT+Ecolab) + receitas financeiras (PCM, Locação, etc.)
   const execTotal = useMemo(() => {
+    // GC IDs dos planos de receita que vêm de OS (AT+Coifa e Ecolab)
+    const receitaGcIds_OS = ['27867720']; // Execução de Serviços Aprovados
+    const receitaUuids_OS = receitaGcIds_OS
+      .map(gcId => planoContasMap[gcId])
+      .filter(Boolean);
+
+    // Todos os planos de receita (para fallback total)
     const receitaGcIds = ['27867720', '27867721', '27867722', '27867718', '27867719'];
     const receitaUuids = receitaGcIds
       .map(gcId => planoContasMap[gcId])
       .filter(Boolean);
-    
-    // Base from fin_recebimentos
-    const recTotal = recebimentos
+
+    // Total de OS executadas (substitui AT+Coifa e Ecolab de fin_recebimentos)
+    const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
+
+    // Receitas financeiras excluindo planos cobertos por OS (PCM, Locação, Venda, Químicos)
+    const recFinanceiro = recebimentos
+      .filter(r => r.plano_contas_id && receitaUuids.includes(r.plano_contas_id) && !receitaUuids_OS.includes(r.plano_contas_id))
+      .reduce((acc, r) => acc + (r.valor || 0), 0);
+
+    // Se há dados de OS, combinar: OS + receitas financeiras não-OS
+    // Se não há OS data, fallback total para fin_recebimentos
+    if (osExecutadas.length > 0) {
+      return osTotal + recFinanceiro;
+    }
+
+    // Fallback: tudo de fin_recebimentos
+    return recebimentos
       .filter(r => r.plano_contas_id && receitaUuids.includes(r.plano_contas_id))
       .reduce((acc, r) => acc + (r.valor || 0), 0);
-    
-    // Add OS executadas (AT+Coifa + Ecolab) that aren't yet in fin_recebimentos
-    const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total || 0), 0);
-    
-    // Use the larger of the two to avoid double-counting
-    // If OS data is available and larger, it's more complete
-    return Math.max(recTotal, recTotal > 0 ? recTotal : osTotal);
   }, [recebimentos, planoContasMap, osExecutadas]);
 
   // 5. Calcula realizado por meta
