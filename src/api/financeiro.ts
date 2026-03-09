@@ -285,13 +285,7 @@ export async function importarPagamentosPendentes(
   filtros?: { dataInicio?: string; dataFim?: string; liquidado?: string; incluirTodos?: boolean }
 ): Promise<GCPagamentoRaw[]> {
   const params: Record<string, string> = {};
-  if (filtros?.incluirTodos) {
-    // Don't set liquidado filter — fetch ALL records
-  } else if (filtros?.liquidado !== undefined) {
-    params.liquidado = filtros.liquidado;
-  } else {
-    params.liquidado = "ab";
-  }
+  // Always fetch ALL records (open + paid) — never filter by liquidado
   if (filtros?.dataInicio) params.data_inicio = filtros.dataInicio;
   if (filtros?.dataFim) params.data_fim = filtros.dataFim;
   return fetchPaginatedGC<GCPagamentoRaw>(
