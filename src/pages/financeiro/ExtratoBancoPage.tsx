@@ -451,9 +451,32 @@ export default function ExtratoBancoPage() {
           <p className="text-sm text-muted-foreground">Transações do Banco Inter com conciliação e assistente ARGUS</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Button onClick={handleFetch} disabled={fetching} variant="outline" size="sm" className="gap-1.5">
-            {fetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}Importar Inter
-          </Button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button disabled={fetching} variant="outline" size="sm" className="gap-1.5">
+                {fetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}Importar Inter
+                <ChevronDown className="h-3 w-3 ml-0.5" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-44 p-1" align="start">
+              <div className="space-y-0.5">
+                {[7, 15, 30, 60, 90].map(d => (
+                  <Button key={d} variant="ghost" size="sm" className="w-full justify-start text-sm h-8"
+                    onClick={() => {
+                      const now = new Date();
+                      const from = subDays(now, d);
+                      setDateFrom(from);
+                      setDateTo(now);
+                      setMesExtrato("custom");
+                      setTimeout(() => handleFetch(), 50);
+                    }}
+                    disabled={fetching}>
+                    Últimos {d} dias
+                  </Button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
           <Button onClick={handleSyncGC} disabled={syncingGC} variant="outline" size="sm" className="gap-1.5">
             {syncingGC ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CloudDownload className="h-3.5 w-3.5" />}Sincronizar GC
           </Button>
