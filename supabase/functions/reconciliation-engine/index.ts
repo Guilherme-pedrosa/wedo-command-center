@@ -591,7 +591,10 @@ serve(async (req) => {
           const lookup = isDebito ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
           const doc = cleanDoc(fin.recipient_document) || lookup?.cpf_cnpj || "";
           const chavePix = (isDebito && lookup) ? (lookup as any).chave_pix ?? "" : "";
-          const nome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? lookup?.nome ?? "";
+          // Prefer the full name from the lookup table (cadastro) when the lançamento name is too short
+          const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? "";
+          const lookupNome = lookup?.nome ?? "";
+          const nome = (finNome.split(/\s+/).filter((w: string) => w.length > 2).length >= 2) ? finNome : (lookupNome || finNome);
           return { fin, tipo: (isDebito ? "pagar" : "receber") as "pagar" | "receber", doc, chavePix, nome };
         });
 
