@@ -236,20 +236,17 @@ export default function ConciliacaoPage() {
           <p className="text-sm text-muted-foreground">Vincule transações do extrato a lançamentos do sistema</p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => {
-            invalidateAll();
-            toast.success("Dados recarregados");
-          }} variant="outline" size="sm" className="gap-2">
+          <Button onClick={() => { invalidateAll(); toast.success("Dados recarregados"); }} variant="outline" size="sm" className="gap-2">
             <RefreshCw className="h-4 w-4" />
             Atualizar
+          </Button>
+          <Button onClick={() => setShowSyncDialog(true)} disabled={syncing} size="sm" className="gap-2">
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Sincronizar GC
           </Button>
           <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" className="gap-2">
             {autoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
             Conciliação Automática
-          </Button>
-          <Button onClick={() => setShowSyncDialog(true)} disabled={syncing} variant="ghost" size="sm" className="gap-2 text-muted-foreground">
-            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            Re-importar GC
           </Button>
         </div>
       </div>
