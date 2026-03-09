@@ -1,7 +1,7 @@
 // src/pages/TvResultados.tsx — TV Summary: resumo por categoria
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useMetasResultados, formatBRL, formatPct, calcStatus } from '@/hooks/useMetasResultados';
-import { CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, Percent, DollarSign } from 'lucide-react';
+import { CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, Percent, DollarSign, Trophy, Medal } from 'lucide-react';
 
 const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
@@ -30,7 +30,21 @@ export default function TvResultados() {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
-  const { metasComResultado, execTotal, isLoading, refetch } = useMetasResultados(year, month);
+  const { metasComResultado, execTotal, isLoading, refetch, osExecutadas } = useMetasResultados(year, month);
+
+  // Top 3 vendedores by faturamento (only chamados + executados)
+  const top3Vendedores = useMemo(() => {
+    const vendedorMap: Record<string, number> = {};
+    for (const os of osExecutadas) {
+      const nome = os.nome_vendedor?.trim();
+      if (!nome) continue;
+      vendedorMap[nome] = (vendedorMap[nome] || 0) + (os.valor_total ?? 0);
+    }
+    return Object.entries(vendedorMap)
+      .map(([nome, total]) => ({ nome, total }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 3);
+  }, [osExecutadas]);
 
   // Auto-refresh every 5 minutes
   useEffect(() => {
@@ -172,6 +186,32 @@ export default function TvResultados() {
           );
         })}
       </div>
+
+      {/* Top 3 Vendedores */}
+      {top3Vendedores.length > 0 && (
+        <div className="rounded-2xl border-2 border-border/40 bg-card/50 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Trophy className="h-7 w-7 text-yellow-400" />
+            <h2 className="text-2xl font-bold">Top 3 Vendedores</h2>
+          </div>
+          <div className="grid grid-cols-3 gap-6">
+            {top3Vendedores.map((v, i) => {
+              const medals = ['🥇', '🥈', '🥉'];
+              const borderColors = ['border-yellow-500/50', 'border-muted-foreground/30', 'border-orange-600/40'];
+              const bgColors = ['bg-yellow-500/10', 'bg-muted/20', 'bg-orange-500/10'];
+              return (
+                <div key={v.nome} className={`flex items-center gap-4 p-4 rounded-xl border-2 ${borderColors[i]} ${bgColors[i]}`}>
+                  <span className="text-4xl">{medals[i]}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-lg font-bold truncate">{v.nome}</p>
+                    <p className="text-2xl font-black text-primary">{formatBRL(v.total)}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <p className="text-center text-sm text-muted-foreground">

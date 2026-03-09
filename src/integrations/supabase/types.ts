@@ -1889,6 +1889,7 @@ export type Database = {
           id: string
           nome_cliente: string | null
           nome_situacao: string | null
+          nome_vendedor: string | null
           numero_os: string | null
           orc_codigo: string
           os_codigo: string
@@ -1905,6 +1906,7 @@ export type Database = {
           id?: string
           nome_cliente?: string | null
           nome_situacao?: string | null
+          nome_vendedor?: string | null
           numero_os?: string | null
           orc_codigo: string
           os_codigo: string
@@ -1921,6 +1923,7 @@ export type Database = {
           id?: string
           nome_cliente?: string | null
           nome_situacao?: string | null
+          nome_vendedor?: string | null
           numero_os?: string | null
           orc_codigo?: string
           os_codigo?: string
