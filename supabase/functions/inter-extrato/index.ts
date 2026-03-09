@@ -301,7 +301,9 @@ serve(async (req) => {
             ? (det.nomePagador ?? det.nomeRemetente ?? det.nome ?? tx.nomeContraparte)
             : (det.nomeBeneficiario ?? det.nomeRecebedor ?? det.nomeDestinatario ?? det.nome ?? tx.nomeContraparte);
           const nomeContraparte = nomeValido(nomeRaw)
-            ?? extrairNomeDescricao(tx.descricao ?? tx.titulo ?? tx.historico);
+            ?? extrairNomeDescricao(tx.descricao)
+            ?? extrairNomeDescricao(tx.titulo)
+            ?? extrairNomeDescricao(tx.historico);
 
           const chavePix     = det.chavePixRecebedor ?? det.chavePixBeneficiario ?? det.chavePixPagador ?? det.chave ?? null;
           const codigoBarras = det.codigoBarras ?? null;
