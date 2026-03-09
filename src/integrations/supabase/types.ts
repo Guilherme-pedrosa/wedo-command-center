@@ -14,6 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      auvo_expenses_sync: {
+        Row: {
+          amount: number | null
+          attachment_url: string | null
+          auvo_id: number
+          created_at: string | null
+          description: string | null
+          expense_date: string
+          id: string
+          synced_at: string | null
+          type_id: number
+          type_name: string | null
+          user_to_id: number | null
+          user_to_name: string | null
+        }
+        Insert: {
+          amount?: number | null
+          attachment_url?: string | null
+          auvo_id: number
+          created_at?: string | null
+          description?: string | null
+          expense_date: string
+          id?: string
+          synced_at?: string | null
+          type_id: number
+          type_name?: string | null
+          user_to_id?: number | null
+          user_to_name?: string | null
+        }
+        Update: {
+          amount?: number | null
+          attachment_url?: string | null
+          auvo_id?: number
+          created_at?: string | null
+          description?: string | null
+          expense_date?: string
+          id?: string
+          synced_at?: string | null
+          type_id?: number
+          type_name?: string | null
+          user_to_id?: number | null
+          user_to_name?: string | null
+        }
+        Relationships: []
+      }
       configuracoes: {
         Row: {
           chave: string
