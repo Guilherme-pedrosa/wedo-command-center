@@ -324,7 +324,13 @@ const useMetas = (year: number, month: number) => {
       const nome = meta.nome.toLowerCase();
 
       // ─── REVENUE METAS (unchanged logic, using UUID directly) ──────
-      if (meta.categoria === 'receita' && (nome.includes('at') || nome.includes('coifa') || nome.includes('higienização'))) {
+      if (meta.categoria === 'receita' && (nome.includes('contrato') || nome.includes('pcm'))) {
+        // Use gc_recebimentos with GC plano_contas_id directly
+        realizado = gcRecebimentos
+          .filter(r => r.plano_contas_id === '27867721')
+          .reduce((acc, r) => acc + (r.valor || 0), 0);
+      }
+      else if (meta.categoria === 'receita' && (nome.includes('at') || nome.includes('coifa') || nome.includes('higienização'))) {
         realizado = osExecutadas
           .filter(os => {
             const cliente = (os.nome_cliente ?? '').toLowerCase();
