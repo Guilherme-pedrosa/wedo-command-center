@@ -130,20 +130,8 @@ export function SyncPeriodDialog({ open, onOpenChange, onSync, title = "Sincroni
 
           <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
-            O filtro usa a data de vencimento do GestãoClick. Para sincronizar registros de meses anteriores, selecione o período correto e ative "Incluir liquidados".
+            O filtro usa a data de vencimento do GestãoClick. Todos os lançamentos do período serão importados (abertos e pagos), exceto os cancelados localmente.
           </p>
-
-          <div className="flex items-center gap-2">
-            <Switch
-              id="incluir-liquidados"
-              checked={incluirLiquidados}
-              onCheckedChange={setIncluirLiquidados}
-              disabled={isDisabled}
-            />
-            <Label htmlFor="incluir-liquidados" className="text-sm">
-              Incluir liquidados (já pagos)
-            </Label>
-          </div>
 
           {/* Progress section — no dependency on external loading prop */}
           {progress && (
