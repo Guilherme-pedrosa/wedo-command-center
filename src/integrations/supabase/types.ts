@@ -1290,6 +1290,63 @@ export type Database = {
         }
         Relationships: []
       }
+      gc_compras: {
+        Row: {
+          codigo: string | null
+          created_at: string | null
+          data: string | null
+          desconto: number | null
+          fornecedor_id: string | null
+          gc_id: string
+          gc_payload_raw: Json | null
+          id: string
+          last_synced_at: string | null
+          nome_fornecedor: string | null
+          nome_situacao: string | null
+          observacao: string | null
+          situacao_id: string | null
+          valor_frete: number | null
+          valor_produtos: number | null
+          valor_total: number | null
+        }
+        Insert: {
+          codigo?: string | null
+          created_at?: string | null
+          data?: string | null
+          desconto?: number | null
+          fornecedor_id?: string | null
+          gc_id: string
+          gc_payload_raw?: Json | null
+          id?: string
+          last_synced_at?: string | null
+          nome_fornecedor?: string | null
+          nome_situacao?: string | null
+          observacao?: string | null
+          situacao_id?: string | null
+          valor_frete?: number | null
+          valor_produtos?: number | null
+          valor_total?: number | null
+        }
+        Update: {
+          codigo?: string | null
+          created_at?: string | null
+          data?: string | null
+          desconto?: number | null
+          fornecedor_id?: string | null
+          gc_id?: string
+          gc_payload_raw?: Json | null
+          id?: string
+          last_synced_at?: string | null
+          nome_fornecedor?: string | null
+          nome_situacao?: string | null
+          observacao?: string | null
+          situacao_id?: string | null
+          valor_frete?: number | null
+          valor_produtos?: number | null
+          valor_total?: number | null
+        }
+        Relationships: []
+      }
       gc_pagamentos: {
         Row: {
           centro_custo_id: string | null
