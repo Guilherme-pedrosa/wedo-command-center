@@ -529,6 +529,11 @@ export default function MetasOrcamentoPage() {
     const details: string[] = [];
 
     try {
+      await syncOS();
+      ok++;
+    } catch (_e) { fail++; }
+
+    try {
       const resVendas = await syncVendas(start, end);
       ok += resVendas.upserted;
     } catch (_e) { fail++; }

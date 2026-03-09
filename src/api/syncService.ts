@@ -550,3 +550,29 @@ export async function syncAuvoExpenses(
     throw err;
   }
 }
+
+// ─── Sync OS (GC → os_index) ────────────────────────────────────────
+
+export async function syncOS(): Promise<{ totalFetched: number; upserted: number; errors: number }> {
+  const startTime = Date.now();
+  try {
+    const { data, error } = await supabase.functions.invoke("sync-os", {
+      body: {},
+    });
+
+    if (error) throw error;
+    return {
+      totalFetched: data?.totalFetched ?? 0,
+      upserted: data?.upserted ?? 0,
+      errors: data?.errors ?? 0,
+    };
+  } catch (err: any) {
+    await logSync({
+      tipo: "sync-os",
+      status: "erro",
+      erro: err.message,
+      duracao_ms: Date.now() - startTime,
+    });
+    throw err;
+  }
+}
