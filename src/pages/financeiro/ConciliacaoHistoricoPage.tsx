@@ -128,6 +128,7 @@ export default function ConciliacaoHistoricoPage() {
     }
   };
 
+  const searchFilter = (i: any) => {
     if (!search) return true;
     const s = search.toLowerCase();
     return (
