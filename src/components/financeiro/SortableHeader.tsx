@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -53,23 +54,18 @@ export function useSortConfig(defaultKey = "data_vencimento", defaultDir: SortDi
     return [...data].sort((a, b) => {
       let va = a[sort.key];
       let vb = b[sort.key];
-      // Handle nulls
       if (va == null && vb == null) return 0;
       if (va == null) return 1;
       if (vb == null) return -1;
-      // Numbers
       if (typeof va === "number" && typeof vb === "number") {
         return sort.direction === "asc" ? va - vb : vb - va;
       }
-      // Strings (dates sort lexicographically if in ISO format)
-      va = String(va).toLowerCase();
-      vb = String(vb).toLowerCase();
-      const cmp = va.localeCompare(vb);
+      const sa = String(va).toLowerCase();
+      const sb = String(vb).toLowerCase();
+      const cmp = sa.localeCompare(sb);
       return sort.direction === "asc" ? cmp : -cmp;
     });
   };
 
   return { sort, handleSort, sortFn };
 }
-
-import { useState } from "react";
