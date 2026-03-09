@@ -527,9 +527,13 @@ export type Database = {
           created_at: string | null
           gc_baixado: boolean | null
           gc_baixado_em: string | null
+          gc_os_id: string | null
           grupo_id: string
           id: string
+          os_codigo_original: string | null
           recebimento_id: string
+          snapshot_data: string | null
+          snapshot_valor: number | null
           tentativas: number | null
           ultimo_erro: string | null
           valor: number | null
@@ -538,9 +542,13 @@ export type Database = {
           created_at?: string | null
           gc_baixado?: boolean | null
           gc_baixado_em?: string | null
+          gc_os_id?: string | null
           grupo_id: string
           id?: string
+          os_codigo_original?: string | null
           recebimento_id: string
+          snapshot_data?: string | null
+          snapshot_valor?: number | null
           tentativas?: number | null
           ultimo_erro?: string | null
           valor?: number | null
@@ -549,9 +557,13 @@ export type Database = {
           created_at?: string | null
           gc_baixado?: boolean | null
           gc_baixado_em?: string | null
+          gc_os_id?: string | null
           grupo_id?: string
           id?: string
+          os_codigo_original?: string | null
           recebimento_id?: string
+          snapshot_data?: string | null
+          snapshot_valor?: number | null
           tentativas?: number | null
           ultimo_erro?: string | null
           valor?: number | null
@@ -794,6 +806,7 @@ export type Database = {
       }
       fin_pagamentos: {
         Row: {
+          aguardando_nf: boolean | null
           centro_custo_id: string | null
           conta_bancaria_id: string | null
           created_at: string | null
@@ -816,6 +829,8 @@ export type Database = {
           last_synced_at: string | null
           liquidado: boolean | null
           nf_numero: string | null
+          nfe_chave: string | null
+          nfe_vinculada_em: string | null
           nome_fornecedor: string | null
           observacao: string | null
           origem: Database["public"]["Enums"]["fin_origem"] | null
@@ -832,6 +847,7 @@ export type Database = {
           valor: number
         }
         Insert: {
+          aguardando_nf?: boolean | null
           centro_custo_id?: string | null
           conta_bancaria_id?: string | null
           created_at?: string | null
@@ -854,6 +870,8 @@ export type Database = {
           last_synced_at?: string | null
           liquidado?: boolean | null
           nf_numero?: string | null
+          nfe_chave?: string | null
+          nfe_vinculada_em?: string | null
           nome_fornecedor?: string | null
           observacao?: string | null
           origem?: Database["public"]["Enums"]["fin_origem"] | null
@@ -870,6 +888,7 @@ export type Database = {
           valor: number
         }
         Update: {
+          aguardando_nf?: boolean | null
           centro_custo_id?: string | null
           conta_bancaria_id?: string | null
           created_at?: string | null
@@ -892,6 +911,8 @@ export type Database = {
           last_synced_at?: string | null
           liquidado?: boolean | null
           nf_numero?: string | null
+          nfe_chave?: string | null
+          nfe_vinculada_em?: string | null
           nome_fornecedor?: string | null
           observacao?: string | null
           origem?: Database["public"]["Enums"]["fin_origem"] | null
@@ -1020,6 +1041,8 @@ export type Database = {
           last_synced_at: string | null
           liquidado: boolean | null
           nf_numero: string | null
+          nfe_chave: string | null
+          nfe_numero: string | null
           nome_cliente: string | null
           observacao: string | null
           origem: Database["public"]["Enums"]["fin_origem"] | null
@@ -1058,6 +1081,8 @@ export type Database = {
           last_synced_at?: string | null
           liquidado?: boolean | null
           nf_numero?: string | null
+          nfe_chave?: string | null
+          nfe_numero?: string | null
           nome_cliente?: string | null
           observacao?: string | null
           origem?: Database["public"]["Enums"]["fin_origem"] | null
@@ -1096,6 +1121,8 @@ export type Database = {
           last_synced_at?: string | null
           liquidado?: boolean | null
           nf_numero?: string | null
+          nfe_chave?: string | null
+          nfe_numero?: string | null
           nome_cliente?: string | null
           observacao?: string | null
           origem?: Database["public"]["Enums"]["fin_origem"] | null
