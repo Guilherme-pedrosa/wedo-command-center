@@ -45,6 +45,12 @@ export default function RecebimentosPage() {
   const [origemFilter, setOrigemFilter] = useState("todos");
   const [pendenteBaixaGC, setPendenteBaixaGC] = useState(false);
   const [semGrupo, setSemGrupo] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [formaFilter, setFormaFilter] = useState("todos");
+  
+  // Sorting
+  const { sort, handleSort, sortFn } = useSortConfig("data_vencimento", "asc");
 
   // Selection
   const [selected, setSelected] = useState<Set<string>>(new Set());
