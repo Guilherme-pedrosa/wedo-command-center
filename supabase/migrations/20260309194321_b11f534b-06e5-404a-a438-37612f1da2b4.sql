@@ -1,0 +1,1 @@
+ALTER TABLE public.gc_compras ADD COLUMN IF NOT EXISTS cadastrado_em date;
