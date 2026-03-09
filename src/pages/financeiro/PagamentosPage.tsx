@@ -285,7 +285,7 @@ export default function PagamentosPage() {
             <FileText className="h-3.5 w-3.5 mr-1.5" />
             Fechamento do Dia
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowSyncDialog(true)} disabled={syncing}>
+          <Button size="sm" variant="outline" onClick={() => setShowSyncDialog(true)howSyncDialog(true)} disabled={syncing}>
             {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
             Sync GC
           </Button>
@@ -359,7 +359,7 @@ export default function PagamentosPage() {
               {isLoading ? (
                 <tr><td colSpan={9} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
               ) : paged.length === 0 ? (
-                <tr><td colSpan={9}><EmptyState icon={CreditCard} title="Nenhum pagamento" description="Sincronize os dados." action={{ label: "Sincronizar", onClick: handleSync }} /></td></tr>
+                <tr><td colSpan={9}><EmptyState icon={CreditCard} title="Nenhum pagamento" description="Sincronize os dados." action={{ label: "Sinc() => setShowSyncDialog(true)onClick: handleSync }} /></td></tr>
               ) : paged.map((p: any) => (
                 <tr key={p.id} className="border-b border-border hover:bg-muted/30 transition-colors">
                   <td className="p-3">

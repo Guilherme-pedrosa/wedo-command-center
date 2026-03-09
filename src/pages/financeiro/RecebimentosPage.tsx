@@ -299,7 +299,7 @@ export default function RecebimentosPage() {
             <FileText className="h-3.5 w-3.5 mr-1.5" />
             Fechamento do Dia
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowSyncDialog(true)} disabled={syncing}>
+          <Button size="sm" variant="outline" onClick={() => setShowSyncDialog(true)howSyncDialog(true)} disabled={syncing}>
             {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
             Sync GC
           </Button>
@@ -380,7 +380,7 @@ export default function RecebimentosPage() {
               {isLoading ? (
                 <tr><td colSpan={11} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></td></tr>
               ) : paged.length === 0 ? (
-                <tr><td colSpan={11}><EmptyState icon={Receipt} title="Nenhum recebimento" description="Sincronize os dados do GC ou crie manualmente." action={{ label: "Sincronizar", onClick: handleSync }} /></td></tr>
+                <tr><td colSpan={11}><EmptyState icon={Receipt} title="Nenhum recebimento" description="Sincronize os dados do GC ou crie manualmente." action={{ label: "Sinc() => setShowSyncDialog(true)onClick: handleSync }} /></td></tr>
               ) : paged.map((r: any) => (
                 <tr key={r.id} className="border-b border-border hover:bg-muted/30 transition-colors">
                   <td className="p-3">
