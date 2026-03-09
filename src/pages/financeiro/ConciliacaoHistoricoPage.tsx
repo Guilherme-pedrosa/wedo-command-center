@@ -431,7 +431,7 @@ export default function ConciliacaoHistoricoPage() {
                   <div className="col-span-1 text-right font-bold text-foreground">{formatCurrency(Math.abs(Number(item.valor_extrato || 0)))}</div>
                   <div className="col-span-2 text-xs text-muted-foreground truncate" title={item.descricao}>{item.descricao || "\u2014"}</div>
                   <div className="col-span-2 flex items-center justify-end">
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setDetail(item)}>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openDetail(item)}>
                       <Eye className="h-3.5 w-3.5" />
                     </Button>
                   </div>
