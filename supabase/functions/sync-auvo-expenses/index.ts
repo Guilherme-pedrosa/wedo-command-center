@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
 
       if (expenses.length > 0) {
         const rows = expenses.map((e: any) => ({
-          auvo_id: e.expenseID || e.id,
+          auvo_id: e.id,
           type_id: typeId,
           type_name: e.expenseTypeName || e.typeName || null,
           user_to_id: e.userToID || e.userToId || null,
