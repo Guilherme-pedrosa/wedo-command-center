@@ -93,26 +93,29 @@ export default function TvTecnicos() {
   }, [refetchMetas, refetchOs]);
 
   // Agregar faturamento por técnico
-  const resultados = useMemo(() => {
-    // Agrupa por primeiro nome do vendedor para bater com a meta (que usa só primeiro nome)
-    const vendedorMap: Record<string, number> = {};
+  const resultados: TecnicoResult[] = useMemo(() => {
+    const vendedorMap: Record<string, { total: number; osList: { codigo: string; valor: number }[] }> = {};
     for (const os of osData) {
       const nomeCompleto = os.nome_vendedor?.trim().toUpperCase();
       if (!nomeCompleto) continue;
       const primeiroNome = nomeCompleto.split(' ')[0];
-      vendedorMap[primeiroNome] = (vendedorMap[primeiroNome] || 0) + (os.valor_total ?? 0);
+      if (!vendedorMap[primeiroNome]) vendedorMap[primeiroNome] = { total: 0, osList: [] };
+      const valor = os.valor_total ?? 0;
+      vendedorMap[primeiroNome].total += valor;
+      vendedorMap[primeiroNome].osList.push({ codigo: os.os_codigo, valor });
     }
 
     return metas.map(m => {
       const nomeUpper = m.nome_tecnico.trim().toUpperCase();
-      const realizado = vendedorMap[nomeUpper] || 0;
+      const info = vendedorMap[nomeUpper] || { total: 0, osList: [] };
       const meta = m.meta_faturamento;
-      const pct = meta > 0 ? realizado / meta : 0;
+      const pct = meta > 0 ? info.total / meta : 0;
       return {
         nome: m.nome_tecnico,
         meta,
-        realizado,
+        realizado: info.total,
         pct,
+        osList: info.osList.sort((a, b) => b.valor - a.valor),
       };
     }).sort((a, b) => b.pct - a.pct);
   }, [metas, osData]);
