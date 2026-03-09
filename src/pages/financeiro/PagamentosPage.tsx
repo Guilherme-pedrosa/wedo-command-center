@@ -146,9 +146,12 @@ export default function PagamentosPage() {
 
   const filtered = useMemo(() => {
     if (!pagamentos) return [];
-    return pagamentos.filter((p: any) => {
+    const base = pagamentos.filter((p: any) => {
       if (statusFilter !== "todos" && p.status !== statusFilter) return false;
       if (tipoFilter !== "todos" && p.tipo !== tipoFilter) return false;
+      if (formaFilter !== "todos" && p.forma_pagamento_id !== formaFilter) return false;
+      if (dateFrom && p.data_vencimento && p.data_vencimento < dateFrom) return false;
+      if (dateTo && p.data_vencimento && p.data_vencimento > dateTo) return false;
       if (pendenteBaixaGC && !(p.pago_sistema && !p.gc_baixado)) return false;
       if (semGrupo && p.grupo_id) return false;
       if (search) {
@@ -161,7 +164,8 @@ export default function PagamentosPage() {
       }
       return true;
     });
-  }, [pagamentos, search, statusFilter, tipoFilter, pendenteBaixaGC, semGrupo]);
+    return sortFn(base);
+  }, [pagamentos, search, statusFilter, tipoFilter, formaFilter, dateFrom, dateTo, pendenteBaixaGC, semGrupo, sort]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
