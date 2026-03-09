@@ -423,7 +423,7 @@ serve(async (req) => {
       .eq("reconciliado", false)
       .or(`reconciliation_rule.is.null,reconciliation_rule.not.in.(${MANUAL_EXCEPTIONS.join(",")})`)
       .order("data_hora", { ascending: false })
-      .limit(200);
+      .limit(500);
 
     if (errE) throw new Error(`fin_extrato_inter: ${errE.message}`);
 
