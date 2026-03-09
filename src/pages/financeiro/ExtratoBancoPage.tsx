@@ -287,7 +287,7 @@ export default function ExtratoBancoPage() {
         const { data } = await supabase.from(isPag ? "fin_pagamentos" : "fin_recebimentos")
           .select("id, gc_id, gc_codigo, descricao, valor, data_vencimento, nome_fornecedor, nome_cliente, os_codigo, nf_numero, status")
           .eq("id", id).single();
-        return data ? { ...data, _tabela: isPag ? "fin_pagamentos" : "fin_recebimentos" } : null;
+        return data ? { ...(data as any), _tabela: isPag ? "fin_pagamentos" : "fin_recebimentos" } : null;
       };
       if (links?.length) {
         const results: any[] = [];
