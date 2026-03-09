@@ -146,6 +146,8 @@ export function AppSidebar() {
                   <SidebarGroupContent>
                     <SidebarMenu>
                       {renderItems(finLancamentos)}
+                      <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase text-muted-foreground/60">Cadastros</div>
+                      {renderItems(finCadastros)}
                       <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase text-muted-foreground/60">Grupos</div>
                       {renderItems(finGrupos)}
                       <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase text-muted-foreground/60">Banco</div>
