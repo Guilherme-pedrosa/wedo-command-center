@@ -1,7 +1,7 @@
 // src/pages/TvResultados.tsx — TV Summary: resumo por categoria
 import { useEffect, useMemo } from 'react';
 import { useMetasResultados, formatBRL, formatPct, calcStatus } from '@/hooks/useMetasResultados';
-import { CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, Percent, DollarSign, Trophy, Medal } from 'lucide-react';
+import { CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, Percent, Trophy, Wrench, Fuel, BedDouble, CircleDollarSign, UtensilsCrossed } from 'lucide-react';
 
 const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
@@ -212,6 +212,76 @@ export default function TvResultados() {
           </div>
         </div>
       )}
+
+      {/* Custos dos Técnicos em destaque + Demais custos */}
+      {(() => {
+        const HIGHLIGHT_NAMES = ['manutenção veículos', 'hospedagem', 'pedágio', 'combustível', 'refeições'];
+        const allCosts = metasComResultado.filter(m => m.categoria === 'custo_variavel' || m.categoria === 'custo_fixo');
+        
+        const highlighted: typeof allCosts = [];
+        const others: typeof allCosts = [];
+        
+        for (const c of allCosts) {
+          const lower = c.nome.toLowerCase();
+          if (HIGHLIGHT_NAMES.some(h => lower.includes(h))) {
+            highlighted.push(c);
+          } else {
+            others.push(c);
+          }
+        }
+        
+        const demaisTotal = others.reduce((a, c) => a + c.realizado, 0);
+        const demaisMeta = others.reduce((a, c) => a + c.meta_calculada, 0);
+        const demaisStatus = calcStatus('custo_variavel', demaisTotal, demaisMeta);
+
+        const iconMap: Record<string, React.ReactNode> = {
+          'manutenção': <Wrench className="h-5 w-5 text-muted-foreground" />,
+          'combustível': <Fuel className="h-5 w-5 text-muted-foreground" />,
+          'hospedagem': <BedDouble className="h-5 w-5 text-muted-foreground" />,
+          'pedágio': <CircleDollarSign className="h-5 w-5 text-muted-foreground" />,
+          'refeições': <UtensilsCrossed className="h-5 w-5 text-muted-foreground" />,
+        };
+        const getIcon = (nome: string) => {
+          const lower = nome.toLowerCase();
+          for (const [key, icon] of Object.entries(iconMap)) {
+            if (lower.includes(key)) return icon;
+          }
+          return <CircleDollarSign className="h-5 w-5 text-muted-foreground" />;
+        };
+
+        return (
+          <div className="rounded-2xl border-2 border-border/40 bg-card/50 p-6">
+            <h2 className="text-2xl font-bold mb-4">Custos Operacionais</h2>
+            <div className="grid grid-cols-6 gap-4">
+              {highlighted.map(c => (
+                <div key={c.id} className={`flex flex-col gap-2 p-4 rounded-xl border-2 ${statusBorder(c.status)} ${statusBg(c.status)}`}>
+                  <div className="flex items-center gap-2">
+                    {getIcon(c.nome)}
+                    <span className="text-sm font-semibold truncate">{c.nome}</span>
+                  </div>
+                  <p className="text-2xl font-black">{formatBRL(c.realizado)}</p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Meta: {formatBRL(c.meta_calculada)}</span>
+                    <StatusIcon status={c.status} size="h-5 w-5" />
+                  </div>
+                </div>
+              ))}
+              {/* Demais custos */}
+              <div className={`flex flex-col gap-2 p-4 rounded-xl border-2 ${statusBorder(demaisStatus)} ${statusBg(demaisStatus)}`}>
+                <div className="flex items-center gap-2">
+                  <TrendingDown className="h-5 w-5 text-muted-foreground" />
+                  <span className="text-sm font-semibold">Demais custos</span>
+                </div>
+                <p className="text-2xl font-black">{formatBRL(demaisTotal)}</p>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Meta: {formatBRL(demaisMeta)}</span>
+                  <StatusIcon status={demaisStatus} size="h-5 w-5" />
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Footer */}
       <p className="text-center text-sm text-muted-foreground">
