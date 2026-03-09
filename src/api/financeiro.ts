@@ -1233,7 +1233,7 @@ export async function syncFormasPagamentoGC(
   await supabase.from("fin_sync_log").insert({
     tipo: "gc_import_formas_pagamento",
     status: erros === 0 ? "success" : "partial",
-    resposta: { importados, erros, total: raws.length } as any,
+    resposta: { importados, erros, total: raws.length, sampleErrors, sampleRaw: raws.length > 0 ? Object.keys(raws[0]) : [] } as any,
     duracao_ms: Date.now() - inicio,
   });
 
