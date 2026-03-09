@@ -30,7 +30,7 @@ const FinFluxo = lazy(() => import("@/pages/financeiro/FluxoCaixaPage"));
 const FinPlanoContas = lazy(() => import("@/pages/financeiro/PlanoContasPage"));
 const FinConfigBanco = lazy(() => import("@/pages/financeiro/ConfigBancoPage"));
 const FinLog = lazy(() => import("@/pages/financeiro/LogPage"));
-const FinMetas = lazy(() => import("@/pages/financeiro/MetasFinanceirasPage"));
+const FinMetas = lazy(() => import("@/pages/financeiro/MetasOrcamentoPage"));
 const FinCentrosCusto = lazy(() => import("@/pages/financeiro/CentrosCustoPage"));
 const FinClientes = lazy(() => import("@/pages/financeiro/ClientesPage"));
 const FinFornecedores = lazy(() => import("@/pages/financeiro/FornecedoresPage"));
