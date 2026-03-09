@@ -153,15 +153,24 @@ export default function TvResultados() {
                 <StatusIcon status={cat.status} />
               </div>
 
-              <div className="flex-1 flex flex-col justify-center gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Realizado</p>
-                  <p className="text-4xl font-black">{formatBRL(cat.agg.realizado)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Meta</p>
-                  <p className="text-2xl font-semibold text-muted-foreground">{formatBRL(cat.agg.meta)}</p>
-                </div>
+               <div className="flex-1 flex flex-col justify-center gap-4">
+                {cat.label === 'Receitas' ? (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Atingimento da Meta</p>
+                    <p className={`text-5xl font-black ${statusLabelColor(cat.status)}`}>{pct.toFixed(0)}%</p>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Realizado</p>
+                      <p className="text-4xl font-black">{formatBRL(cat.agg.realizado)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Meta</p>
+                      <p className="text-2xl font-semibold text-muted-foreground">{formatBRL(cat.agg.meta)}</p>
+                    </div>
+                  </>
+                )}
 
                 {/* Progress bar */}
                 <div className="w-full bg-muted/30 rounded-full h-4 overflow-hidden">
