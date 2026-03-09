@@ -148,13 +148,16 @@ export default function RecebimentosPage() {
 
   const filtered = useMemo(() => {
     if (!recebimentos) return [];
-    return recebimentos.filter((r: any) => {
+    const base = recebimentos.filter((r: any) => {
       if (statusFilter !== "todos" && r.status !== statusFilter) return false;
       if (tipoFilter !== "todos" && r.tipo !== tipoFilter) return false;
       if (origemFilter !== "todos") {
         if (origemFilter === "gc" && r.origem === "manual") return false;
         if (origemFilter === "manual" && r.origem !== "manual") return false;
       }
+      if (formaFilter !== "todos" && r.forma_pagamento_id !== formaFilter) return false;
+      if (dateFrom && r.data_vencimento && r.data_vencimento < dateFrom) return false;
+      if (dateTo && r.data_vencimento && r.data_vencimento > dateTo) return false;
       if (pendenteBaixaGC && !(r.pago_sistema && !r.gc_baixado)) return false;
       if (semGrupo && r.grupo_id) return false;
       if (search) {
@@ -168,7 +171,8 @@ export default function RecebimentosPage() {
       }
       return true;
     });
-  }, [recebimentos, search, statusFilter, tipoFilter, origemFilter, pendenteBaixaGC, semGrupo]);
+    return sortFn(base);
+  }, [recebimentos, search, statusFilter, tipoFilter, origemFilter, formaFilter, dateFrom, dateTo, pendenteBaixaGC, semGrupo, sort]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
