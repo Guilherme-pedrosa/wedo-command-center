@@ -237,7 +237,7 @@ const useMetas = (year: number, month: number) => {
         .gte('expense_date', start)
         .lte('expense_date', end);
       if (error) throw error;
-      return data as { type_id: number; amount: number; expense_date: string }[];
+      return (data as any[]) as { type_id: number; amount: number; expense_date: string }[];
     },
   });
 
