@@ -143,7 +143,19 @@ export default function TvTecnicos() {
           <Trophy className="h-10 w-10 text-yellow-400" />
           <div>
             <h1 className="text-3xl font-black tracking-tight">Metas por Técnico</h1>
-            <p className="text-lg text-white/50">{mesLabel}</p>
+            <div className="flex items-center gap-3">
+              <button onClick={() => navigateMonth(-1)} className="p-1 rounded hover:bg-white/10 transition-colors">
+                <ChevronLeft className="h-5 w-5 text-white/50" />
+              </button>
+              <p className="text-lg text-white/50">{mesLabel}</p>
+              <button
+                onClick={() => navigateMonth(1)}
+                disabled={isCurrentMonth}
+                className="p-1 rounded hover:bg-white/10 transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
+              >
+                <ChevronRight className="h-5 w-5 text-white/50" />
+              </button>
+            </div>
           </div>
         </div>
         <div className="text-sm text-white/30">
