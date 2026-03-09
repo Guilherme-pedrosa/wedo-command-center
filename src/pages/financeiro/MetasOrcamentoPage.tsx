@@ -386,12 +386,12 @@ const useMetas = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, osExecutadas, vendasConcretizadas, execTotal, planoContasMap, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, osExecutadas, vendasConcretizadas, comprasFinalizadas, execTotal, planoContasMap, centrosCustoMap]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
-  const refetch = () => { refetchRec(); refetchPag(); refetchOS(); refetchVendas(); };
-  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingCentros || loadingRec || loadingPag || loadingOS || loadingVendas;
+  const refetch = () => { refetchRec(); refetchPag(); refetchOS(); refetchVendas(); refetchCompras(); };
+  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingCentros || loadingRec || loadingPag || loadingOS || loadingVendas || loadingCompras;
 
   return { metasComResultado, execTotal, isLoading, refetch, hasOsData };
 };
