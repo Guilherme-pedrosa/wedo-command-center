@@ -22,7 +22,7 @@ const FinPagar = lazy(() => import("@/pages/financeiro/PagamentosPage"));
 const FinGrpReceber = lazy(() => import("@/pages/financeiro/GruposReceberPage"));
 const FinGrpPagar = lazy(() => import("@/pages/financeiro/GruposPagarPage"));
 const FinAgenda = lazy(() => import("@/pages/financeiro/AgendaPage"));
-const FinExtrato = lazy(() => import("@/pages/financeiro/ExtratoBancoPage"));
+
 const FinConciliacao = lazy(() => import("@/pages/financeiro/ConciliacaoPage"));
 const FinConciliacaoHist = lazy(() => import("@/pages/financeiro/ConciliacaoHistoricoPage"));
 const FinDRE = lazy(() => import("@/pages/financeiro/DREPage"));
@@ -81,7 +81,7 @@ const App = () => (
             <Route path="/financeiro/grupos-receber" element={<Suspense fallback={<LazyFallback />}><FinGrpReceber /></Suspense>} />
             <Route path="/financeiro/grupos-pagar" element={<Suspense fallback={<LazyFallback />}><FinGrpPagar /></Suspense>} />
             <Route path="/financeiro/agenda" element={<Suspense fallback={<LazyFallback />}><FinAgenda /></Suspense>} />
-            <Route path="/financeiro/extrato" element={<Suspense fallback={<LazyFallback />}><FinExtrato /></Suspense>} />
+            <Route path="/financeiro/extrato" element={<Navigate to="/financeiro/conciliacao" replace />} />
             <Route path="/financeiro/conciliacao" element={<Suspense fallback={<LazyFallback />}><FinConciliacao /></Suspense>} />
             <Route path="/financeiro/conciliacao-historico" element={<Suspense fallback={<LazyFallback />}><FinConciliacaoHist /></Suspense>} />
             <Route path="/financeiro/dre" element={<Suspense fallback={<LazyFallback />}><FinDRE /></Suspense>} />

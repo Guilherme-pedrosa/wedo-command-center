@@ -4,7 +4,7 @@ export { default as PagamentosPage } from "./PagamentosPage";
 export { default as GruposReceberPage } from "./GruposReceberPage";
 export { default as GruposPagarPage } from "./GruposPagarPage";
 export { default as AgendaPage } from "./AgendaPage";
-export { default as ExtratoBancoPage } from "./ExtratoBancoPage";
+
 export { default as ConciliacaoPage } from "./ConciliacaoPage";
 export { default as DREPage } from "./DREPage";
 export { default as FluxoCaixaPage } from "./FluxoCaixaPage";

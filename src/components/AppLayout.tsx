@@ -3,7 +3,7 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import {
   Bell, DollarSign, ChevronDown, LayoutDashboard, Receipt, CreditCard,
-  Layers, CalendarClock, Building2, ArrowLeftRight, BarChart3, LineChart,
+  Layers, CalendarClock, ArrowLeftRight, BarChart3, LineChart,
   BookOpen, Landmark, Search, Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -78,12 +78,6 @@ export function AppLayout() {
                   </DropdownMenuItem>
 
                   <DropdownMenuSeparator />
-
-                  <DropdownMenuItem asChild>
-                    <Link to="/financeiro/extrato" className="flex items-center gap-2">
-                      <Building2 className="h-3.5 w-3.5" /> Extrato Banco
-                    </Link>
-                  </DropdownMenuItem>
                   <DropdownMenuItem asChild>
                     <Link to="/financeiro/conciliacao" className="flex items-center gap-2">
                       <ArrowLeftRight className="h-3.5 w-3.5" /> Conciliação

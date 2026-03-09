@@ -539,16 +539,20 @@ export async function baixarGrupoPagarNoGC(
 async function buildPcCcMaps(): Promise<{
   pcMap: Record<string, string>;
   ccMap: Record<string, string>;
+  fpMap: Record<string, string>;
 }> {
-  const [{ data: pcs }, { data: ccs }] = await Promise.all([
+  const [{ data: pcs }, { data: ccs }, { data: fps }] = await Promise.all([
     supabase.from("fin_plano_contas").select("id, gc_id").not("gc_id", "is", null),
     supabase.from("fin_centros_custo").select("id, codigo").not("codigo", "is", null),
+    supabase.from("fin_formas_pagamento").select("id, gc_id").not("gc_id", "is", null),
   ]);
   const pcMap: Record<string, string> = {};
   for (const pc of pcs ?? []) { if (pc.gc_id) pcMap[pc.gc_id] = pc.id; }
   const ccMap: Record<string, string> = {};
   for (const cc of ccs ?? []) { if (cc.codigo) ccMap[cc.codigo] = cc.id; }
-  return { pcMap, ccMap };
+  const fpMap: Record<string, string> = {};
+  for (const fp of fps ?? []) { if (fp.gc_id) fpMap[fp.gc_id] = fp.id; }
+  return { pcMap, ccMap, fpMap };
 }
 
 // ─── Sync Service (GC → fin_* tables) ───────────────────────────────
@@ -629,7 +633,7 @@ export async function syncRecebimentosGC(
     incluirTodos: filtros?.incluirLiquidados || false,
   };
   const raws = await importarRecebimentosPendentes(onProgress, fetchFiltros);
-  const { pcMap, ccMap } = await buildPcCcMaps();
+  const { pcMap, ccMap, fpMap } = await buildPcCcMaps();
   let importados = 0;
   let atualizados = 0;
   let erros = 0;
@@ -659,6 +663,7 @@ export async function syncRecebimentosGC(
         nome_cliente: raw.nome_cliente ?? null,
         plano_contas_id: raw.plano_contas_id ? (pcMap[raw.plano_contas_id] ?? null) : null,
         centro_custo_id: raw.centro_custo_id ? (ccMap[raw.centro_custo_id] ?? null) : null,
+        forma_pagamento_id: raw.forma_pagamento_id ? (fpMap[raw.forma_pagamento_id] ?? null) : null,
         data_vencimento: raw.data_vencimento || null,
         data_competencia: raw.data_competencia || null,
         data_liquidacao: raw.data_liquidacao || null,
@@ -701,7 +706,7 @@ export async function syncPagamentosGC(
     incluirTodos: filtros?.incluirLiquidados || false,
   };
   const raws = await importarPagamentosPendentes(onProgress, fetchFiltros);
-  const { pcMap, ccMap } = await buildPcCcMaps();
+  const { pcMap, ccMap, fpMap } = await buildPcCcMaps();
   let importados = 0;
   let atualizados = 0;
   let erros = 0;
@@ -731,6 +736,7 @@ export async function syncPagamentosGC(
         nome_fornecedor: raw.nome_fornecedor ?? null,
         plano_contas_id: raw.plano_contas_id ? (pcMap[raw.plano_contas_id] ?? null) : null,
         centro_custo_id: raw.centro_custo_id ? (ccMap[raw.centro_custo_id] ?? null) : null,
+        forma_pagamento_id: raw.forma_pagamento_id ? (fpMap[raw.forma_pagamento_id] ?? null) : null,
         data_vencimento: raw.data_vencimento || null,
         data_competencia: raw.data_competencia || null,
         data_liquidacao: raw.data_liquidacao || null,
