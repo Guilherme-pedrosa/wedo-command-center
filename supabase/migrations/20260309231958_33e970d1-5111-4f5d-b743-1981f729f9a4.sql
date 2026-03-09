@@ -1,0 +1,1 @@
+DELETE FROM fin_formas_pagamento WHERE gc_id = 'undefined';
