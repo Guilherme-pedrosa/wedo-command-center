@@ -82,7 +82,7 @@ const App = () => (
             <Route path="/financeiro/grupos-pagar" element={<Suspense fallback={<LazyFallback />}><FinGrpPagar /></Suspense>} />
             <Route path="/financeiro/agenda" element={<Suspense fallback={<LazyFallback />}><FinAgenda /></Suspense>} />
             <Route path="/financeiro/extrato" element={<Suspense fallback={<LazyFallback />}><FinExtrato /></Suspense>} />
-            <Route path="/financeiro/conciliacao" element={<Suspense fallback={<LazyFallback />}><FinConciliacao /></Suspense>} />
+            <Route path="/financeiro/conciliacao" element={<Navigate to="/financeiro/extrato" replace />} />
             <Route path="/financeiro/conciliacao-historico" element={<Suspense fallback={<LazyFallback />}><FinConciliacaoHist /></Suspense>} />
             <Route path="/financeiro/dre" element={<Suspense fallback={<LazyFallback />}><FinDRE /></Suspense>} />
             <Route path="/financeiro/fluxo-caixa" element={<Suspense fallback={<LazyFallback />}><FinFluxo /></Suspense>} />

@@ -1,120 +1,594 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { EmptyState } from "@/components/EmptyState";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { buscarExtratoInter, extrairNomeDaDescricao } from "@/api/financeiro";
-import { Building2, RefreshCw, Loader2 } from "lucide-react";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon } from "lucide-react";
-import { format, subDays } from "date-fns";
+import { syncRecebimentos, syncPagamentos } from "@/api/syncService";
+import {
+  Building2, RefreshCw, Loader2, CalendarIcon, Download, CloudDownload,
+  Wand2, Brain, ArrowLeftRight, CheckCircle, ChevronDown, ChevronUp,
+  Search, X, ExternalLink, Hash, FileText, Send, Sparkles,
+} from "lucide-react";
+import { format, subDays, subMonths, startOfMonth, endOfMonth, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
+const GC_BASE = "https://gestaoclick.com";
+const gcOsLink = (osCode: string) => `${GC_BASE}/ordens_servicos/${osCode}`;
+const gcRecebimentoLink = (gcId: string) => `${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${gcId}`;
+const gcPagamentoLink = (gcId: string) => `${GC_BASE}/movimentacoes_financeiras/visualizar_pagamento/${gcId}`;
+
+const EXCECAO_RULES = ["SEM_PAR_GC", "TRANSFERENCIA_INTERNA", "PIX_DEVOLVIDO_MANUAL"];
+
+const ruleLabels: Record<string, string> = {
+  SEM_PAR_GC: "Sem Par GC", TRANSFERENCIA_INTERNA: "Transf. Interna", PIX_DEVOLVIDO_MANUAL: "PIX Devolvido",
+  LINK_JA_PAGO_GC: "Rastreabilidade", MATCH_VALOR_DATA: "Valor+Data", MATCH_VALOR_NOME: "Valor+Nome",
+  MATCH_GRUPO_RECEBER: "Grupo Receber", MATCH_GRUPO_PAGAR: "Grupo Pagar", MATCH_AGENDA: "Agenda",
+  NOME_VALOR_EXATO: "Nome+Valor", CNPJ_VALOR_EXATO: "CNPJ+Valor", CNPJ_VALOR_TOLERANCIA: "CNPJ~Valor",
+  PIX_KEY_VALOR: "PIX+Valor", REGRA_0_MAX_CONFIANCA: "Máx. Confiança", SOMA_PARCELAS: "Soma Parcelas",
+  MANUAL: "Manual", MANUAL_VINCULO: "Vínculo Manual", AI_GPT5: "IA GPT-5",
+};
+
+function buildMonthOptions() {
+  const opts = [{ value: "all", label: "Todos os meses" }];
+  const now = new Date();
+  for (let i = 0; i < 6; i++) {
+    const d = subMonths(now, i);
+    opts.push({ value: format(d, "yyyy-MM"), label: format(d, "MMMM yyyy", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase()) });
+  }
+  opts.push({ value: "custom", label: "Período personalizado" });
+  return opts;
+}
+const monthOptions = buildMonthOptions();
+
+function GCLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-primary hover:underline" onClick={e => e.stopPropagation()}>
+      {children}<ExternalLink className="h-2.5 w-2.5" />
+    </a>
+  );
+}
+
 export default function ExtratoBancoPage() {
   const queryClient = useQueryClient();
-  const [dateFrom, setDateFrom] = useState<Date>(subDays(new Date(), 7));
-  const [dateTo, setDateTo] = useState<Date>(new Date());
+  const [mesExtrato, setMesExtrato] = useState("all");
+  const [dateFrom, setDateFrom] = useState(new Date("2024-10-01"));
+  const [dateTo, setDateTo] = useState(endOfMonth(new Date()));
   const [fetching, setFetching] = useState(false);
+  const [syncingGC, setSyncingGC] = useState(false);
+  const [autoRunning, setAutoRunning] = useState(false);
   const [tipoFilter, setTipoFilter] = useState("todos");
   const [reconcFilter, setReconcFilter] = useState("todos");
+  const [searchTerm, setSearchTerm] = useState("");
 
-  const fromISO = format(dateFrom, "yyyy-MM-dd") + "T00:00:00";
-  const toISO = format(dateTo, "yyyy-MM-dd") + "T23:59:59";
+  // Expanded row for manual linking
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedItem, setExpandedItem] = useState<any>(null);
+  const [searchLanc, setSearchLanc] = useState("");
 
+  // Confirm dialog
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [selectedExtrato, setSelectedExtrato] = useState<any>(null);
+  const [selectedLanc, setSelectedLanc] = useState<any>(null);
+  const [linking, setLinking] = useState(false);
+
+  // AI panel for specific transaction
+  const [aiTargetId, setAiTargetId] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState<any>(null);
+  const [aiCommand, setAiCommand] = useState("");
+  const [aiVinculando, setAiVinculando] = useState<string | null>(null);
+  const [aiVinculados, setAiVinculados] = useState<Set<string>>(new Set());
+
+  // Reconciliation detail for reconciled items
+  const [detailItem, setDetailItem] = useState<any>(null);
+  const [detailLancs, setDetailLancs] = useState<any[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const handleMesChange = (val: string) => {
+    setMesExtrato(val);
+    if (val === "all") { setDateFrom(new Date("2024-10-01")); setDateTo(endOfMonth(new Date())); }
+    else if (val !== "custom") { const base = new Date(val + "-01"); setDateFrom(startOfMonth(base)); setDateTo(endOfMonth(base)); }
+  };
+
+  // ALL extrato (reconciled + unreconciled)
   const { data: extrato, isLoading } = useQuery({
-    queryKey: ["fin-extrato", fromISO, toISO],
+    queryKey: ["extrato-unified", dateFrom.toISOString(), dateTo.toISOString()],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("fin_extrato_inter")
-        .select("*")
-        .gte("data_hora", fromISO)
-        .lte("data_hora", toISO)
-        .order("data_hora", { ascending: false })
-        .limit(2000);
+      const PAGE_SIZE = 500;
+      let allData: any[] = [];
+      let offset = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("fin_extrato_inter")
+          .select("*")
+          .gte("data_hora", dateFrom.toISOString())
+          .lte("data_hora", dateTo.toISOString())
+          .order("data_hora", { ascending: false })
+          .range(offset, offset + PAGE_SIZE - 1);
+        if (error) throw error;
+        if (!data || data.length < PAGE_SIZE) { allData = [...allData, ...(data || [])]; hasMore = false; }
+        else { allData = [...allData, ...data]; offset += PAGE_SIZE; if (allData.length >= 3000) hasMore = false; }
+      }
+      return allData;
+    },
+  });
+
+  // Recebimentos for manual linking
+  const { data: recebimentosNL } = useQuery({
+    queryKey: ["conc-recebimentos"],
+    queryFn: async () => {
+      const { data } = await supabase.from("fin_recebimentos")
+        .select("id, descricao, valor, nome_cliente, data_vencimento, status, os_codigo, gc_codigo, gc_id, nf_numero, nfe_numero, liquidado, pago_sistema")
+        .not("status", "eq", "cancelado").order("data_vencimento", { ascending: false }).limit(1000);
       return data || [];
     },
   });
 
-  const filtered = extrato?.filter((e: any) => {
-    if (tipoFilter !== "todos" && e.tipo !== tipoFilter) return false;
-    if (reconcFilter === "sim" && !e.reconciliado) return false;
-    if (reconcFilter === "nao" && e.reconciliado) return false;
-    return true;
-  }) || [];
+  const { data: pagamentosNL } = useQuery({
+    queryKey: ["conc-pagamentos"],
+    queryFn: async () => {
+      const { data } = await supabase.from("fin_pagamentos")
+        .select("id, descricao, valor, nome_fornecedor, data_vencimento, status, os_codigo, gc_codigo, gc_id, nf_numero, nfe_chave, liquidado, pago_sistema")
+        .not("status", "eq", "cancelado").order("data_vencimento", { ascending: false }).limit(1000);
+      return data || [];
+    },
+  });
 
-  const totalCredito = filtered.filter((e: any) => e.tipo === "CREDITO").reduce((s, e: any) => s + Number(e.valor || 0), 0);
-  const totalDebito = filtered.filter((e: any) => e.tipo === "DEBITO").reduce((s, e: any) => s + Number(e.valor || 0), 0);
+  const filtered = useMemo(() => {
+    return (extrato || []).filter((e: any) => {
+      if (tipoFilter !== "todos" && e.tipo !== tipoFilter) return false;
+      if (reconcFilter === "sim" && !e.reconciliado) return false;
+      if (reconcFilter === "nao" && e.reconciliado) return false;
+      if (reconcFilter === "excecao" && !EXCECAO_RULES.includes(e.reconciliation_rule)) return false;
+      if (searchTerm) {
+        const s = searchTerm.toLowerCase();
+        const fields = [e.nome_contraparte, e.contrapartida, e.descricao, e.cpf_cnpj, e.end_to_end_id, e.chave_pix].filter(Boolean).join(" ").toLowerCase();
+        if (!fields.includes(s)) return false;
+      }
+      return true;
+    });
+  }, [extrato, tipoFilter, reconcFilter, searchTerm]);
+
+  const totalCredito = filtered.filter((e: any) => e.tipo === "CREDITO").reduce((s: number, e: any) => s + Number(e.valor || 0), 0);
+  const totalDebito = filtered.filter((e: any) => e.tipo === "DEBITO").reduce((s: number, e: any) => s + Number(e.valor || 0), 0);
+  const totalReconciliado = filtered.filter((e: any) => e.reconciliado).length;
+  const totalNaoReconciliado = filtered.filter((e: any) => !e.reconciliado && !EXCECAO_RULES.includes(e.reconciliation_rule)).length;
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ["extrato-unified"] });
+    queryClient.invalidateQueries({ queryKey: ["conc-recebimentos"] });
+    queryClient.invalidateQueries({ queryKey: ["conc-pagamentos"] });
+  };
 
   const handleFetch = async () => {
     setFetching(true);
     try {
       const txs = await buscarExtratoInter(format(dateFrom, "yyyy-MM-dd"), format(dateTo, "yyyy-MM-dd"));
       toast.success(`${txs.length} transações processadas`);
-      queryClient.invalidateQueries({ queryKey: ["fin-extrato"] });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Erro ao buscar extrato";
-      toast.error(msg, { duration: 6000 });
-    }
+      invalidateAll();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao buscar extrato"); }
     finally { setFetching(false); }
   };
 
+  const handleSyncGC = async () => {
+    setSyncingGC(true);
+    try {
+      const [r, p] = await Promise.all([syncRecebimentos(), syncPagamentos()]);
+      toast.success(`GC sincronizado: ${r.importados} receb., ${p.importados} pagam.`);
+      invalidateAll();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao sincronizar GC"); }
+    finally { setSyncingGC(false); }
+  };
+
+  const handleAutoReconcile = async () => {
+    setAutoRunning(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("reconciliation-engine", { body: {} });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error ?? "Erro");
+      toast.success(`Conciliação: ${data.stats.auto} auto-baixas, ${data.stats.review} revisão`);
+      invalidateAll();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro na conciliação"); }
+    finally { setAutoRunning(false); }
+  };
+
+  // Toggle expand for manual linking (unreconciled)
+  const handleExpandRow = (e: any) => {
+    if (expandedId === e.id) { setExpandedId(null); setSearchLanc(""); }
+    else { setExpandedId(e.id); setExpandedItem(e); setSearchLanc(""); }
+  };
+
+  // Searched lancamentos for expanded row
+  const searchedLancamentos = useMemo(() => {
+    if (!expandedId || !expandedItem) return { recebimentos: [], pagamentos: [] };
+    const isCredito = expandedItem.tipo === "CREDITO";
+    const q = searchLanc.toLowerCase().trim();
+    const filterFn = (l: any) => {
+      if (!q) return true;
+      const fields = [l.descricao, l.nome_cliente, l.nome_fornecedor, l.os_codigo, l.gc_codigo, l.nf_numero, String(l.valor)].filter(Boolean).join(" ").toLowerCase();
+      const numQ = parseFloat(q.replace(",", "."));
+      if (!isNaN(numQ) && Math.abs(Number(l.valor) - numQ) < 0.01) return true;
+      return fields.includes(q);
+    };
+    if (isCredito) return { recebimentos: (recebimentosNL || []).filter(filterFn).slice(0, 50), pagamentos: [] };
+    return { recebimentos: [], pagamentos: (pagamentosNL || []).filter(filterFn).slice(0, 50) };
+  }, [expandedId, expandedItem, searchLanc, recebimentosNL, pagamentosNL]);
+
+  const handleVincular = async () => {
+    if (!selectedExtrato || !selectedLanc) return;
+    setLinking(true);
+    try {
+      const now = new Date().toISOString();
+      const table = selectedLanc._tipo === "receber" ? "fin_recebimentos" : "fin_pagamentos";
+      const tabela = selectedLanc._tipo === "receber" ? "recebimentos" : "pagamentos";
+      await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: selectedLanc.id, reconciliado_em: now, reconciliation_rule: "MANUAL" }).eq("id", selectedExtrato.id);
+      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", selectedLanc.id);
+      await supabase.from("fin_extrato_lancamentos").upsert({ extrato_id: selectedExtrato.id, lancamento_id: selectedLanc.id, tabela, valor_alocado: Number(selectedLanc.valor), reconciliation_rule: "MANUAL" }, { onConflict: "extrato_id,lancamento_id,tabela" });
+      toast.success("Vinculado!");
+      setShowConfirm(false); setSelectedExtrato(null); setSelectedLanc(null); setExpandedId(null);
+      invalidateAll();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+    finally { setLinking(false); }
+  };
+
+  // AI analysis for a specific transaction
+  const handleAiAnalyze = async (extratoId: string, cmd?: string) => {
+    setAiTargetId(extratoId);
+    setAiLoading(true);
+    setAiResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("ai-reconciliation", {
+        body: { command: cmd || aiCommand || null, extratoIds: [extratoId] },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error ?? "Erro");
+      setAiResult(data);
+      toast.success(`IA: ${data.stats.sugestoes_total} sugestões`);
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro IA"); }
+    finally { setAiLoading(false); }
+  };
+
+  const handleAiVincular = async (s: any) => {
+    setAiVinculando(s.extrato_id);
+    try {
+      const now = new Date().toISOString();
+      const table = s.lancamento_tipo === "recebimento" ? "fin_recebimentos" : "fin_pagamentos";
+      const tabela = s.lancamento_tipo === "recebimento" ? "recebimentos" : "pagamentos";
+      await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: s.lancamento_id, reconciliado_em: now, reconciliation_rule: "AI_GPT5" }).eq("id", s.extrato_id);
+      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", s.lancamento_id);
+      await supabase.from("fin_extrato_lancamentos").upsert({ extrato_id: s.extrato_id, lancamento_id: s.lancamento_id, tabela, valor_alocado: s.valor_lancamento, reconciliation_rule: "AI_GPT5" }, { onConflict: "extrato_id,lancamento_id,tabela" });
+      setAiVinculados(prev => new Set([...prev, s.extrato_id]));
+      toast.success("Vinculado via IA!");
+      invalidateAll();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+    finally { setAiVinculando(null); }
+  };
+
+  // Open detail for reconciled items
+  const openReconciledDetail = async (item: any) => {
+    setDetailItem(item);
+    setDetailLancs([]);
+    setDetailLoading(true);
+    try {
+      const { data: links } = await supabase.from("fin_extrato_lancamentos").select("lancamento_id, tabela, valor_alocado, reconciliation_rule").eq("extrato_id", item.id);
+      const fetchLanc = async (id: string, tab: string) => {
+        const isPag = tab === "pagamentos" || tab === "fin_pagamentos";
+        const { data } = await supabase.from(isPag ? "fin_pagamentos" : "fin_recebimentos")
+          .select("id, gc_id, gc_codigo, descricao, valor, data_vencimento, nome_fornecedor, nome_cliente, os_codigo, nf_numero, status")
+          .eq("id", id).single();
+        return data ? { ...(data as any), _tabela: isPag ? "fin_pagamentos" : "fin_recebimentos" } : null;
+      };
+      if (links?.length) {
+        const results: any[] = [];
+        for (const l of links) { const r = await fetchLanc(l.lancamento_id, l.tabela as string); if (r) results.push({ ...r, _rule: l.reconciliation_rule }); }
+        setDetailLancs(results);
+      } else if (item.lancamento_id) {
+        const tab = item.tipo === "DEBITO" ? "pagamentos" : "recebimentos";
+        const r = await fetchLanc(item.lancamento_id, tab);
+        if (r) setDetailLancs([{ ...r, _rule: item.reconciliation_rule }]);
+      }
+    } catch (e) { console.error(e); }
+    finally { setDetailLoading(false); }
+  };
+
+  const labelContraparte = (e: any) => e.nome_contraparte || e.contrapartida || extrairNomeDaDescricao(e.descricao) || "—";
+  const diff = selectedExtrato && selectedLanc ? Math.abs(Number(selectedExtrato.valor) - Number(selectedLanc.valor)) : 0;
+
+  const renderGCMeta = (l: any, tipo: "receber" | "pagar") => {
+    const chips: React.ReactNode[] = [];
+    if (l.os_codigo) chips.push(<GCLink key="os" href={gcOsLink(l.os_codigo)}><Hash className="h-2.5 w-2.5" />OS {l.os_codigo}</GCLink>);
+    if (l.gc_codigo) chips.push(<GCLink key="gc" href={tipo === "receber" ? gcRecebimentoLink(l.gc_codigo) : gcPagamentoLink(l.gc_codigo)}>GC {l.gc_codigo}</GCLink>);
+    if (l.nf_numero) chips.push(<span key="nf" className="inline-flex items-center gap-0.5 text-muted-foreground"><FileText className="h-2.5 w-2.5" />NF {l.nf_numero}</span>);
+    return chips.length ? <div className="flex flex-wrap gap-2 mt-0.5">{chips}</div> : null;
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div><h1 className="text-2xl font-bold text-foreground">Extrato Banco Inter</h1><p className="text-sm text-muted-foreground">Transações do extrato bancário</p></div>
-        <div className="flex items-center gap-2">
-          <Popover><PopoverTrigger asChild><Button variant="outline" size="sm"><CalendarIcon className="mr-2 h-3 w-3" />{format(dateFrom, "dd/MM")}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={dateFrom} onSelect={d => d && setDateFrom(d)} locale={ptBR} className={cn("p-3 pointer-events-auto")} /></PopoverContent></Popover>
-          <span className="text-muted-foreground text-sm">até</span>
-          <Popover><PopoverTrigger asChild><Button variant="outline" size="sm"><CalendarIcon className="mr-2 h-3 w-3" />{format(dateTo, "dd/MM")}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={dateTo} onSelect={d => d && setDateTo(d)} locale={ptBR} className={cn("p-3 pointer-events-auto")} /></PopoverContent></Popover>
-          <Button size="sm" onClick={handleFetch} disabled={fetching}>{fetching ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}Buscar do Inter</Button>
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Extrato & Conciliação</h1>
+          <p className="text-sm text-muted-foreground">Todas as transações do Banco Inter com status de conciliação</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Button onClick={handleFetch} disabled={fetching} variant="outline" size="sm" className="gap-1.5">
+            {fetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}Importar Inter
+          </Button>
+          <Button onClick={handleSyncGC} disabled={syncingGC} variant="outline" size="sm" className="gap-1.5">
+            {syncingGC ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CloudDownload className="h-3.5 w-3.5" />}Sincronizar GC
+          </Button>
+          <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" size="sm" className="gap-1.5">
+            {autoRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}Conciliação Auto
+          </Button>
+          <Button onClick={() => { invalidateAll(); toast.success("Atualizado"); }} variant="ghost" size="sm" className="gap-1.5">
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
-        <div className="rounded-md bg-wedo-green/10 px-3 py-2 text-sm"><span className="text-muted-foreground">Créditos:</span> <span className="font-semibold text-wedo-green">{formatCurrency(totalCredito)}</span></div>
-        <div className="rounded-md bg-wedo-red/10 px-3 py-2 text-sm"><span className="text-muted-foreground">Débitos:</span> <span className="font-semibold text-wedo-red">{formatCurrency(totalDebito)}</span></div>
-        <div className="rounded-md bg-muted/50 px-3 py-2 text-sm"><span className="text-muted-foreground">Saldo:</span> <span className="font-semibold">{formatCurrency(totalCredito - totalDebito)}</span></div>
-        <Select value={tipoFilter} onValueChange={setTipoFilter}><SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todos</SelectItem><SelectItem value="CREDITO">Crédito</SelectItem><SelectItem value="DEBITO">Débito</SelectItem></SelectContent></Select>
-        <Select value={reconcFilter} onValueChange={setReconcFilter}><SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todos</SelectItem><SelectItem value="sim">Reconciliado</SelectItem><SelectItem value="nao">Não reconciliado</SelectItem></SelectContent></Select>
+      {/* Stats + Filters */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="rounded-md bg-accent/30 px-3 py-1.5 text-xs"><span className="text-muted-foreground">Créditos:</span> <span className="font-semibold text-green-500">{formatCurrency(totalCredito)}</span></div>
+        <div className="rounded-md bg-accent/30 px-3 py-1.5 text-xs"><span className="text-muted-foreground">Débitos:</span> <span className="font-semibold text-red-500">{formatCurrency(totalDebito)}</span></div>
+        <div className="rounded-md bg-accent/30 px-3 py-1.5 text-xs"><span className="text-muted-foreground">Saldo:</span> <span className="font-semibold">{formatCurrency(totalCredito - totalDebito)}</span></div>
+        <Badge variant="outline" className="text-[10px] bg-green-500/10 text-green-500">✅ {totalReconciliado}</Badge>
+        <Badge variant="outline" className="text-[10px] bg-red-500/10 text-red-500">❌ {totalNaoReconciliado}</Badge>
+
+        <Select value={mesExtrato} onValueChange={handleMesChange}>
+          <SelectTrigger className="w-[150px] h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>{monthOptions.map(o => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
+        </Select>
+        <div className="flex items-center gap-1">
+          <Popover><PopoverTrigger asChild><Button variant="outline" size="sm" className="h-8 text-xs gap-1"><CalendarIcon className="h-3 w-3" />{format(dateFrom, "dd/MM/yy")}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={dateFrom} onSelect={d => { if (d) { setDateFrom(startOfDay(d)); setMesExtrato("custom"); } }} className={cn("p-3 pointer-events-auto")} /></PopoverContent></Popover>
+          <span className="text-xs text-muted-foreground">→</span>
+          <Popover><PopoverTrigger asChild><Button variant="outline" size="sm" className="h-8 text-xs gap-1"><CalendarIcon className="h-3 w-3" />{format(dateTo, "dd/MM/yy")}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={dateTo} onSelect={d => { if (d) { setDateTo(endOfDay(d)); setMesExtrato("custom"); } }} className={cn("p-3 pointer-events-auto")} /></PopoverContent></Popover>
+        </div>
+        <Select value={tipoFilter} onValueChange={setTipoFilter}><SelectTrigger className="w-[100px] h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todos</SelectItem><SelectItem value="CREDITO">Crédito</SelectItem><SelectItem value="DEBITO">Débito</SelectItem></SelectContent></Select>
+        <Select value={reconcFilter} onValueChange={setReconcFilter}><SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todos</SelectItem><SelectItem value="sim">✅ Conciliado</SelectItem><SelectItem value="nao">❌ Pendente</SelectItem><SelectItem value="excecao">⚠️ Exceção</SelectItem></SelectContent></Select>
+        <div className="relative">
+          <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input placeholder="Buscar..." value={searchTerm} onChange={ev => setSearchTerm(ev.target.value)} className="pl-7 h-8 w-[180px] text-xs" />
+        </div>
       </div>
 
+      {/* Table */}
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         <table className="w-full text-sm">
           <thead><tr className="border-b border-border bg-muted/50">
             <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Data/Hora</th>
             <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Tipo</th>
             <th className="p-3 text-right text-xs font-medium text-muted-foreground uppercase">Valor</th>
-            <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Remetente / Destinatário</th>
+            <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Contraparte</th>
             <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Descrição</th>
-            <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Reconciliado</th>
+            <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Status</th>
+            <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase w-[80px]">Ações</th>
           </tr></thead>
           <tbody>
-            {isLoading ? <tr><td colSpan={6} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
-            : !filtered.length ? <tr><td colSpan={6}><EmptyState icon={Building2} title="Sem transações" description="Busque o extrato do Inter." /></td></tr>
-            : filtered.map((e: any) => (
-              <tr key={e.id} className="border-b border-border hover:bg-muted/30">
-                <td className="p-3 text-xs">{e.data_hora ? formatDateTime(e.data_hora) : "—"}</td>
-                <td className="p-3 text-center"><Badge variant="outline" className={`text-[10px] ${e.tipo === "CREDITO" ? "bg-wedo-green/10 text-wedo-green" : "bg-wedo-red/10 text-wedo-red"}`}>{e.tipo}</Badge></td>
-                <td className="p-3 text-right font-semibold">{formatCurrency(Number(e.valor))}</td>
-                <td className="p-3">
-                  <div className="flex flex-col">
-                    <span className="font-medium text-foreground">{e.nome_contraparte || e.contrapartida || extrairNomeDaDescricao(e.descricao) || "—"}</span>
-                    {e.cpf_cnpj && <span className="text-[10px] text-muted-foreground">{e.cpf_cnpj}</span>}
-                  </div>
-                </td>
-                <td className="p-3 text-muted-foreground truncate max-w-[200px]">{e.descricao || "—"}</td>
-                <td className="p-3 text-center">{e.reconciliado ? <span className="text-wedo-green">✅</span> : <span className="text-muted-foreground">❌</span>}</td>
-              </tr>
-            ))}
+            {isLoading ? (
+              <tr><td colSpan={7} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
+            ) : !filtered.length ? (
+              <tr><td colSpan={7}><EmptyState icon={Building2} title="Sem transações" description="Importe o extrato do Inter." /></td></tr>
+            ) : filtered.map((e: any) => {
+              const isReconciled = e.reconciliado && !EXCECAO_RULES.includes(e.reconciliation_rule);
+              const isException = EXCECAO_RULES.includes(e.reconciliation_rule);
+              const isPending = !e.reconciliado && !isException;
+              const isExpanded = expandedId === e.id;
+              const isAiTarget = aiTargetId === e.id && aiResult;
+
+              return (
+                <tr key={e.id} className="border-b border-border group">
+                  <td colSpan={7} className="p-0">
+                    {/* Main row */}
+                    <div className={cn("grid grid-cols-[120px_70px_100px_1fr_1fr_120px_80px] items-center p-3 transition-colors", isExpanded ? "bg-primary/5" : "hover:bg-muted/30")}>
+                      <div className="text-xs text-muted-foreground">{e.data_hora ? formatDateTime(e.data_hora) : "—"}</div>
+                      <div className="text-center"><Badge variant="outline" className={`text-[10px] ${e.tipo === "CREDITO" ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"}`}>{e.tipo}</Badge></div>
+                      <div className="text-right font-semibold text-sm">{formatCurrency(Number(e.valor))}</div>
+                      <div className="px-2">
+                        <span className="font-medium text-foreground text-xs">{labelContraparte(e)}</span>
+                        {e.cpf_cnpj && <span className="text-[10px] text-muted-foreground ml-2">{e.cpf_cnpj}</span>}
+                      </div>
+                      <div className="text-muted-foreground truncate text-xs px-2" title={e.descricao}>{e.descricao || "—"}</div>
+                      <div className="text-center flex items-center justify-center gap-1">
+                        {isReconciled && (
+                          <>
+                            <span className="text-green-500 text-sm">✅</span>
+                            <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/30">
+                              {ruleLabels[e.reconciliation_rule] || e.reconciliation_rule || "OK"}
+                            </Badge>
+                          </>
+                        )}
+                        {isException && (
+                          <>
+                            <span className="text-yellow-500 text-sm">⚠️</span>
+                            <Badge variant="outline" className="text-[9px] bg-yellow-500/10 text-yellow-600 border-yellow-500/30">
+                              {ruleLabels[e.reconciliation_rule] || e.reconciliation_rule}
+                            </Badge>
+                          </>
+                        )}
+                        {isPending && <span className="text-red-500 text-sm">❌</span>}
+                      </div>
+                      <div className="flex items-center justify-center gap-1">
+                        {isReconciled && (
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openReconciledDetail(e)} title="Ver detalhes">
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {isPending && (
+                          <>
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleExpandRow(e)} title="Vincular manualmente">
+                              {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ArrowLeftRight className="h-3.5 w-3.5" />}
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-primary"
+                              onClick={() => handleAiAnalyze(e.id)}
+                              disabled={aiLoading && aiTargetId === e.id}
+                              title="IA sugerir match"
+                            >
+                              {aiLoading && aiTargetId === e.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Brain className="h-3.5 w-3.5" />}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* AI suggestions inline */}
+                    {isAiTarget && isPending && (
+                      <div className="px-4 pb-3 bg-primary/5 space-y-2 border-t border-primary/20">
+                        <div className="flex items-center gap-2 pt-2">
+                          <Brain className="h-3.5 w-3.5 text-primary" />
+                          <span className="text-xs font-semibold text-primary">Sugestões IA</span>
+                          <Button size="sm" variant="ghost" className="h-6 text-[10px] ml-auto" onClick={() => { setAiTargetId(null); setAiResult(null); }}>
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        {aiResult.analise && <p className="text-[10px] text-muted-foreground bg-muted/50 rounded p-2">{aiResult.analise}</p>}
+                        {aiResult.sugestoes?.length > 0 ? aiResult.sugestoes.map((s: any, idx: number) => {
+                          const isVinculado = aiVinculados.has(s.extrato_id);
+                          return (
+                            <div key={idx} className={cn("rounded-md border p-2 space-y-1.5 text-xs", isVinculado ? "opacity-50 border-green-500/30" : s.confianca === "ALTA" ? "border-green-500/30 bg-green-500/5" : s.confianca === "MEDIA" ? "border-yellow-500/30 bg-yellow-500/5" : "border-red-500/30 bg-red-500/5")}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className={`text-[9px] ${s.confianca === "ALTA" ? "text-green-600 bg-green-500/10" : s.confianca === "MEDIA" ? "text-yellow-600 bg-yellow-500/10" : "text-red-500 bg-red-500/10"}`}>
+                                    {s.confianca} ({s.confianca_pct}%)
+                                  </Badge>
+                                  <span className="font-medium">{s.lancamento_resumo}</span>
+                                  <span className="font-bold text-primary">{formatCurrency(s.valor_lancamento)}</span>
+                                  {s.diferenca > 0.01 && <span className="text-yellow-600 text-[10px]">Δ {formatCurrency(s.diferenca)}</span>}
+                                </div>
+                                {!isVinculado && (
+                                  <Button size="sm" variant={s.confianca === "ALTA" ? "default" : "outline"} className="h-6 text-[10px]" onClick={() => handleAiVincular(s)} disabled={aiVinculando === s.extrato_id}>
+                                    {aiVinculando === s.extrato_id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}Confirmar
+                                  </Button>
+                                )}
+                                {isVinculado && <Badge className="text-[9px] bg-green-600">✓</Badge>}
+                              </div>
+                              <div className="flex flex-wrap gap-1">{s.evidencias?.map((ev: string, i: number) => <span key={i} className="text-[9px] bg-muted/50 rounded px-1.5 py-0.5">{ev}</span>)}</div>
+                            </div>
+                          );
+                        }) : <p className="text-[10px] text-muted-foreground">Nenhuma sugestão encontrada pela IA.</p>}
+                      </div>
+                    )}
+
+                    {/* Expanded: manual linking */}
+                    {isExpanded && isPending && (
+                      <div className="px-4 pb-3 bg-muted/10 space-y-2 border-t border-border">
+                        <div className="relative pt-2">
+                          <Search className="absolute left-2.5 top-4.5 h-3.5 w-3.5 text-muted-foreground" />
+                          <Input placeholder={`Buscar ${e.tipo === "CREDITO" ? "recebimento" : "pagamento"}...`} value={searchLanc} onChange={ev => setSearchLanc(ev.target.value)} className="pl-8 h-8 text-xs" autoFocus />
+                        </div>
+                        <div className="space-y-1 max-h-[30vh] overflow-y-auto">
+                          {(e.tipo === "CREDITO" ? searchedLancamentos.recebimentos : searchedLancamentos.pagamentos).map((l: any) => (
+                            <div key={l.id} onClick={() => { setSelectedExtrato(e); setSelectedLanc({ ...l, _tipo: e.tipo === "CREDITO" ? "receber" : "pagar" }); setShowConfirm(true); }}
+                              className="p-2 rounded-md border border-border cursor-pointer text-xs hover:bg-primary/10 hover:border-primary">
+                              <div className="font-medium">{l.descricao}</div>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                <span className="font-bold text-primary">{formatCurrency(Number(l.valor))}</span>
+                                <span className="text-muted-foreground">{l.nome_cliente || l.nome_fornecedor}</span>
+                                {l.gc_codigo && <span className="text-muted-foreground">GC {l.gc_codigo}</span>}
+                                {l.liquidado && <Badge variant="secondary" className="text-[9px] h-4">Liquidado</Badge>}
+                              </div>
+                              {renderGCMeta(l, e.tipo === "CREDITO" ? "receber" : "pagar")}
+                            </div>
+                          ))}
+                          {!(e.tipo === "CREDITO" ? searchedLancamentos.recebimentos : searchedLancamentos.pagamentos).length && (
+                            <p className="text-[10px] text-muted-foreground text-center py-2">{searchLanc ? "Nenhum resultado" : "Digite para buscar"}</p>
+                          )}
+                        </div>
+                        {/* Quick exception buttons */}
+                        <div className="flex gap-2 pt-1 border-t border-border">
+                          {[{ rule: "SEM_PAR_GC", label: "Sem par no GC" }, { rule: "TRANSFERENCIA_INTERNA", label: "Transf. interna" }, { rule: "PIX_DEVOLVIDO_MANUAL", label: "PIX devolvido" }].map(x => (
+                            <Button key={x.rule} size="sm" variant="ghost" className="text-[10px] h-6" onClick={async () => {
+                              await supabase.from("fin_extrato_inter").update({ reconciliation_rule: x.rule }).eq("id", e.id);
+                              toast.success(`Classificado: ${x.label}`);
+                              setExpandedId(null); invalidateAll();
+                            }}>{x.label}</Button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+
+      {/* Reconciled detail dialog */}
+      <Dialog open={!!detailItem} onOpenChange={o => { if (!o) { setDetailItem(null); setDetailLancs([]); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Detalhes da Conciliação</DialogTitle></DialogHeader>
+          {detailItem && (
+            <div className="space-y-3 text-sm">
+              <div className="rounded-md bg-muted/50 p-3">
+                <p className="font-semibold">{labelContraparte(detailItem)}</p>
+                <p className="text-xs text-muted-foreground">{detailItem.descricao}</p>
+                <div className="flex items-center gap-3 mt-1">
+                  <Badge variant="outline" className={`text-[10px] ${detailItem.tipo === "CREDITO" ? "text-green-500" : "text-red-500"}`}>{detailItem.tipo}</Badge>
+                  <span className="font-bold">{formatCurrency(Number(detailItem.valor))}</span>
+                  <span className="text-xs text-muted-foreground">{detailItem.data_hora ? formatDateTime(detailItem.data_hora) : ""}</span>
+                </div>
+                {detailItem.reconciliation_rule && (
+                  <Badge variant="outline" className="text-[10px] mt-1 bg-primary/10 text-primary">{ruleLabels[detailItem.reconciliation_rule] || detailItem.reconciliation_rule}</Badge>
+                )}
+              </div>
+              {detailLoading ? <Loader2 className="h-5 w-5 animate-spin mx-auto" /> : detailLancs.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase">Lançamentos vinculados</p>
+                  {detailLancs.map((l: any) => (
+                    <div key={l.id} className="rounded-md border border-border p-2 text-xs">
+                      <p className="font-medium">{l.descricao}</p>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className="font-bold text-primary">{formatCurrency(Number(l.valor))}</span>
+                        <span className="text-muted-foreground">{l.nome_cliente || l.nome_fornecedor || ""}</span>
+                        <Badge variant="secondary" className="text-[9px]">{l.status}</Badge>
+                      </div>
+                      {renderGCMeta(l, l._tabela === "fin_pagamentos" ? "pagar" : "receber")}
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="text-xs text-muted-foreground">Nenhum lançamento vinculado encontrado.</p>}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm linking dialog */}
+      <Dialog open={showConfirm} onOpenChange={o => { if (!o) setShowConfirm(false); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Vincular transação</DialogTitle></DialogHeader>
+          <div className="space-y-4 text-sm">
+            <div className="rounded-md bg-muted/50 p-3">
+              <strong>Extrato:</strong> {selectedExtrato?.tipo} · {formatCurrency(Number(selectedExtrato?.valor))}
+              <p className="text-xs mt-1 font-medium">{selectedExtrato && labelContraparte(selectedExtrato)}</p>
+            </div>
+            <div className="flex justify-center"><ArrowLeftRight className="h-5 w-5 text-muted-foreground" /></div>
+            <div className="rounded-md bg-muted/50 p-3">
+              <strong>Lançamento:</strong> {selectedLanc?.descricao} · {formatCurrency(Number(selectedLanc?.valor))}
+              {selectedLanc && renderGCMeta(selectedLanc, selectedLanc._tipo === "receber" ? "receber" : "pagar")}
+            </div>
+            {diff <= 0.01 ? <div className="text-green-500 text-xs flex items-center gap-1"><CheckCircle className="h-3 w-3" />Valores compatíveis</div> : <div className="text-yellow-600 text-xs">⚠️ Diferença de {formatCurrency(diff)}</div>}
+            <p className="text-xs text-muted-foreground">Nota: isto NÃO faz baixa no GC. Apenas marca como pago no sistema.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setShowConfirm(false); setSelectedExtrato(null); setSelectedLanc(null); }}>Cancelar</Button>
+            <Button onClick={handleVincular} disabled={linking}>{linking && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}Vincular</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
