@@ -67,7 +67,7 @@ serve(async (req) => {
 
     while (page <= Math.min(totalPages, pageEnd)) {
       const params = new URLSearchParams({ limite: "100", pagina: String(page) });
-      const url = `${GC_BASE_URL}/api/orcamentos?${params.toString()}`;
+      const url = `${GC_BASE_URL}/api/ordens_servico?${params.toString()}`;
       const response = await rateLimitedFetch(url, { headers: gcHeaders });
 
       if (response.status === 429) {
