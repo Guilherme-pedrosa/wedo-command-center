@@ -663,6 +663,7 @@ export async function syncRecebimentosGC(
         nome_cliente: raw.nome_cliente ?? null,
         plano_contas_id: raw.plano_contas_id ? (pcMap[raw.plano_contas_id] ?? null) : null,
         centro_custo_id: raw.centro_custo_id ? (ccMap[raw.centro_custo_id] ?? null) : null,
+        forma_pagamento_id: raw.forma_pagamento_id ? (fpMap[raw.forma_pagamento_id] ?? null) : null,
         data_vencimento: raw.data_vencimento || null,
         data_competencia: raw.data_competencia || null,
         data_liquidacao: raw.data_liquidacao || null,
