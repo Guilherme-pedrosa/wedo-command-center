@@ -9,12 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw, ExternalLink, FileText, Hash, Search, X, ChevronDown, ChevronUp, Download, CalendarIcon } from "lucide-react";
+import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw, ExternalLink, FileText, Hash, Search, X, ChevronDown, ChevronUp, CalendarIcon } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay } from "date-fns";
 import { cn } from "@/lib/utils";
 import { ptBR } from "date-fns/locale";
-import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
-import { syncByMonthChunks } from "@/api/financeiro";
 import toast from "react-hot-toast";
 
 const GC_BASE = "https://app.gestaoclick.com.br";
@@ -58,8 +56,6 @@ export default function ConciliacaoPage() {
   const [linking, setLinking] = useState(false);
   const [autoRunning, setAutoRunning] = useState(false);
   const [autoResult, setAutoResult] = useState<any>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [mesExtrato, setMesExtrato] = useState(format(new Date(), "yyyy-MM"));
   const [dateFrom, setDateFrom] = useState(startOfMonth(new Date()));
   const [dateTo, setDateTo] = useState(endOfMonth(new Date()));
@@ -261,10 +257,6 @@ export default function ConciliacaoPage() {
           <Button onClick={() => { invalidateAll(); toast.success("Dados recarregados"); }} variant="outline" size="sm" className="gap-2">
             <RefreshCw className="h-4 w-4" />
             Atualizar
-          </Button>
-          <Button onClick={() => setShowSyncDialog(true)} disabled={syncing} size="sm" className="gap-2">
-            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            Sincronizar GC
           </Button>
           <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" className="gap-2">
             {autoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
@@ -624,27 +616,6 @@ export default function ConciliacaoPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Sync Period Dialog */}
-      <SyncPeriodDialog
-        open={showSyncDialog}
-        onOpenChange={setShowSyncDialog}
-        title="Sincronizar GestãoClick → Conciliação"
-        loading={syncing}
-        onSync={async (filtros, onProgress, onStep) => {
-          setSyncing(true);
-          try {
-            const result = await syncByMonthChunks(filtros, onProgress, onStep);
-            invalidateAll();
-            toast.success(`Sincronizado: ${result.importados} registros importados`);
-          } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Erro ao sincronizar");
-            throw err;
-          } finally {
-            setSyncing(false);
-            invalidateAll();
-          }
-        }}
-      />
 
     </div>
   );
