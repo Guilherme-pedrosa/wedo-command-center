@@ -84,15 +84,17 @@ export default function ConciliacaoPage() {
       let offset = 0;
       let hasMore = true;
 
+      const MANUAL_EXCEPTIONS_UI = ['SEM_PAR_GC', 'TRANSFERENCIA_INTERNA', 'PIX_DEVOLVIDO_MANUAL'];
+
       while (hasMore) {
         const { data, error } = await supabase
           .from("fin_extrato_inter")
           .select("*")
           .eq("reconciliado", false)
-          .is("reconciliation_rule", null)
+          .or(`reconciliation_rule.is.null,reconciliation_rule.not.in.(${MANUAL_EXCEPTIONS_UI.join(",")})`)
           .gte("data_hora", dateFrom.toISOString())
           .lte("data_hora", dateTo.toISOString())
-          .order("data_hora", { ascending: false })
+          .order("data_hora", { ascending: true })
           .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) throw error;
