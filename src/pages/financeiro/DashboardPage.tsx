@@ -243,7 +243,7 @@ export default function FinDashboardPage() {
           <p className="text-sm text-muted-foreground">{"Vis\u00e3o consolidada do m\u00f3dulo financeiro"}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
+          <Select value={mesSelecionado} onValueChange={(v) => { setMesSelecionado(v); localStorage.setItem("fin-dash-mes-selecionado", v); }}>
             <SelectTrigger className="w-[200px]">
               <CalendarIcon className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
               <SelectValue />
