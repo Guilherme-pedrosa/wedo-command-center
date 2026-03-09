@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-09-v5
+// redeploy: 2026-03-09-v6
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -39,6 +39,21 @@ function dataProxima(a: string, b: string, dias = 3): boolean {
 }
 
 // Similaridade de nome por palavras em comum (Jaccard simplificado)
+function nomeSimilarScore(a: string | null, b: string | null): number {
+  if (!a || !b) return 0;
+  const normalize = (s: string) =>
+    s.toLowerCase()
+     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+     .replace(/[^a-z0-9\s]/g, "")
+     .split(/\s+/).filter(w => w.length > 2);
+  const wa = normalize(a);
+  const wb = normalize(b);
+  if (!wa.length || !wb.length) return 0;
+  const inter = wa.filter(w => wb.includes(w)).length;
+  const union = new Set([...wa, ...wb]).size;
+  return inter / union;
+}
+
 function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): boolean {
   if (!a || !b) return false;
   const normalize = (s: string) =>
@@ -167,13 +182,58 @@ function aplicarRegras(
     if (matches.length === 1) return { rule: "NOME_VALOR_EXATO", candidato: matches[0], auto: true };
   }
 
-  // Regra 5: Valor exato + data ±3 dias → auto
+  // Regra 5: Valor exato + data ±3 dias → auto ONLY if unambiguous after tiebreakers
   if (extDate) {
     const matches = candidatos.filter(c => {
       const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
       return valorExato(extValor, Number(c.fin.valor)) && finDate && dataProxima(extDate, finDate, 3);
     });
-    if (matches.length === 1) return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: true };
+    if (matches.length === 1) {
+      return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: true };
+    }
+    if (matches.length > 1) {
+      // TIEBREAKER 1: CNPJ/CPF match
+      if (extDoc) {
+        const byDoc = matches.filter(c => docMatches(extDoc, c.doc));
+        if (byDoc.length === 1) return { rule: "CNPJ_VALOR_DATA_EXATO", candidato: byDoc[0], auto: true };
+      }
+      // TIEBREAKER 2: PIX key match
+      if (extPix) {
+        const byPix = matches.filter(c => {
+          if (c.chavePix && c.chavePix.toLowerCase() === extPix) return true;
+          const pixClean = extPix.replace(/\D/g, "");
+          return pixClean.length >= 8 && docMatches(pixClean, c.doc);
+        });
+        if (byPix.length === 1) return { rule: "PIX_CHAVE_VALOR", candidato: byPix[0], auto: true };
+      }
+      // TIEBREAKER 3: Name similarity (pick best score)
+      if (extNome) {
+        const scored = matches
+          .map(c => ({ c, score: nomeSimilarScore(extNome, c.nome) }))
+          .filter(x => x.score >= 0.35)
+          .sort((a, b) => b.score - a.score);
+        if (scored.length === 1) return { rule: "NOME_VALOR_EXATO", candidato: scored[0].c, auto: true };
+        if (scored.length > 1 && scored[0].score - scored[1].score >= 0.2) {
+          return { rule: "NOME_VALOR_EXATO", candidato: scored[0].c, auto: true };
+        }
+      }
+      // TIEBREAKER 4: Closest date
+      const sorted = [...matches].sort((a, b) => {
+        const da = Math.abs(new Date(a.fin.data_vencimento ?? a.fin.data_emissao).getTime() - new Date(extDate).getTime());
+        const db = Math.abs(new Date(b.fin.data_vencimento ?? b.fin.data_emissao).getTime() - new Date(extDate).getTime());
+        return da - db;
+      });
+      const gap = sorted.length >= 2
+        ? Math.abs(new Date(sorted[1].fin.data_vencimento ?? sorted[1].fin.data_emissao).getTime() - new Date(extDate).getTime())
+          - Math.abs(new Date(sorted[0].fin.data_vencimento ?? sorted[0].fin.data_emissao).getTime() - new Date(extDate).getTime())
+        : 0;
+      // Only auto-link if there's a clear date gap (>= 1 day difference between best and second)
+      if (gap >= 86400000) {
+        return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: true };
+      }
+      // BLOCKED: ambiguity unresolved → send to review
+      return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: false };
+    }
   }
 
   // Regra 6: Valor exato + data ±7 dias → fallback ampliado
