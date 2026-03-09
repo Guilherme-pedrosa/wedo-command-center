@@ -9,10 +9,11 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Target, TrendingUp, TrendingDown, AlertTriangle,
-  RefreshCw, DollarSign, Percent, BarChart3, Loader2
+  RefreshCw, DollarSign, Percent, BarChart3, Loader2, Settings
 } from 'lucide-react';
 import { syncVendas, syncCompras } from '@/api/syncService';
 import toast from 'react-hot-toast';
+import MetasConfigDialog from '@/components/financeiro/MetasConfigDialog';
 
 // ─── TIPOS ─────────────────────────────────────────────────────────────────
 interface Meta {
@@ -463,6 +464,7 @@ export default function MetasOrcamentoPage() {
 
   const { metasComResultado, execTotal, isLoading, refetch, hasOsData } = useMetas(selectedYear, selectedMonth);
 
+  const [configOpen, setConfigOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
   const handleSyncAll = useCallback(async () => {
     setSyncingAll(true);
@@ -551,6 +553,10 @@ export default function MetasOrcamentoPage() {
               ))}
             </SelectContent>
           </Select>
+
+          <Button variant="outline" size="sm" onClick={() => setConfigOpen(true)}>
+            <Settings className="h-4 w-4 mr-1" /> Configurar
+          </Button>
 
           <Button variant="default" size="sm" onClick={handleSyncAll} disabled={syncingAll}>
             {syncingAll ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
@@ -722,6 +728,7 @@ export default function MetasOrcamentoPage() {
           </div>
         </CardContent>
       </Card>
+      <MetasConfigDialog open={configOpen} onOpenChange={setConfigOpen} />
     </div>
   );
 }
