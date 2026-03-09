@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Target, TrendingUp, TrendingDown, AlertTriangle,
-  RefreshCw, DollarSign, Percent, BarChart3, ShoppingCart, Package, Loader2
+  RefreshCw, DollarSign, Percent, BarChart3, Loader2
 } from 'lucide-react';
 import { syncVendas, syncCompras } from '@/api/syncService';
 import toast from 'react-hot-toast';
