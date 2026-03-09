@@ -669,7 +669,7 @@ export async function syncPagamentosGC(
     }
   }
 
-  // Backfill recipient_document from fin_fornecedores for records missing it
+  // Backfill recipient_document from fin_fornecedores (batched)
   try {
     const { data: fornecedores } = await supabase
       .from("fin_fornecedores" as any)
@@ -689,13 +689,19 @@ export async function syncPagamentosGC(
         .not("fornecedor_gc_id", "is", null)
         .limit(500) as any;
 
+      // Batch updates by document value to reduce DB calls
+      const updatesByDoc: Record<string, string[]> = {};
       for (const p of (missing ?? []) as any[]) {
         const doc = fornMap[p.fornecedor_gc_id];
         if (doc) {
-          await supabase.from("fin_pagamentos" as any)
-            .update({ recipient_document: doc } as any)
-            .eq("id", p.id);
+          if (!updatesByDoc[doc]) updatesByDoc[doc] = [];
+          updatesByDoc[doc].push(p.id);
         }
+      }
+      for (const [doc, ids] of Object.entries(updatesByDoc)) {
+        await supabase.from("fin_pagamentos" as any)
+          .update({ recipient_document: doc } as any)
+          .in("id", ids);
       }
     }
   } catch (e) {
