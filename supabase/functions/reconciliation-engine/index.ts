@@ -184,6 +184,16 @@ function aplicarRegras(
       return valorExato(extValor, Number(c.fin.valor)) && finDate && dataProxima(extDate, finDate, 3);
     });
     if (matches.length === 1) {
+      // Se temos nome no extrato E nome no candidato, verificar se são minimamente compatíveis
+      // para evitar vincular "Ayrton" com "Donizete" só porque valor e data batem
+      const candNome = matches[0].nome;
+      if (extNome && candNome) {
+        const score = nomeSimilarScore(extNome, candNome);
+        // Se o nome é claramente diferente (score < 0.15), bloquear auto e mandar pra revisão
+        if (score < 0.15) {
+          return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: false };
+        }
+      }
       return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: true };
     }
     if (matches.length > 1) {
