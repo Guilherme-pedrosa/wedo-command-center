@@ -801,74 +801,79 @@ export type Database = {
         }
         Relationships: []
       }
-      fin_metas: {
+      fin_meta_plano_contas: {
         Row: {
-          alerta_pct: number | null
-          ativo: boolean | null
           centro_custo_id: string | null
-          created_at: string | null
           id: string
-          nome: string
-          observacao: string | null
-          periodo_ano: number
-          periodo_mes: number | null
-          periodo_tipo: string
-          periodo_trimestre: number | null
-          plano_contas_id: string | null
-          tipo: string
-          updated_at: string | null
-          valor_meta: number
+          meta_id: string
+          nome_centro_custo: string | null
+          nome_plano: string | null
+          peso: number | null
+          plano_contas_id: string
         }
         Insert: {
-          alerta_pct?: number | null
-          ativo?: boolean | null
           centro_custo_id?: string | null
-          created_at?: string | null
           id?: string
-          nome: string
-          observacao?: string | null
-          periodo_ano: number
-          periodo_mes?: number | null
-          periodo_tipo: string
-          periodo_trimestre?: number | null
-          plano_contas_id?: string | null
-          tipo: string
-          updated_at?: string | null
-          valor_meta: number
+          meta_id: string
+          nome_centro_custo?: string | null
+          nome_plano?: string | null
+          peso?: number | null
+          plano_contas_id: string
         }
         Update: {
-          alerta_pct?: number | null
-          ativo?: boolean | null
           centro_custo_id?: string | null
-          created_at?: string | null
           id?: string
-          nome?: string
-          observacao?: string | null
-          periodo_ano?: number
-          periodo_mes?: number | null
-          periodo_tipo?: string
-          periodo_trimestre?: number | null
-          plano_contas_id?: string | null
-          tipo?: string
-          updated_at?: string | null
-          valor_meta?: number
+          meta_id?: string
+          nome_centro_custo?: string | null
+          nome_plano?: string | null
+          peso?: number | null
+          plano_contas_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "fin_metas_centro_custo_id_fkey"
-            columns: ["centro_custo_id"]
+            foreignKeyName: "fin_meta_plano_contas_meta_id_fkey"
+            columns: ["meta_id"]
             isOneToOne: false
-            referencedRelation: "fin_centros_custo"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "fin_metas_plano_contas_id_fkey"
-            columns: ["plano_contas_id"]
-            isOneToOne: false
-            referencedRelation: "fin_plano_contas"
+            referencedRelation: "fin_metas"
             referencedColumns: ["id"]
           },
         ]
+      }
+      fin_metas: {
+        Row: {
+          ativo: boolean | null
+          categoria: string
+          created_at: string | null
+          id: string
+          meta_percentual: number | null
+          meta_valor: number | null
+          nome: string
+          periodo: string | null
+          tipo_meta: string
+        }
+        Insert: {
+          ativo?: boolean | null
+          categoria: string
+          created_at?: string | null
+          id?: string
+          meta_percentual?: number | null
+          meta_valor?: number | null
+          nome: string
+          periodo?: string | null
+          tipo_meta: string
+        }
+        Update: {
+          ativo?: boolean | null
+          categoria?: string
+          created_at?: string | null
+          id?: string
+          meta_percentual?: number | null
+          meta_valor?: number | null
+          nome?: string
+          periodo?: string | null
+          tipo_meta?: string
+        }
+        Relationships: []
       }
       fin_pagamentos: {
         Row: {
