@@ -2,7 +2,7 @@ import {
   LayoutDashboard, ShoppingCart, DollarSign, Receipt,
   Layers, CreditCard, CalendarClock, ScrollText, Settings,
   ChevronDown, TrendingUp, Building2, ArrowLeftRight, FileText,
-  BarChart3, LineChart, BookOpen, Landmark, Search,
+  BarChart3, LineChart, BookOpen, Landmark, Search, Users, Building,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
