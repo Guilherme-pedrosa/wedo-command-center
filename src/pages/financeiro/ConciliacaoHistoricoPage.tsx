@@ -622,8 +622,16 @@ export default function ConciliacaoHistoricoPage() {
                             <td className="py-1 pr-2">{pLanc?.descricao || `ID: ${p.lancamento_id?.slice(0, 8)}…`}</td>
                             <td className="py-1 pr-2 text-muted-foreground">{pLanc?.nome_cliente || pLanc?.nome_fornecedor || "—"}</td>
                             <td className="py-1 pr-2 font-mono text-muted-foreground">
-                              {pLanc?.gc_codigo || "—"}
-                              {pLanc?.os_codigo && <span className="ml-1">/ {pLanc.os_codigo}</span>}
+                              {pLanc?.gc_codigo ? (
+                                <a href={p.tabela === "fin_pagamentos" ? gcPagamentoLink(pLanc.gc_id || pLanc.gc_codigo) : gcRecebimentoLink(pLanc.gc_id || pLanc.gc_codigo)} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-0.5">
+                                  {pLanc.gc_codigo} <ExternalLink className="h-2.5 w-2.5" />
+                                </a>
+                              ) : "—"}
+                              {pLanc?.os_codigo && (
+                                <a href={gcOsLink(pLanc.gc_os_id || pLanc.os_codigo)} target="_blank" rel="noopener noreferrer" className="ml-1 text-primary hover:underline inline-flex items-center gap-0.5">
+                                  / {pLanc.os_codigo} <ExternalLink className="h-2.5 w-2.5" />
+                                </a>
+                              )}
                             </td>
                             <td className="py-1 text-right font-semibold">{formatCurrency(p.valor_alocado)}</td>
                           </tr>
