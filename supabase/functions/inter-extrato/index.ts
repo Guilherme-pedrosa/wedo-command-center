@@ -61,7 +61,7 @@ function splitMonthlyChunks(dataInicio: string, dataFim: string): Array<{ start:
   return chunks;
 }
 
-/** Fetch with retries and backoff for rate limits */
+/** Fetch with retries and backoff for rate limits (429, 500, 503) */
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
@@ -70,17 +70,16 @@ async function fetchWithRetry(
 ): Promise<Response> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const res = await fetch(url, options);
-    if (res.status === 429 || res.status === 503) {
+    if (res.status === 429 || res.status === 500 || res.status === 503) {
       if (attempt < maxRetries) {
-        const delay = (attempt + 1) * 5000; // 5s, 10s, 15s
-        console.warn(`[inter-extrato] ${label} → 429/503, aguardando ${delay / 1000}s (tentativa ${attempt + 1}/${maxRetries})...`);
+        const delay = (attempt + 1) * 6000; // 6s, 12s, 18s
+        console.warn(`[inter-extrato] ${label} → HTTP ${res.status}, aguardando ${delay / 1000}s (tentativa ${attempt + 1}/${maxRetries})...`);
         await sleep(delay);
         continue;
       }
     }
     return res;
   }
-  // Should not reach here, but safety
   return await fetch(url, options);
 }
 
