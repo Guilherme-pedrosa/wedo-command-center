@@ -28,6 +28,13 @@ const GC_BASE = "https://gestaoclick.com";
 const gcOsLink = (osCode: string) => `${GC_BASE}/ordens_servicos/${osCode}`;
 const gcRecebimentoLink = (gcId: string) => `${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${gcId}`;
 const gcPagamentoLink = (gcId: string) => `${GC_BASE}/movimentacoes_financeiras/visualizar_pagamento/${gcId}`;
+const gcCompraLink = (numero: string) => `${GC_BASE}/compras/visualizar_compra/${numero}`;
+
+const extractCompraNumero = (descricao?: string): string | null => {
+  if (!descricao) return null;
+  const match = descricao.match(/Compra de n[ºo°]\s*(\d+)/i);
+  return match ? match[1] : null;
+};
 
 const EXCECAO_RULES = ["SEM_PAR_GC", "TRANSFERENCIA_INTERNA", "PIX_DEVOLVIDO_MANUAL"];
 
