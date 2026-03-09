@@ -1814,6 +1814,7 @@ export type Database = {
     Views: {
       vw_conciliacao_extrato: {
         Row: {
+          _tabela: string | null
           agenda_id: string | null
           chave_pix: string | null
           codigo_barras: string | null
@@ -1825,6 +1826,7 @@ export type Database = {
           diferenca: number | null
           end_to_end_id: string | null
           exato: boolean | null
+          gc_codigo_vinculado: string | null
           grupo_pagar_id: string | null
           grupo_receber_id: string | null
           id: string | null
@@ -1841,6 +1843,7 @@ export type Database = {
           valor_gc: number | null
         }
         Insert: {
+          _tabela?: never
           agenda_id?: string | null
           chave_pix?: string | null
           codigo_barras?: string | null
@@ -1852,6 +1855,7 @@ export type Database = {
           diferenca?: never
           end_to_end_id?: string | null
           exato?: never
+          gc_codigo_vinculado?: never
           grupo_pagar_id?: string | null
           grupo_receber_id?: string | null
           id?: string | null
@@ -1868,6 +1872,7 @@ export type Database = {
           valor_gc?: never
         }
         Update: {
+          _tabela?: never
           agenda_id?: string | null
           chave_pix?: string | null
           codigo_barras?: string | null
@@ -1879,6 +1884,7 @@ export type Database = {
           diferenca?: never
           end_to_end_id?: string | null
           exato?: never
+          gc_codigo_vinculado?: never
           grupo_pagar_id?: string | null
           grupo_receber_id?: string | null
           id?: string | null

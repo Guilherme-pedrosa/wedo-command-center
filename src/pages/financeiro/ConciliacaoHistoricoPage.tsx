@@ -280,6 +280,17 @@ export default function ConciliacaoHistoricoPage() {
             </Tooltip>
           </TooltipProvider>
         )}
+        {item.gc_codigo_vinculado && (
+          <a
+            href={item._tabela === "fin_recebimentos" ? gcRecebimentoLink(item.gc_codigo_vinculado) : gcPagamentoLink(item.gc_codigo_vinculado)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-0.5 text-[10px] text-primary hover:underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            GC {item.gc_codigo_vinculado} <ExternalLink className="h-2.5 w-2.5" />
+          </a>
+        )}
       </div>
       {/* Valor extrato */}
       <div className="col-span-1 text-right font-bold text-foreground">
@@ -323,10 +334,21 @@ export default function ConciliacaoHistoricoPage() {
       <div className="col-span-1 text-xs text-muted-foreground font-mono truncate">
         {item.cpf_cnpj || "—"}
       </div>
-      <div className="col-span-2">
+      <div className="col-span-2 flex flex-wrap items-center gap-1">
         <Badge variant="destructive" className="text-[10px]">
           {ruleLabels[item.reconciliation_rule] || item.reconciliation_rule}
         </Badge>
+        {item.gc_codigo_vinculado && (
+          <a
+            href={item._tabela === "fin_recebimentos" ? gcRecebimentoLink(item.gc_codigo_vinculado) : gcPagamentoLink(item.gc_codigo_vinculado)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-0.5 text-[10px] text-primary hover:underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            GC {item.gc_codigo_vinculado} <ExternalLink className="h-2.5 w-2.5" />
+          </a>
+        )}
       </div>
       <div className="col-span-1 text-right font-bold text-foreground">
         {formatCurrency(Math.abs(Number(item.valor_extrato || 0)))}
@@ -512,8 +534,19 @@ export default function ConciliacaoHistoricoPage() {
                   <div className="col-span-2 text-xs text-muted-foreground">{formatDateTime(item.data_hora)}</div>
                   <div className="col-span-2 font-medium text-foreground truncate">{item.nome_contraparte || "—"}</div>
                   <div className="col-span-1 text-xs text-muted-foreground font-mono truncate">{item.cpf_cnpj || "—"}</div>
-                  <div className="col-span-2">
+                  <div className="col-span-2 flex flex-wrap items-center gap-1">
                     <Badge variant="outline" className="text-[10px]">{item.tipo}</Badge>
+                    {item.gc_codigo_vinculado && (
+                      <a
+                        href={item._tabela === "fin_recebimentos" ? gcRecebimentoLink(item.gc_codigo_vinculado) : gcPagamentoLink(item.gc_codigo_vinculado)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-0.5 text-[10px] text-primary hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        GC {item.gc_codigo_vinculado} <ExternalLink className="h-2.5 w-2.5" />
+                      </a>
+                    )}
                   </div>
                   <div className="col-span-1 text-right font-bold text-foreground">{formatCurrency(Math.abs(Number(item.valor_extrato || 0)))}</div>
                   <div className="col-span-2 text-xs text-muted-foreground truncate" title={item.descricao}>{item.descricao || "—"}</div>
