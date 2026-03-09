@@ -34,7 +34,8 @@ const FinMetas = lazy(() => import("@/pages/financeiro/MetasOrcamentoPage"));
 const FinCentrosCusto = lazy(() => import("@/pages/financeiro/CentrosCustoPage"));
 const FinClientes = lazy(() => import("@/pages/financeiro/ClientesPage"));
 const FinFornecedores = lazy(() => import("@/pages/financeiro/FornecedoresPage"));
-
+const RelatorioResultados = lazy(() => import("@/pages/RelatorioResultados"));
+const TvResultados = lazy(() => import("@/pages/TvResultados"));
 const queryClient = new QueryClient();
 
 function LazyFallback() {
@@ -89,8 +90,13 @@ const App = () => (
             <Route path="/financeiro/metas" element={<Suspense fallback={<LazyFallback />}><FinMetas /></Suspense>} />
             <Route path="/financeiro/centros-custo" element={<Suspense fallback={<LazyFallback />}><FinCentrosCusto /></Suspense>} />
             <Route path="/financeiro/clientes" element={<Suspense fallback={<LazyFallback />}><FinClientes /></Suspense>} />
-            <Route path="/financeiro/fornecedores" element={<Suspense fallback={<LazyFallback />}><FinFornecedores /></Suspense>} />
+          <Route path="/financeiro/fornecedores" element={<Suspense fallback={<LazyFallback />}><FinFornecedores /></Suspense>} />
           </Route>
+
+          {/* Standalone pages (no sidebar) */}
+          <Route path="/relatorio/resultados" element={<Suspense fallback={<LazyFallback />}><RelatorioResultados /></Suspense>} />
+          <Route path="/tv/resultados" element={<Suspense fallback={<LazyFallback />}><TvResultados /></Suspense>} />
+
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
