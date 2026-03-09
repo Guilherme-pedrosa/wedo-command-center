@@ -59,8 +59,9 @@ serve(async (req) => {
       situacaoId = body?.situacao_id ?? null;
     } catch { /* no body */ }
 
-    // Step 1: If no situacao_id provided, fetch all situações de compras and find "Finalizado (Mercadoria Chegou)"
-    if (!situacaoId) {
+    // Step 1: Fetch all situações and find target ones
+    let situacaoIds: string[] = situacaoId ? [situacaoId] : [];
+    if (situacaoIds.length === 0) {
       console.log("[sync-compras] Fetching situacoes_compras...");
       const sitResp = await rateLimitedFetch(
         `${GC_BASE_URL}/api/situacoes_compras`,
@@ -71,10 +72,12 @@ serve(async (req) => {
         const situacoes = Array.isArray(sitData?.data) ? sitData.data : [];
         for (const sit of situacoes) {
           const nome = String(sit.nome || "").toLowerCase().trim();
-          if (nome.includes("finalizado") && nome.includes("mercadoria chegou")) {
-            situacaoId = String(sit.id);
+          if (
+            (nome.includes("finalizado") && nome.includes("mercadoria chegou")) ||
+            (nome.includes("comprado") && nome.includes("ag chegada"))
+          ) {
+            situacaoIds.push(String(sit.id));
             console.log(`[sync-compras] Found situacao: ${sit.nome} (id=${sit.id})`);
-            break;
           }
         }
       } else {
@@ -82,9 +85,9 @@ serve(async (req) => {
       }
     }
 
-    if (!situacaoId) {
+    if (situacaoIds.length === 0) {
       return new Response(
-        JSON.stringify({ error: "No matching situacao_id found for 'Finalizado (Mercadoria Chegou)'" }),
+        JSON.stringify({ error: "No matching situacao_ids found" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -92,84 +95,95 @@ serve(async (req) => {
     let totalFetched = 0;
     let upserted = 0;
     let errors = 0;
-    let page = 1;
-    let totalPages = 999;
 
-    while (page <= totalPages) {
-      const params: Record<string, string> = {
-        limite: "100",
-        pagina: String(page),
-        situacao_id: situacaoId,
-      };
-      if (dataInicio) params.data_inicio = dataInicio;
-      if (dataFim) params.data_fim = dataFim;
+    for (const currentSitId of situacaoIds) {
+      let page = 1;
+      let totalPages = 999;
 
-      const url = `${GC_BASE_URL}/api/compras?${new URLSearchParams(params).toString()}`;
-      const response = await rateLimitedFetch(url, { headers: gcHeaders });
+      while (page <= totalPages) {
+        const params: Record<string, string> = {
+          limite: "100",
+          pagina: String(page),
+          situacao_id: currentSitId,
+        };
+        if (dataInicio) params.data_inicio = dataInicio;
+        if (dataFim) params.data_fim = dataFim;
 
-      if (response.status === 429) {
-        await new Promise((r) => setTimeout(r, 2000));
-        continue;
-      }
-      if (!response.ok) {
-        console.error(`[sync-compras] GC API error: ${response.status}`);
-        errors++;
-        break;
-      }
+        const url = `${GC_BASE_URL}/api/compras?${new URLSearchParams(params).toString()}`;
+        const response = await rateLimitedFetch(url, { headers: gcHeaders });
 
-      const data = await response.json();
-      const records = Array.isArray(data?.data) ? data.data : [];
-      const meta = data?.meta || {};
-      totalPages = meta?.total_paginas || 1;
-
-      const batch = [];
-      for (const compra of records) {
-        totalFetched++;
-        // Unwrap GC nested structure: { Compra: { ... } }
-        const c = (compra as any).Compra ?? compra;
-        const gcId = String(c.id || "");
-        if (!gcId) { errors++; continue; }
-
-        let dataCompra: string | null = null;
-        const rawData = String(c.data_emissao || c.data || c.data_compra || "");
-        if (rawData) {
-          const match = rawData.match(/^(\d{4}-\d{2}-\d{2})/);
-          if (match) dataCompra = match[1];
+        if (response.status === 429) {
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
+        }
+        if (!response.ok) {
+          console.error(`[sync-compras] GC API error: ${response.status}`);
+          errors++;
+          break;
         }
 
-        batch.push({
-          gc_id: gcId,
-          codigo: String(c.codigo || c.numero || ""),
-          nome_fornecedor: String(c.nome_fornecedor || c.fornecedor_nome || "") || null,
-          fornecedor_id: String(c.fornecedor_id || "") || null,
-          nome_situacao: String(c.nome_situacao || c.situacao_nome || ""),
-          situacao_id: situacaoId,
-          data: dataCompra,
-          valor_total: parseFloat(String(c.valor_total || "0")) || null,
-          valor_produtos: parseFloat(String(c.valor_produtos || "0")) || null,
-          valor_frete: parseFloat(String(c.valor_frete || "0")) || null,
-          desconto: parseFloat(String(c.desconto || "0")) || 0,
-          observacao: String(c.observacao || c.observacoes || "") || null,
-          gc_payload_raw: compra,
-          last_synced_at: new Date().toISOString(),
-        });
-      }
+        const data = await response.json();
+        const records = Array.isArray(data?.data) ? data.data : [];
+        const meta = data?.meta || {};
+        totalPages = meta?.total_paginas || 1;
 
-      if (batch.length > 0) {
-        const { error: upsertErr, count } = await supabase
-          .from("gc_compras")
-          .upsert(batch, { onConflict: "gc_id", count: "exact" });
+        const batch = [];
+        for (const compra of records) {
+          totalFetched++;
+          const c = (compra as any).Compra ?? compra;
+          const gcId = String(c.id || "");
+          if (!gcId) { errors++; continue; }
 
-        if (upsertErr) {
-          console.error(`[sync-compras] Upsert error: ${upsertErr.message}`);
-          errors += batch.length;
-        } else {
-          upserted += count || batch.length;
+          let dataCompra: string | null = null;
+          const rawData = String(c.data_emissao || c.data || c.data_compra || "");
+          if (rawData) {
+            const match = rawData.match(/^(\d{4}-\d{2}-\d{2})/);
+            if (match) dataCompra = match[1];
+          }
+
+          // Extract cadastrado_em (created date in GC)
+          let cadastradoEm: string | null = null;
+          const rawCad = String(c.cadastrado_em || c.created || c.data_cadastro || "");
+          if (rawCad) {
+            const match = rawCad.match(/^(\d{4}-\d{2}-\d{2})/);
+            if (match) cadastradoEm = match[1];
+          }
+
+          batch.push({
+            gc_id: gcId,
+            codigo: String(c.codigo || c.numero || ""),
+            nome_fornecedor: String(c.nome_fornecedor || c.fornecedor_nome || "") || null,
+            fornecedor_id: String(c.fornecedor_id || "") || null,
+            nome_situacao: String(c.nome_situacao || c.situacao_nome || ""),
+            situacao_id: currentSitId,
+            data: dataCompra,
+            cadastrado_em: cadastradoEm,
+            valor_total: parseFloat(String(c.valor_total || "0")) || null,
+            valor_produtos: parseFloat(String(c.valor_produtos || "0")) || null,
+            valor_frete: parseFloat(String(c.valor_frete || "0")) || null,
+            desconto: parseFloat(String(c.desconto || "0")) || 0,
+            observacao: String(c.observacao || c.observacoes || "") || null,
+            gc_payload_raw: compra,
+            last_synced_at: new Date().toISOString(),
+          });
         }
-      }
 
-      console.log(`[sync-compras] page ${page}/${totalPages} — ${records.length} recs`);
-      page++;
+        if (batch.length > 0) {
+          const { error: upsertErr, count } = await supabase
+            .from("gc_compras")
+            .upsert(batch, { onConflict: "gc_id", count: "exact" });
+
+          if (upsertErr) {
+            console.error(`[sync-compras] Upsert error: ${upsertErr.message}`);
+            errors += batch.length;
+          } else {
+            upserted += count || batch.length;
+          }
+        }
+
+        console.log(`[sync-compras] sit=${currentSitId} page ${page}/${totalPages} — ${records.length} recs`);
+        page++;
+      }
     }
 
     const duration = Date.now() - startTime;
@@ -177,13 +191,13 @@ serve(async (req) => {
     await supabase.from("sync_log").insert({
       tipo: "sync-compras",
       status: errors > 0 ? "partial" : "ok",
-      payload: { totalFetched, upserted, errors, situacaoId },
+      payload: { totalFetched, upserted, errors, situacaoIds },
       duracao_ms: duration,
     });
 
     return new Response(JSON.stringify({
       success: true,
-      totalFetched, upserted, errors, situacaoId, duration_ms: duration,
+      totalFetched, upserted, errors, situacaoIds, duration_ms: duration,
     }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

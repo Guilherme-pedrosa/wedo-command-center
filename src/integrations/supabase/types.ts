@@ -1337,6 +1337,7 @@ export type Database = {
       }
       gc_compras: {
         Row: {
+          cadastrado_em: string | null
           codigo: string | null
           created_at: string | null
           data: string | null
@@ -1355,6 +1356,7 @@ export type Database = {
           valor_total: number | null
         }
         Insert: {
+          cadastrado_em?: string | null
           codigo?: string | null
           created_at?: string | null
           data?: string | null
@@ -1373,6 +1375,7 @@ export type Database = {
           valor_total?: number | null
         }
         Update: {
+          cadastrado_em?: string | null
           codigo?: string | null
           created_at?: string | null
           data?: string | null
