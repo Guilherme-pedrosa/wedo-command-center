@@ -11,7 +11,6 @@ const GC_BASE_URL = "https://api.gestaoclick.com";
 const MIN_DELAY_MS = 350;
 let lastCallTime = 0;
 
-// Status de OS executadas no GestãoClick
 const EXECUTADO_STATUSES = [
   "EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA",
   "EXECUTADO - AGUARDANDO PAGAMENTO",
@@ -28,6 +27,42 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
   }
   lastCallTime = Date.now();
   return fetch(url, options);
+}
+
+async function fetchAllPages(
+  baseParams: Record<string, string>,
+  gcHeaders: Record<string, string>,
+  label: string
+): Promise<any[]> {
+  const results: any[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  while (page <= totalPages) {
+    const params = new URLSearchParams({ ...baseParams, limite: "100", pagina: String(page) });
+    const url = `${GC_BASE_URL}/api/orcamentos?${params.toString()}`;
+    const response = await rateLimitedFetch(url, { headers: gcHeaders });
+
+    if (response.status === 429) {
+      await new Promise((r) => setTimeout(r, 2000));
+      continue;
+    }
+    if (!response.ok) {
+      console.error(`[sync-os] ${label} page ${page} error: ${response.status}`);
+      break;
+    }
+
+    const data = await response.json();
+    const records = Array.isArray(data?.data) ? data.data : [];
+    const meta = data?.meta || {};
+
+    results.push(...records);
+    totalPages = meta?.total_paginas || 1;
+    console.log(`[sync-os] ${label} page ${page}/${totalPages} — ${records.length} records`);
+    page++;
+  }
+
+  return results;
 }
 
 serve(async (req) => {
@@ -51,87 +86,45 @@ serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
-
     const gcHeaders: Record<string, string> = {
       "access-token": gcAccessToken,
       "secret-access-token": gcSecretToken,
       "Content-Type": "application/json",
     };
 
-    // Parse optional page range from request body
-    // Supports: { page_start, page_end } for chunked execution
-    let pageStart = 1;
-    let pageEnd = 999;
-    let onlyExecutados = true;
+    // Optional: filter to specific status(es) or fetch all EXECUTADO
+    let statusesToSync = [...EXECUTADO_STATUSES];
     try {
       const body = await req.json();
-      if (body?.page_start) pageStart = body.page_start;
-      if (body?.page_end) pageEnd = body.page_end;
-      if (body?.all === true) onlyExecutados = false;
-    } catch {
-      // No body — fetch all, filter EXECUTADO only
-    }
+      if (body?.statuses && Array.isArray(body.statuses)) {
+        statusesToSync = body.statuses;
+      }
+    } catch { /* no body */ }
 
     const allOS: any[] = [];
-    let page = pageStart;
-    let totalPages = pageStart; // Will be updated on first response
-    let totalSkipped = 0;
+    const statusCounts: Record<string, number> = {};
 
-    while (page <= Math.min(totalPages, pageEnd)) {
-      const params = new URLSearchParams({
-        limite: "100",
-        pagina: String(page),
-      });
-
-      const url = `${GC_BASE_URL}/api/orcamentos?${params.toString()}`;
-      const response = await rateLimitedFetch(url, { headers: gcHeaders });
-
-      if (response.status === 401) {
-        throw new Error("GC_AUTH_ERROR: Invalid credentials");
-      }
-      if (response.status === 429) {
-        await new Promise((r) => setTimeout(r, 2000));
-        continue;
-      }
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`GC API error ${response.status}: ${text}`);
-      }
-
-      const data = await response.json();
-      // GC returns { data: [...], meta: {...} } directly
-      const records = Array.isArray(data?.data) ? data.data : [];
-      const meta = data?.meta || {};
-
-      // Filter for EXECUTADO statuses client-side (GC ignores nome_situacao filter)
-      for (const rec of records) {
-        const situacao = (rec.nome_situacao || "").toUpperCase().trim();
-        const isExecutado = situacao.startsWith("EXECUTADO");
-        if (!onlyExecutados || isExecutado) {
-          allOS.push(rec);
-        } else {
-          totalSkipped++;
-        }
-      }
-
-      totalPages = meta?.total_paginas || 1;
-      console.log(`[sync-os] Page ${page}/${totalPages} — ${records.length} fetched, ${allOS.length} executados so far`);
-      page++;
+    // Fetch each EXECUTADO status separately (GC filters by nome_situacao param)
+    for (const status of statusesToSync) {
+      const records = await fetchAllPages(
+        { nome_situacao: status },
+        gcHeaders,
+        status
+      );
+      statusCounts[status] = records.length;
+      allOS.push(...records);
+      console.log(`[sync-os] Status "${status}": ${records.length} records`);
     }
 
-    console.log(`[sync-os] Total EXECUTADO: ${allOS.length}, skipped: ${totalSkipped}`);
+    console.log(`[sync-os] Total EXECUTADO: ${allOS.length}`);
 
     // Upsert into os_index
     let upserted = 0;
     let errors = 0;
-    const statusCounts: Record<string, number> = {};
 
     for (const os of allOS) {
       const osId = String(os.id || "");
       const osCodigo = String(os.codigo || "");
-      const situacao = os.nome_situacao || "unknown";
-
-      statusCounts[situacao] = (statusCounts[situacao] || 0) + 1;
 
       if (!osId || !osCodigo) {
         errors++;
@@ -155,7 +148,7 @@ serve(async (req) => {
         orc_codigo: osCodigo,
         todos_orcs: null,
         nome_cliente: os.nome_cliente || null,
-        nome_situacao: situacao,
+        nome_situacao: os.nome_situacao || null,
         data_saida: dataSaida,
         valor_total: valorTotal,
         valor_servicos: valorServicos,
@@ -176,7 +169,6 @@ serve(async (req) => {
       }
     }
 
-    // Update os_index_meta
     await supabase.from("os_index_meta").upsert({
       id: 1,
       status: "done",
@@ -188,21 +180,11 @@ serve(async (req) => {
     await supabase.from("sync_log").insert({
       tipo: "sync-os",
       status: errors > 0 ? "partial" : "ok",
-      payload: { pageStart, pageEnd, totalPages, total_fetched: allOS.length, totalSkipped, upserted, errors, statusCounts },
+      payload: { statusCounts, total_fetched: allOS.length, upserted, errors },
       duracao_ms: duration,
     });
 
-    const result = {
-      success: true,
-      total_fetched: allOS.length,
-      totalSkipped,
-      upserted,
-      errors,
-      statusCounts,
-      pages_processed: `${pageStart}-${Math.min(page - 1, pageEnd)}/${totalPages}`,
-      duration_ms: duration,
-    };
-
+    const result = { success: true, total_fetched: allOS.length, upserted, errors, statusCounts, duration_ms: duration };
     console.log(`[sync-os] Done:`, result);
 
     return new Response(JSON.stringify(result), {
@@ -215,21 +197,13 @@ serve(async (req) => {
     console.error("[sync-os] Fatal error:", errorMsg);
 
     try {
-      const supabase = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-      );
-      await supabase.from("sync_log").insert({
-        tipo: "sync-os",
-        status: "erro",
-        erro: errorMsg,
-        duracao_ms: duration,
-      });
+      const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      await supabase.from("sync_log").insert({ tipo: "sync-os", status: "erro", erro: errorMsg, duracao_ms: duration });
     } catch { /* ignore */ }
 
-    return new Response(
-      JSON.stringify({ error: errorMsg }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: errorMsg }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
