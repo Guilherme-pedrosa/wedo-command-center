@@ -16,7 +16,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
-import { syncPagamentosGC } from "@/api/financeiro";
+import { syncPagamentosGC, type SyncDateFilter } from "@/api/financeiro";
+import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
 import { cn } from "@/lib/utils";
 import {
   CreditCard, Search, RefreshCw, Plus, Loader2, Zap, CalendarIcon,
