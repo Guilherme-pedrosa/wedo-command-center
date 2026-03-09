@@ -47,8 +47,7 @@ const finGrupos = [
 
 const finBanco = [
   { title: "📅 Agenda Pgto", url: "/financeiro/agenda", icon: CalendarClock },
-  { title: "🏦 Extrato Inter", url: "/financeiro/extrato", icon: Building2 },
-  { title: "🔄 Conciliação", url: "/financeiro/conciliacao", icon: ArrowLeftRight },
+  { title: "🏦 Extrato & Conciliação", url: "/financeiro/extrato", icon: Building2 },
   { title: "✅ Histórico Conc.", url: "/financeiro/conciliacao-historico", icon: FileText },
 ];
 
