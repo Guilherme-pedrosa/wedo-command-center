@@ -386,9 +386,9 @@ function tentarSomaParcelas(
     const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? lkp?.nome ?? "";
     const finDate = fin.data_vencimento ?? fin.data_emissao ?? "";
 
-    // Must match by CNPJ root or name similarity
+    // Must match by CNPJ root or name similarity (higher threshold to avoid false positives like "Casa da Madeira" ≠ "Casa das Resistências")
     const docOk = extDoc && finDoc && docMatches(extDoc, finDoc);
-    const nomeOk = extNome && nomeSimilar(extNome, finNome, 0.3);
+    const nomeOk = extNome && nomeSimilar(extNome, finNome, 0.5);
     if (!docOk && !nomeOk) return false;
 
     // Must be within ±30 days
