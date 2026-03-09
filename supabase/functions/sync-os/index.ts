@@ -42,46 +42,37 @@ serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
-
     const gcHeaders: Record<string, string> = {
       "access-token": gcAccessToken,
       "secret-access-token": gcSecretToken,
       "Content-Type": "application/json",
     };
 
-    // Parse optional filters from request body
-    let filters: { data_inicio?: string; data_fim?: string; situacao?: string } = {};
+    // Chunked pagination: { page_start (default 1), page_end (default +4) }
+    let pageStart = 1;
+    let pageEnd = 5; // Process 5 pages per invocation (~2s each = ~10s)
     try {
       const body = await req.json();
-      filters = body || {};
-    } catch {
-      // No body, sync all
-    }
+      if (body?.page_start) pageStart = body.page_start;
+      if (body?.page_end) pageEnd = body.page_end;
+    } catch { /* no body */ }
 
-    const allOS: any[] = [];
-    let page = 1;
-    let totalPages = 1;
+    let page = pageStart;
+    let totalPages = 999;
+    let totalFetched = 0;
+    let upserted = 0;
+    let skipped = 0;
+    let errors = 0;
+    const statusCounts: Record<string, number> = {};
 
-    // Paginate through GC — endpoint: /api/orcamentos (GC usa orçamentos para OS)
-    while (page <= totalPages) {
-      const params = new URLSearchParams({
-        limite: "100",
-        pagina: String(page),
-      });
-
-      if (filters.data_inicio) params.set("data_inicio", filters.data_inicio);
-      if (filters.data_fim) params.set("data_fim", filters.data_fim);
-      if (filters.situacao) params.set("situacao", filters.situacao);
-
+    while (page <= Math.min(totalPages, pageEnd)) {
+      const params = new URLSearchParams({ limite: "100", pagina: String(page) });
       const url = `${GC_BASE_URL}/api/orcamentos?${params.toString()}`;
       const response = await rateLimitedFetch(url, { headers: gcHeaders });
 
-      if (response.status === 401) {
-        throw new Error("GC_AUTH_ERROR: Invalid credentials");
-      }
       if (response.status === 429) {
         await new Promise((r) => setTimeout(r, 2000));
-        continue; // retry same page
+        continue;
       }
       if (!response.ok) {
         const text = await response.text();
@@ -89,114 +80,85 @@ serve(async (req) => {
       }
 
       const data = await response.json();
-      const records = data?.data || [];
-      allOS.push(...records);
+      const records = Array.isArray(data?.data) ? data.data : [];
+      const meta = data?.meta || {};
+      totalPages = meta?.total_paginas || 1;
 
-      totalPages = data?.meta?.total_paginas || 1;
-      console.log(`[sync-os] Page ${page}/${totalPages} — ${records.length} records fetched`);
+      // Process each record: only upsert EXECUTADO ones
+      for (const os of records) {
+        totalFetched++;
+        const situacao = (os.nome_situacao || "").toUpperCase().trim();
+
+        if (!situacao.startsWith("EXECUTADO")) {
+          skipped++;
+          continue;
+        }
+
+        const nomeSituacao = os.nome_situacao || "";
+        statusCounts[nomeSituacao] = (statusCounts[nomeSituacao] || 0) + 1;
+
+        const osId = String(os.id || "");
+        const osCodigo = String(os.codigo || "");
+        if (!osId || !osCodigo) { errors++; continue; }
+
+        const valorTotal = parseFloat(os.valor_total || "0") || null;
+        const valorServicos = parseFloat(os.valor_servicos || "0") || null;
+        const valorProdutos = parseFloat(os.valor_produtos || "0") || null;
+
+        let dataSaida: string | null = null;
+        const modificadoEm = os.modificado_em || os.data || null;
+        if (modificadoEm) {
+          const match = modificadoEm.match(/^(\d{4}-\d{2}-\d{2})/);
+          if (match) dataSaida = match[1];
+        }
+
+        const { error: upsertErr } = await supabase
+          .from("os_index")
+          .upsert({
+            os_id: osId,
+            os_codigo: osCodigo,
+            orc_codigo: osCodigo,
+            nome_cliente: os.nome_cliente || null,
+            nome_situacao: nomeSituacao,
+            data_saida: dataSaida,
+            valor_total: valorTotal,
+            valor_servicos: valorServicos,
+            valor_pecas: valorProdutos,
+            numero_os: osCodigo,
+            built_at: new Date().toISOString(),
+          }, { onConflict: "os_id,orc_codigo" });
+
+        if (upsertErr) { errors++; } else { upserted++; }
+      }
+
+      console.log(`[sync-os] Page ${page}/${totalPages} — ${records.length} records, ${upserted} upserted so far`);
       page++;
     }
 
-    console.log(`[sync-os] Total records fetched from GC: ${allOS.length}`);
+    const hasMore = page <= totalPages;
+    const duration = Date.now() - startTime;
 
-    // Upsert into os_index
-    let upserted = 0;
-    let errors = 0;
-
-    for (const os of allOS) {
-      // ── Mapeamento confirmado do JSON real do GC ──
-      // os.id          = ID interno GC (ex: "355094680")
-      // os.codigo      = Número da OS/orçamento (ex: "4973")
-      // os.nome_cliente = nome do cliente ✅
-      // os.nome_situacao = status ✅
-      // os.valor_total  = valor total ✅ (string)
-      // os.valor_servicos = valor serviços ✅ (string)
-      // os.valor_produtos = valor peças/produtos ✅ (NÃO valor_pecas)
-      // os.modificado_em = última modificação (ex: "2026-03-09 13:45:10")
-      // os.data         = data do orçamento (ex: "2026-03-09")
-      // NÃO existe campo data_saida — usar modificado_em como proxy
-
-      const osId = String(os.id || "");
-      const osCodigo = String(os.codigo || "");
-
-      if (!osId || !osCodigo) {
-        console.warn(`[sync-os] Skipping record without id/codigo`);
-        errors++;
-        continue;
-      }
-
-      // Valores monetários (GC retorna como string)
-      const valorTotal = parseFloat(os.valor_total || "0") || null;
-      const valorServicos = parseFloat(os.valor_servicos || "0") || null;
-      const valorProdutos = parseFloat(os.valor_produtos || "0") || null;
-
-      // data_saida: usar modificado_em como proxy (data da última mudança de status)
-      // Formato GC: "2026-03-09 13:45:10" → extrair só a data
-      let dataSaida: string | null = null;
-      const modificadoEm = os.modificado_em || os.data || null;
-      if (modificadoEm) {
-        // "2026-03-09 13:45:10" → "2026-03-09"
-        const match = modificadoEm.match(/^(\d{4}-\d{2}-\d{2})/);
-        if (match) {
-          dataSaida = match[1];
-        }
-      }
-
-      const record = {
-        os_id: osId,
-        os_codigo: osCodigo,
-        orc_codigo: osCodigo, // No GC, cada orçamento é um registro único
-        todos_orcs: null,
-        nome_cliente: os.nome_cliente || null,
-        nome_situacao: os.nome_situacao || null,
-        data_saida: dataSaida,
-        valor_total: valorTotal,
-        valor_servicos: valorServicos,
-        valor_pecas: valorProdutos, // GC usa "valor_produtos"
-        numero_os: osCodigo,
-        built_at: new Date().toISOString(),
-      };
-
-      const { error: upsertErr } = await supabase
-        .from("os_index")
-        .upsert(record, { onConflict: "os_id,orc_codigo" });
-
-      if (upsertErr) {
-        console.error(`[sync-os] Upsert error for OS ${osCodigo}:`, upsertErr.message);
-        errors++;
-      } else {
-        upserted++;
-      }
+    // Update meta only when we've processed all pages
+    if (!hasMore) {
+      await supabase.from("os_index_meta").upsert({
+        id: 1, status: "done", total_os: upserted, built_at: new Date().toISOString(),
+      });
     }
 
-    // Update os_index_meta
-    await supabase.from("os_index_meta").upsert({
-      id: 1,
-      status: "done",
-      total_os: allOS.length,
-      built_at: new Date().toISOString(),
-    });
-
-    // Log to sync_log
-    const duration = Date.now() - startTime;
     await supabase.from("sync_log").insert({
       tipo: "sync-os",
       status: errors > 0 ? "partial" : "ok",
-      payload: { filters, total_fetched: allOS.length, upserted, errors },
+      payload: { pageStart, pageEnd: Math.min(page - 1, pageEnd), totalPages, totalFetched, upserted, skipped, errors, statusCounts },
       duracao_ms: duration,
     });
 
-    const result = {
+    return new Response(JSON.stringify({
       success: true,
-      total_fetched: allOS.length,
-      upserted,
-      errors,
-      duration_ms: duration,
-    };
-
-    console.log(`[sync-os] Done:`, result);
-
-    return new Response(JSON.stringify(result), {
+      pages_processed: `${pageStart}-${Math.min(page - 1, pageEnd)}/${totalPages}`,
+      has_more: hasMore,
+      next_page_start: hasMore ? page : null,
+      totalFetched, upserted, skipped, errors, statusCounts, duration_ms: duration,
+    }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -204,23 +166,12 @@ serve(async (req) => {
     const duration = Date.now() - startTime;
     const errorMsg = (error as Error).message;
     console.error("[sync-os] Fatal error:", errorMsg);
-
     try {
-      const supabase = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-      );
-      await supabase.from("sync_log").insert({
-        tipo: "sync-os",
-        status: "erro",
-        erro: errorMsg,
-        duracao_ms: duration,
-      });
-    } catch { /* ignore logging errors */ }
-
-    return new Response(
-      JSON.stringify({ error: errorMsg }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+      const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      await supabase.from("sync_log").insert({ tipo: "sync-os", status: "erro", erro: errorMsg, duracao_ms: duration });
+    } catch { /* ignore */ }
+    return new Response(JSON.stringify({ error: errorMsg }), {
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
