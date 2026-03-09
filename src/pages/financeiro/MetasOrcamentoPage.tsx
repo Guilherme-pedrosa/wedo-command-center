@@ -463,34 +463,30 @@ export default function MetasOrcamentoPage() {
 
   const { metasComResultado, execTotal, isLoading, refetch, hasOsData } = useMetas(selectedYear, selectedMonth);
 
-  const [syncingVendas, setSyncingVendas] = useState(false);
-  const handleSyncVendas = useCallback(async () => {
-    setSyncingVendas(true);
-    try {
-      const { start, end } = getPeriodRange(selectedYear, selectedMonth);
-      const result = await syncVendas(start, end);
-      toast.success(`Vendas sincronizadas: ${result.upserted} registros`);
-      refetch();
-    } catch (err: any) {
-      toast.error(`Erro ao sincronizar vendas: ${err.message}`);
-    } finally {
-      setSyncingVendas(false);
-    }
-  }, [selectedYear, selectedMonth, refetch]);
+  const [syncingAll, setSyncingAll] = useState(false);
+  const handleSyncAll = useCallback(async () => {
+    setSyncingAll(true);
+    const { start, end } = getPeriodRange(selectedYear, selectedMonth);
+    let ok = 0;
+    let fail = 0;
 
-  const [syncingCompras, setSyncingCompras] = useState(false);
-  const handleSyncCompras = useCallback(async () => {
-    setSyncingCompras(true);
     try {
-      const { start, end } = getPeriodRange(selectedYear, selectedMonth);
-      const result = await syncCompras(start, end);
-      toast.success(`Compras sincronizadas: ${result.upserted} registros`);
-      refetch();
-    } catch (err: any) {
-      toast.error(`Erro ao sincronizar compras: ${err.message}`);
-    } finally {
-      setSyncingCompras(false);
+      const resVendas = await syncVendas(start, end);
+      ok += resVendas.upserted;
+    } catch { fail++; }
+
+    try {
+      const resCompras = await syncCompras(start, end);
+      ok += resCompras.upserted;
+    } catch { fail++; }
+
+    if (fail === 0) {
+      toast.success(`Tudo sincronizado: ${ok} registros`);
+    } else {
+      toast.error(`Sincronização parcial: ${ok} registros ok, ${fail} erros`);
     }
+    refetch();
+    setSyncingAll(false);
   }, [selectedYear, selectedMonth, refetch]);
 
   const receitas       = metasComResultado.filter(m => m.categoria === 'receita');
@@ -556,15 +552,16 @@ export default function MetasOrcamentoPage() {
             </SelectContent>
           </Select>
 
-          <Button variant="outline" size="sm" onClick={handleSyncVendas} disabled={syncingVendas}>
-            {syncingVendas ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ShoppingCart className="h-4 w-4 mr-1" />}
-            Sync Vendas
+          <Button variant="default" size="sm" onClick={handleSyncAll} disabled={syncingAll}>
+            {syncingAll ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+            Sincronizar Tudo
           </Button>
 
-          <Button variant="outline" size="sm" onClick={handleSyncCompras} disabled={syncingCompras}>
-            {syncingCompras ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Package className="h-4 w-4 mr-1" />}
-            Sync Compras
+          <Button variant="outline" size="icon" onClick={refetch} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
+        </div>
+      </div>
 
           <Button variant="outline" size="icon" onClick={refetch} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
