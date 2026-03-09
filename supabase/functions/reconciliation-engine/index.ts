@@ -423,7 +423,7 @@ serve(async (req) => {
       .eq("reconciliado", false)
       .or(`reconciliation_rule.is.null,reconciliation_rule.not.in.(${MANUAL_EXCEPTIONS.join(",")})`)
       .order("data_hora", { ascending: false })
-      .limit(200);
+      .limit(500);
 
     if (errE) throw new Error(`fin_extrato_inter: ${errE.message}`);
 
@@ -433,18 +433,18 @@ serve(async (req) => {
         .or("liquidado.eq.false,liquidado.is.null")
         .or("pago_sistema.eq.false,pago_sistema.is.null")
         .not("status", "in", '("pago","cancelado")')
-        .limit(500),
+        .limit(1000),
       supabase.from("fin_recebimentos").select("*")
         .or("liquidado.eq.false,liquidado.is.null")
         .or("pago_sistema.eq.false,pago_sistema.is.null")
         .not("status", "in", '("pago","cancelado")')
-        .limit(500),
+        .limit(1000),
       supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj, chave_pix, nome"),
       supabase.from("fin_clientes").select("gc_id, cpf_cnpj, nome"),
     ]);
 
     // Pool secundário: lançamentos já pagos (para rastreabilidade retroativa)
-    const cutoff90 = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    const cutoff90 = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     const [{ data: pagamentosJaPagos }, { data: recebimentosJaPagos }] = await Promise.all([
       supabase.from("fin_pagamentos").select("id, valor, recipient_document, fornecedor_gc_id, nome_fornecedor, descricao, data_vencimento, data_liquidacao, gc_codigo")
         .eq("status", "pago")
