@@ -17,6 +17,15 @@ interface TecnicoMeta {
 interface OsRow {
   nome_vendedor: string | null;
   valor_total: number | null;
+  os_codigo: string;
+}
+
+interface TecnicoResult {
+  nome: string;
+  meta: number;
+  realizado: number;
+  pct: number;
+  osList: { codigo: string; valor: number }[];
 }
 
 export default function TvTecnicos() {
@@ -65,7 +74,7 @@ export default function TvTecnicos() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('os_index')
-        .select('nome_vendedor, valor_total')
+        .select('nome_vendedor, valor_total, os_codigo')
         .gte('data_saida', start)
         .lte('data_saida', end);
       if (error) throw error;
@@ -84,26 +93,29 @@ export default function TvTecnicos() {
   }, [refetchMetas, refetchOs]);
 
   // Agregar faturamento por técnico
-  const resultados = useMemo(() => {
-    // Agrupa por primeiro nome do vendedor para bater com a meta (que usa só primeiro nome)
-    const vendedorMap: Record<string, number> = {};
+  const resultados: TecnicoResult[] = useMemo(() => {
+    const vendedorMap: Record<string, { total: number; osList: { codigo: string; valor: number }[] }> = {};
     for (const os of osData) {
       const nomeCompleto = os.nome_vendedor?.trim().toUpperCase();
       if (!nomeCompleto) continue;
       const primeiroNome = nomeCompleto.split(' ')[0];
-      vendedorMap[primeiroNome] = (vendedorMap[primeiroNome] || 0) + (os.valor_total ?? 0);
+      if (!vendedorMap[primeiroNome]) vendedorMap[primeiroNome] = { total: 0, osList: [] };
+      const valor = os.valor_total ?? 0;
+      vendedorMap[primeiroNome].total += valor;
+      vendedorMap[primeiroNome].osList.push({ codigo: os.os_codigo, valor });
     }
 
     return metas.map(m => {
       const nomeUpper = m.nome_tecnico.trim().toUpperCase();
-      const realizado = vendedorMap[nomeUpper] || 0;
+      const info = vendedorMap[nomeUpper] || { total: 0, osList: [] };
       const meta = m.meta_faturamento;
-      const pct = meta > 0 ? realizado / meta : 0;
+      const pct = meta > 0 ? info.total / meta : 0;
       return {
         nome: m.nome_tecnico,
         meta,
-        realizado,
+        realizado: info.total,
         pct,
+        osList: info.osList.sort((a, b) => b.valor - a.valor),
       };
     }).sort((a, b) => b.pct - a.pct);
   }, [metas, osData]);
@@ -208,9 +220,22 @@ export default function TvTecnicos() {
                 />
               </div>
 
+              {/* OS list */}
+              <div className="mt-2 max-h-28 overflow-y-auto space-y-0.5 scrollbar-thin">
+                {t.osList.map((os, idx) => (
+                  <div key={idx} className="flex justify-between text-xs text-white/50">
+                    <span>OS {os.codigo}</span>
+                    <span>{formatBRL(os.valor)}</span>
+                  </div>
+                ))}
+                {t.osList.length === 0 && (
+                  <p className="text-xs text-white/30 italic">Sem OS no período</p>
+                )}
+              </div>
+
               {/* Meta */}
               <p className="text-xs text-white/40 mt-2">
-                Meta: {formatBRL(t.meta)}
+                Meta: {formatBRL(t.meta)} • {t.osList.length} OS
               </p>
             </div>
           );
