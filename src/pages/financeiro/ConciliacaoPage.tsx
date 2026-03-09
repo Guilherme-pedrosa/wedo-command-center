@@ -9,12 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw, ExternalLink, FileText, Hash, Search, X, ChevronDown, ChevronUp, CalendarIcon } from "lucide-react";
+import { ArrowLeftRight, CheckCircle, Loader2, Wand2, RefreshCw, ExternalLink, FileText, Hash, Search, X, ChevronDown, ChevronUp, CalendarIcon, Download, CloudDownload } from "lucide-react";
 import AIReconciliationPanel from "@/components/financeiro/AIReconciliationPanel";
 import { format, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay } from "date-fns";
 import { cn } from "@/lib/utils";
 import { ptBR } from "date-fns/locale";
 import toast from "react-hot-toast";
+import { buscarExtratoInter } from "@/api/financeiro";
+import { syncRecebimentos, syncPagamentos } from "@/api/syncService";
 
 const GC_BASE = "https://gestaoclick.com";
 
@@ -57,6 +59,8 @@ export default function ConciliacaoPage() {
   const [linking, setLinking] = useState(false);
   const [autoRunning, setAutoRunning] = useState(false);
   const [autoResult, setAutoResult] = useState<any>(null);
+  const [fetchingInter, setFetchingInter] = useState(false);
+  const [syncingGC, setSyncingGC] = useState(false);
   const [mesExtrato, setMesExtrato] = useState("all");
   const [dateFrom, setDateFrom] = useState(new Date('2024-10-01'));
   const [dateTo, setDateTo] = useState(endOfMonth(new Date()));
@@ -182,6 +186,33 @@ export default function ConciliacaoPage() {
     queryClient.invalidateQueries({ queryKey: ["conc-pagamentos"] });
   };
 
+  const handleFetchInter = async () => {
+    setFetchingInter(true);
+    try {
+      const from = format(dateFrom, "yyyy-MM-dd");
+      const to = format(dateTo, "yyyy-MM-dd");
+      const txs = await buscarExtratoInter(from, to);
+      toast.success(`${txs.length} transações do Inter processadas`);
+      invalidateAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao buscar extrato Inter");
+    } finally {
+      setFetchingInter(false);
+    }
+  };
+
+  const handleSyncGC = async () => {
+    setSyncingGC(true);
+    try {
+      const [r, p] = await Promise.all([syncRecebimentos(), syncPagamentos()]);
+      toast.success(`GC sincronizado: ${r.importados} receb., ${p.importados} pagam.`);
+      invalidateAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao sincronizar GC");
+    } finally {
+      setSyncingGC(false);
+    }
+  };
   const handleVincular = async () => {
     if (!selectedExtrato || !selectedLanc) return;
     setLinking(true);
@@ -259,12 +290,20 @@ export default function ConciliacaoPage() {
           <h1 className="text-2xl font-bold text-foreground">Conciliação</h1>
           <p className="text-sm text-muted-foreground">Vincule transações do extrato a lançamentos do sistema</p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={() => { invalidateAll(); toast.success("Dados recarregados"); }} variant="outline" size="sm" className="gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button onClick={handleFetchInter} disabled={fetchingInter} variant="outline" size="sm" className="gap-2">
+            {fetchingInter ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Importar Extrato Inter
+          </Button>
+          <Button onClick={handleSyncGC} disabled={syncingGC} variant="outline" size="sm" className="gap-2">
+            {syncingGC ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />}
+            Sincronizar GC
+          </Button>
+          <Button onClick={() => { invalidateAll(); toast.success("Cache recarregado"); }} variant="ghost" size="sm" className="gap-2">
             <RefreshCw className="h-4 w-4" />
             Atualizar
           </Button>
-          <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" className="gap-2">
+          <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" size="sm" className="gap-2">
             {autoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
             Conciliação Automática
           </Button>
