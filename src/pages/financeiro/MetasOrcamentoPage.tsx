@@ -473,12 +473,12 @@ export default function MetasOrcamentoPage() {
     try {
       const resVendas = await syncVendas(start, end);
       ok += resVendas.upserted;
-    } catch { fail++; }
+    } catch (_e) { fail++; }
 
     try {
       const resCompras = await syncCompras(start, end);
       ok += resCompras.upserted;
-    } catch { fail++; }
+    } catch (_e) { fail++; }
 
     if (fail === 0) {
       toast.success(`Tudo sincronizado: ${ok} registros`);
