@@ -562,7 +562,7 @@ export default function MetasOrcamentoPage() {
           </Button>
 
           <Button variant="outline" size="sm" onClick={handleSyncCompras} disabled={syncingCompras}>
-            {syncingCompras ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ShoppingCart className="h-4 w-4 mr-1" />}
+            {syncingCompras ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Package className="h-4 w-4 mr-1" />}
             Sync Compras
           </Button>
 
