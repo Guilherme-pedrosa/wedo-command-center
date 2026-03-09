@@ -137,7 +137,11 @@ export default function ConciliacaoPage() {
 
     const filterFn = (l: any) => {
       if (!q) return true;
-      const fields = [l.descricao, l.nome_cliente, l.nome_fornecedor, l.os_codigo, l.gc_codigo, l.nf_numero, l.nfe_numero, String(l.valor)].filter(Boolean).join(" ").toLowerCase();
+      const valorStr = Number(l.valor || 0).toFixed(2);
+      const fields = [l.descricao, l.nome_cliente, l.nome_fornecedor, l.os_codigo, l.gc_codigo, l.nf_numero, l.nfe_numero, valorStr, String(l.valor)].filter(Boolean).join(" ").toLowerCase();
+      // Also try matching as numeric value comparison
+      const numQuery = parseFloat(q.replace(",", "."));
+      if (!isNaN(numQuery) && Math.abs(Number(l.valor) - numQuery) < 0.01) return true;
       return fields.includes(q);
     };
 
@@ -333,13 +337,14 @@ export default function ConciliacaoPage() {
                             }}
                             className="p-2 rounded-md border border-border cursor-pointer transition-colors text-xs hover:bg-primary/10 hover:border-primary"
                           >
-                            <div className="flex justify-between">
-                              <span className="truncate font-medium">{r.descricao}</span>
-                              <span className="font-semibold">{formatCurrency(Number(r.valor))}</span>
+                            <div className="flex justify-between items-center gap-2">
+                              <span className="truncate font-medium flex-1">{r.descricao}</span>
+                              <span className="font-bold text-sm whitespace-nowrap text-primary">{formatCurrency(Number(r.valor))}</span>
                             </div>
-                            <div className="flex items-center gap-2 mt-0.5">
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                               <span className="text-[10px] text-muted-foreground">{r.nome_cliente}</span>
                               {r.data_vencimento && <span className="text-[10px] text-muted-foreground">Venc: {r.data_vencimento}</span>}
+                              {r.gc_codigo && <span className="text-[10px] text-muted-foreground">GC {r.gc_codigo}</span>}
                               {r.liquidado && <Badge variant="secondary" className="text-[9px] h-4">Liquidado</Badge>}
                               {r.pago_sistema && <Badge variant="secondary" className="text-[9px] h-4">Pago Sistema</Badge>}
                             </div>
@@ -366,13 +371,14 @@ export default function ConciliacaoPage() {
                             }}
                             className="p-2 rounded-md border border-border cursor-pointer transition-colors text-xs hover:bg-primary/10 hover:border-primary"
                           >
-                            <div className="flex justify-between">
-                              <span className="truncate font-medium">{p.descricao}</span>
-                              <span className="font-semibold">{formatCurrency(Number(p.valor))}</span>
+                            <div className="flex justify-between items-center gap-2">
+                              <span className="truncate font-medium flex-1">{p.descricao}</span>
+                              <span className="font-bold text-sm whitespace-nowrap text-primary">{formatCurrency(Number(p.valor))}</span>
                             </div>
-                            <div className="flex items-center gap-2 mt-0.5">
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                               <span className="text-[10px] text-muted-foreground">{p.nome_fornecedor}</span>
                               {p.data_vencimento && <span className="text-[10px] text-muted-foreground">Venc: {p.data_vencimento}</span>}
+                              {p.gc_codigo && <span className="text-[10px] text-muted-foreground">GC {p.gc_codigo}</span>}
                               {p.liquidado && <Badge variant="secondary" className="text-[9px] h-4">Liquidado</Badge>}
                               {p.pago_sistema && <Badge variant="secondary" className="text-[9px] h-4">Pago Sistema</Badge>}
                             </div>
