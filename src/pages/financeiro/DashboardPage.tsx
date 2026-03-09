@@ -289,7 +289,7 @@ export default function FinDashboardPage() {
             {"Exibindo dados de "}
             <strong className="capitalize">{mesLabel} {format(mesDate, "yyyy")}</strong>
           </span>
-          <Button variant="ghost" size="sm" className="ml-auto text-xs" onClick={() => setMesSelecionado(format(new Date(), "yyyy-MM"))}>
+          <Button variant="ghost" size="sm" className="ml-auto text-xs" onClick={() => { const m = format(new Date(), "yyyy-MM"); setMesSelecionado(m); localStorage.setItem("fin-dash-mes-selecionado", m); }}>
             Voltar ao {"m\u00eas"} atual
           </Button>
         </div>
