@@ -1,7 +1,7 @@
 // src/pages/TvResultados.tsx — TV Summary: resumo por categoria
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMetasResultados, formatBRL, formatPct, calcStatus } from '@/hooks/useMetasResultados';
-import { CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, Percent, Trophy, Wrench, Fuel, BedDouble, CircleDollarSign, UtensilsCrossed } from 'lucide-react';
+import { CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, Percent, Trophy, Wrench, Fuel, BedDouble, CircleDollarSign, UtensilsCrossed, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
@@ -27,8 +27,24 @@ const statusLabelColor = (s: CatStatus) =>
 
 export default function TvResultados() {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const [selectedDate, setSelectedDate] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 });
+  const { year, month } = selectedDate;
+
+  const navigateMonth = (dir: number) => {
+    setSelectedDate(prev => {
+      let m = prev.month + dir;
+      let y = prev.year;
+      if (m < 1) { m = 12; y--; }
+      if (m > 12) { m = 1; y++; }
+      // Don't go past current month
+      const nowY = now.getFullYear();
+      const nowM = now.getMonth() + 1;
+      if (y > nowY || (y === nowY && m > nowM)) return prev;
+      return { year: y, month: m };
+    });
+  };
+
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
 
   const { metasComResultado, execTotal, isLoading, refetch, osExecutadas } = useMetasResultados(year, month);
 
@@ -101,7 +117,19 @@ export default function TvResultados() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-4xl font-black tracking-tight">Resultados Operação</h1>
-          <p className="text-xl text-muted-foreground mt-1">{meses[month - 1]} {year}</p>
+          <div className="flex items-center gap-3 mt-1">
+            <button onClick={() => navigateMonth(-1)} className="p-1 rounded hover:bg-white/10 transition-colors">
+              <ChevronLeft className="h-6 w-6 text-muted-foreground" />
+            </button>
+            <p className="text-xl text-muted-foreground">{meses[month - 1]} {year}</p>
+            <button
+              onClick={() => navigateMonth(1)}
+              disabled={isCurrentMonth}
+              className="p-1 rounded hover:bg-white/10 transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
+            >
+              <ChevronRight className="h-6 w-6 text-muted-foreground" />
+            </button>
+          </div>
         </div>
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-3">
