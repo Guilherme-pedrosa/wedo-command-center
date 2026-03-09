@@ -17,7 +17,7 @@ import {
   Building2, RefreshCw, Loader2, CalendarIcon, Download, CloudDownload,
   Wand2, Brain, ArrowLeftRight, CheckCircle, ChevronDown, ChevronUp,
   Search, X, ExternalLink, Hash, FileText, Send, Sparkles, Zap,
-  AlertTriangle, MessageSquare,
+  AlertTriangle, MessageSquare, Banknote, Link2, Undo2, Eye,
 } from "lucide-react";
 import { format, subDays, subMonths, startOfMonth, endOfMonth, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
