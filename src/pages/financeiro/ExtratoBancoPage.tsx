@@ -85,7 +85,6 @@ export default function ExtratoBancoPage() {
   const [aiTargetId, setAiTargetId] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<any>(null);
-  const [aiCommand, setAiCommand] = useState("");
   const [aiVinculando, setAiVinculando] = useState<string | null>(null);
   const [aiVinculados, setAiVinculados] = useState<Set<string>>(new Set());
 
@@ -242,14 +241,29 @@ export default function ExtratoBancoPage() {
     finally { setLinking(false); }
   };
 
+  // Build auto-command from transaction context
+  const buildAutoCommand = (e: any) => {
+    const parts: string[] = [];
+    const tipo = e.tipo === "CREDITO" ? "crédito" : "débito";
+    parts.push(`Encontre o match para este ${tipo} de ${formatCurrency(Number(e.valor))}`);
+    if (e.nome_contraparte || e.contrapartida) parts.push(`de "${e.nome_contraparte || e.contrapartida}"`);
+    if (e.cpf_cnpj) parts.push(`(doc: ${e.cpf_cnpj})`);
+    if (e.descricao) parts.push(`descrição: "${e.descricao}"`);
+    if (e.data_hora) parts.push(`data: ${formatDateTime(e.data_hora)}`);
+    if (e.chave_pix) parts.push(`chave PIX: ${e.chave_pix}`);
+    if (e.end_to_end_id) parts.push(`E2E: ${e.end_to_end_id}`);
+    return parts.join(", ");
+  };
+
   // AI analysis for a specific transaction
-  const handleAiAnalyze = async (extratoId: string, cmd?: string) => {
+  const handleAiAnalyze = async (extratoId: string, item?: any) => {
+    const autoCmd = item ? buildAutoCommand(item) : null;
     setAiTargetId(extratoId);
     setAiLoading(true);
     setAiResult(null);
     try {
       const { data, error } = await supabase.functions.invoke("ai-reconciliation", {
-        body: { command: cmd || aiCommand || null, extratoIds: [extratoId] },
+        body: { command: autoCmd, extratoIds: [extratoId] },
       });
       if (error) throw new Error(error.message);
       if (!data?.success) throw new Error(data?.error ?? "Erro");
@@ -433,7 +447,7 @@ export default function ExtratoBancoPage() {
                               size="icon"
                               variant="ghost"
                               className="h-7 w-7 text-primary"
-                              onClick={() => handleAiAnalyze(e.id)}
+                              onClick={() => handleAiAnalyze(e.id, e)}
                               disabled={aiLoading && aiTargetId === e.id}
                               title="IA sugerir match"
                             >
