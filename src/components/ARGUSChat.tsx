@@ -187,7 +187,7 @@ export function ARGUSChat() {
               )}
               <div ref={bottomRef} />
             </div>
-          </ScrollArea>
+          </div>
 
           {/* Quick commands */}
           <div className="flex gap-1.5 px-3 py-1.5 overflow-x-auto border-t border-border scrollbar-hide">
