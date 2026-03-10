@@ -38,6 +38,7 @@ const FinFornecedores = lazy(() => import("@/pages/financeiro/FornecedoresPage")
 const RelatorioResultados = lazy(() => import("@/pages/RelatorioResultados"));
 const TvResultados = lazy(() => import("@/pages/TvResultados"));
 const TvTecnicos = lazy(() => import("@/pages/TvTecnicos"));
+const FinFaturaCartao = lazy(() => import("@/pages/financeiro/FaturaCartaoPage"));
 const queryClient = new QueryClient();
 
 function LazyFallback() {
