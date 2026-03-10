@@ -191,6 +191,42 @@ export type Database = {
           },
         ]
       }
+      fin_cartoes: {
+        Row: {
+          ativo: boolean | null
+          banco: string | null
+          bandeira: string
+          created_at: string | null
+          dia_fechamento: number | null
+          dia_vencimento: number | null
+          id: string
+          nome: string
+          ultimos_digitos: string | null
+        }
+        Insert: {
+          ativo?: boolean | null
+          banco?: string | null
+          bandeira?: string
+          created_at?: string | null
+          dia_fechamento?: number | null
+          dia_vencimento?: number | null
+          id?: string
+          nome: string
+          ultimos_digitos?: string | null
+        }
+        Update: {
+          ativo?: boolean | null
+          banco?: string | null
+          bandeira?: string
+          created_at?: string | null
+          dia_fechamento?: number | null
+          dia_vencimento?: number | null
+          id?: string
+          nome?: string
+          ultimos_digitos?: string | null
+        }
+        Relationships: []
+      }
       fin_centros_custo: {
         Row: {
           ativo: boolean | null
@@ -485,6 +521,103 @@ export type Database = {
             columns: ["extrato_id"]
             isOneToOne: false
             referencedRelation: "vw_conciliacao_extrato"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fin_fatura_cartao: {
+        Row: {
+          cartao_id: string
+          created_at: string | null
+          data_fechamento: string | null
+          data_vencimento: string | null
+          id: string
+          mes_referencia: string
+          status: string
+          updated_at: string | null
+          valor_conciliado: number
+          valor_total: number
+        }
+        Insert: {
+          cartao_id: string
+          created_at?: string | null
+          data_fechamento?: string | null
+          data_vencimento?: string | null
+          id?: string
+          mes_referencia: string
+          status?: string
+          updated_at?: string | null
+          valor_conciliado?: number
+          valor_total?: number
+        }
+        Update: {
+          cartao_id?: string
+          created_at?: string | null
+          data_fechamento?: string | null
+          data_vencimento?: string | null
+          id?: string
+          mes_referencia?: string
+          status?: string
+          updated_at?: string | null
+          valor_conciliado?: number
+          valor_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_fatura_cartao_cartao_id_fkey"
+            columns: ["cartao_id"]
+            isOneToOne: false
+            referencedRelation: "fin_cartoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fin_fatura_transacoes: {
+        Row: {
+          categoria: string | null
+          conciliado: boolean | null
+          conciliado_em: string | null
+          created_at: string | null
+          data_transacao: string
+          descricao: string
+          fatura_id: string
+          id: string
+          lancamento_id: string | null
+          reconciliation_rule: string | null
+          valor: number
+        }
+        Insert: {
+          categoria?: string | null
+          conciliado?: boolean | null
+          conciliado_em?: string | null
+          created_at?: string | null
+          data_transacao: string
+          descricao: string
+          fatura_id: string
+          id?: string
+          lancamento_id?: string | null
+          reconciliation_rule?: string | null
+          valor: number
+        }
+        Update: {
+          categoria?: string | null
+          conciliado?: boolean | null
+          conciliado_em?: string | null
+          created_at?: string | null
+          data_transacao?: string
+          descricao?: string
+          fatura_id?: string
+          id?: string
+          lancamento_id?: string | null
+          reconciliation_rule?: string | null
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_fatura_transacoes_fatura_id_fkey"
+            columns: ["fatura_id"]
+            isOneToOne: false
+            referencedRelation: "fin_fatura_cartao"
             referencedColumns: ["id"]
           },
         ]
@@ -950,6 +1083,7 @@ export type Database = {
       fin_pagamentos: {
         Row: {
           aguardando_nf: boolean | null
+          cartao_id: string | null
           centro_custo_id: string | null
           conta_bancaria_id: string | null
           created_at: string | null
@@ -991,6 +1125,7 @@ export type Database = {
         }
         Insert: {
           aguardando_nf?: boolean | null
+          cartao_id?: string | null
           centro_custo_id?: string | null
           conta_bancaria_id?: string | null
           created_at?: string | null
@@ -1032,6 +1167,7 @@ export type Database = {
         }
         Update: {
           aguardando_nf?: boolean | null
+          cartao_id?: string | null
           centro_custo_id?: string | null
           conta_bancaria_id?: string | null
           created_at?: string | null
@@ -1072,6 +1208,13 @@ export type Database = {
           valor?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "fin_pagamentos_cartao_id_fkey"
+            columns: ["cartao_id"]
+            isOneToOne: false
+            referencedRelation: "fin_cartoes"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "fin_pagamentos_centro_custo_id_fkey"
             columns: ["centro_custo_id"]
