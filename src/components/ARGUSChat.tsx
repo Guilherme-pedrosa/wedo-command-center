@@ -153,7 +153,7 @@ export function ARGUSChat() {
       {!minimized && (
         <>
           {/* Messages */}
-          <ScrollArea className="flex-1 min-h-0 max-h-[360px]">
+          <div className="overflow-y-auto" style={{ maxHeight: 360 }}>
             <div className="p-3 space-y-3">
               {messages.map((msg, i) => (
                 <div key={i} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
