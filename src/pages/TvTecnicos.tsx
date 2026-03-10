@@ -234,7 +234,10 @@ export default function TvTecnicos() {
               </div>
 
               {/* Meta */}
-              <p className="text-xs text-white/40 mt-2">
+              <p className="text-sm font-semibold text-white/70 mt-2">
+                {formatBRL(t.realizado)}
+              </p>
+              <p className="text-xs text-white/40">
                 Meta: {formatBRL(t.meta)} • {t.osList.length} OS
               </p>
             </div>
