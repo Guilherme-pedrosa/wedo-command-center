@@ -200,8 +200,10 @@ export type Database = {
           dia_fechamento: number | null
           dia_vencimento: number | null
           id: string
+          limite: number | null
           nome: string
           ultimos_digitos: string | null
+          updated_at: string | null
         }
         Insert: {
           ativo?: boolean | null
@@ -211,8 +213,10 @@ export type Database = {
           dia_fechamento?: number | null
           dia_vencimento?: number | null
           id?: string
+          limite?: number | null
           nome: string
           ultimos_digitos?: string | null
+          updated_at?: string | null
         }
         Update: {
           ativo?: boolean | null
@@ -222,8 +226,10 @@ export type Database = {
           dia_fechamento?: number | null
           dia_vencimento?: number | null
           id?: string
+          limite?: number | null
           nome?: string
           ultimos_digitos?: string | null
+          updated_at?: string | null
         }
         Relationships: []
       }
@@ -533,6 +539,7 @@ export type Database = {
           data_vencimento: string | null
           id: string
           mes_referencia: string
+          observacao: string | null
           status: string
           updated_at: string | null
           valor_conciliado: number
@@ -545,6 +552,7 @@ export type Database = {
           data_vencimento?: string | null
           id?: string
           mes_referencia: string
+          observacao?: string | null
           status?: string
           updated_at?: string | null
           valor_conciliado?: number
@@ -557,6 +565,7 @@ export type Database = {
           data_vencimento?: string | null
           id?: string
           mes_referencia?: string
+          observacao?: string | null
           status?: string
           updated_at?: string | null
           valor_conciliado?: number
@@ -583,7 +592,9 @@ export type Database = {
           fatura_id: string
           id: string
           lancamento_id: string | null
+          parcela_atual: number
           reconciliation_rule: string | null
+          total_parcelas: number
           valor: number
         }
         Insert: {
@@ -596,7 +607,9 @@ export type Database = {
           fatura_id: string
           id?: string
           lancamento_id?: string | null
+          parcela_atual?: number
           reconciliation_rule?: string | null
+          total_parcelas?: number
           valor: number
         }
         Update: {
@@ -609,7 +622,9 @@ export type Database = {
           fatura_id?: string
           id?: string
           lancamento_id?: string | null
+          parcela_atual?: number
           reconciliation_rule?: string | null
+          total_parcelas?: number
           valor?: number
         }
         Relationships: [
@@ -618,6 +633,13 @@ export type Database = {
             columns: ["fatura_id"]
             isOneToOne: false
             referencedRelation: "fin_fatura_cartao"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_fatura_transacoes_lancamento_fk"
+            columns: ["lancamento_id"]
+            isOneToOne: false
+            referencedRelation: "fin_pagamentos"
             referencedColumns: ["id"]
           },
         ]
@@ -2347,6 +2369,39 @@ export type Database = {
             columns: ["grupo_receber_id"]
             isOneToOne: false
             referencedRelation: "fin_grupos_receber"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vw_fatura_pendente: {
+        Row: {
+          bandeira: string | null
+          cartao_nome: string | null
+          categoria: string | null
+          conciliado: boolean | null
+          data_transacao: string | null
+          descricao: string | null
+          fatura_id: string | null
+          id: string | null
+          lancamento_id: string | null
+          mes_referencia: string | null
+          reconciliation_rule: string | null
+          ultimos_digitos: string | null
+          valor: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_fatura_transacoes_fatura_id_fkey"
+            columns: ["fatura_id"]
+            isOneToOne: false
+            referencedRelation: "fin_fatura_cartao"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_fatura_transacoes_lancamento_fk"
+            columns: ["lancamento_id"]
+            isOneToOne: false
+            referencedRelation: "fin_pagamentos"
             referencedColumns: ["id"]
           },
         ]
