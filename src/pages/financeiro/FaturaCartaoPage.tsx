@@ -1,7 +1,8 @@
 /**
- * FaturaCartaoPage.tsx — v2.0
- * Conciliação determinística de fatura de cartão de crédito
- * Motor: score-based, sem IA, sem Edge Function extra
+ * FaturaCartaoPage.tsx — v3.0
+ * Fatura = Cartão + Forma de Pagamento
+ * Busca automática de pagamentos pelo período de fechamento
+ * Vinculação com extrato bancário como liquidante
  */
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,7 +10,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -25,11 +25,10 @@ import {
 } from "@/components/ui/tooltip";
 import toast from "react-hot-toast";
 import {
-  CreditCard, Plus, RefreshCw, CheckCircle2, AlertCircle,
-  Upload, Unlink, ChevronDown, ChevronUp, Loader2, Info,
-  Lock,
+  CreditCard, Plus, CheckCircle2, AlertCircle,
+  ChevronDown, ChevronUp, Loader2, Lock, Link2, Search, Unlink,
 } from "lucide-react";
-import { format, parseISO, differenceInDays } from "date-fns";
+import { format, parseISO } from "date-fns";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 interface Cartao {
@@ -43,16 +42,28 @@ interface Cartao {
   ativo: boolean;
 }
 
+interface FormaPagamento {
+  id: string;
+  nome: string;
+  gc_id: string | null;
+  ativo: boolean;
+}
+
 interface Fatura {
   id: string;
   cartao_id: string;
+  forma_pagamento_id: string | null;
   mes_referencia: string;
   data_fechamento: string | null;
+  data_fechamento_inicio: string | null;
+  data_fechamento_fim: string | null;
   data_vencimento: string | null;
   valor_total: number;
   valor_conciliado: number;
   status: "aberta" | "fechada" | "paga";
+  extrato_liquidante_id: string | null;
   fin_cartoes: Cartao | null;
+  fin_formas_pagamento: FormaPagamento | null;
 }
 
 interface FaturaTransacao {
@@ -70,124 +81,19 @@ interface FaturaTransacao {
   conciliado_em: string | null;
 }
 
-interface Pagamento {
+interface ExtratoItem {
   id: string;
-  descricao: string;
-  valor: number;
-  data_vencimento: string | null;
-  data_competencia: string | null;
-  nome_fornecedor: string | null;
-  recipient_document: string | null;
-  status: string | null;
-  cartao_id: string | null;
-}
-
-interface MatchResult {
-  lancamentoId: string;
-  lancamentoDescricao: string;
-  score: number;
-  rule: string;
-}
-
-// ─── Motor de Conciliação ─────────────────────────────────────────────────────
-const SCORE_AUTO = 0.85;
-
-function normalize(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/**
- * Jaccard similarity em nível de tokens (palavras).
- * Muito mais confiável que frequência de caracteres.
- */
-function jaccardSimilarity(a: string, b: string): number {
-  const setA = new Set(normalize(a).split(" ").filter(Boolean));
-  const setB = new Set(normalize(b).split(" ").filter(Boolean));
-  if (setA.size === 0 || setB.size === 0) return 0;
-  const intersection = new Set([...setA].filter(x => setB.has(x)));
-  const union = new Set([...setA, ...setB]);
-  return intersection.size / union.size;
-}
-
-function dateDiff(d1: string | null, d2: string | null): number {
-  if (!d1 || !d2) return 999;
-  try {
-    return Math.abs(differenceInDays(parseISO(d1), parseISO(d2)));
-  } catch { return 999; }
-}
-
-function scoreMatch(t: FaturaTransacao, p: Pagamento): MatchResult | null {
-  const valorT = t.valor;
-  const valorP = Math.abs(p.valor);
-  const valorExato = Math.abs(valorT - valorP) < 0.01;
-  const valorTol = valorT > 0 && Math.abs(valorT - valorP) / valorT <= 0.02;
-
-  // Compara com data_competencia primeiro (data real), depois data_vencimento
-  const diffComp = dateDiff(t.data_transacao, p.data_competencia);
-  const diffVenc = dateDiff(t.data_transacao, p.data_vencimento);
-  const diffMin = Math.min(diffComp, diffVenc);
-
-  const sim = jaccardSimilarity(t.descricao, [p.descricao, p.nome_fornecedor].filter(Boolean).join(" "));
-  const label = `${p.descricao}${p.nome_fornecedor ? ` / ${p.nome_fornecedor}` : ""}`;
-
-  if (valorExato && diffMin <= 3 && sim >= 0.4)
-    return { lancamentoId: p.id, lancamentoDescricao: label, score: 0.97, rule: "VALOR_DATA_DESC" };
-  if (valorExato && diffMin <= 3)
-    return { lancamentoId: p.id, lancamentoDescricao: label, score: 0.92, rule: "VALOR_DATA" };
-  if (valorExato && sim >= 0.50)
-    return { lancamentoId: p.id, lancamentoDescricao: label, score: 0.87, rule: "VALOR_DESC" };
-  if (valorExato && diffMin <= 7)
-    return { lancamentoId: p.id, lancamentoDescricao: label, score: 0.78, rule: "VALOR_DATA7" };
-  if (valorTol && diffMin <= 5)
-    return { lancamentoId: p.id, lancamentoDescricao: label, score: 0.62, rule: "VALOR_TOL" };
-  return null;
-}
-
-function runReconciliation(
-  transacoes: FaturaTransacao[],
-  pagamentos: Pagamento[],
-): Map<string, MatchResult> {
-  const results = new Map<string, MatchResult>();
-  const usedPags = new Set<string>();
-  const pendentes = transacoes.filter(t => !t.conciliado);
-
-  for (const t of pendentes) {
-    let best: MatchResult | null = null;
-    for (const p of pagamentos) {
-      if (usedPags.has(p.id)) continue;
-      const m = scoreMatch(t, p);
-      if (m && (!best || m.score > best.score)) best = m;
-    }
-    if (best && best.score >= 0.60) {
-      results.set(t.id, best);
-      if (best.score >= SCORE_AUTO) usedPags.add(best.lancamentoId);
-    }
-  }
-  return results;
+  data_hora: string | null;
+  descricao: string | null;
+  valor: number | null;
+  tipo: string | null;
+  nome_contraparte: string | null;
+  reconciliado: boolean | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const fmtDate = (s: string | null) => s ? format(parseISO(s), "dd/MM/yy") : "—";
-
-/** Recalcula valor_conciliado APÓS as operações no banco */
-async function recalcValorConciliado(faturaId: string) {
-  const { data } = await supabase
-    .from("fin_fatura_transacoes")
-    .select("valor")
-    .eq("fatura_id", faturaId)
-    .eq("conciliado", true);
-  const total = (data ?? []).reduce((s: number, r: { valor: number }) => s + r.valor, 0);
-  await supabase.from("fin_fatura_cartao")
-    .update({ valor_conciliado: total } as any)
-    .eq("id", faturaId);
-}
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 export default function FaturaCartaoPage() {
@@ -196,34 +102,31 @@ export default function FaturaCartaoPage() {
   const [cartaoSel, setCartaoSel] = useState("all");
   const [mesSel, setMesSel] = useState("");
   const [expandedFatura, setExpandedFatura] = useState<string | null>(null);
-  const [matchPreview, setMatchPreview] = useState<Map<string, MatchResult>>(new Map());
-
-  // Limpa preview ao trocar de fatura
-  useEffect(() => { setMatchPreview(new Map()); }, [expandedFatura]);
-
   const [saving, setSaving] = useState(false);
-  const [reconciling, setReconciling] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const [loadingTransacoes, setLoadingTransacoes] = useState(false);
 
+  // Dialogs
   const [showCartaoDialog, setShowCartaoDialog] = useState(false);
   const [showFaturaDialog, setShowFaturaDialog] = useState(false);
-  const [showTransacaoDialog, setShowTransacaoDialog] = useState(false);
-  const [showCsvDialog, setShowCsvDialog] = useState(false);
-  const [activeFaturaId, setActiveFaturaId] = useState<string | null>(null);
+  const [showExtratoDialog, setShowExtratoDialog] = useState(false);
+  const [extratoFaturaId, setExtratoFaturaId] = useState<string | null>(null);
+  const [extratoSearch, setExtratoSearch] = useState("");
 
+  // Novo cartão
   const [novoCartao, setNovoCartao] = useState({
     nome: "", bandeira: "VISA", ultimos_digitos: "", banco: "",
     dia_fechamento: 5, dia_vencimento: 15,
   });
+
+  // Nova fatura
   const [novaFatura, setNovaFatura] = useState({
-    cartao_id: "", mes_referencia: format(new Date(), "yyyy-MM"),
-    data_vencimento: "", valor_total: "",
+    cartao_id: "",
+    forma_pagamento_id: "",
+    mes_referencia: format(new Date(), "yyyy-MM"),
+    data_fechamento_inicio: "",
+    data_fechamento_fim: "",
+    data_vencimento: "",
   });
-  const [novaTransacao, setNovaTransacao] = useState({
-    data_transacao: "", descricao: "", valor: "",
-    categoria: "", parcela_atual: "1", total_parcelas: "1",
-  });
-  const [csvText, setCsvText] = useState("");
 
   const invalidateAll = useCallback(() => {
     qc.invalidateQueries({ queryKey: ["fin_fatura_cartao"] });
@@ -241,12 +144,22 @@ export default function FaturaCartaoPage() {
     },
   });
 
+  const { data: formasPagamento = [] } = useQuery<FormaPagamento[]>({
+    queryKey: ["fin_formas_pagamento"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("fin_formas_pagamento").select("*").eq("ativo", true).order("nome");
+      if (error) throw error;
+      return (data ?? []) as unknown as FormaPagamento[];
+    },
+  });
+
   const { data: faturas = [], isLoading: loadingFaturas } = useQuery<Fatura[]>({
     queryKey: ["fin_fatura_cartao", cartaoSel, mesSel],
     queryFn: async () => {
       let q = supabase
         .from("fin_fatura_cartao")
-        .select("*, fin_cartoes(*)")
+        .select("*, fin_cartoes(*), fin_formas_pagamento(*)")
         .order("mes_referencia", { ascending: false })
         .order("created_at", { ascending: false });
       if (cartaoSel !== "all") q = q.eq("cartao_id", cartaoSel);
@@ -257,7 +170,7 @@ export default function FaturaCartaoPage() {
     },
   });
 
-  const { data: transacoes = [], isLoading: loadingTransacoes } = useQuery<FaturaTransacao[]>({
+  const { data: transacoes = [], isLoading: loadingTransacoesQ } = useQuery<FaturaTransacao[]>({
     queryKey: ["fin_fatura_transacoes", expandedFatura],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -272,26 +185,24 @@ export default function FaturaCartaoPage() {
     enabled: !!expandedFatura,
   });
 
-  // Pagamentos escopados ao cartão da fatura expandida (sem conciliação cruzada)
-  const faturaAtiva = useMemo(
-    () => faturas.find(f => f.id === expandedFatura),
-    [faturas, expandedFatura]
-  );
-
-  const { data: pagamentosPool = [], isLoading: loadingPagamentos } = useQuery<Pagamento[]>({
-    queryKey: ["pagamentos_pool_fatura", faturaAtiva?.cartao_id ?? null],
+  // Extrato para vincular como liquidante
+  const { data: extratoItems = [], isLoading: loadingExtrato } = useQuery<ExtratoItem[]>({
+    queryKey: ["extrato_liquidante_search", extratoSearch],
     queryFn: async () => {
-      if (!faturaAtiva?.cartao_id) return [];
-      const { data, error } = await supabase
-        .from("fin_pagamentos")
-        .select("id,descricao,valor,data_vencimento,data_competencia,nome_fornecedor,recipient_document,status,cartao_id")
-        .eq("cartao_id", faturaAtiva.cartao_id)
-        .in("status", ["pendente", "pago"])
-        .limit(500);
+      let q = supabase
+        .from("fin_extrato_inter")
+        .select("id,data_hora,descricao,valor,tipo,nome_contraparte,reconciliado")
+        .lt("valor", 0) // Débitos (pagamentos saindo)
+        .order("data_hora", { ascending: false })
+        .limit(50);
+      if (extratoSearch.trim()) {
+        q = q.or(`descricao.ilike.%${extratoSearch}%,nome_contraparte.ilike.%${extratoSearch}%`);
+      }
+      const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []) as unknown as Pagamento[];
+      return (data ?? []) as unknown as ExtratoItem[];
     },
-    enabled: !!faturaAtiva?.cartao_id,
+    enabled: showExtratoDialog,
   });
 
   // ─── Stats ────────────────────────────────────────────────────────────────
@@ -318,182 +229,143 @@ export default function FaturaCartaoPage() {
   };
 
   const handleCriarFatura = async () => {
-    if (!novaFatura.cartao_id) return;
+    if (!novaFatura.cartao_id || !novaFatura.forma_pagamento_id) {
+      toast.error("Selecione o cartão e a forma de pagamento.");
+      return;
+    }
+    if (!novaFatura.data_fechamento_inicio || !novaFatura.data_fechamento_fim) {
+      toast.error("Informe as datas de fechamento (início e fim do período).");
+      return;
+    }
     setSaving(true);
     try {
-      const { error } = await supabase.from("fin_fatura_cartao").insert([{
-        cartao_id: novaFatura.cartao_id,
-        mes_referencia: novaFatura.mes_referencia,
-        data_vencimento: novaFatura.data_vencimento || null,
-        valor_total: Number(novaFatura.valor_total) || 0,
-      } as any]);
-      if (error) throw error;
+      // 1. Buscar pagamentos no período pela forma de pagamento
+      const { data: pagamentos, error: pgErr } = await supabase
+        .from("fin_pagamentos")
+        .select("id,descricao,valor,data_vencimento,nome_fornecedor,status")
+        .eq("forma_pagamento_id", novaFatura.forma_pagamento_id)
+        .gte("data_vencimento", novaFatura.data_fechamento_inicio)
+        .lte("data_vencimento", novaFatura.data_fechamento_fim)
+        .neq("status", "cancelado")
+        .order("data_vencimento");
+
+      if (pgErr) throw pgErr;
+
+      const valorTotal = (pagamentos ?? []).reduce((s, p) => s + Math.abs(p.valor), 0);
+
+      // 2. Criar a fatura
+      const { data: faturaData, error: fatErr } = await supabase
+        .from("fin_fatura_cartao")
+        .insert([{
+          cartao_id: novaFatura.cartao_id,
+          forma_pagamento_id: novaFatura.forma_pagamento_id,
+          mes_referencia: novaFatura.mes_referencia,
+          data_fechamento_inicio: novaFatura.data_fechamento_inicio,
+          data_fechamento_fim: novaFatura.data_fechamento_fim,
+          data_vencimento: novaFatura.data_vencimento || null,
+          valor_total: valorTotal,
+        } as any])
+        .select("id")
+        .single();
+
+      if (fatErr) throw fatErr;
+
+      // 3. Criar transações a partir dos pagamentos encontrados
+      if (pagamentos && pagamentos.length > 0) {
+        const transRows = pagamentos.map(p => ({
+          fatura_id: faturaData.id,
+          data_transacao: p.data_vencimento || novaFatura.data_fechamento_fim,
+          descricao: [p.descricao, p.nome_fornecedor].filter(Boolean).join(" — ").toUpperCase(),
+          valor: Math.abs(p.valor),
+          conciliado: true,
+          lancamento_id: p.id,
+          reconciliation_rule: "AUTO_FORMA_PAGAMENTO",
+          conciliado_em: new Date().toISOString(),
+        }));
+
+        const { error: trErr } = await supabase
+          .from("fin_fatura_transacoes")
+          .insert(transRows as any);
+        if (trErr) throw trErr;
+
+        // Atualizar valor_conciliado
+        await supabase.from("fin_fatura_cartao")
+          .update({ valor_conciliado: valorTotal } as any)
+          .eq("id", faturaData.id);
+      }
+
       invalidateAll();
-      toast.success("Fatura criada.");
+      toast.success(`Fatura criada com ${pagamentos?.length ?? 0} transações (${fmt(valorTotal)})`);
       setShowFaturaDialog(false);
-      setNovaFatura(prev => ({ ...prev, valor_total: "", data_vencimento: "" }));
+      setNovaFatura(prev => ({
+        ...prev, data_fechamento_inicio: "", data_fechamento_fim: "", data_vencimento: "",
+      }));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao criar fatura.");
     } finally { setSaving(false); }
   };
 
-  const handleCriarTransacao = async () => {
-    if (!activeFaturaId || !novaTransacao.descricao || !novaTransacao.valor) return;
-    const fat = faturas.find(f => f.id === activeFaturaId);
-    if (fat && fat.status !== "aberta") {
-      toast.error(`Fatura ${fat.status}. Não é possível adicionar transações.`);
-      return;
-    }
+  // Auto-preencher datas baseado no cartão selecionado
+  useEffect(() => {
+    if (!novaFatura.cartao_id || !novaFatura.mes_referencia) return;
+    const cartao = cartoes.find(c => c.id === novaFatura.cartao_id);
+    if (!cartao) return;
+
+    const [ano, mes] = novaFatura.mes_referencia.split("-").map(Number);
+    const diaFech = cartao.dia_fechamento ?? 5;
+    const diaVenc = cartao.dia_vencimento ?? 15;
+
+    // Período: do dia de fechamento do mês anterior até dia de fechamento do mês atual
+    const mesAnterior = mes === 1 ? 12 : mes - 1;
+    const anoAnterior = mes === 1 ? ano - 1 : ano;
+    const maxDiaInicio = new Date(anoAnterior, mesAnterior, 0).getDate();
+    const maxDiaFim = new Date(ano, mes, 0).getDate();
+
+    const inicio = `${anoAnterior}-${String(mesAnterior).padStart(2, "0")}-${String(Math.min(diaFech, maxDiaInicio)).padStart(2, "0")}`;
+    const fim = `${ano}-${String(mes).padStart(2, "0")}-${String(Math.min(diaFech, maxDiaFim)).padStart(2, "0")}`;
+    const venc = `${ano}-${String(mes).padStart(2, "0")}-${String(Math.min(diaVenc, maxDiaFim)).padStart(2, "0")}`;
+
+    setNovaFatura(prev => ({
+      ...prev,
+      data_fechamento_inicio: inicio,
+      data_fechamento_fim: fim,
+      data_vencimento: venc,
+    }));
+  }, [novaFatura.cartao_id, novaFatura.mes_referencia, cartoes]);
+
+  // Vincular extrato como liquidante
+  const handleVincularExtrato = async (extratoId: string) => {
+    if (!extratoFaturaId) return;
     setSaving(true);
     try {
-      const { error } = await supabase.from("fin_fatura_transacoes").insert([{
-        fatura_id: activeFaturaId,
-        data_transacao: novaTransacao.data_transacao,
-        descricao: novaTransacao.descricao.trim().toUpperCase(),
-        valor: Number(novaTransacao.valor),
-        categoria: novaTransacao.categoria || null,
-        parcela_atual: Number(novaTransacao.parcela_atual) || 1,
-        total_parcelas: Number(novaTransacao.total_parcelas) || 1,
-      } as any]);
+      const { error } = await supabase
+        .from("fin_fatura_cartao")
+        .update({ extrato_liquidante_id: extratoId, status: "paga" } as any)
+        .eq("id", extratoFaturaId);
       if (error) throw error;
+
       invalidateAll();
-      toast.success("Transação adicionada.");
-      setShowTransacaoDialog(false);
-      setNovaTransacao({ data_transacao: "", descricao: "", valor: "", categoria: "", parcela_atual: "1", total_parcelas: "1" });
+      toast.success("Extrato vinculado — fatura marcada como paga.");
+      setShowExtratoDialog(false);
+      setExtratoFaturaId(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro ao salvar transação.");
+      toast.error(err instanceof Error ? err.message : "Erro ao vincular.");
     } finally { setSaving(false); }
   };
 
-  // ─── Reconciliação ────────────────────────────────────────────────────────
-  const handlePreview = useCallback(() => {
-    if (loadingPagamentos) { toast("Aguarde o carregamento dos pagamentos..."); return; }
-    if (!transacoes.length) { toast("Nenhuma transação nesta fatura."); return; }
-    if (!pagamentosPool.length) {
-      toast("Nenhum pagamento encontrado para este cartão.");
-      return;
-    }
-    const result = runReconciliation(transacoes, pagamentosPool);
-    setMatchPreview(result);
-    const auto = [...result.values()].filter(r => r.score >= SCORE_AUTO).length;
-    toast.success(`${result.size} matches — ${auto} automáticos · ${result.size - auto} para revisão`);
-  }, [transacoes, pagamentosPool, loadingPagamentos]);
-
-  const handleApplyReconciliation = async () => {
-    if (!matchPreview.size) return;
-    setReconciling(true);
-    const now = new Date().toISOString();
-    let ok = 0;
-    const autoMatches = [...matchPreview.entries()].filter(([, m]) => m.score >= SCORE_AUTO);
-
-    for (const [transacaoId, match] of autoMatches) {
-      try {
-        await supabase.from("fin_fatura_transacoes").update({
-          conciliado: true,
-          lancamento_id: match.lancamentoId,
-          reconciliation_rule: match.rule,
-          conciliado_em: now,
-        } as any).eq("id", transacaoId);
-        ok++;
-      } catch { /* falha individual não quebra o batch */ }
-    }
-
-    // Recalcula APÓS as promises
-    if (expandedFatura && ok > 0) {
-      await recalcValorConciliado(expandedFatura);
-    }
-
-    invalidateAll();
-    setMatchPreview(new Map());
-    setReconciling(false);
-    toast.success(`${ok} de ${autoMatches.length} transações conciliadas.`);
-  };
-
-  const handleConfirmManual = async (transacaoId: string, match: MatchResult) => {
-    const now = new Date().toISOString();
+  const handleDesvincularExtrato = async (faturaId: string) => {
+    setSaving(true);
     try {
-      await supabase.from("fin_fatura_transacoes").update({
-        conciliado: true,
-        lancamento_id: match.lancamentoId,
-        reconciliation_rule: "MANUAL_CONFIRM",
-        conciliado_em: now,
-      } as any).eq("id", transacaoId);
-
-      if (expandedFatura) await recalcValorConciliado(expandedFatura);
-
-      const newPreview = new Map(matchPreview);
-      newPreview.delete(transacaoId);
-      setMatchPreview(newPreview);
+      const { error } = await supabase
+        .from("fin_fatura_cartao")
+        .update({ extrato_liquidante_id: null, status: "aberta" } as any)
+        .eq("id", faturaId);
+      if (error) throw error;
       invalidateAll();
-      toast.success("Match confirmado.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro ao confirmar.");
-    }
-  };
-
-  const handleDesvincular = async (t: FaturaTransacao) => {
-    try {
-      await supabase.from("fin_fatura_transacoes").update({
-        conciliado: false, lancamento_id: null,
-        reconciliation_rule: null, conciliado_em: null,
-      } as any).eq("id", t.id);
-
-      // Decrementa valor_conciliado corretamente
-      if (expandedFatura) await recalcValorConciliado(expandedFatura);
-
-      invalidateAll();
-      toast.success("Vínculo removido.");
+      toast.success("Extrato desvinculado.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao desvincular.");
-    }
-  };
-
-  // ─── Import CSV ───────────────────────────────────────────────────────────
-  const handleImportCSV = async () => {
-    if (!activeFaturaId || !csvText.trim()) return;
-    const fat = faturas.find(f => f.id === activeFaturaId);
-    if (fat && fat.status !== "aberta") {
-      toast.error("Fatura não está aberta.");
-      return;
-    }
-    setImporting(true);
-    try {
-      const lines = csvText.trim().split("\n");
-      const dataLines = lines.filter(l => {
-        const cols = l.split(";");
-        return cols.length >= 3 && !isNaN(parseFloat(cols[2].replace(",", ".")));
-      });
-      if (!dataLines.length) { toast.error("Nenhuma linha válida."); setImporting(false); return; }
-
-      const rows = dataLines.map(l => {
-        const cols = l.split(";").map(c => c.trim().replace(/^"|"$/g, ""));
-        const rawDate = cols[0] ?? "";
-        const data_transacao = rawDate.includes("/")
-          ? rawDate.split("/").reverse().join("-")
-          : rawDate;
-        return {
-          fatura_id: activeFaturaId,
-          data_transacao,
-          descricao: (cols[1] ?? "SEM DESCRICAO").toUpperCase(),
-          valor: parseFloat((cols[2] ?? "0").replace(",", ".")),
-          categoria: cols[3] || null,
-          parcela_atual: parseInt(cols[4] ?? "1") || 1,
-          total_parcelas: parseInt(cols[5] ?? "1") || 1,
-        };
-      }).filter(r => r.valor > 0 && r.data_transacao.match(/^\d{4}-\d{2}-\d{2}$/));
-
-      if (!rows.length) { toast.error("Nenhuma linha com data e valor válidos."); setImporting(false); return; }
-
-      const { error } = await supabase.from("fin_fatura_transacoes").insert(rows as any);
-      if (error) throw error;
-
-      invalidateAll();
-      toast.success(`${rows.length} transações importadas.`);
-      setShowCsvDialog(false);
-      setCsvText("");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro ao importar.");
-    } finally { setImporting(false); }
+    } finally { setSaving(false); }
   };
 
   // ─── Render Helpers ───────────────────────────────────────────────────────
@@ -502,10 +374,6 @@ export default function FaturaCartaoPage() {
     fechada: "bg-yellow-500/10 text-yellow-700 border-yellow-500/20",
     paga: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20",
   };
-
-  const scoreBadge = (score: number) => score >= SCORE_AUTO
-    ? <Badge className="bg-emerald-600 text-white text-[9px]">{(score * 100).toFixed(0)}% AUTO</Badge>
-    : <Badge variant="outline" className="text-yellow-600 border-yellow-500/30 text-[9px]">{(score * 100).toFixed(0)}% REVISAR</Badge>;
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
@@ -516,7 +384,7 @@ export default function FaturaCartaoPage() {
           <CreditCard className="h-6 w-6 text-primary" />
           <div>
             <h1 className="text-2xl font-bold text-foreground">Fatura de Cartão</h1>
-            <p className="text-sm text-muted-foreground">Conciliação determinística — motor de regras</p>
+            <p className="text-sm text-muted-foreground">Conciliação por forma de pagamento + período de fechamento</p>
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -591,7 +459,6 @@ export default function FaturaCartaoPage() {
             const pct = f.valor_total > 0
               ? Math.min(100, Math.round((f.valor_conciliado / f.valor_total) * 100))
               : 0;
-            const isClosed = f.status !== "aberta";
 
             return (
               <Card key={f.id} className="overflow-hidden">
@@ -600,21 +467,29 @@ export default function FaturaCartaoPage() {
                   onClick={() => setExpandedFatura(isExpanded ? null : f.id)}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1">
-                      <CreditCard className="h-5 w-5 text-muted-foreground" />
-                      {isClosed && <Lock className="h-3 w-3 text-muted-foreground" />}
-                    </div>
+                    <CreditCard className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="font-medium text-sm text-foreground">
-                        {f.fin_cartoes?.nome ?? "Cartão desconhecido"}
+                        {f.fin_cartoes?.nome ?? "Cartão"}
                         {f.fin_cartoes?.ultimos_digitos ? ` •••${f.fin_cartoes.ultimos_digitos}` : ""}
+                        {f.fin_formas_pagamento ? (
+                          <span className="text-muted-foreground font-normal"> · {f.fin_formas_pagamento.nome}</span>
+                        ) : null}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {f.mes_referencia}
+                        {f.data_fechamento_inicio && f.data_fechamento_fim
+                          ? ` · ${fmtDate(f.data_fechamento_inicio)} a ${fmtDate(f.data_fechamento_fim)}`
+                          : ""}
                         {f.data_vencimento ? ` · vence ${fmtDate(f.data_vencimento)}` : ""}
                       </p>
                     </div>
                     <Badge variant="outline" className={statusColor[f.status] || ""}>{f.status.toUpperCase()}</Badge>
+                    {f.extrato_liquidante_id && (
+                      <Badge className="bg-emerald-600/10 text-emerald-700 text-[9px]">
+                        <Link2 className="h-2.5 w-2.5 mr-0.5" /> Liquidada
+                      </Badge>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-4">
@@ -635,44 +510,29 @@ export default function FaturaCartaoPage() {
                   <div className="border-t border-border p-4 space-y-3 bg-muted/10">
                     {/* Toolbar */}
                     <div className="flex gap-2 flex-wrap">
-                      {!isClosed && (
-                        <>
-                          <Button size="sm" variant="outline" onClick={() => {
-                            setActiveFaturaId(f.id);
-                            setNovaTransacao({ data_transacao: "", descricao: "", valor: "", categoria: "", parcela_atual: "1", total_parcelas: "1" });
-                            setShowTransacaoDialog(true);
-                          }}>
-                            <Plus className="h-3.5 w-3.5 mr-1" /> Transação Manual
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => {
-                            setActiveFaturaId(f.id);
-                            setCsvText("");
-                            setShowCsvDialog(true);
-                          }}>
-                            <Upload className="h-3.5 w-3.5 mr-1" /> Importar CSV
-                          </Button>
-                        </>
-                      )}
-                      <Button size="sm" variant="outline" onClick={handlePreview} disabled={loadingPagamentos}>
-                        {loadingPagamentos ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-                        Pré-visualizar Matches
-                      </Button>
-                      {matchPreview.size > 0 && (
-                        <Button size="sm" onClick={handleApplyReconciliation} disabled={reconciling}>
-                          {reconciling ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1" />}
-                          Aplicar Automáticos ({[...matchPreview.values()].filter(r => r.score >= SCORE_AUTO).length})
+                      {!f.extrato_liquidante_id ? (
+                        <Button size="sm" variant="outline" onClick={() => {
+                          setExtratoFaturaId(f.id);
+                          setExtratoSearch("");
+                          setShowExtratoDialog(true);
+                        }}>
+                          <Link2 className="h-3.5 w-3.5 mr-1" /> Vincular Extrato (Liquidante)
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="ghost" onClick={() => handleDesvincularExtrato(f.id)}>
+                          <Unlink className="h-3.5 w-3.5 mr-1" /> Desvincular Extrato
                         </Button>
                       )}
                     </div>
 
                     {/* Tabela de transações */}
-                    {loadingTransacoes ? (
+                    {loadingTransacoesQ ? (
                       <div className="flex justify-center py-8">
                         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                       </div>
                     ) : transacoes.length === 0 ? (
                       <p className="text-sm text-muted-foreground text-center py-6">
-                        Nenhuma transação. Adicione manualmente ou importe CSV.
+                        Nenhuma transação encontrada no período.
                       </p>
                     ) : (
                       <div className="rounded-md border border-border overflow-auto">
@@ -683,78 +543,33 @@ export default function FaturaCartaoPage() {
                               <TableHead>Descrição</TableHead>
                               <TableHead className="text-right w-[110px]">Valor</TableHead>
                               <TableHead className="w-[100px]">Status</TableHead>
-                              <TableHead className="w-[110px]">Regra</TableHead>
-                              <TableHead className="w-[200px]">Match Preview</TableHead>
-                              <TableHead className="w-[50px]"></TableHead>
+                              <TableHead className="w-[130px]">Regra</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {transacoes.map(t => {
-                              const preview = matchPreview.get(t.id);
-                              return (
-                                <TableRow key={t.id}>
-                                  <TableCell className="text-xs">{fmtDate(t.data_transacao)}</TableCell>
-                                  <TableCell>
-                                    <p className="text-xs font-medium">{t.descricao}</p>
-                                    {t.total_parcelas > 1 && (
-                                      <span className="text-[10px] text-muted-foreground">
-                                        Parcela {t.parcela_atual}/{t.total_parcelas}
-                                      </span>
-                                    )}
-                                  </TableCell>
-                                  <TableCell className="text-right text-xs font-medium">{fmt(t.valor)}</TableCell>
-                                  <TableCell>
-                                    {t.conciliado
-                                      ? <Badge className="bg-emerald-600 text-white text-[9px]"><CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />OK</Badge>
-                                      : <Badge variant="outline" className="text-muted-foreground text-[9px]"><AlertCircle className="h-2.5 w-2.5 mr-0.5" />Pendente</Badge>
-                                    }
-                                  </TableCell>
-                                  <TableCell className="text-[10px] text-muted-foreground">
-                                    {t.reconciliation_rule ?? "—"}
-                                  </TableCell>
-                                  <TableCell>
-                                    {preview && !t.conciliado ? (
-                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                        {scoreBadge(preview.score)}
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <span className="text-[10px] text-muted-foreground truncate max-w-[100px] cursor-help">
-                                              {preview.lancamentoDescricao}
-                                            </span>
-                                          </TooltipTrigger>
-                                          <TooltipContent>
-                                            <p className="text-xs">{preview.lancamentoDescricao}</p>
-                                          </TooltipContent>
-                                        </Tooltip>
-                                        {preview.score < SCORE_AUTO && (
-                                          <Button
-                                            variant="ghost" size="icon" className="h-5 w-5"
-                                            onClick={() => handleConfirmManual(t.id, preview)}
-                                            title="Confirmar match"
-                                          >
-                                            <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-                                          </Button>
-                                        )}
-                                      </div>
-                                    ) : (
-                                      <span className="text-[10px] text-muted-foreground">—</span>
-                                    )}
-                                  </TableCell>
-                                  <TableCell>
-                                    {t.conciliado && (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleDesvincular(t)}>
-                                            <Unlink className="h-3 w-3" />
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Desvincular</TooltipContent>
-                                      </Tooltip>
-                                    )}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
+                            {transacoes.map(t => (
+                              <TableRow key={t.id}>
+                                <TableCell className="text-xs">{fmtDate(t.data_transacao)}</TableCell>
+                                <TableCell>
+                                  <p className="text-xs font-medium">{t.descricao}</p>
+                                  {t.total_parcelas > 1 && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                      Parcela {t.parcela_atual}/{t.total_parcelas}
+                                    </span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-right text-xs font-medium">{fmt(t.valor)}</TableCell>
+                                <TableCell>
+                                  {t.conciliado
+                                    ? <Badge className="bg-emerald-600 text-white text-[9px]"><CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />OK</Badge>
+                                    : <Badge variant="outline" className="text-muted-foreground text-[9px]"><AlertCircle className="h-2.5 w-2.5 mr-0.5" />Pendente</Badge>
+                                  }
+                                </TableCell>
+                                <TableCell className="text-[10px] text-muted-foreground">
+                                  {t.reconciliation_rule ?? "—"}
+                                </TableCell>
+                              </TableRow>
+                            ))}
                           </TableBody>
                         </Table>
                       </div>
@@ -764,7 +579,7 @@ export default function FaturaCartaoPage() {
                     {transacoes.length > 0 && (
                       <div className="flex justify-between text-xs text-muted-foreground px-1">
                         <span>{transacoes.filter(t => t.conciliado).length}/{transacoes.length} conciliadas</span>
-                        <span>Restante: {fmt(transacoes.filter(t => !t.conciliado).reduce((s, t) => s + t.valor, 0))}</span>
+                        <span>Total: {fmt(transacoes.reduce((s, t) => s + t.valor, 0))}</span>
                       </div>
                     )}
                   </div>
@@ -815,106 +630,134 @@ export default function FaturaCartaoPage() {
 
       {/* Nova Fatura */}
       <Dialog open={showFaturaDialog} onOpenChange={setShowFaturaDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Nova Fatura</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <Select value={novaFatura.cartao_id} onValueChange={v => setNovaFatura(p => ({ ...p, cartao_id: v }))}>
-              <SelectTrigger><SelectValue placeholder="Selecione o cartão" /></SelectTrigger>
-              <SelectContent>
-                {cartoes.map(c => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.nome}{c.ultimos_digitos ? ` •••${c.ultimos_digitos}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Cartão *</label>
+              <Select value={novaFatura.cartao_id} onValueChange={v => setNovaFatura(p => ({ ...p, cartao_id: v }))}>
+                <SelectTrigger><SelectValue placeholder="Selecione o cartão" /></SelectTrigger>
+                <SelectContent>
+                  {cartoes.map(c => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.nome}{c.ultimos_digitos ? ` •••${c.ultimos_digitos}` : ""}
+                      {c.dia_fechamento ? ` (fech. dia ${c.dia_fechamento})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Forma de Pagamento *</label>
+              <Select value={novaFatura.forma_pagamento_id} onValueChange={v => setNovaFatura(p => ({ ...p, forma_pagamento_id: v }))}>
+                <SelectTrigger><SelectValue placeholder="Selecione a forma de pagamento" /></SelectTrigger>
+                <SelectContent>
+                  {formasPagamento.map(fp => (
+                    <SelectItem key={fp.id} value={fp.id}>{fp.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Mês de referência *</label>
               <Input type="month" value={novaFatura.mes_referencia} onChange={e => setNovaFatura(p => ({ ...p, mes_referencia: e.target.value }))} />
             </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Fechamento início</label>
+                <Input type="date" value={novaFatura.data_fechamento_inicio} onChange={e => setNovaFatura(p => ({ ...p, data_fechamento_inicio: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Fechamento fim</label>
+                <Input type="date" value={novaFatura.data_fechamento_fim} onChange={e => setNovaFatura(p => ({ ...p, data_fechamento_fim: e.target.value }))} />
+              </div>
+            </div>
+
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Data de vencimento</label>
               <Input type="date" value={novaFatura.data_vencimento} onChange={e => setNovaFatura(p => ({ ...p, data_vencimento: e.target.value }))} />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Valor total da fatura (R$)</label>
-              <Input type="number" step="0.01" placeholder="0,00" value={novaFatura.valor_total} onChange={e => setNovaFatura(p => ({ ...p, valor_total: e.target.value }))} />
-            </div>
+
+            {novaFatura.cartao_id && novaFatura.data_fechamento_inicio && novaFatura.data_fechamento_fim && (
+              <div className="p-2 rounded bg-muted/50 text-xs text-muted-foreground">
+                <p>O sistema buscará todos os pagamentos com a forma de pagamento selecionada e data de vencimento entre <strong>{fmtDate(novaFatura.data_fechamento_inicio)}</strong> e <strong>{fmtDate(novaFatura.data_fechamento_fim)}</strong>.</p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowFaturaDialog(false)}>Cancelar</Button>
-            <Button onClick={handleCriarFatura} disabled={!novaFatura.cartao_id || saving}>
+            <Button onClick={handleCriarFatura} disabled={!novaFatura.cartao_id || !novaFatura.forma_pagamento_id || saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Criar Fatura"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Nova Transação Manual */}
-      <Dialog open={showTransacaoDialog} onOpenChange={setShowTransacaoDialog}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Adicionar Transação</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Data da compra *</label>
-              <Input type="date" value={novaTransacao.data_transacao} onChange={e => setNovaTransacao(p => ({ ...p, data_transacao: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Descrição (como aparece na fatura) *</label>
-              <Input placeholder="Ex: POSTO SHELL" value={novaTransacao.descricao} onChange={e => setNovaTransacao(p => ({ ...p, descricao: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Valor *</label>
-              <Input type="number" step="0.01" placeholder="0,00" value={novaTransacao.valor} onChange={e => setNovaTransacao(p => ({ ...p, valor: e.target.value }))} />
-            </div>
-            <Input placeholder="Categoria (opcional)" value={novaTransacao.categoria} onChange={e => setNovaTransacao(p => ({ ...p, categoria: e.target.value }))} />
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Parcela atual</label>
-                <Input type="number" min={1} value={novaTransacao.parcela_atual} onChange={e => setNovaTransacao(p => ({ ...p, parcela_atual: e.target.value }))} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Total parcelas</label>
-                <Input type="number" min={1} value={novaTransacao.total_parcelas} onChange={e => setNovaTransacao(p => ({ ...p, total_parcelas: e.target.value }))} />
-              </div>
-            </div>
+      {/* Vincular Extrato Liquidante */}
+      <Dialog open={showExtratoDialog} onOpenChange={setShowExtratoDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Vincular Extrato Liquidante</DialogTitle></DialogHeader>
+          <p className="text-xs text-muted-foreground">
+            Selecione a transação bancária (débito) que quitou esta fatura do cartão.
+          </p>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-8"
+              placeholder="Buscar por descrição ou contraparte..."
+              value={extratoSearch}
+              onChange={e => setExtratoSearch(e.target.value)}
+            />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowTransacaoDialog(false)}>Cancelar</Button>
-            <Button onClick={handleCriarTransacao} disabled={!novaTransacao.descricao || !novaTransacao.valor || saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
-      {/* Import CSV */}
-      <Dialog open={showCsvDialog} onOpenChange={setShowCsvDialog}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Importar Transações via CSV</DialogTitle></DialogHeader>
-          <div className="space-y-2">
-            <div className="flex items-start gap-2 p-2 rounded bg-muted/50">
-              <Info className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p className="font-medium text-foreground">Formato: data;descricao;valor;categoria;parcela;total_parcelas</p>
-                <p>Separador: ponto e vírgula. Data: DD/MM/AAAA ou AAAA-MM-DD.</p>
-                <p>Valor: use vírgula ou ponto decimal. Header é ignorado automaticamente.</p>
+          <div className="max-h-[300px] overflow-auto rounded-md border border-border">
+            {loadingExtrato ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
-            </div>
+            ) : extratoItems.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Nenhum débito encontrado.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[80px]">Data</TableHead>
+                    <TableHead>Descrição</TableHead>
+                    <TableHead className="text-right w-[100px]">Valor</TableHead>
+                    <TableHead className="w-[50px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {extratoItems.map(e => (
+                    <TableRow key={e.id} className="cursor-pointer hover:bg-muted/30">
+                      <TableCell className="text-xs">{fmtDate(e.data_hora)}</TableCell>
+                      <TableCell>
+                        <p className="text-xs">{e.descricao || "—"}</p>
+                        {e.nome_contraparte && (
+                          <p className="text-[10px] text-muted-foreground">{e.nome_contraparte}</p>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right text-xs font-medium text-destructive">
+                        {fmt(Math.abs(e.valor ?? 0))}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          size="icon" variant="ghost" className="h-6 w-6"
+                          onClick={() => handleVincularExtrato(e.id)}
+                          disabled={saving}
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </div>
-          <Textarea
-            rows={10}
-            placeholder={"data_transacao;descricao;valor;categoria\n10/03/2026;POSTO SHELL;150,00;Combustível\n11/03/2026;SUPERMERCADO XYZ;320,50;Alimentação"}
-            value={csvText}
-            onChange={e => setCsvText(e.target.value)}
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCsvDialog(false)}>Cancelar</Button>
-            <Button onClick={handleImportCSV} disabled={!csvText.trim() || importing}>
-              {importing ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
-              Importar
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

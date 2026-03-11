@@ -536,7 +536,11 @@ export type Database = {
           cartao_id: string
           created_at: string | null
           data_fechamento: string | null
+          data_fechamento_fim: string | null
+          data_fechamento_inicio: string | null
           data_vencimento: string | null
+          extrato_liquidante_id: string | null
+          forma_pagamento_id: string | null
           id: string
           mes_referencia: string
           observacao: string | null
@@ -549,7 +553,11 @@ export type Database = {
           cartao_id: string
           created_at?: string | null
           data_fechamento?: string | null
+          data_fechamento_fim?: string | null
+          data_fechamento_inicio?: string | null
           data_vencimento?: string | null
+          extrato_liquidante_id?: string | null
+          forma_pagamento_id?: string | null
           id?: string
           mes_referencia: string
           observacao?: string | null
@@ -562,7 +570,11 @@ export type Database = {
           cartao_id?: string
           created_at?: string | null
           data_fechamento?: string | null
+          data_fechamento_fim?: string | null
+          data_fechamento_inicio?: string | null
           data_vencimento?: string | null
+          extrato_liquidante_id?: string | null
+          forma_pagamento_id?: string | null
           id?: string
           mes_referencia?: string
           observacao?: string | null
@@ -577,6 +589,27 @@ export type Database = {
             columns: ["cartao_id"]
             isOneToOne: false
             referencedRelation: "fin_cartoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_fatura_cartao_extrato_liquidante_id_fkey"
+            columns: ["extrato_liquidante_id"]
+            isOneToOne: false
+            referencedRelation: "fin_extrato_inter"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_fatura_cartao_extrato_liquidante_id_fkey"
+            columns: ["extrato_liquidante_id"]
+            isOneToOne: false
+            referencedRelation: "vw_conciliacao_extrato"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fin_fatura_cartao_forma_pagamento_id_fkey"
+            columns: ["forma_pagamento_id"]
+            isOneToOne: false
+            referencedRelation: "fin_formas_pagamento"
             referencedColumns: ["id"]
           },
         ]
