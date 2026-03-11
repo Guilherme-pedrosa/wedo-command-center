@@ -151,7 +151,10 @@ serve(async (req) => {
       const byClient: Record<string, { cliente_id: string; nome_cliente: string; os_list: any[]; valor_total: number }> = {};
 
       for (const os of allOS) {
-      const clienteId = String(os.cliente_id || "sem_cliente");
+        const valor = parseFloat(String(os.valor_total || "0")) || 0;
+        if (valor <= 0) continue; // ignore non-negotiable OS
+
+        const clienteId = String(os.cliente_id || "sem_cliente");
         const nomeCliente = String(os.nome_cliente || "Sem cliente").trim();
 
         if (!byClient[clienteId]) {
@@ -175,7 +178,6 @@ serve(async (req) => {
           byClient[clienteId].nome_cliente = nomeCliente;
         }
 
-        const valor = parseFloat(String(os.valor_total || "0")) || 0;
         const equipamentos = Array.isArray(os.equipamentos) ? os.equipamentos : [];
         const nomeEquipamento = extractEquipamentoNome(equipamentos);
         const descricaoOS = extractText(os.descricao) || extractText(os.observacoes);
