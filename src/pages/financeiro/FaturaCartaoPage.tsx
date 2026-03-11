@@ -245,29 +245,44 @@ export default function FaturaCartaoPage() {
     setSaving(true);
     try {
       // 1. Buscar pagamentos pela forma de pagamento
-      // No ERP, todos os lançamentos de cartão compartilham a mesma data_vencimento
-      // (dia de pagamento da fatura). Então filtramos por data_vencimento = vencimento da fatura
-      // OU por data_competencia dentro do período de fechamento como fallback.
-      let pgQuery = supabase
+      // Estratégia com fallback:
+      //   A) data_vencimento exata da fatura
+      //   B) mês de referência (data_vencimento no mês)
+      //   C) data_competencia no período de fechamento
+      const baseQuery = supabase
         .from("fin_pagamentos")
         .select("id,descricao,valor,data_vencimento,data_competencia,nome_fornecedor,status")
         .eq("forma_pagamento_id", novaFatura.forma_pagamento_id)
         .neq("status", "cancelado")
         .order("data_vencimento");
 
+      let pagamentos: any[] = [];
+
       if (novaFatura.data_vencimento) {
-        // Estratégia principal: buscar pelo vencimento da fatura (como o ERP grava)
-        pgQuery = pgQuery.eq("data_vencimento", novaFatura.data_vencimento);
-      } else {
-        // Fallback: buscar por data_competencia no período de fechamento
-        pgQuery = pgQuery
-          .gte("data_competencia", novaFatura.data_fechamento_inicio)
-          .lte("data_competencia", novaFatura.data_fechamento_fim);
+        const { data, error } = await baseQuery.eq("data_vencimento", novaFatura.data_vencimento);
+        if (error) throw error;
+        pagamentos = data ?? [];
       }
 
-      const { data: pagamentos, error: pgErr } = await pgQuery;
+      if (pagamentos.length === 0 && novaFatura.mes_referencia) {
+        const [ano, mes] = novaFatura.mes_referencia.split("-").map(Number);
+        const mesInicio = `${novaFatura.mes_referencia}-01`;
+        const mesFim = format(new Date(ano, mes, 0), "yyyy-MM-dd");
 
-      if (pgErr) throw pgErr;
+        const { data, error } = await baseQuery
+          .gte("data_vencimento", mesInicio)
+          .lte("data_vencimento", mesFim);
+        if (error) throw error;
+        pagamentos = data ?? [];
+      }
+
+      if (pagamentos.length === 0) {
+        const { data, error } = await baseQuery
+          .gte("data_competencia", novaFatura.data_fechamento_inicio)
+          .lte("data_competencia", novaFatura.data_fechamento_fim);
+        if (error) throw error;
+        pagamentos = data ?? [];
+      }
 
       const valorTotal = (pagamentos ?? []).reduce((s, p) => s + Math.abs(p.valor), 0);
 
