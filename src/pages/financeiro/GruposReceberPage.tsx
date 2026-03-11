@@ -14,7 +14,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix, resyncRecebimentoFromGC, gcDelay, atualizarRecebimentoGC } from "@/api/financeiro";
-import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink, FileText, Link2, Plus, Upload, AlertTriangle, ShieldCheck, RefreshCw, Pencil, Trash2, CalendarIcon, Search, X, Minus } from "lucide-react";
+import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink, FileText, Link2, Plus, Upload, AlertTriangle, ShieldCheck, RefreshCw, Pencil, Trash2, CalendarIcon, Search, X, Minus, Sparkles } from "lucide-react";
+import { SmartGroupDialog } from "@/components/financeiro/SmartGroupDialog";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 
@@ -77,6 +78,7 @@ export default function GruposReceberPage() {
   const [searchingReceb, setSearchingReceb] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [syncingGC, setSyncingGC] = useState(false);
+  const [showSmartGroup, setShowSmartGroup] = useState(false);
 
   const canEditGroup = (g: any) => !g.nfse_numero && !g.gc_baixado && g.status !== "pago";
 
@@ -376,6 +378,9 @@ export default function GruposReceberPage() {
             searchPlaceholder="Buscar status..."
             className="w-[180px] h-9"
           />
+          <Button size="sm" variant="outline" onClick={() => setShowSmartGroup(true)}>
+            <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Agrupamento Inteligente
+          </Button>
           <Button size="sm" onClick={() => navigate("/financeiro/recebimentos")}>
             <Plus className="h-3.5 w-3.5 mr-1.5" /> Criar Grupo
           </Button>
@@ -1026,6 +1031,8 @@ export default function GruposReceberPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SmartGroupDialog open={showSmartGroup} onOpenChange={setShowSmartGroup} />
     </div>
   );
 }
