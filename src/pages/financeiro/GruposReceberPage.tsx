@@ -479,9 +479,9 @@ export default function GruposReceberPage() {
                       </div>
                       {selectedGrupo.nfse_link && (
                         <div className="col-span-2">
-                          <a href={selectedGrupo.nfse_link} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1 text-sm">
-                            <Link2 className="h-3 w-3" /> Acessar NFS-e
-                          </a>
+                          <button onClick={() => handleDownloadXml(selectedGrupo.nfse_link)} className="text-primary hover:underline flex items-center gap-1 text-sm cursor-pointer">
+                            <Link2 className="h-3 w-3" /> Baixar XML da NFS-e
+                          </button>
                         </div>
                       )}
                     </div>
