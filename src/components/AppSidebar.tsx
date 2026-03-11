@@ -44,6 +44,7 @@ const finGrupos = [
   { title: "🗂️ Grupos Receber", url: "/financeiro/grupos-receber", icon: Layers },
   { title: "🗂️ Grupos Pagar", url: "/financeiro/grupos-pagar", icon: Layers },
   { title: "🤝 Negociação OS", url: "/financeiro/negociacao-os", icon: Layers },
+  { title: "📋 Negociações", url: "/financeiro/negociacoes", icon: Layers },
 ];
 
 const finBanco = [
