@@ -270,18 +270,71 @@ export async function atualizarRecebimentoGC(
 }
 
 // ─── Re-sync individual recebimento from GC by gc_id ─────────────────
-export async function resyncRecebimentoFromGC(gcId: string): Promise<boolean> {
-  const res = await callGC<any>({
+export async function resyncRecebimentoFromGC(gcId: string, osCodigo?: string | null): Promise<boolean> {
+  let res = await callGC<any>({
     endpoint: `/api/recebimentos/${gcId}`,
   });
 
-  if (res.status >= 400) {
+  let raw = res.data?.data ?? res.data;
+
+  // If the old gc_id no longer exists and we have an OS code, search by OS
+  if ((res.status >= 400 || !raw?.id) && osCodigo) {
+    console.warn(`[resync] gc_id ${gcId} não encontrado, buscando pela OS ${osCodigo}...`);
+    
+    // Search GC for a recebimento matching this OS
+    const searchRes = await callGC<any>({
+      endpoint: "/api/recebimentos",
+      params: { limite: "100", pagina: "1" },
+    });
+
+    const lista = searchRes.data?.data || [];
+    const match = lista.find((item: any) => {
+      const desc = item.descricao || "";
+      const osFromDesc = extrairOsCodigo(desc);
+      return osFromDesc === osCodigo;
+    });
+
+    if (!match) {
+      console.error(`[resync] OS ${osCodigo} não encontrada nos recebimentos do GC`);
+      return false;
+    }
+
+    raw = match;
+    const newGcId = match.id;
+    const newGcCodigo = match.codigo;
+    console.log(`[resync] OS ${osCodigo} encontrada com novo gc_id=${newGcId} codigo=${newGcCodigo}`);
+
+    // Update the gc_id reference in fin_recebimentos
+    const { error: refError } = await supabase
+      .from("fin_recebimentos")
+      .update({ gc_id: newGcId, gc_codigo: newGcCodigo })
+      .eq("gc_id", gcId);
+
+    if (refError) {
+      console.error(`[resync] Erro ao atualizar referência gc_id:`, refError.message);
+      return false;
+    }
+
+    // Update gc_os_id in grupo items
+    const { data: recRow } = await supabase
+      .from("fin_recebimentos")
+      .select("id")
+      .eq("gc_id", newGcId)
+      .single();
+
+    if (recRow) {
+      await supabase
+        .from("fin_grupo_receber_itens")
+        .update({ gc_os_id: newGcId })
+        .eq("recebimento_id", recRow.id);
+    }
+
+    // Continue with the normal update flow using the new data
+    gcId = newGcId;
+  } else if (res.status >= 400 || !raw?.id) {
     console.error(`[resync] Erro ao buscar recebimento ${gcId}: HTTP ${res.status}`);
     return false;
   }
-
-  const raw = res.data?.data ?? res.data;
-  if (!raw) return false;
 
   const valor = parseFloat(String(raw.valor_total ?? raw.valor ?? "0"));
   const descricao = raw.descricao || "";
