@@ -491,6 +491,7 @@ export default function FaturaCartaoPage() {
             reconciliado: false,
             reconciliado_em: null,
             reconciliation_rule: null,
+            lancamento_id: null,
           } as any)
           .eq("id", extratoLiqId);
       }
