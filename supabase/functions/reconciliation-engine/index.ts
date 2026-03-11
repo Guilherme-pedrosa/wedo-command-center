@@ -183,24 +183,24 @@ function aplicarRegras(
     if (matches.length === 1) return { rule: "NOME_VALOR_EXATO", candidato: matches[0], auto: true };
   }
 
-  // Regra 5: Valor exato + data ±3 dias → auto ONLY if unambiguous after tiebreakers
+  // Regra 5: Valor exato + data ±3 dias → auto ONLY if name confirms (CNPJ, PIX or nome similar)
   if (extDate) {
     const matches = candidatos.filter(c => {
       const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
       return valorExato(extValor, Number(c.fin.valor)) && finDate && dataProxima(extDate, finDate, 3);
     });
     if (matches.length === 1) {
-      // Se temos nome no extrato E nome no candidato, verificar se são minimamente compatíveis
-      // para evitar vincular "Ayrton" com "Donizete" só porque valor e data batem
       const candNome = matches[0].nome;
-      if (extNome && candNome) {
-        const score = nomeSimilarScore(extNome, candNome);
-        // Se o nome é claramente diferente (score < 0.15), bloquear auto e mandar pra revisão
-        if (score < 0.15) {
-          return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: false };
-        }
+      const candDoc = matches[0].doc;
+      // Require at least ONE identity confirmation: CNPJ, PIX key, or name similarity
+      const hasDocMatch = extDoc && candDoc && docMatches(extDoc, candDoc);
+      const hasPixMatch = extPix && matches[0].chavePix && matches[0].chavePix.toLowerCase() === extPix;
+      const hasNameMatch = extNome && candNome && nomeSimilarScore(extNome, candNome) >= 0.25;
+      if (hasDocMatch || hasPixMatch || hasNameMatch) {
+        return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: true };
       }
-      return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: true };
+      // No identity confirmation → review only
+      return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: false };
     }
     if (matches.length > 1) {
       // TIEBREAKER 1: CNPJ/CPF match
