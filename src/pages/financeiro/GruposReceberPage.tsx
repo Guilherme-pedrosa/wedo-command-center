@@ -551,13 +551,16 @@ export default function GruposReceberPage() {
                         <span className="text-muted-foreground">Emitida em</span>
                         <p>{selectedGrupo.nfse_emitida_em ? formatDateTime(selectedGrupo.nfse_emitida_em) : "—"}</p>
                       </div>
-                      {selectedGrupo.nfse_link && (
-                        <div className="col-span-2">
+                      <div className="col-span-2 flex items-center gap-4">
+                        <button onClick={() => handleOpenNfseGC(selectedGrupo.nfse_numero)} className="text-primary hover:underline flex items-center gap-1 text-sm cursor-pointer">
+                          <ExternalLink className="h-3 w-3" /> Ver NFS-e no GC
+                        </button>
+                        {selectedGrupo.nfse_link && (
                           <button onClick={() => handleDownloadXml(selectedGrupo.nfse_link)} className="text-primary hover:underline flex items-center gap-1 text-sm cursor-pointer">
-                            <Link2 className="h-3 w-3" /> Baixar XML da NFS-e
+                            <Link2 className="h-3 w-3" /> Baixar XML
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                       <div className="col-span-2">
                         <Button variant="outline" size="sm" onClick={handleSyncNfseGC} disabled={syncingGC} className="w-full">
                           {syncingGC ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1.5" />}
