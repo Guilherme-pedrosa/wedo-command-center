@@ -269,6 +269,64 @@ export async function atualizarRecebimentoGC(
   return res;
 }
 
+// ─── Re-sync individual recebimento from GC by gc_id ─────────────────
+export async function resyncRecebimentoFromGC(gcId: string): Promise<boolean> {
+  const res = await callGC<any>({
+    endpoint: `/api/recebimentos/${gcId}`,
+  });
+
+  if (res.status >= 400) {
+    console.error(`[resync] Erro ao buscar recebimento ${gcId}: HTTP ${res.status}`);
+    return false;
+  }
+
+  const raw = res.data?.data ?? res.data;
+  if (!raw) return false;
+
+  const valor = parseFloat(String(raw.valor_total ?? raw.valor ?? "0"));
+  const descricao = raw.descricao || "";
+
+  const updateFields: Record<string, unknown> = {
+    descricao,
+    valor,
+    data_vencimento: raw.data_vencimento || null,
+    data_competencia: raw.data_competencia || null,
+    data_emissao: raw.data_emissao || null,
+    data_liquidacao: raw.data_liquidacao || null,
+    liquidado: raw.liquidado === "1" || raw.liquidado === true,
+    nome_cliente: raw.nome_cliente || null,
+    os_codigo: extrairOsCodigo(descricao),
+    gc_payload_raw: raw,
+    last_synced_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from("fin_recebimentos")
+    .update(updateFields)
+    .eq("gc_id", gcId);
+
+  if (error) {
+    console.error(`[resync] Erro ao atualizar fin_recebimentos gc_id=${gcId}:`, error.message);
+    return false;
+  }
+
+  // Also update the item value in fin_grupo_receber_itens
+  const { data: rec } = await supabase
+    .from("fin_recebimentos")
+    .select("id")
+    .eq("gc_id", gcId)
+    .single();
+
+  if (rec) {
+    await supabase
+      .from("fin_grupo_receber_itens")
+      .update({ valor })
+      .eq("recebimento_id", rec.id);
+  }
+
+  return true;
+}
+
 export const baixarRecebimentoNoGC = async (
   gcId: string,
   gcPayloadRaw: Record<string, unknown>,
