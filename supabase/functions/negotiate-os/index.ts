@@ -457,6 +457,7 @@ serve(async (req) => {
               const maxAttempts = 8;
               const waitBetweenAttemptsMs = 1500;
               const expectedByDueDate = new Map<string, number[]>();
+              const expectedValuesFlat: number[] = [];
 
               for (let idx = 0; idx < dueDates.length; idx++) {
                 const due = dueDates[idx];
@@ -464,7 +465,14 @@ serve(async (req) => {
                 const bucket = expectedByDueDate.get(due) || [];
                 bucket.push(expectedValue);
                 expectedByDueDate.set(due, bucket);
+                expectedValuesFlat.push(expectedValue);
               }
+
+              const sortedDueDates = [...dueDates].sort();
+              const minDueDate = sortedDueDates[0];
+              const maxDueDate = sortedDueDates[sortedDueDates.length - 1];
+              const minExpectedValue = Math.max(0, Math.min(...expectedValuesFlat) - 0.05);
+              const maxExpectedValue = Math.max(...expectedValuesFlat) + 0.05;
 
               const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -546,8 +554,12 @@ serve(async (req) => {
                   const paramsObj: Record<string, string> = {
                     limite: "100",
                     pagina: String(recPage),
+                    data_inicio: minDueDate,
+                    data_fim: maxDueDate,
+                    valor_inicio: minExpectedValue.toFixed(2),
+                    valor_fim: maxExpectedValue.toFixed(2),
                   };
-                  if (onlyOpen) paramsObj.liquidado = "0";
+                  if (onlyOpen) paramsObj.liquidado = "ab";
 
                   const searchParams = new URLSearchParams(paramsObj);
                   const recResp = await rateLimitedFetch(
@@ -636,7 +648,7 @@ serve(async (req) => {
                 ).length;
 
                 console.log(
-                  `[negotiate-os] STEP D tentativa ${attempt}/${maxAttempts}: ${allRecords.length} financeiros varridos, ${matching.length} candidatos, ${alreadyTagged} já com ${negTag} (OS ${os.codigo})`
+                  `[negotiate-os] STEP D tentativa ${attempt}/${maxAttempts}: ${allRecords.length} financeiros varridos, ${matching.length} candidatos, ${alreadyTagged} já com ${negTag} (OS ${os.codigo}, janela ${minDueDate}..${maxDueDate})`
                 );
 
                 if (matching.length >= parcelas) break;
