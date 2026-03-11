@@ -257,22 +257,15 @@ serve(async (req) => {
           }
 
           // Extract equipment name from OS data
-          let nomeEquipamento = "";
-          const equipamentos = os.equipamentos;
-          if (Array.isArray(equipamentos) && equipamentos.length > 0) {
-            const eq = equipamentos[0];
-            nomeEquipamento = String(eq?.nome || eq?.descricao || eq?.equipamento || "");
-          }
-          if (!nomeEquipamento) {
-            nomeEquipamento = String(os.descricao || os.equipamento || "");
-          }
+          const nomeEquipamento = extractEquipamentoNome(os.equipamentos) || extractText(os.descricao) || extractText(os.observacoes);
+          const dataBaseOS = String(os.data || os.data_saida || os.data_entrada || new Date().toISOString().slice(0, 10));
 
           osDetails.push({
             id: osId,
             codigo: String(os.codigo || ""),
             tipo: String(os.tipo || "servico"),
             cliente_id: String(os.cliente_id || ""),
-            data: String(os.data || new Date().toISOString().slice(0, 10)),
+            data: dataBaseOS,
             valor_total: valorTotal,
             nome_cliente: String(os.nome_cliente || nome_cliente || ""),
             nome_equipamento: nomeEquipamento,
