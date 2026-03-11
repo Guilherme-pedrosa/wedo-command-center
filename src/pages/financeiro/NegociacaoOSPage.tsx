@@ -254,7 +254,7 @@ export default function NegociacaoOSPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <Button variant="ghost" size="sm" onClick={() => { setSelectedClient(null); setSelectedOSIds(new Set()); }}>
+              <Button variant="ghost" size="sm" onClick={handleBack}>
                 ← Voltar
               </Button>
               <span className="ml-2 font-semibold text-foreground">{selectedClient.nome_cliente}</span>
