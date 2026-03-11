@@ -250,9 +250,25 @@ export async function baixarRecebimentoGC(
 export async function atualizarRecebimentoGC(
   gcId: string,
   gcPayloadRaw: Record<string, unknown>,
-  campos: { data_vencimento?: string; descricao?: string; observacao?: string; nf_numero?: string; atributos?: Array<{id: number; valor: string}> }
+  campos: {
+    data_vencimento?: string;
+    descricao?: string;
+    observacao?: string;
+    nf_numero?: string;
+    atributos?: Array<{ atributo_id: number; valor: string } | { id: number; valor: string }>;
+  }
 ): Promise<{ status: number; data: unknown; duration_ms: number }> {
-  const payload = { ...gcPayloadRaw, ...campos };
+  const atributosNormalizados = campos.atributos?.map((a) => ({
+    atributo_id: "atributo_id" in a ? a.atributo_id : a.id,
+    valor: String(a.valor ?? ""),
+  }));
+
+  const payload = {
+    ...gcPayloadRaw,
+    ...campos,
+    ...(atributosNormalizados ? { atributos: atributosNormalizados } : {}),
+  };
+
   // Remove campos de liquidação para não baixar acidentalmente
   delete (payload as any).liquidado;
   delete (payload as any).data_liquidacao;
@@ -263,9 +279,31 @@ export async function atualizarRecebimentoGC(
     payload,
   });
 
-  if (res.status >= 400) {
-    throw new Error(`Erro ao atualizar recebimento ${gcId}: HTTP ${res.status}`);
+  const embeddedJsonMatch = typeof res.data === "string"
+    ? res.data.match(/\{"code":\d+,"status":"(?:error|success)","data":\{[\s\S]*?\}\}/)
+    : null;
+
+  let embeddedCode: number | null = null;
+  let embeddedStatus: string | null = null;
+  let embeddedMessage: string | null = null;
+
+  if (embeddedJsonMatch?.[0]) {
+    try {
+      const parsed = JSON.parse(embeddedJsonMatch[0]) as { code?: number; status?: string; data?: { mensagem?: string } };
+      embeddedCode = parsed.code ?? null;
+      embeddedStatus = parsed.status ?? null;
+      embeddedMessage = parsed.data?.mensagem ?? null;
+    } catch {
+      // ignore parse errors and fallback to HTTP status
+    }
   }
+
+  if (res.status >= 400 || (embeddedCode !== null && embeddedCode >= 400) || embeddedStatus === "error") {
+    throw new Error(
+      embeddedMessage || `Erro ao atualizar recebimento ${gcId}: HTTP ${res.status}`
+    );
+  }
+
   return res;
 }
 

@@ -307,7 +307,7 @@ export default function GruposReceberPage() {
             observacao: `NFS-e ${selectedGrupo.nfse_numero} vinculada via ARGUS`,
             data_vencimento: selectedGrupo.data_vencimento || undefined,
             nf_numero: selectedGrupo.nfse_numero,
-            atributos: [{ id: 8928, valor: selectedGrupo.nfse_numero }],
+            atributos: [{ atributo_id: 8928, valor: selectedGrupo.nfse_numero }],
           });
           await gcDelay();
 
