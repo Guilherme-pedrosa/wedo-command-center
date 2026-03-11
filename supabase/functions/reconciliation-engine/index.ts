@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-11-v11-date-guard-all-rules
+// redeploy: 2026-03-11-v12-tolerancia-manual
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -170,7 +170,7 @@ function aplicarRegras(
       return docMatches(extDoc, c.doc) && valorTolerancia(extValor, Number(c.fin.valor), 2)
         && finDate && dataProxima(extDate, finDate, 15);
     });
-    if (matches.length === 1) return { rule: "CNPJ_VALOR_TOLERANCIA", candidato: matches[0], auto: true };
+    if (matches.length === 1) return { rule: "CNPJ_VALOR_TOLERANCIA", candidato: matches[0], auto: false };
   }
 
   // Regra 4: Nome similar + valor exato + data ±30d → auto-baixa
