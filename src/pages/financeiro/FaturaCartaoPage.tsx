@@ -846,11 +846,12 @@ export default function FaturaCartaoPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Forma de Pagamento *</label>
+              <label className="text-xs text-muted-foreground">Forma de Pagamento * {novaFatura.forma_pagamento_ids.length > 0 && `(${novaFatura.forma_pagamento_ids.length})`}</label>
               <SearchableSelect
-                value={novaFatura.forma_pagamento_id}
-                onValueChange={v => setNovaFatura(p => ({ ...p, forma_pagamento_id: v }))}
-                placeholder="Selecione a forma de pagamento"
+                multiple
+                value={novaFatura.forma_pagamento_ids}
+                onValueChange={v => setNovaFatura(p => ({ ...p, forma_pagamento_ids: v }))}
+                placeholder="Selecione as formas de pagamento"
                 searchPlaceholder="Buscar forma de pagamento..."
                 options={formasPagamento.map(fp => ({
                   value: fp.id,
@@ -880,9 +881,11 @@ export default function FaturaCartaoPage() {
               <Input type="date" value={novaFatura.data_vencimento} onChange={e => setNovaFatura(p => ({ ...p, data_vencimento: e.target.value }))} />
             </div>
 
-            {novaFatura.forma_pagamento_id && (
+            {novaFatura.forma_pagamento_ids.length > 0 && (
               <div className="p-2 rounded bg-muted/50 text-xs text-muted-foreground">
-                {novaFatura.data_vencimento ? (
+                {novaFatura.forma_pagamento_ids.length > 1 ? (
+                  <p>Serão criadas <strong>{novaFatura.forma_pagamento_ids.length} faturas</strong>, uma para cada forma de pagamento selecionada.</p>
+                ) : novaFatura.data_vencimento ? (
                   <p>O sistema tenta primeiro <strong>data de vencimento = {fmtDate(novaFatura.data_vencimento)}</strong>; se não encontrar, usa o <strong>mês de referência</strong> e depois a <strong>data de competência</strong> no período.</p>
                 ) : novaFatura.data_fechamento_inicio && novaFatura.data_fechamento_fim ? (
                   <p>Sem data de vencimento, o sistema usará o <strong>mês de referência</strong> e depois a <strong>data de competência</strong> entre <strong>{fmtDate(novaFatura.data_fechamento_inicio)}</strong> e <strong>{fmtDate(novaFatura.data_fechamento_fim)}</strong>.</p>
@@ -894,8 +897,8 @@ export default function FaturaCartaoPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowFaturaDialog(false)}>Cancelar</Button>
-            <Button onClick={handleCriarFatura} disabled={!novaFatura.cartao_id || !novaFatura.forma_pagamento_id || saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Criar Fatura"}
+            <Button onClick={handleCriarFatura} disabled={!novaFatura.cartao_id || novaFatura.forma_pagamento_ids.length === 0 || saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : novaFatura.forma_pagamento_ids.length > 1 ? `Criar ${novaFatura.forma_pagamento_ids.length} Faturas` : "Criar Fatura"}
             </Button>
           </DialogFooter>
         </DialogContent>
