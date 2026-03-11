@@ -88,8 +88,42 @@ export default function GruposReceberPage() {
     finally { setVerifying(false); }
   };
 
+  const validateNfse = (): string[] => {
+    const errors: string[] = [];
+    if (!nfseForm.numero.trim()) errors.push("Número da NFS-e é obrigatório.");
+    if (nfseForm.link.trim() && !/^https?:\/\/.+/.test(nfseForm.link.trim())) errors.push("Link inválido. Deve começar com http:// ou https://");
+
+    if (!selectedGrupo) return errors;
+
+    // Validate valor
+    const valorNfse = parseFloat(nfseForm.valor.replace(/[^\d.,]/g, "").replace(",", "."));
+    const valorGrupo = Number(selectedGrupo.valor_total);
+    if (!nfseForm.valor.trim() || isNaN(valorNfse)) {
+      errors.push("Valor da NFS-e é obrigatório.");
+    } else if (Math.abs(valorNfse - valorGrupo) > 0.01) {
+      errors.push(`Valor da NFS-e (${formatCurrency(valorNfse)}) não confere com o valor do grupo (${formatCurrency(valorGrupo)}).`);
+    }
+
+    // Validate cliente
+    const clienteNfse = nfseForm.cliente.trim().toLowerCase();
+    const clienteGrupo = (selectedGrupo.nome_cliente || "").trim().toLowerCase();
+    if (!clienteNfse) {
+      errors.push("Nome do cliente/tomador da NFS-e é obrigatório.");
+    } else if (clienteGrupo && !clienteGrupo.includes(clienteNfse) && !clienteNfse.includes(clienteGrupo)) {
+      errors.push(`Cliente da NFS-e ("${nfseForm.cliente.trim()}") não confere com o cliente do grupo ("${selectedGrupo.nome_cliente}").`);
+    }
+
+    return errors;
+  };
+
   const handleSalvarNfse = async () => {
-    if (!selectedGrupo || !nfseForm.numero.trim()) return;
+    const errors = validateNfse();
+    if (errors.length > 0) {
+      setNfseErrors(errors);
+      return;
+    }
+    setNfseErrors([]);
+    if (!selectedGrupo) return;
     setSavingNfse(true);
     try {
       const { error } = await supabase.from("fin_grupos_receber").update({
