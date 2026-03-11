@@ -155,6 +155,11 @@ serve(async (req) => {
         );
       }
 
+      // Get sequential negotiation number
+      const { data: negNumData, error: negNumErr } = await supabase.rpc("next_negociacao_number");
+      const negociacao_numero = negNumErr ? Date.now() : (negNumData as number);
+      console.log(`[negotiate-os] Negociação nº${negociacao_numero}`);
+
       // Generate due dates
       const [startYear, startMonth] = mes_inicio.split("-").map(Number);
       const dueDates: string[] = [];
@@ -256,7 +261,13 @@ serve(async (req) => {
             }
           }
 
-          console.log(`[negotiate-os] PUT OS ${os.id} (codigo=${os.codigo}) — preserving payload`);
+          // Append negotiation tag to observacoes
+          const existingObs = String(updatePayload["observacoes"] || "");
+          updatePayload["observacoes"] = existingObs
+            ? `${existingObs}\nnegociado nº${negociacao_numero}`
+            : `negociado nº${negociacao_numero}`;
+
+          console.log(`[negotiate-os] PUT OS ${os.id} (codigo=${os.codigo}) — negociado nº${negociacao_numero}`);
 
           const putResp = await rateLimitedFetch(
             `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
@@ -283,6 +294,7 @@ serve(async (req) => {
         }
       }
 
+
       // 3. Create fin_grupos_receber — one group per installment
       const successOS = osDetails.filter((os) =>
         gcUpdateResults.find((r) => r.os_id === os.id && r.status === "ok")
@@ -299,7 +311,7 @@ serve(async (req) => {
         for (let i = 0; i < parcelas; i++) {
           const valor = i === parcelas - 1 ? valorUltima : valorParcela;
           const vencimento = dueDates[i];
-          const nomeGrupo = `${clienteNome} — Negociação ${i + 1}/${parcelas}`;
+          const nomeGrupo = `${clienteNome} — Neg. nº${negociacao_numero} (${i + 1}/${parcelas})`;
 
           // Insert grupo
           const { data: grupo, error: grupoErr } = await supabase
