@@ -312,9 +312,10 @@ serve(async (req) => {
           ];
 
           for (const key of passthroughKeys) {
-            if (os.raw[key] !== undefined && os.raw[key] !== null) {
-              updatePayload[key] = os.raw[key];
-            }
+            const rawValue = os.raw[key];
+            if (rawValue === undefined || rawValue === null) continue;
+            if (key === "forma_pagamento_id" && String(rawValue).trim() === "") continue;
+            updatePayload[key] = rawValue;
           }
 
           // Override payment terms with negotiated values (GC-compliant)
@@ -338,11 +339,14 @@ serve(async (req) => {
           const valorUltimaOS = Math.round((valorOS - valorParcelaOS * (parcelas - 1)) * 100) / 100;
 
           const pagamentosRaw = Array.isArray(os.raw.pagamentos) ? os.raw.pagamentos : [];
-          const primeiroPagamento = (pagamentosRaw[0] && typeof pagamentosRaw[0] === "object")
-            ? ((pagamentosRaw[0] as Record<string, unknown>).pagamento && typeof (pagamentosRaw[0] as Record<string, unknown>).pagamento === "object"
-              ? (pagamentosRaw[0] as Record<string, unknown>).pagamento as Record<string, unknown>
-              : pagamentosRaw[0] as Record<string, unknown>)
+          const primeiroPagamentoWrapper = (pagamentosRaw[0] && typeof pagamentosRaw[0] === "object")
+            ? pagamentosRaw[0] as Record<string, unknown>
             : {};
+          const primeiroPagamento = (
+            (primeiroPagamentoWrapper.pagamento && typeof primeiroPagamentoWrapper.pagamento === "object" && primeiroPagamentoWrapper.pagamento) ||
+            (primeiroPagamentoWrapper.Pagamento && typeof primeiroPagamentoWrapper.Pagamento === "object" && primeiroPagamentoWrapper.Pagamento) ||
+            primeiroPagamentoWrapper
+          ) as Record<string, unknown>;
 
           const formaPagamentoId = String(
             primeiroPagamento.forma_pagamento_id || updatePayload["forma_pagamento_id"] || ""
@@ -351,6 +355,10 @@ serve(async (req) => {
           const planoContasId = String(primeiroPagamento.plano_contas_id || primeiroPagamento.categoria_id || "");
           const nomePlanoConta = String(primeiroPagamento.nome_plano_conta || primeiroPagamento.nome_categoria || "");
 
+          if (formaPagamentoId) {
+            updatePayload["forma_pagamento_id"] = formaPagamentoId;
+          }
+
           updatePayload["pagamentos"] = dueDates.map((dt, idx) => {
             const pagamento: Record<string, unknown> = {
               data_vencimento: dt,
@@ -358,8 +366,14 @@ serve(async (req) => {
             };
             if (formaPagamentoId) pagamento.forma_pagamento_id = formaPagamentoId;
             if (nomeFormaPagamento) pagamento.nome_forma_pagamento = nomeFormaPagamento;
-            if (planoContasId) pagamento.plano_contas_id = planoContasId;
-            if (nomePlanoConta) pagamento.nome_plano_conta = nomePlanoConta;
+            if (planoContasId) {
+              pagamento.plano_contas_id = planoContasId;
+              pagamento.categoria_id = planoContasId;
+            }
+            if (nomePlanoConta) {
+              pagamento.nome_plano_conta = nomePlanoConta;
+              pagamento.nome_categoria = nomePlanoConta;
+            }
             return { pagamento };
           });
           const existingObs = String(updatePayload["observacoes"] || "");
