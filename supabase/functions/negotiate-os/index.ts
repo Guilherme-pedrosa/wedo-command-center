@@ -152,19 +152,7 @@ serve(async (req) => {
 
       for (const os of allOS) {
         const clienteId = String(os.cliente_id || "sem_cliente");
-        const nomeCliente = String(os.nome_cliente || "Sem cliente").trim();
-        const nomeClienteNorm = nomeCliente.toLowerCase();
-
-        // Ignora clientes genéricos/placeholders no fluxo de negociação
-        if (
-          !nomeCliente ||
-          nomeClienteNorm === "consumidor" ||
-          nomeClienteNorm === "consumidor final" ||
-          nomeClienteNorm === "sem cliente" ||
-          clienteId === "sem_cliente"
-        ) {
-          continue;
-        }
+        const nomeCliente = String(os.nome_cliente || "Sem cliente");
 
         if (!byClient[clienteId]) {
           byClient[clienteId] = {
