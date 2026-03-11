@@ -814,7 +814,7 @@ export default function FaturaCartaoPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Vincular Extrato Liquidante</DialogTitle></DialogHeader>
           <p className="text-xs text-muted-foreground">
-            Selecione a transação bancária (débito) que quitou esta fatura do cartão.
+            Selecione a transação bancária (débito) que quitou esta fatura do cartão. Itens com valor mais próximo da fatura aparecem primeiro.
           </p>
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
