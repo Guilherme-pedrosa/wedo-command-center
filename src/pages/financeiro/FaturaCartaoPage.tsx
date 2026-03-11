@@ -636,29 +636,30 @@ export default function FaturaCartaoPage() {
           <div className="space-y-3">
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Cartão *</label>
-              <Select value={novaFatura.cartao_id} onValueChange={v => setNovaFatura(p => ({ ...p, cartao_id: v }))}>
-                <SelectTrigger><SelectValue placeholder="Selecione o cartão" /></SelectTrigger>
-                <SelectContent>
-                  {cartoes.map(c => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nome}{c.ultimos_digitos ? ` •••${c.ultimos_digitos}` : ""}
-                      {c.dia_fechamento ? ` (fech. dia ${c.dia_fechamento})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={novaFatura.cartao_id}
+                onValueChange={v => setNovaFatura(p => ({ ...p, cartao_id: v }))}
+                placeholder="Selecione o cartão"
+                searchPlaceholder="Buscar cartão..."
+                options={cartoes.map(c => ({
+                  value: c.id,
+                  label: `${c.nome}${c.ultimos_digitos ? ` •••${c.ultimos_digitos}` : ""}${c.dia_fechamento ? ` (fech. dia ${c.dia_fechamento})` : ""}`,
+                }))}
+              />
             </div>
 
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Forma de Pagamento *</label>
-              <Select value={novaFatura.forma_pagamento_id} onValueChange={v => setNovaFatura(p => ({ ...p, forma_pagamento_id: v }))}>
-                <SelectTrigger><SelectValue placeholder="Selecione a forma de pagamento" /></SelectTrigger>
-                <SelectContent>
-                  {formasPagamento.map(fp => (
-                    <SelectItem key={fp.id} value={fp.id}>{fp.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={novaFatura.forma_pagamento_id}
+                onValueChange={v => setNovaFatura(p => ({ ...p, forma_pagamento_id: v }))}
+                placeholder="Selecione a forma de pagamento"
+                searchPlaceholder="Buscar forma de pagamento..."
+                options={formasPagamento.map(fp => ({
+                  value: fp.id,
+                  label: fp.nome,
+                }))}
+              />
             </div>
 
             <div className="space-y-1">
