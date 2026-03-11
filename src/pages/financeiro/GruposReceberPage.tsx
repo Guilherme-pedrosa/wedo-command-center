@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
-import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix, resyncRecebimentoFromGC, gcDelay } from "@/api/financeiro";
+import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix, resyncRecebimentoFromGC, gcDelay, atualizarRecebimentoGC } from "@/api/financeiro";
 import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink, FileText, Link2, Plus, Upload, AlertTriangle, ShieldCheck, RefreshCw, Pencil, Trash2, CalendarIcon, Search, X, Minus } from "lucide-react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
@@ -56,6 +56,7 @@ export default function GruposReceberPage() {
   const [searchReceb, setSearchReceb] = useState("");
   const [searchingReceb, setSearchingReceb] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [syncingGC, setSyncingGC] = useState(false);
 
   const canEditGroup = (g: any) => !g.nfse_numero && !g.gc_baixado && g.status !== "pago";
 
@@ -189,7 +190,7 @@ export default function GruposReceberPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("fin_grupo_receber_itens")
-        .select("*, fin_recebimentos(gc_id, gc_codigo, descricao, valor, os_codigo, pago_sistema, gc_baixado)")
+        .select("*, fin_recebimentos(gc_id, gc_codigo, descricao, valor, os_codigo, pago_sistema, gc_baixado, gc_payload_raw, nfe_numero)")
         .eq("grupo_id", selectedGrupo.id);
       return data || [];
     },
@@ -284,6 +285,45 @@ export default function GruposReceberPage() {
       queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao salvar NF"); }
     finally { setSavingNfse(false); }
+  };
+
+  const handleSyncNfseGC = async () => {
+    if (!selectedGrupo || !grupoItens?.length || !selectedGrupo.nfse_numero) return;
+    setSyncingGC(true);
+    let ok = 0;
+    let erros = 0;
+    try {
+      for (const item of grupoItens) {
+        const rec = item.fin_recebimentos as any;
+        if (!rec?.gc_id || !rec?.gc_payload_raw) { erros++; continue; }
+
+        const descOriginal = rec.descricao || "";
+        const nfTag = `NF ${selectedGrupo.nfse_numero}`;
+        const novaDescricao = descOriginal.includes(nfTag) ? descOriginal : `${descOriginal} — ${nfTag}`;
+        
+        try {
+          await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw, {
+            descricao: novaDescricao,
+            observacao: `NFS-e ${selectedGrupo.nfse_numero} vinculada via ARGUS`,
+          });
+          await gcDelay();
+
+          await supabase.from("fin_recebimentos")
+            .update({ descricao: novaDescricao, nfe_numero: selectedGrupo.nfse_numero })
+            .eq("id", item.recebimento_id);
+          ok++;
+        } catch (e) {
+          console.error(`Erro sync GC item ${rec.gc_codigo}:`, e);
+          erros++;
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens", selectedGrupo.id] });
+      toast.success(`NFS-e sincronizada no GC: ${ok} atualizados${erros ? `, ${erros} erros` : ""}`);
+    } catch (err) {
+      toast.error("Erro ao sincronizar NFS-e no GC");
+    } finally {
+      setSyncingGC(false);
+    }
   };
 
   return (
@@ -491,6 +531,12 @@ export default function GruposReceberPage() {
                           </button>
                         </div>
                       )}
+                      <div className="col-span-2">
+                        <Button variant="outline" size="sm" onClick={handleSyncNfseGC} disabled={syncingGC} className="w-full">
+                          {syncingGC ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1.5" />}
+                          Sincronizar NFS-e no GC
+                        </Button>
+                      </div>
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">Nenhuma NFS-e vinculada a este grupo.</p>
