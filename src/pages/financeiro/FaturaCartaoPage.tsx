@@ -273,7 +273,12 @@ export default function FaturaCartaoPage() {
         let pagamentos: any[] = [];
 
         if (novaFatura.data_vencimento) {
-          const { data, error } = await baseQuery.eq("data_vencimento", novaFatura.data_vencimento);
+          // Buscar vencimentos do dia 1 do mês até a data informada
+          const vencDate = novaFatura.data_vencimento;
+          const mesInicio = vencDate.substring(0, 7) + "-01";
+          const { data, error } = await baseQuery
+            .gte("data_vencimento", mesInicio)
+            .lte("data_vencimento", vencDate);
           if (error) throw error;
           pagamentos = data ?? [];
         }
