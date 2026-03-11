@@ -357,13 +357,17 @@ export default function GruposReceberPage() {
                     </Button>
                     {canEditGroup(g) && (
                       <>
-                        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
-                          setSelectedGrupo(g);
-                          setEditNome(g.nome);
-                          setEditVencimento(g.data_vencimento || "");
-                          setEditObs(g.observacao || "");
-                          setShowEditDialog(true);
-                        }}>
+                     <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
+                        setSelectedGrupo(g);
+                        setEditNome(g.nome);
+                        setEditVencimento(g.data_vencimento || "");
+                        setEditObs(g.observacao || "");
+                        setEditItensToRemove([]);
+                        setEditItensToAdd([]);
+                        setSearchReceb("");
+                        setSearchResults([]);
+                        setShowEditDialog(true);
+                      }}>
                           <Pencil className="h-3 w-3" />
                         </Button>
                         <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => {
