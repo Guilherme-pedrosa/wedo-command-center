@@ -14,7 +14,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix, resyncRecebimentoFromGC, gcDelay } from "@/api/financeiro";
-import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink, FileText, Link2, Plus, Upload, AlertTriangle, ShieldCheck, RefreshCw } from "lucide-react";
+import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink, FileText, Link2, Plus, Upload, AlertTriangle, ShieldCheck, RefreshCw, Pencil, Trash2, CalendarIcon } from "lucide-react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 
@@ -34,6 +34,72 @@ export default function GruposReceberPage() {
   const [parsingXml, setParsingXml] = useState(false);
   const [savingNfse, setSavingNfse] = useState(false);
   const [resyncingGrupo, setResyncingGrupo] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editNome, setEditNome] = useState("");
+  const [editVencimento, setEditVencimento] = useState("");
+  const [editObs, setEditObs] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const canEditGroup = (g: any) => !g.nfse_numero && !g.gc_baixado && g.status !== "pago";
+
+  const handleEditGroup = async () => {
+    if (!selectedGrupo) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from("fin_grupos_receber").update({
+        nome: editNome,
+        data_vencimento: editVencimento || null,
+        observacao: editObs || null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", selectedGrupo.id);
+      if (error) throw error;
+
+      // Update vencimento on linked recebimentos
+      if (editVencimento) {
+        const { data: itens } = await supabase
+          .from("fin_grupo_receber_itens")
+          .select("recebimento_id")
+          .eq("grupo_id", selectedGrupo.id);
+        if (itens?.length) {
+          const ids = itens.map((i: any) => i.recebimento_id);
+          await supabase.from("fin_recebimentos").update({ data_vencimento: editVencimento }).in("id", ids);
+        }
+      }
+
+      toast.success("Grupo atualizado");
+      setShowEditDialog(false);
+      setSelectedGrupo({ ...selectedGrupo, nome: editNome, data_vencimento: editVencimento, observacao: editObs });
+      queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+    finally { setSaving(false); }
+  };
+
+  const handleDeleteGroup = async () => {
+    if (!selectedGrupo) return;
+    setDeleting(true);
+    try {
+      // Remove grupo_id from linked recebimentos
+      const { data: itens } = await supabase
+        .from("fin_grupo_receber_itens")
+        .select("recebimento_id")
+        .eq("grupo_id", selectedGrupo.id);
+      if (itens?.length) {
+        const ids = itens.map((i: any) => i.recebimento_id);
+        await supabase.from("fin_recebimentos").update({ grupo_id: null }).in("id", ids);
+      }
+      // Delete items then group
+      await supabase.from("fin_grupo_receber_itens").delete().eq("grupo_id", selectedGrupo.id);
+      await supabase.from("fin_grupos_receber").delete().eq("id", selectedGrupo.id);
+
+      toast.success("Grupo excluído");
+      setShowDeleteConfirm(false);
+      setSelectedGrupo(null);
+      queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+    finally { setDeleting(false); }
+  };
   const { data: grupos, isLoading } = useQuery({
     queryKey: ["fin-grupos-receber", statusFilter],
     queryFn: async () => {
@@ -226,6 +292,25 @@ export default function GruposReceberPage() {
                     <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setSelectedGrupo(g)}>
                       <Eye className="h-3 w-3" />
                     </Button>
+                    {canEditGroup(g) && (
+                      <>
+                        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
+                          setSelectedGrupo(g);
+                          setEditNome(g.nome);
+                          setEditVencimento(g.data_vencimento || "");
+                          setEditObs(g.observacao || "");
+                          setShowEditDialog(true);
+                        }}>
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => {
+                          setSelectedGrupo(g);
+                          setShowDeleteConfirm(true);
+                        }}>
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </>
+                    )}
                     {(g.status === "aberto" || g.status === "aguardando_pagamento") && !g.inter_txid && (
                       <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => handleGerarPix(g.id)} disabled={generatingPix === g.id}>
                         {generatingPix === g.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <QrCode className="h-3 w-3" />}
@@ -244,7 +329,26 @@ export default function GruposReceberPage() {
         <SheetContent className="w-[500px] sm:w-[600px] overflow-y-auto">
           {selectedGrupo && (
             <>
-              <SheetHeader><SheetTitle>{selectedGrupo.nome}</SheetTitle></SheetHeader>
+              <SheetHeader>
+                <div className="flex items-center justify-between">
+                  <SheetTitle>{selectedGrupo.nome}</SheetTitle>
+                  {canEditGroup(selectedGrupo) && (
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
+                        setEditNome(selectedGrupo.nome);
+                        setEditVencimento(selectedGrupo.data_vencimento || "");
+                        setEditObs(selectedGrupo.observacao || "");
+                        setShowEditDialog(true);
+                      }}>
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => setShowDeleteConfirm(true)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </SheetHeader>
               <div className="mt-6 space-y-6">
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
@@ -608,6 +712,55 @@ export default function GruposReceberPage() {
             <Button onClick={handleSalvarNfse} disabled={savingNfse || !nfValidacao?.valido}>
               {savingNfse ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <ShieldCheck className="h-4 w-4 mr-1" />}
               Vincular NF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Group Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Editar Grupo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nome do Grupo</Label>
+              <Input value={editNome} onChange={e => setEditNome(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Data de Vencimento</Label>
+              <Input type="date" value={editVencimento} onChange={e => setEditVencimento(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Observação</Label>
+              <Input value={editObs} onChange={e => setEditObs(e.target.value)} placeholder="Opcional" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancelar</Button>
+            <Button onClick={handleEditGroup} disabled={saving || !editNome.trim()}>
+              {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Excluir Grupo</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Tem certeza que deseja excluir o grupo <strong className="text-foreground">{selectedGrupo?.nome}</strong>? Os recebimentos serão desvinculados mas não excluídos.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleDeleteGroup} disabled={deleting}>
+              {deleting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
+              Excluir
             </Button>
           </DialogFooter>
         </DialogContent>
