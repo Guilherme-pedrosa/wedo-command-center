@@ -129,7 +129,9 @@ serve(async (req) => {
         byClient[clienteId].valor_total += valor;
       }
 
-      const clients = Object.values(byClient).sort((a, b) => b.valor_total - a.valor_total);
+      const clients = Object.values(byClient)
+        .filter((c) => c.os_list.length > 1)
+        .sort((a, b) => b.valor_total - a.valor_total);
 
       return new Response(
         JSON.stringify({
