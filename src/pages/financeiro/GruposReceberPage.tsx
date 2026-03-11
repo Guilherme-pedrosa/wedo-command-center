@@ -19,6 +19,7 @@ import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 
 export default function GruposReceberPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("todos");
   const [selectedGrupo, setSelectedGrupo] = useState<any>(null);
