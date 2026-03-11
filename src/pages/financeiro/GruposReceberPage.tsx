@@ -1031,6 +1031,8 @@ export default function GruposReceberPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SmartGroupDialog open={showSmartGroup} onOpenChange={setShowSmartGroup} />
     </div>
   );
 }
