@@ -141,21 +141,19 @@ serve(async (req) => {
       const body = await req.json();
       bodyDataInicio = body?.data_inicio;
       bodyDataFim = body?.data_fim;
-    } catch { /* no body or invalid JSON — use defaults */ }
-
-    // Default: last 6 months if no date range provided
-    if (!bodyDataInicio || !bodyDataFim) {
-      const now = new Date();
-      const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
-      bodyDataInicio = sixMonthsAgo.toISOString().split("T")[0];
-      bodyDataFim = now.toISOString().split("T")[0];
+    } catch {
+      // no body
     }
 
-    const finDateParams: Record<string, string> = {
-      data_inicio: bodyDataInicio,
-      data_fim: bodyDataFim,
-    };
-    console.log(`[sync-all] Date range for financeiro: ${bodyDataInicio} → ${bodyDataFim}`);
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if ((bodyDataInicio && !dateRegex.test(bodyDataInicio)) || (bodyDataFim && !dateRegex.test(bodyDataFim))) {
+      return new Response(JSON.stringify({
+        error: "Parâmetros inválidos. Use data_inicio e data_fim no formato YYYY-MM-DD.",
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const gcAccessToken = Deno.env.get("GC_ACCESS_TOKEN");
     const gcSecretToken = Deno.env.get("GC_SECRET_TOKEN");
@@ -170,6 +168,59 @@ serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Never invent fixed dates: if missing in request, infer start from existing synced data
+    let dataInicio = bodyDataInicio;
+    let dataFim = bodyDataFim;
+    let dateSource = "request";
+
+    if (!dataInicio || !dataFim) {
+      const [recFinMin, pagFinMin, recGcMin, pagGcMin] = await Promise.all([
+        supabase.from("fin_recebimentos").select("data_vencimento").not("data_vencimento", "is", null).order("data_vencimento", { ascending: true }).limit(1).maybeSingle(),
+        supabase.from("fin_pagamentos").select("data_vencimento").not("data_vencimento", "is", null).order("data_vencimento", { ascending: true }).limit(1).maybeSingle(),
+        supabase.from("gc_recebimentos").select("data_vencimento").not("data_vencimento", "is", null).order("data_vencimento", { ascending: true }).limit(1).maybeSingle(),
+        supabase.from("gc_pagamentos").select("data_vencimento").not("data_vencimento", "is", null).order("data_vencimento", { ascending: true }).limit(1).maybeSingle(),
+      ]);
+
+      const candidates = [
+        recFinMin.data?.data_vencimento,
+        pagFinMin.data?.data_vencimento,
+        recGcMin.data?.data_vencimento,
+        pagGcMin.data?.data_vencimento,
+      ].filter((v): v is string => Boolean(v));
+
+      if (candidates.length > 0) {
+        dataInicio = [...candidates].sort()[0];
+        dataFim = new Date().toISOString().split("T")[0];
+        dateSource = "inferred_from_synced_data";
+      }
+    }
+
+    if (!dataInicio || !dataFim) {
+      return new Response(JSON.stringify({
+        error: "Informe data_inicio e data_fim. Não foi possível inferir o período automaticamente.",
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (dataInicio > dataFim) {
+      return new Response(JSON.stringify({
+        error: "Período inválido: data_inicio maior que data_fim.",
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const finDateParams: Record<string, string> = {
+      data_inicio: dataInicio,
+      data_fim: dataFim,
+    };
+    results.date_range = { ...finDateParams, source: dateSource };
+    console.log(`[sync-all] Date range for financeiro (${dateSource}): ${dataInicio} → ${dataFim}`);
+
     const gcHeaders: Record<string, string> = {
       "access-token": gcAccessToken,
       "secret-access-token": gcSecretToken,
