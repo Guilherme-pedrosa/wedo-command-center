@@ -381,50 +381,72 @@ export default function FaturaCartaoPage() {
     }));
   }, [novaFatura.cartao_id, novaFatura.mes_referencia, cartoes]);
 
-  // Vincular extrato como liquidante + registrar na conciliação
   const handleVincularExtrato = async (extratoId: string) => {
     if (!extratoFaturaId) return;
     setSaving(true);
     try {
-      // 1. Atualizar fatura
-      const { error } = await supabase
-        .from("fin_fatura_cartao")
-        .update({ extrato_liquidante_id: extratoId, status: "paga" } as any)
-        .eq("id", extratoFaturaId);
-      if (error) throw error;
-
-      // 2. Buscar transações da fatura que têm lancamento_id (pagamentos vinculados)
-      const { data: trans } = await supabase
+      // 1. Buscar transações da fatura que têm lancamento_id (pagamentos vinculados)
+      const { data: trans, error: transErr } = await supabase
         .from("fin_fatura_transacoes")
         .select("lancamento_id, valor")
         .eq("fatura_id", extratoFaturaId)
         .not("lancamento_id", "is", null);
+      if (transErr) throw transErr;
+
+      const representativeLancamentoId = trans?.[0]?.lancamento_id ?? null;
+
+      // 2. Atualizar fatura
+      const { error: faturaErr } = await supabase
+        .from("fin_fatura_cartao")
+        .update({ extrato_liquidante_id: extratoId, status: "paga" } as any)
+        .eq("id", extratoFaturaId);
+      if (faturaErr) throw faturaErr;
 
       // 3. Registrar cada pagamento na fin_extrato_lancamentos para aparecer na conciliação
       if (trans && trans.length > 0) {
         const linksToInsert = trans.map(t => ({
           extrato_id: extratoId,
           lancamento_id: t.lancamento_id!,
-          tabela: "fin_pagamentos",
+          tabela: "pagamentos",
           reconciliation_rule: "FATURA_CARTAO",
-          valor_alocado: Math.abs(t.valor),
+          valor_alocado: Math.abs(Number(t.valor || 0)),
         }));
 
         const { error: linkErr } = await supabase
           .from("fin_extrato_lancamentos")
-          .insert(linksToInsert as any);
-        if (linkErr) throw linkErr;
+          .upsert(linksToInsert as any, { onConflict: "extrato_id,lancamento_id,tabela" });
+        if (linkErr) {
+          await supabase
+            .from("fin_fatura_cartao")
+            .update({ extrato_liquidante_id: null, status: "aberta" } as any)
+            .eq("id", extratoFaturaId);
+          throw linkErr;
+        }
       }
 
       // 4. Marcar extrato como reconciliado
-      await supabase
+      const { error: extratoErr } = await supabase
         .from("fin_extrato_inter")
         .update({
           reconciliado: true,
           reconciliado_em: new Date().toISOString(),
           reconciliation_rule: "FATURA_CARTAO",
+          lancamento_id: representativeLancamentoId,
         } as any)
         .eq("id", extratoId);
+
+      if (extratoErr) {
+        await supabase
+          .from("fin_extrato_lancamentos")
+          .delete()
+          .eq("extrato_id", extratoId)
+          .eq("reconciliation_rule", "FATURA_CARTAO");
+        await supabase
+          .from("fin_fatura_cartao")
+          .update({ extrato_liquidante_id: null, status: "aberta" } as any)
+          .eq("id", extratoFaturaId);
+        throw extratoErr;
+      }
 
       invalidateAll();
       toast.success("Extrato vinculado — fatura marcada como paga e conciliação registrada.");
@@ -469,6 +491,7 @@ export default function FaturaCartaoPage() {
             reconciliado: false,
             reconciliado_em: null,
             reconciliation_rule: null,
+            lancamento_id: null,
           } as any)
           .eq("id", extratoLiqId);
       }
