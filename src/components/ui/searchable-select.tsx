@@ -140,7 +140,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
                   key={option.value}
                   value={option.label}
                   onSelect={() => {
-                    props.onValueChange(option.value === props.value ? "" : option.value);
+                    (props.onValueChange as (v: string) => void)(option.value === props.value ? "" : option.value);
                     setOpen(false);
                   }}
                 >
