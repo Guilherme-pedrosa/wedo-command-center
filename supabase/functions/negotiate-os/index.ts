@@ -554,8 +554,12 @@ serve(async (req) => {
                   const paramsObj: Record<string, string> = {
                     limite: "100",
                     pagina: String(recPage),
+                    data_inicio: minDueDate,
+                    data_fim: maxDueDate,
+                    valor_inicio: minExpectedValue.toFixed(2),
+                    valor_fim: maxExpectedValue.toFixed(2),
                   };
-                  if (onlyOpen) paramsObj.liquidado = "0";
+                  if (onlyOpen) paramsObj.liquidado = "ab";
 
                   const searchParams = new URLSearchParams(paramsObj);
                   const recResp = await rateLimitedFetch(
