@@ -307,20 +307,7 @@ export async function atualizarRecebimentoGC(
   return res;
 }
 
-// ─── Atualizar atributo customizado no GC (campo extra) ──────────────
-export async function atualizarAtributoGC(
-  gcRecebimentoId: string,
-  atributoId: number,
-  valor: string
-): Promise<{ success: boolean; method?: string; error?: string }> {
-  const { data, error } = await supabase.functions.invoke("gc-atributos", {
-    body: { recebimento_id: gcRecebimentoId, atributo_id: atributoId, valor },
-  });
-  if (error) throw new Error(error.message);
-  if (!data?.success) throw new Error(data?.message || "Falha ao gravar atributo no GC");
-  return data;
-}
-
+// ─── Re-sync individual recebimento from GC by gc_id ─────────────────
 export async function resyncRecebimentoFromGC(gcId: string, osCodigo?: string | null): Promise<boolean> {
   let res = await callGC<any>({
     endpoint: `/api/recebimentos/${gcId}`,
