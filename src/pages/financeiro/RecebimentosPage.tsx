@@ -540,6 +540,12 @@ export default function RecebimentosPage() {
             <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Limpar</Button>
             {selectedItems.every((r: any) => !r.grupo_id) && (
               <Button size="sm" onClick={() => {
+                // Validate same client
+                const clientes = new Set(selectedItems.map((r: any) => r.nome_cliente || ""));
+                if (clientes.size > 1) {
+                  toast.error("Não é possível criar grupo com clientes diferentes. Selecione itens do mesmo cliente.");
+                  return;
+                }
                 setGroupName(`${(selectedItems[0] as any)?.nome_cliente || "Grupo"} — ${format(new Date(), "dd/MM/yyyy")}`);
                 setShowCreateGroup(true);
               }}>
