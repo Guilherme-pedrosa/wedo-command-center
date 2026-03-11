@@ -414,17 +414,22 @@ export default function GruposReceberPage() {
                 <td className="p-3 text-right font-semibold">{formatCurrency(Number(g.valor_total))}</td>
                 <td className="p-3">{g.data_vencimento ? formatDate(g.data_vencimento) : "—"}</td>
                 <td className="p-3 text-center text-xs">
-                  {g.nfse_numero ? (
-                    g.nfse_link ? (
-                      <button onClick={() => handleDownloadXml(g.nfse_link)} className="text-primary hover:underline flex items-center gap-1 justify-center cursor-pointer">
-                        <FileText className="h-3 w-3" />{g.nfse_numero}
-                      </button>
-                    ) : (
-                      <span className="flex items-center gap-1 justify-center text-foreground"><FileText className="h-3 w-3" />{g.nfse_numero}</span>
-                    )
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
+                  <div className="flex flex-col items-center gap-0.5">
+                    {g.negociacao_numero && (
+                      <span className="text-muted-foreground">Neg. nº{g.negociacao_numero}</span>
+                    )}
+                    {g.nfse_numero ? (
+                      g.nfse_link ? (
+                        <button onClick={() => handleDownloadXml(g.nfse_link)} className="text-primary hover:underline flex items-center gap-1 justify-center cursor-pointer">
+                          <FileText className="h-3 w-3" />{g.nfse_numero}
+                        </button>
+                      ) : (
+                        <span className="flex items-center gap-1 justify-center text-foreground"><FileText className="h-3 w-3" />{g.nfse_numero}</span>
+                      )
+                    ) : !g.negociacao_numero ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : null}
+                  </div>
                 </td>
                 <td className="p-3 text-center text-xs">{g.itens_baixados ?? 0}/{g.itens_total ?? 0}</td>
                 <td className="p-3 text-center">{statusBadge(g.status)}</td>
