@@ -381,19 +381,53 @@ export default function FaturaCartaoPage() {
     }));
   }, [novaFatura.cartao_id, novaFatura.mes_referencia, cartoes]);
 
-  // Vincular extrato como liquidante
+  // Vincular extrato como liquidante + registrar na conciliação
   const handleVincularExtrato = async (extratoId: string) => {
     if (!extratoFaturaId) return;
     setSaving(true);
     try {
+      // 1. Atualizar fatura
       const { error } = await supabase
         .from("fin_fatura_cartao")
         .update({ extrato_liquidante_id: extratoId, status: "paga" } as any)
         .eq("id", extratoFaturaId);
       if (error) throw error;
 
+      // 2. Buscar transações da fatura que têm lancamento_id (pagamentos vinculados)
+      const { data: trans } = await supabase
+        .from("fin_fatura_transacoes")
+        .select("lancamento_id, valor")
+        .eq("fatura_id", extratoFaturaId)
+        .not("lancamento_id", "is", null);
+
+      // 3. Registrar cada pagamento na fin_extrato_lancamentos para aparecer na conciliação
+      if (trans && trans.length > 0) {
+        const linksToInsert = trans.map(t => ({
+          extrato_id: extratoId,
+          lancamento_id: t.lancamento_id!,
+          tabela: "fin_pagamentos",
+          reconciliation_rule: "FATURA_CARTAO",
+          valor_alocado: Math.abs(t.valor),
+        }));
+
+        const { error: linkErr } = await supabase
+          .from("fin_extrato_lancamentos")
+          .insert(linksToInsert as any);
+        if (linkErr) throw linkErr;
+      }
+
+      // 4. Marcar extrato como reconciliado
+      await supabase
+        .from("fin_extrato_inter")
+        .update({
+          reconciliado: true,
+          reconciliado_em: new Date().toISOString(),
+          reconciliation_rule: "FATURA_CARTAO",
+        } as any)
+        .eq("id", extratoId);
+
       invalidateAll();
-      toast.success("Extrato vinculado — fatura marcada como paga.");
+      toast.success("Extrato vinculado — fatura marcada como paga e conciliação registrada.");
       setShowExtratoDialog(false);
       setExtratoFaturaId(null);
     } catch (err) {
@@ -404,13 +438,43 @@ export default function FaturaCartaoPage() {
   const handleDesvincularExtrato = async (faturaId: string) => {
     setSaving(true);
     try {
+      // Buscar extrato_liquidante_id atual antes de limpar
+      const { data: faturaData } = await supabase
+        .from("fin_fatura_cartao")
+        .select("extrato_liquidante_id")
+        .eq("id", faturaId)
+        .single();
+
+      const extratoLiqId = (faturaData as any)?.extrato_liquidante_id;
+
+      // 1. Limpar fatura
       const { error } = await supabase
         .from("fin_fatura_cartao")
         .update({ extrato_liquidante_id: null, status: "aberta" } as any)
         .eq("id", faturaId);
       if (error) throw error;
+
+      if (extratoLiqId) {
+        // 2. Remover vínculos da conciliação
+        await supabase
+          .from("fin_extrato_lancamentos")
+          .delete()
+          .eq("extrato_id", extratoLiqId)
+          .eq("reconciliation_rule", "FATURA_CARTAO");
+
+        // 3. Desmarcar extrato como reconciliado
+        await supabase
+          .from("fin_extrato_inter")
+          .update({
+            reconciliado: false,
+            reconciliado_em: null,
+            reconciliation_rule: null,
+          } as any)
+          .eq("id", extratoLiqId);
+      }
+
       invalidateAll();
-      toast.success("Extrato desvinculado.");
+      toast.success("Extrato desvinculado e conciliação revertida.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao desvincular.");
     } finally { setSaving(false); }
