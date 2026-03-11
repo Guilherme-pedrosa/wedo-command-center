@@ -89,6 +89,15 @@ export default function NegociacaoOSPage() {
     setSelectedOSIds(new Set(client.os_list.map((os) => os.id)));
   };
 
+  const handleBack = () => {
+    if (selectedClient) {
+      setSelectedClient(null);
+      setSelectedOSIds(new Set());
+      return;
+    }
+    navigate(-1);
+  };
+
   const toggleOS = (osId: string) => {
     setSelectedOSIds((prev) => {
       const next = new Set(prev);
