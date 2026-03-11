@@ -322,14 +322,22 @@ export default function GruposReceberPage() {
         const novaDescricao = descOriginal.includes(nfTag) ? descOriginal : `${descOriginal} — ${nfTag}`;
         
         try {
+          // 1. Atualiza campos normais (descrição, vencimento, nf_numero)
           await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw, {
             descricao: novaDescricao,
             observacao: `NFS-e ${selectedGrupo.nfse_numero} vinculada via ARGUS`,
             data_vencimento: selectedGrupo.data_vencimento || undefined,
             nf_numero: selectedGrupo.nfse_numero,
-            atributos: [{ atributo_id: 8928, valor: selectedGrupo.nfse_numero }],
           });
           await gcDelay();
+
+          // 2. Grava atributo customizado 8928 via endpoint dedicado
+          try {
+            await atualizarAtributoGC(rec.gc_id, 8928, selectedGrupo.nfse_numero);
+            await gcDelay();
+          } catch (attrErr) {
+            console.warn(`Atributo 8928 não gravado para ${rec.gc_codigo}:`, attrErr);
+          }
 
           await supabase.from("fin_recebimentos")
             .update({ 
