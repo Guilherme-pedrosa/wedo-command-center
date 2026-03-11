@@ -246,6 +246,27 @@ export default function RecebimentosPage() {
       if (groupDate) updateData.data_vencimento = format(groupDate, "yyyy-MM-dd");
       await supabase.from("fin_recebimentos").update(updateData).in("id", items.map((r: any) => r.id));
 
+      // Sync vencimento pro GC automaticamente
+      if (groupDate) {
+        const venc = format(groupDate, "yyyy-MM-dd");
+        let gcSyncOk = 0;
+        let gcSyncFail = 0;
+        for (const r of items as any[]) {
+          if (r.gc_id && r.gc_payload_raw) {
+            try {
+              await atualizarRecebimentoGC(r.gc_id, r.gc_payload_raw, { data_vencimento: venc });
+              gcSyncOk++;
+            } catch { gcSyncFail++; }
+            await gcDelay();
+          }
+        }
+        if (gcSyncFail > 0) {
+          toast.error(`${gcSyncFail} recebimento(s) não atualizaram no GC`);
+        } else if (gcSyncOk > 0) {
+          toast(`${gcSyncOk} vencimento(s) atualizados no GC`, { icon: "✅" });
+        }
+      }
+
       toast.success(`Grupo criado com ${items.length} itens · ${formatCurrency(total)}`);
       setSelected(new Set());
       setShowCreateGroup(false);
