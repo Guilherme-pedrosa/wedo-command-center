@@ -551,9 +551,15 @@ export default function GruposReceberPage() {
                         <span className="text-muted-foreground">Emitida em</span>
                         <p>{selectedGrupo.nfse_emitida_em ? formatDateTime(selectedGrupo.nfse_emitida_em) : "—"}</p>
                       </div>
-                      <div className="col-span-2 flex items-center gap-4">
+                      <div className="col-span-2 flex items-center gap-4 flex-wrap">
                         <button onClick={() => handleOpenNfseGC(selectedGrupo.nfse_numero)} className="text-primary hover:underline flex items-center gap-1 text-sm cursor-pointer">
                           <ExternalLink className="h-3 w-3" /> Ver NFS-e no GC
+                        </button>
+                        <button onClick={() => {
+                          const nfNome = encodeURIComponent(`NF ${selectedGrupo.nfse_numero}`);
+                          window.open(`https://gestaoclick.com/movimentacoes_financeiras/index_recebimento?loja=446246&nome=${nfNome}&data_inicio=01%2F01%2F2025&data_fim=31%2F12%2F2026&tipo=C&situacaoBuscaAvancada=true`, "_blank");
+                        }} className="text-primary hover:underline flex items-center gap-1 text-sm cursor-pointer">
+                          <Search className="h-3 w-3" /> Recebimentos no GC
                         </button>
                         {selectedGrupo.nfse_link && (
                           <button onClick={() => handleDownloadXml(selectedGrupo.nfse_link)} className="text-primary hover:underline flex items-center gap-1 text-sm cursor-pointer">
