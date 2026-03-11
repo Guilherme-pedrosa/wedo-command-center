@@ -37,6 +37,7 @@ interface NegotiateResult {
 }
 
 export default function NegociacaoOSPage() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [clients, setClients] = useState<ClientGroup[]>([]);
