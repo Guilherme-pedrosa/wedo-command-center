@@ -244,15 +244,28 @@ export default function FaturaCartaoPage() {
     }
     setSaving(true);
     try {
-      // 1. Buscar pagamentos no período pela forma de pagamento
-      const { data: pagamentos, error: pgErr } = await supabase
+      // 1. Buscar pagamentos pela forma de pagamento
+      // No ERP, todos os lançamentos de cartão compartilham a mesma data_vencimento
+      // (dia de pagamento da fatura). Então filtramos por data_vencimento = vencimento da fatura
+      // OU por data_competencia dentro do período de fechamento como fallback.
+      let pgQuery = supabase
         .from("fin_pagamentos")
-        .select("id,descricao,valor,data_vencimento,nome_fornecedor,status")
+        .select("id,descricao,valor,data_vencimento,data_competencia,nome_fornecedor,status")
         .eq("forma_pagamento_id", novaFatura.forma_pagamento_id)
-        .gte("data_vencimento", novaFatura.data_fechamento_inicio)
-        .lte("data_vencimento", novaFatura.data_fechamento_fim)
         .neq("status", "cancelado")
         .order("data_vencimento");
+
+      if (novaFatura.data_vencimento) {
+        // Estratégia principal: buscar pelo vencimento da fatura (como o ERP grava)
+        pgQuery = pgQuery.eq("data_vencimento", novaFatura.data_vencimento);
+      } else {
+        // Fallback: buscar por data_competencia no período de fechamento
+        pgQuery = pgQuery
+          .gte("data_competencia", novaFatura.data_fechamento_inicio)
+          .lte("data_competencia", novaFatura.data_fechamento_fim);
+      }
+
+      const { data: pagamentos, error: pgErr } = await pgQuery;
 
       if (pgErr) throw pgErr;
 
