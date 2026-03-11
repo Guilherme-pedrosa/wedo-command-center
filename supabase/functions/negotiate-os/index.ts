@@ -350,6 +350,8 @@ serve(async (req) => {
           const planoContasId = String(primeiroPagamento.plano_contas_id || primeiroPagamento.categoria_id || "");
           const nomePlanoConta = String(primeiroPagamento.nome_plano_conta || primeiroPagamento.nome_categoria || "");
 
+          const negTag = `NEG${negociacao_numero}`;
+
           const stepBPayload = {
             ...basePayload,
             situacao_id: SITUACAO_INTERMEDIARIA, // keep same status
@@ -363,7 +365,7 @@ serve(async (req) => {
                 )))
               : "0",
             pagamentos: dueDates.map((dt, idx) => {
-              const descParcela = `Neg. nº${negociacao_numero} — Parcela ${idx + 1}/${parcelas} — OS ${os.codigo}`;
+              const descParcela = `${negTag} - Parcela ${idx + 1}/${parcelas} - OS ${os.codigo}`;
               const pagamento: Record<string, unknown> = {
                 data_vencimento: dt,
                 valor: (idx === parcelas - 1 ? valorUltimaOS : valorParcelaOS).toFixed(2),
