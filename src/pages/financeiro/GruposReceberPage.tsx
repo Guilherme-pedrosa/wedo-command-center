@@ -90,56 +90,53 @@ export default function GruposReceberPage() {
     finally { setVerifying(false); }
   };
 
-  const validateNfse = (): string[] => {
-    const errors: string[] = [];
-    if (!nfseForm.numero.trim()) errors.push("Número da NFS-e é obrigatório.");
-    if (nfseForm.link.trim() && !/^https?:\/\/.+/.test(nfseForm.link.trim())) errors.push("Link inválido. Deve começar com http:// ou https://");
-
-    if (!selectedGrupo) return errors;
-
-    // Validate valor
-    const valorNfse = parseFloat(nfseForm.valor.replace(/[^\d.,]/g, "").replace(",", "."));
-    const valorGrupo = Number(selectedGrupo.valor_total);
-    if (!nfseForm.valor.trim() || isNaN(valorNfse)) {
-      errors.push("Valor da NFS-e é obrigatório.");
-    } else if (Math.abs(valorNfse - valorGrupo) > 0.01) {
-      errors.push(`Valor da NFS-e (${formatCurrency(valorNfse)}) não confere com o valor do grupo (${formatCurrency(valorGrupo)}).`);
+  const handleXmlUpload = async (file: File) => {
+    if (!selectedGrupo) return;
+    setXmlFile(file);
+    setNfData(null);
+    setNfValidacao(null);
+    setParsingXml(true);
+    try {
+      const xmlContent = await file.text();
+      const { data, error } = await supabase.functions.invoke("parse-nf-xml", {
+        body: { xml_content: xmlContent, grupo_id: selectedGrupo.id },
+      });
+      if (error) throw new Error(error.message || "Erro ao processar XML");
+      if (data?.error) throw new Error(data.error);
+      setNfData(data.nf);
+      setNfValidacao(data.validacao);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao processar XML");
+      setXmlFile(null);
+    } finally {
+      setParsingXml(false);
     }
-
-    // Validate cliente
-    const clienteNfse = nfseForm.cliente.trim().toLowerCase();
-    const clienteGrupo = (selectedGrupo.nome_cliente || "").trim().toLowerCase();
-    if (!clienteNfse) {
-      errors.push("Nome do cliente/tomador da NFS-e é obrigatório.");
-    } else if (clienteGrupo && !clienteGrupo.includes(clienteNfse) && !clienteNfse.includes(clienteGrupo)) {
-      errors.push(`Cliente da NFS-e ("${nfseForm.cliente.trim()}") não confere com o cliente do grupo ("${selectedGrupo.nome_cliente}").`);
-    }
-
-    return errors;
   };
 
   const handleSalvarNfse = async () => {
-    const errors = validateNfse();
-    if (errors.length > 0) {
-      setNfseErrors(errors);
-      return;
-    }
-    setNfseErrors([]);
-    if (!selectedGrupo) return;
+    if (!selectedGrupo || !nfData || !nfValidacao?.valido) return;
     setSavingNfse(true);
     try {
+      // Upload XML to storage
+      const filePath = `grupo-${selectedGrupo.id}/${Date.now()}-${xmlFile?.name || "nf.xml"}`;
+      if (xmlFile) {
+        const { error: upErr } = await supabase.storage.from("nf-xmls").upload(filePath, xmlFile, { contentType: "text/xml" });
+        if (upErr) console.error("Erro upload XML:", upErr.message);
+      }
+
       const { error } = await supabase.from("fin_grupos_receber").update({
-        nfse_numero: nfseForm.numero.trim(),
-        nfse_link: nfseForm.link.trim() || null,
-        nfse_emitida_em: new Date().toISOString(),
-        nfse_status: "emitida",
+        nfse_numero: nfData.numero || null,
+        nfse_link: filePath, // reference to stored XML
+        nfse_emitida_em: nfData.data_emissao || new Date().toISOString(),
+        nfse_status: "validada",
       }).eq("id", selectedGrupo.id);
       if (error) throw error;
-      toast.success("NFS-e vinculada ao grupo");
+
+      toast.success("NF vinculada e validada com sucesso");
       setShowNfse(false);
-      setSelectedGrupo({ ...selectedGrupo, nfse_numero: nfseForm.numero.trim(), nfse_link: nfseForm.link.trim() || null, nfse_emitida_em: new Date().toISOString(), nfse_status: "emitida" });
+      setSelectedGrupo({ ...selectedGrupo, nfse_numero: nfData.numero, nfse_link: filePath, nfse_emitida_em: nfData.data_emissao || new Date().toISOString(), nfse_status: "validada" });
       queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
-    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao salvar NFS-e"); }
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao salvar NF"); }
     finally { setSavingNfse(false); }
   };
 
