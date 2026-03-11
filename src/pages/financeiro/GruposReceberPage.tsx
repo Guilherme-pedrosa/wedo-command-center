@@ -414,6 +414,31 @@ export default function GruposReceberPage() {
         })) || []}
         onConfirmar={async (dataLiq) => { await baixarGrupoReceberNoGC(baixaGrupoId || selectedGrupo?.id, dataLiq); }} 
       />
+
+      {/* NFS-e Dialog */}
+      <Dialog open={showNfse} onOpenChange={setShowNfse}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Vincular NFS-e ao Grupo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Número da NFS-e *</Label>
+              <Input value={nfseForm.numero} onChange={e => setNfseForm(f => ({ ...f, numero: e.target.value }))} placeholder="Ex: 12345" />
+            </div>
+            <div className="space-y-2">
+              <Label>Link de acesso à NFS-e</Label>
+              <Input value={nfseForm.link} onChange={e => setNfseForm(f => ({ ...f, link: e.target.value }))} placeholder="https://..." />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNfse(false)}>Cancelar</Button>
+            <Button onClick={handleSalvarNfse} disabled={savingNfse || !nfseForm.numero.trim()}>
+              {savingNfse ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
