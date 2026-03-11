@@ -205,6 +205,17 @@ serve(async (req) => {
             continue;
           }
 
+          // Extract equipment name from OS data
+          let nomeEquipamento = "";
+          const equipamentos = os.equipamentos;
+          if (Array.isArray(equipamentos) && equipamentos.length > 0) {
+            const eq = equipamentos[0];
+            nomeEquipamento = String(eq?.nome || eq?.descricao || eq?.equipamento || "");
+          }
+          if (!nomeEquipamento) {
+            nomeEquipamento = String(os.descricao || os.equipamento || "");
+          }
+
           osDetails.push({
             id: osId,
             codigo: String(os.codigo || ""),
@@ -213,6 +224,7 @@ serve(async (req) => {
             data: String(os.data || new Date().toISOString().slice(0, 10)),
             valor_total: valorTotal,
             nome_cliente: String(os.nome_cliente || nome_cliente || ""),
+            nome_equipamento: nomeEquipamento,
             raw: (os && typeof os === "object" ? os : {}) as Record<string, unknown>,
           });
         } catch (err) {
