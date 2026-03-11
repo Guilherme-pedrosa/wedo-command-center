@@ -363,9 +363,11 @@ serve(async (req) => {
                 )))
               : "0",
             pagamentos: dueDates.map((dt, idx) => {
+              const descParcela = `Neg. nº${negociacao_numero} — Parcela ${idx + 1}/${parcelas} — OS ${os.codigo}`;
               const pagamento: Record<string, unknown> = {
                 data_vencimento: dt,
                 valor: (idx === parcelas - 1 ? valorUltimaOS : valorParcelaOS).toFixed(2),
+                descricao: descParcela,
               };
               if (formaPagamentoId) pagamento.forma_pagamento_id = formaPagamentoId;
               if (nomeFormaPagamento) pagamento.nome_forma_pagamento = nomeFormaPagamento;
