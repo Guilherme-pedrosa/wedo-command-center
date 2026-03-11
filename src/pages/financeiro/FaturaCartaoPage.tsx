@@ -28,6 +28,7 @@ import toast from "react-hot-toast";
 import {
   CreditCard, Plus, CheckCircle2, AlertCircle,
   ChevronDown, ChevronUp, Loader2, Lock, Link2, Search, Unlink,
+  Pencil, Trash2,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 
@@ -112,6 +113,9 @@ export default function FaturaCartaoPage() {
   const [showExtratoDialog, setShowExtratoDialog] = useState(false);
   const [extratoFaturaId, setExtratoFaturaId] = useState<string | null>(null);
   const [extratoSearch, setExtratoSearch] = useState("");
+  const [editFatura, setEditFatura] = useState<Fatura | null>(null);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editForm, setEditForm] = useState({ data_fechamento_inicio: "", data_fechamento_fim: "", data_vencimento: "", mes_referencia: "" });
 
   // Novo cartão
   const [novoCartao, setNovoCartao] = useState({
@@ -369,6 +373,58 @@ export default function FaturaCartaoPage() {
     } finally { setSaving(false); }
   };
 
+  // Excluir fatura (e transações relacionadas)
+  const handleExcluirFatura = async (faturaId: string) => {
+    if (!confirm("Tem certeza que deseja excluir esta fatura e todas as suas transações?")) return;
+    setSaving(true);
+    try {
+      await supabase.from("fin_fatura_transacoes").delete().eq("fatura_id", faturaId);
+      const { error } = await supabase.from("fin_fatura_cartao").delete().eq("id", faturaId);
+      if (error) throw error;
+      invalidateAll();
+      if (expandedFatura === faturaId) setExpandedFatura(null);
+      toast.success("Fatura excluída.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao excluir fatura.");
+    } finally { setSaving(false); }
+  };
+
+  // Abrir edição
+  const handleAbrirEdicao = (f: Fatura) => {
+    setEditFatura(f);
+    setEditForm({
+      data_fechamento_inicio: f.data_fechamento_inicio || "",
+      data_fechamento_fim: f.data_fechamento_fim || "",
+      data_vencimento: f.data_vencimento || "",
+      mes_referencia: f.mes_referencia,
+    });
+    setShowEditDialog(true);
+  };
+
+  // Salvar edição
+  const handleSalvarEdicao = async () => {
+    if (!editFatura) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("fin_fatura_cartao")
+        .update({
+          mes_referencia: editForm.mes_referencia,
+          data_fechamento_inicio: editForm.data_fechamento_inicio || null,
+          data_fechamento_fim: editForm.data_fechamento_fim || null,
+          data_vencimento: editForm.data_vencimento || null,
+        } as any)
+        .eq("id", editFatura.id);
+      if (error) throw error;
+      invalidateAll();
+      toast.success("Fatura atualizada.");
+      setShowEditDialog(false);
+      setEditFatura(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao atualizar fatura.");
+    } finally { setSaving(false); }
+  };
+
   // ─── Render Helpers ───────────────────────────────────────────────────────
   const statusColor: Record<string, string> = {
     aberta: "bg-blue-500/10 text-blue-700 border-blue-500/20",
@@ -525,6 +581,12 @@ export default function FaturaCartaoPage() {
                           <Unlink className="h-3.5 w-3.5 mr-1" /> Desvincular Extrato
                         </Button>
                       )}
+                      <Button size="sm" variant="outline" onClick={() => handleAbrirEdicao(f)}>
+                        <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+                      </Button>
+                      <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => handleExcluirFatura(f.id)} disabled={saving}>
+                        <Trash2 className="h-3.5 w-3.5 mr-1" /> Excluir
+                      </Button>
                     </div>
 
                     {/* Tabela de transações */}
@@ -760,6 +822,39 @@ export default function FaturaCartaoPage() {
               </Table>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Editar Fatura */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Editar Fatura</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Mês de referência</label>
+              <Input type="month" value={editForm.mes_referencia} onChange={e => setEditForm(p => ({ ...p, mes_referencia: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Fechamento início</label>
+                <Input type="date" value={editForm.data_fechamento_inicio} onChange={e => setEditForm(p => ({ ...p, data_fechamento_inicio: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Fechamento fim</label>
+                <Input type="date" value={editForm.data_fechamento_fim} onChange={e => setEditForm(p => ({ ...p, data_fechamento_fim: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Data de vencimento</label>
+              <Input type="date" value={editForm.data_vencimento} onChange={e => setEditForm(p => ({ ...p, data_vencimento: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancelar</Button>
+            <Button onClick={handleSalvarEdicao} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
