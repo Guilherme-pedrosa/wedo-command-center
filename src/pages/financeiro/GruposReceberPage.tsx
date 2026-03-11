@@ -21,6 +21,16 @@ import { useNavigate } from "react-router-dom";
 export default function GruposReceberPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  const handleDownloadXml = async (filePath: string) => {
+    try {
+      const { data, error } = await supabase.storage.from("nf-xmls").createSignedUrl(filePath, 300);
+      if (error || !data?.signedUrl) throw new Error("Erro ao gerar link");
+      window.open(data.signedUrl, "_blank");
+    } catch (err) {
+      toast.error("Erro ao abrir XML");
+    }
+  };
   const [statusFilter, setStatusFilter] = useState("todos");
   const [selectedGrupo, setSelectedGrupo] = useState<any>(null);
   const [showBaixa, setShowBaixa] = useState(false);
@@ -327,9 +337,9 @@ export default function GruposReceberPage() {
                 <td className="p-3 text-center text-xs">
                   {g.nfse_numero ? (
                     g.nfse_link ? (
-                      <a href={g.nfse_link} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1 justify-center">
+                      <button onClick={() => handleDownloadXml(g.nfse_link)} className="text-primary hover:underline flex items-center gap-1 justify-center cursor-pointer">
                         <FileText className="h-3 w-3" />{g.nfse_numero}
-                      </a>
+                      </button>
                     ) : (
                       <span className="flex items-center gap-1 justify-center text-foreground"><FileText className="h-3 w-3" />{g.nfse_numero}</span>
                     )
@@ -469,9 +479,9 @@ export default function GruposReceberPage() {
                       </div>
                       {selectedGrupo.nfse_link && (
                         <div className="col-span-2">
-                          <a href={selectedGrupo.nfse_link} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1 text-sm">
-                            <Link2 className="h-3 w-3" /> Acessar NFS-e
-                          </a>
+                          <button onClick={() => handleDownloadXml(selectedGrupo.nfse_link)} className="text-primary hover:underline flex items-center gap-1 text-sm cursor-pointer">
+                            <Link2 className="h-3 w-3" /> Baixar XML da NFS-e
+                          </button>
                         </div>
                       )}
                     </div>
