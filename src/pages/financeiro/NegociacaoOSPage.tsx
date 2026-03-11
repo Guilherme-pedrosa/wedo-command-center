@@ -365,7 +365,7 @@ export default function NegociacaoOSPage() {
                 {results.map((r) => (
                   <div key={r.os_id} className="flex items-center gap-2 text-sm">
                     {r.status === "ok" ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                      <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
                     ) : (
                       <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
                     )}
