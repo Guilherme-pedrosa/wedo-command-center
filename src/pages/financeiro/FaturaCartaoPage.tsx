@@ -521,13 +521,37 @@ export default function FaturaCartaoPage() {
   };
 
   // Abrir edição
-  const handleAbrirEdicao = (f: Fatura) => {
+  const handleAbrirEdicao = async (f: Fatura) => {
     setEditFatura(f);
+
+    // Descobrir formas de pagamento atuais via transações vinculadas
+    let fpIds: string[] = f.forma_pagamento_id ? [f.forma_pagamento_id] : [];
+    try {
+      const { data: trans } = await supabase
+        .from("fin_fatura_transacoes")
+        .select("lancamento_id")
+        .eq("fatura_id", f.id)
+        .not("lancamento_id", "is", null);
+      
+      if (trans && trans.length > 0) {
+        const lancIds = trans.map(t => t.lancamento_id!).filter(Boolean);
+        const { data: pags } = await supabase
+          .from("fin_pagamentos")
+          .select("forma_pagamento_id")
+          .in("id", lancIds);
+        if (pags) {
+          const uniqueFpIds = [...new Set(pags.map(p => p.forma_pagamento_id).filter(Boolean))] as string[];
+          if (uniqueFpIds.length > 0) fpIds = uniqueFpIds;
+        }
+      }
+    } catch { /* fallback to forma_pagamento_id */ }
+
     setEditForm({
       data_fechamento_inicio: f.data_fechamento_inicio || "",
       data_fechamento_fim: f.data_fechamento_fim || "",
       data_vencimento: f.data_vencimento || "",
       mes_referencia: f.mes_referencia,
+      forma_pagamento_ids: fpIds,
     });
     setShowEditDialog(true);
   };
@@ -537,6 +561,7 @@ export default function FaturaCartaoPage() {
     if (!editFatura) return;
     setSaving(true);
     try {
+      // 1. Atualizar dados da fatura
       const { error } = await supabase
         .from("fin_fatura_cartao")
         .update({
@@ -544,11 +569,84 @@ export default function FaturaCartaoPage() {
           data_fechamento_inicio: editForm.data_fechamento_inicio || null,
           data_fechamento_fim: editForm.data_fechamento_fim || null,
           data_vencimento: editForm.data_vencimento || null,
+          forma_pagamento_id: editForm.forma_pagamento_ids.length === 1 ? editForm.forma_pagamento_ids[0] : null,
         } as any)
         .eq("id", editFatura.id);
       if (error) throw error;
+
+      // 2. Excluir transações antigas
+      await supabase.from("fin_fatura_transacoes").delete().eq("fatura_id", editFatura.id);
+
+      // 3. Re-buscar pagamentos com as formas de pagamento atualizadas
+      let allPagamentos: any[] = [];
+
+      for (const fpId of editForm.forma_pagamento_ids) {
+        const baseQuery = supabase
+          .from("fin_pagamentos")
+          .select("id,descricao,valor,data_vencimento,data_competencia,nome_fornecedor,status")
+          .eq("forma_pagamento_id", fpId)
+          .neq("status", "cancelado")
+          .order("data_vencimento");
+
+        let pagamentos: any[] = [];
+
+        if (editForm.data_vencimento) {
+          const { data, error: qErr } = await baseQuery.eq("data_vencimento", editForm.data_vencimento);
+          if (qErr) throw qErr;
+          pagamentos = data ?? [];
+        }
+
+        if (pagamentos.length === 0 && editForm.mes_referencia) {
+          const [ano, mes] = editForm.mes_referencia.split("-").map(Number);
+          const mesInicio = `${editForm.mes_referencia}-01`;
+          const mesFim = format(new Date(ano, mes, 0), "yyyy-MM-dd");
+
+          const { data, error: qErr } = await baseQuery
+            .gte("data_vencimento", mesInicio)
+            .lte("data_vencimento", mesFim);
+          if (qErr) throw qErr;
+          pagamentos = data ?? [];
+        }
+
+        if (pagamentos.length === 0 && editForm.data_fechamento_inicio && editForm.data_fechamento_fim) {
+          const { data, error: qErr } = await baseQuery
+            .gte("data_competencia", editForm.data_fechamento_inicio)
+            .lte("data_competencia", editForm.data_fechamento_fim);
+          if (qErr) throw qErr;
+          pagamentos = data ?? [];
+        }
+
+        allPagamentos = [...allPagamentos, ...pagamentos];
+      }
+
+      const valorTotal = allPagamentos.reduce((s, p) => s + Math.abs(p.valor), 0);
+
+      // 4. Inserir novas transações
+      if (allPagamentos.length > 0) {
+        const transRows = allPagamentos.map(p => ({
+          fatura_id: editFatura.id,
+          data_transacao: p.data_vencimento || editForm.data_fechamento_fim,
+          descricao: [p.descricao, p.nome_fornecedor].filter(Boolean).join(" — ").toUpperCase(),
+          valor: Math.abs(p.valor),
+          conciliado: true,
+          lancamento_id: p.id,
+          reconciliation_rule: "AUTO_FORMA_PAGAMENTO",
+          conciliado_em: new Date().toISOString(),
+        }));
+
+        const { error: trErr } = await supabase
+          .from("fin_fatura_transacoes")
+          .insert(transRows as any);
+        if (trErr) throw trErr;
+      }
+
+      // 5. Atualizar totais
+      await supabase.from("fin_fatura_cartao")
+        .update({ valor_total: valorTotal, valor_conciliado: valorTotal } as any)
+        .eq("id", editFatura.id);
+
       invalidateAll();
-      toast.success("Fatura atualizada.");
+      toast.success(`Fatura atualizada com ${allPagamentos.length} transações (${fmt(valorTotal)})`);
       setShowEditDialog(false);
       setEditFatura(null);
     } catch (err) {
