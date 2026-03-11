@@ -242,7 +242,9 @@ export default function RecebimentosPage() {
         snapshot_data: r.data_vencimento || null,
       }));
       await supabase.from("fin_grupo_receber_itens").insert(grupoItens);
-      await supabase.from("fin_recebimentos").update({ grupo_id: (grupo as any).id }).in("id", items.map((r: any) => r.id));
+      const updateData: Record<string, any> = { grupo_id: (grupo as any).id };
+      if (groupDate) updateData.data_vencimento = format(groupDate, "yyyy-MM-dd");
+      await supabase.from("fin_recebimentos").update(updateData).in("id", items.map((r: any) => r.id));
 
       toast.success(`Grupo criado com ${items.length} itens · ${formatCurrency(total)}`);
       setSelected(new Set());

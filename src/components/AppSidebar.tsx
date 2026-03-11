@@ -95,9 +95,9 @@ export function AppSidebar() {
       <SidebarHeader className="p-4">
         {!collapsed && (
           <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-md bg-primary flex items-center justify-center text-primary-foreground font-bold text-sm">W</div>
+            <div className="h-8 w-8 rounded-md bg-primary flex items-center justify-center text-primary-foreground font-bold text-sm">A</div>
             <div>
-              <h2 className="text-sm font-bold text-foreground">WeDo Hub</h2>
+              <h2 className="text-sm font-bold text-foreground">ARGUS</h2>
               <p className="text-[10px] text-muted-foreground">Gestão Operacional</p>
             </div>
           </div>

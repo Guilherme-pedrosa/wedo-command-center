@@ -33,7 +33,7 @@ export function ARGUSChat() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: "**ARGUS online.** Tenho acesso aos dados em tempo real do Command Center. O que você precisa analisar?",
+      content: "**ARGUS online.** Tenho acesso aos dados em tempo real do ARGUS. O que você precisa analisar?",
       timestamp: new Date(),
     },
   ]);
