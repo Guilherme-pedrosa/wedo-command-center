@@ -458,11 +458,18 @@ export default function GruposReceberPage() {
       />
 
       {/* NFS-e Dialog */}
-      <Dialog open={showNfse} onOpenChange={setShowNfse}>
+      <Dialog open={showNfse} onOpenChange={(o) => { if (!o) { setNfseErrors([]); } setShowNfse(o); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Vincular NFS-e ao Grupo</DialogTitle>
           </DialogHeader>
+          {selectedGrupo && (
+            <div className="rounded-md bg-muted/50 border border-border p-3 text-xs space-y-1">
+              <p><span className="text-muted-foreground">Grupo:</span> <span className="font-medium">{selectedGrupo.nome}</span></p>
+              <p><span className="text-muted-foreground">Cliente:</span> <span className="font-medium">{selectedGrupo.nome_cliente || "—"}</span></p>
+              <p><span className="text-muted-foreground">Valor:</span> <span className="font-semibold">{formatCurrency(Number(selectedGrupo.valor_total))}</span></p>
+            </div>
+          )}
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Número da NFS-e *</Label>
@@ -472,10 +479,27 @@ export default function GruposReceberPage() {
               <Label>Link de acesso à NFS-e</Label>
               <Input value={nfseForm.link} onChange={e => setNfseForm(f => ({ ...f, link: e.target.value }))} placeholder="https://..." />
             </div>
+            <div className="space-y-2">
+              <Label>Valor da NFS-e *</Label>
+              <Input value={nfseForm.valor} onChange={e => setNfseForm(f => ({ ...f, valor: e.target.value }))} placeholder="Ex: 1500.00" />
+            </div>
+            <div className="space-y-2">
+              <Label>Cliente / Tomador da NFS-e *</Label>
+              <Input value={nfseForm.cliente} onChange={e => setNfseForm(f => ({ ...f, cliente: e.target.value }))} placeholder="Nome do cliente na NFS-e" />
+            </div>
+            {nfseErrors.length > 0 && (
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 space-y-1">
+                {nfseErrors.map((err, i) => (
+                  <p key={i} className="text-xs text-destructive flex items-start gap-1.5">
+                    <span className="mt-0.5">⚠️</span> {err}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowNfse(false)}>Cancelar</Button>
-            <Button onClick={handleSalvarNfse} disabled={savingNfse || !nfseForm.numero.trim()}>
+            <Button onClick={handleSalvarNfse} disabled={savingNfse}>
               {savingNfse ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}Salvar
             </Button>
           </DialogFooter>
