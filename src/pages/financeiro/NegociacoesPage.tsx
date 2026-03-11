@@ -158,6 +158,26 @@ export default function NegociacoesPage() {
     toast("Reprocessamento será implementado em breve", { icon: "🔄" });
   };
 
+  const handleDelete = async (neg: Negociacao) => {
+    setDeleting(true);
+    try {
+      const ids = neg.parcelas.map((p) => p.id);
+      const { error } = await supabase
+        .from("fin_grupos_receber")
+        .delete()
+        .in("id", ids);
+      if (error) throw error;
+      toast.success(`Negociação #${neg.numero} apagada (${ids.length} grupos)`);
+      setDeleteNeg(null);
+      setSelectedNeg(null);
+      fetchGrupos();
+    } catch (err) {
+      toast.error(`Erro ao apagar: ${(err as Error).message}`);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
