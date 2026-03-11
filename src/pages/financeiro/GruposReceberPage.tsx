@@ -33,7 +33,7 @@ export default function GruposReceberPage() {
   const [nfValidacao, setNfValidacao] = useState<any>(null);
   const [parsingXml, setParsingXml] = useState(false);
   const [savingNfse, setSavingNfse] = useState(false);
-
+  const [resyncingGrupo, setResyncingGrupo] = useState(false);
   const { data: grupos, isLoading } = useQuery({
     queryKey: ["fin-grupos-receber", statusFilter],
     queryFn: async () => {
