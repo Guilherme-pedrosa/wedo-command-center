@@ -72,6 +72,7 @@ export default function NegociacaoOSPage() {
           return { ...c, os_list: osList, valor_total: valorTotal };
         })
         .filter((c: ClientGroup) => c.os_list.length > 1 && c.valor_total > 0);
+      setClients(groupedClients);
       if (groupedClients.length === 0) {
         toast("Nenhum cliente com 2+ OS em 'Ag Negociação' encontrado", { icon: "ℹ️" });
       }
