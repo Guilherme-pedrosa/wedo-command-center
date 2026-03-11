@@ -25,6 +25,9 @@ export default function GruposReceberPage() {
   const [baixaGrupoId, setBaixaGrupoId] = useState<string>("");
   const [generatingPix, setGeneratingPix] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [showNfse, setShowNfse] = useState(false);
+  const [nfseForm, setNfseForm] = useState({ numero: "", link: "" });
+  const [savingNfse, setSavingNfse] = useState(false);
 
   const { data: grupos, isLoading } = useQuery({
     queryKey: ["fin-grupos-receber", statusFilter],
