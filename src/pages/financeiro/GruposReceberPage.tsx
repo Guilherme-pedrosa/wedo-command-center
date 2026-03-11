@@ -337,9 +337,9 @@ export default function GruposReceberPage() {
                 <td className="p-3 text-center text-xs">
                   {g.nfse_numero ? (
                     g.nfse_link ? (
-                      <a href={g.nfse_link} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1 justify-center">
+                      <button onClick={() => handleDownloadXml(g.nfse_link)} className="text-primary hover:underline flex items-center gap-1 justify-center cursor-pointer">
                         <FileText className="h-3 w-3" />{g.nfse_numero}
-                      </a>
+                      </button>
                     ) : (
                       <span className="flex items-center gap-1 justify-center text-foreground"><FileText className="h-3 w-3" />{g.nfse_numero}</span>
                     )
