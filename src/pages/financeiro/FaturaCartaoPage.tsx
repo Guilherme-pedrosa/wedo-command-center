@@ -1069,6 +1069,20 @@ export default function FaturaCartaoPage() {
           <DialogHeader><DialogTitle>Editar Fatura</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Formas de Pagamento {editForm.forma_pagamento_ids.length > 0 && `(${editForm.forma_pagamento_ids.length})`}</label>
+              <SearchableSelect
+                multiple
+                value={editForm.forma_pagamento_ids}
+                onValueChange={v => setEditForm(p => ({ ...p, forma_pagamento_ids: v }))}
+                placeholder="Selecione as formas de pagamento"
+                searchPlaceholder="Buscar forma de pagamento..."
+                options={formasPagamento.map(fp => ({
+                  value: fp.id,
+                  label: fp.nome,
+                }))}
+              />
+            </div>
+            <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Mês de referência</label>
               <Input type="month" value={editForm.mes_referencia} onChange={e => setEditForm(p => ({ ...p, mes_referencia: e.target.value }))} />
             </div>
@@ -1086,10 +1100,13 @@ export default function FaturaCartaoPage() {
               <label className="text-xs text-muted-foreground">Data de vencimento</label>
               <Input type="date" value={editForm.data_vencimento} onChange={e => setEditForm(p => ({ ...p, data_vencimento: e.target.value }))} />
             </div>
+            <div className="p-2 rounded bg-muted/50 text-xs text-muted-foreground">
+              <p>Ao salvar, as transações serão recalculadas com base nas formas de pagamento e período selecionados.</p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancelar</Button>
-            <Button onClick={handleSalvarEdicao} disabled={saving}>
+            <Button onClick={handleSalvarEdicao} disabled={saving || editForm.forma_pagamento_ids.length === 0}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
             </Button>
           </DialogFooter>
