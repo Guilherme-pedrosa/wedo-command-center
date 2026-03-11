@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -416,19 +417,20 @@ export default function FaturaCartaoPage() {
 
       {/* Filtros */}
       <div className="flex gap-3 items-center">
-        <Select value={cartaoSel} onValueChange={setCartaoSel}>
-          <SelectTrigger className="w-[220px]">
-            <SelectValue placeholder="Filtrar cartão" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos os cartões</SelectItem>
-            {cartoes.map(c => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.nome}{c.ultimos_digitos ? ` •••${c.ultimos_digitos}` : ""}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={cartaoSel}
+          onValueChange={setCartaoSel}
+          placeholder="Filtrar cartão"
+          searchPlaceholder="Buscar cartão..."
+          className="w-[220px]"
+          options={[
+            { value: "all", label: "Todos os cartões" },
+            ...cartoes.map(c => ({
+              value: c.id,
+              label: `${c.nome}${c.ultimos_digitos ? ` •••${c.ultimos_digitos}` : ""}`,
+            })),
+          ]}
+        />
         <Input type="month" value={mesSel} onChange={e => setMesSel(e.target.value)} className="w-[160px]" />
         {(cartaoSel !== "all" || mesSel) && (
           <Button variant="ghost" size="sm" onClick={() => { setCartaoSel("all"); setMesSel(""); }}>
@@ -598,14 +600,13 @@ export default function FaturaCartaoPage() {
           <DialogHeader><DialogTitle>Cadastrar Cartão de Crédito</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <Input placeholder="Nome do cartão" value={novoCartao.nome} onChange={e => setNovoCartao(p => ({ ...p, nome: e.target.value }))} />
-            <Select value={novoCartao.bandeira} onValueChange={v => setNovoCartao(p => ({ ...p, bandeira: v }))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {["VISA", "MASTERCARD", "ELO", "AMEX", "HIPERCARD", "OUTRO"].map(b => (
-                  <SelectItem key={b} value={b}>{b}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={novoCartao.bandeira}
+              onValueChange={v => setNovoCartao(p => ({ ...p, bandeira: v }))}
+              placeholder="Bandeira"
+              searchPlaceholder="Buscar bandeira..."
+              options={["VISA", "MASTERCARD", "ELO", "AMEX", "HIPERCARD", "OUTRO"].map(b => ({ value: b, label: b }))}
+            />
             <Input placeholder="Banco" value={novoCartao.banco} onChange={e => setNovoCartao(p => ({ ...p, banco: e.target.value }))} />
             <Input placeholder="Últimos 4 dígitos" maxLength={4} value={novoCartao.ultimos_digitos} onChange={e => setNovoCartao(p => ({ ...p, ultimos_digitos: e.target.value.replace(/\D/g, "") }))} />
             <div className="grid grid-cols-2 gap-3">
@@ -635,29 +636,30 @@ export default function FaturaCartaoPage() {
           <div className="space-y-3">
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Cartão *</label>
-              <Select value={novaFatura.cartao_id} onValueChange={v => setNovaFatura(p => ({ ...p, cartao_id: v }))}>
-                <SelectTrigger><SelectValue placeholder="Selecione o cartão" /></SelectTrigger>
-                <SelectContent>
-                  {cartoes.map(c => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nome}{c.ultimos_digitos ? ` •••${c.ultimos_digitos}` : ""}
-                      {c.dia_fechamento ? ` (fech. dia ${c.dia_fechamento})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={novaFatura.cartao_id}
+                onValueChange={v => setNovaFatura(p => ({ ...p, cartao_id: v }))}
+                placeholder="Selecione o cartão"
+                searchPlaceholder="Buscar cartão..."
+                options={cartoes.map(c => ({
+                  value: c.id,
+                  label: `${c.nome}${c.ultimos_digitos ? ` •••${c.ultimos_digitos}` : ""}${c.dia_fechamento ? ` (fech. dia ${c.dia_fechamento})` : ""}`,
+                }))}
+              />
             </div>
 
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Forma de Pagamento *</label>
-              <Select value={novaFatura.forma_pagamento_id} onValueChange={v => setNovaFatura(p => ({ ...p, forma_pagamento_id: v }))}>
-                <SelectTrigger><SelectValue placeholder="Selecione a forma de pagamento" /></SelectTrigger>
-                <SelectContent>
-                  {formasPagamento.map(fp => (
-                    <SelectItem key={fp.id} value={fp.id}>{fp.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={novaFatura.forma_pagamento_id}
+                onValueChange={v => setNovaFatura(p => ({ ...p, forma_pagamento_id: v }))}
+                placeholder="Selecione a forma de pagamento"
+                searchPlaceholder="Buscar forma de pagamento..."
+                options={formasPagamento.map(fp => ({
+                  value: fp.id,
+                  label: fp.nome,
+                }))}
+              />
             </div>
 
             <div className="space-y-1">
