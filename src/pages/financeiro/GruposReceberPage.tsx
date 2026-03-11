@@ -456,11 +456,11 @@ export default function GruposReceberPage() {
         onConfirmar={async (dataLiq) => { await baixarGrupoReceberNoGC(baixaGrupoId || selectedGrupo?.id, dataLiq); }} 
       />
 
-      {/* NFS-e Dialog */}
-      <Dialog open={showNfse} onOpenChange={(o) => { if (!o) { setNfseErrors([]); } setShowNfse(o); }}>
-        <DialogContent>
+      {/* NF XML Dialog */}
+      <Dialog open={showNfse} onOpenChange={setShowNfse}>
+        <DialogContent className="sm:max-w-[520px]">
           <DialogHeader>
-            <DialogTitle>Vincular NFS-e ao Grupo</DialogTitle>
+            <DialogTitle>Vincular Nota Fiscal ao Grupo</DialogTitle>
           </DialogHeader>
           {selectedGrupo && (
             <div className="rounded-md bg-muted/50 border border-border p-3 text-xs space-y-1">
@@ -470,36 +470,106 @@ export default function GruposReceberPage() {
             </div>
           )}
           <div className="space-y-4">
+            {/* Upload area */}
             <div className="space-y-2">
-              <Label>Número da NFS-e *</Label>
-              <Input value={nfseForm.numero} onChange={e => setNfseForm(f => ({ ...f, numero: e.target.value }))} placeholder="Ex: 12345" />
+              <Label>XML da Nota Fiscal *</Label>
+              <label className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border hover:border-primary/50 bg-muted/30 p-6 cursor-pointer transition-colors">
+                <Upload className="h-6 w-6 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">
+                  {xmlFile ? xmlFile.name : "Clique para selecionar o XML"}
+                </span>
+                {parsingXml && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+                <input
+                  type="file"
+                  accept=".xml,text/xml,application/xml"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleXmlUpload(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
             </div>
-            <div className="space-y-2">
-              <Label>Link de acesso à NFS-e</Label>
-              <Input value={nfseForm.link} onChange={e => setNfseForm(f => ({ ...f, link: e.target.value }))} placeholder="https://..." />
-            </div>
-            <div className="space-y-2">
-              <Label>Valor da NFS-e *</Label>
-              <Input value={nfseForm.valor} onChange={e => setNfseForm(f => ({ ...f, valor: e.target.value }))} placeholder="Ex: 1500.00" />
-            </div>
-            <div className="space-y-2">
-              <Label>Cliente / Tomador da NFS-e *</Label>
-              <Input value={nfseForm.cliente} onChange={e => setNfseForm(f => ({ ...f, cliente: e.target.value }))} placeholder="Nome do cliente na NFS-e" />
-            </div>
-            {nfseErrors.length > 0 && (
-              <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 space-y-1">
-                {nfseErrors.map((err, i) => (
-                  <p key={i} className="text-xs text-destructive flex items-start gap-1.5">
-                    <span className="mt-0.5">⚠️</span> {err}
-                  </p>
-                ))}
+
+            {/* Parsed NF data */}
+            {nfData && (
+              <div className="rounded-lg border border-border p-3 space-y-2 text-xs">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <FileText className="h-4 w-4" />
+                  {nfData.tipo === "nfse" ? "NFS-e" : nfData.tipo === "nfe" ? "NF-e" : "NF"} nº {nfData.numero || "—"}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="text-muted-foreground">Destinatário</span>
+                    <p className="font-medium">{nfData.dest_razao || "—"}</p>
+                    <p className="text-muted-foreground">{nfData.dest_cnpj || nfData.dest_cpf || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Emitente</span>
+                    <p className="font-medium">{nfData.emit_razao || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Valor Total</span>
+                    <p className="font-semibold">{formatCurrency(nfData.valor_total)}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Valor Líquido</span>
+                    <p className="font-semibold">{formatCurrency(nfData.valor_liquido)}</p>
+                  </div>
+                  {nfData.valor_deducoes > 0 && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">Retenções</span>
+                      <p className="text-destructive font-medium">
+                        - {formatCurrency(nfData.valor_deducoes)}
+                        {nfData.valor_ir > 0 && ` (IR: ${formatCurrency(nfData.valor_ir)})`}
+                        {nfData.valor_iss > 0 && ` (ISS: ${formatCurrency(nfData.valor_iss)})`}
+                        {nfData.valor_pis > 0 && ` (PIS: ${formatCurrency(nfData.valor_pis)})`}
+                        {nfData.valor_cofins > 0 && ` (COFINS: ${formatCurrency(nfData.valor_cofins)})`}
+                        {nfData.valor_csll > 0 && ` (CSLL: ${formatCurrency(nfData.valor_csll)})`}
+                        {nfData.valor_inss > 0 && ` (INSS: ${formatCurrency(nfData.valor_inss)})`}
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
+            )}
+
+            {/* Validation result */}
+            {nfValidacao && (
+              <>
+                {nfValidacao.erros?.length > 0 && (
+                  <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 space-y-1">
+                    {nfValidacao.erros.map((err: string, i: number) => (
+                      <p key={i} className="text-xs text-destructive flex items-start gap-1.5">
+                        <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" /> {err}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {nfValidacao.avisos?.length > 0 && (
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 space-y-1">
+                    {nfValidacao.avisos.map((a: string, i: number) => (
+                      <p key={i} className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+                        <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" /> {a}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {nfValidacao.valido && (
+                  <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Validação OK — cliente e valores conferem</span>
+                  </div>
+                )}
+              </>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowNfse(false)}>Cancelar</Button>
-            <Button onClick={handleSalvarNfse} disabled={savingNfse}>
-              {savingNfse ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}Salvar
+            <Button onClick={handleSalvarNfse} disabled={savingNfse || !nfValidacao?.valido}>
+              {savingNfse ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <ShieldCheck className="h-4 w-4 mr-1" />}
+              Vincular NF
             </Button>
           </DialogFooter>
         </DialogContent>
