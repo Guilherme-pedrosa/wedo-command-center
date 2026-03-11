@@ -134,6 +134,29 @@ serve(async (req) => {
   const results: Record<string, any> = {};
 
   try {
+    // Parse optional date range from request body
+    let bodyDataInicio: string | undefined;
+    let bodyDataFim: string | undefined;
+    try {
+      const body = await req.json();
+      bodyDataInicio = body?.data_inicio;
+      bodyDataFim = body?.data_fim;
+    } catch { /* no body or invalid JSON — use defaults */ }
+
+    // Default: last 6 months if no date range provided
+    if (!bodyDataInicio || !bodyDataFim) {
+      const now = new Date();
+      const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+      bodyDataInicio = sixMonthsAgo.toISOString().split("T")[0];
+      bodyDataFim = now.toISOString().split("T")[0];
+    }
+
+    const finDateParams: Record<string, string> = {
+      data_inicio: bodyDataInicio,
+      data_fim: bodyDataFim,
+    };
+    console.log(`[sync-all] Date range for financeiro: ${bodyDataInicio} → ${bodyDataFim}`);
+
     const gcAccessToken = Deno.env.get("GC_ACCESS_TOKEN");
     const gcSecretToken = Deno.env.get("GC_SECRET_TOKEN");
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
