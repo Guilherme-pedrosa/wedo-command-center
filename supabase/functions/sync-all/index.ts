@@ -323,7 +323,7 @@ serve(async (req) => {
     console.log("[sync-all] Starting pagamentos sync...");
     const pagStart = Date.now();
     try {
-      const { records: pagRecords } = await fetchAllPages("/api/pagamentos", gcHeaders);
+      const { records: pagRecords } = await fetchAllPages("/api/pagamentos", gcHeaders, finDateParams);
       let gcPagUpserted = 0;
       let finPagUpserted = 0;
       let pagErrors = 0;
