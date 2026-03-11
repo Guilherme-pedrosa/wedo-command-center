@@ -537,12 +537,14 @@ serve(async (req) => {
     if (extratoIds.length > 0) {
       extratosQuery = extratosQuery.in("id", extratoIds);
     } else {
-      if (dateFrom) extratosQuery = extratosQuery.gte("data_hora", dateFrom);
+      // Default: only process last 90 days to avoid wasting cycles on ancient records
+      const defaultFloor = dateFrom ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      extratosQuery = extratosQuery.gte("data_hora", defaultFloor);
       if (dateTo) extratosQuery = extratosQuery.lte("data_hora", dateTo);
     }
 
     const { data: extratos, error: errE } = await extratosQuery
-      .order("data_hora", { ascending: true })
+      .order("data_hora", { ascending: false })
       .limit(limit);
 
     if (errE) throw new Error(`fin_extrato_inter: ${errE.message}`);
