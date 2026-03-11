@@ -452,63 +452,126 @@ serve(async (req) => {
             console.log(`[negotiate-os] STEP D: OS ${os.id} → buscando recebimentos gerados`);
 
             try {
-              // Search recebimentos by client, open, with pagination
-              let allRecs: any[] = [];
-              let recPage = 1;
-              let recTotalPages = 1;
+              const maxAttempts = 12;
+              const waitBetweenAttemptsMs = 1500;
+              const expectedByDueDate = new Map<string, number[]>();
 
-              while (recPage <= recTotalPages && recPage <= 5) {
-                const searchParams = new URLSearchParams({
-                  limite: "100",
-                  pagina: String(recPage),
-                  cliente_id: os.cliente_id,
-                  liquidado: "ab",
-                });
-                const recResp = await rateLimitedFetch(
-                  `${GC_BASE_URL}/api/recebimentos?${searchParams.toString()}`,
-                  { headers: gcHeaders }
-                );
-
-                if (!recResp.ok) break;
-
-                const recData = await recResp.json();
-                const rawList = Array.isArray(recData?.data) ? recData.data : [];
-                recTotalPages = recData?.meta?.total_paginas || 1;
-
-                // Unwrap possible nested objects (e.g. { Recebimento: { ... } })
-                for (const item of rawList) {
-                  const unwrapped = (item?.Recebimento || item?.recebimento || item) as Record<string, unknown>;
-                  allRecs.push(unwrapped);
-                }
-                recPage++;
+              for (let idx = 0; idx < dueDates.length; idx++) {
+                const due = dueDates[idx];
+                const expectedValue = Number((idx === parcelas - 1 ? valorUltimaOS : valorParcelaOS).toFixed(2));
+                const bucket = expectedByDueDate.get(due) || [];
+                bucket.push(expectedValue);
+                expectedByDueDate.set(due, bucket);
               }
 
-              // Filter recebimentos that match this OS codigo in description
-              const codigoLower = os.codigo.toLowerCase();
-              const matching = allRecs.filter((r: any) => {
-                const desc = String(r.descricao || "").toLowerCase();
-                return (
-                  desc.includes(`nº ${codigoLower}`) ||
-                  desc.includes(`n° ${codigoLower}`) ||
-                  desc.includes(`no ${codigoLower}`) ||
-                  desc.includes(`n\u00ba ${codigoLower}`) ||
-                  desc.includes(`os ${codigoLower}`)
-                );
-              });
+              const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-              console.log(`[negotiate-os] STEP D: ${allRecs.length} recebimentos do cliente, ${matching.length} matcham OS ${os.codigo}`);
+              const normalizeMoney = (value: unknown): number => {
+                const parsed = Number.parseFloat(String(value ?? "0").replace(",", "."));
+                if (!Number.isFinite(parsed)) return 0;
+                return Math.round(parsed * 100) / 100;
+              };
 
-              for (const rec of matching) {
-                const recId = String(rec.id);
-                const currentDesc = String(rec.descricao || "");
+              const fetchRecebimentos = async (scopedByClient: boolean, maxPages: number): Promise<Record<string, unknown>[]> => {
+                const list: Record<string, unknown>[] = [];
+                let recPage = 1;
+                let recTotalPages = 1;
 
-                // Skip if already tagged with ANY neg number
-                if (currentDesc.includes("[Neg ")) {
-                  console.log(`[negotiate-os] STEP D: Recebimento ${recId} já tagueado, pulando`);
-                  continue;
+                while (recPage <= recTotalPages && recPage <= maxPages) {
+                  const paramsObj: Record<string, string> = {
+                    limite: "100",
+                    pagina: String(recPage),
+                    liquidado: "ab",
+                  };
+                  if (scopedByClient && os.cliente_id) {
+                    paramsObj.cliente_id = os.cliente_id;
+                  }
+
+                  const searchParams = new URLSearchParams(paramsObj);
+                  const recResp = await rateLimitedFetch(
+                    `${GC_BASE_URL}/api/recebimentos?${searchParams.toString()}`,
+                    { headers: gcHeaders }
+                  );
+
+                  if (!recResp.ok) break;
+
+                  const recData = await recResp.json();
+                  const rawList = Array.isArray(recData?.data) ? recData.data : [];
+                  recTotalPages = recData?.meta?.total_paginas || 1;
+
+                  for (const item of rawList) {
+                    const unwrapped = (item?.Recebimento || item?.recebimento || item) as Record<string, unknown>;
+                    list.push(unwrapped);
+                  }
+                  recPage++;
                 }
 
-                const newDesc = `[Neg ${negociacao_numero}] ${currentDesc}`;
+                return list;
+              };
+
+              const codigoLower = os.codigo.toLowerCase();
+              let matching: Record<string, unknown>[] = [];
+
+              for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                const scoped = await fetchRecebimentos(true, 8);
+                const fallback = scoped.length < parcelas ? await fetchRecebimentos(false, 3) : [];
+
+                const mergedById = new Map<string, Record<string, unknown>>();
+                for (const rec of [...scoped, ...fallback]) {
+                  const recId = String(rec.id || rec.codigo || "").trim();
+                  if (!recId) continue;
+                  mergedById.set(recId, rec);
+                }
+
+                const allRecs = Array.from(mergedById.values());
+
+                matching = allRecs.filter((r) => {
+                  const desc = String(r.descricao || "").toLowerCase();
+                  const matchesOsByDesc =
+                    desc.includes(`nº ${codigoLower}`) ||
+                    desc.includes(`n° ${codigoLower}`) ||
+                    desc.includes(`nº${codigoLower}`) ||
+                    desc.includes(`n°${codigoLower}`) ||
+                    desc.includes(`n\u00ba ${codigoLower}`) ||
+                    desc.includes(`no ${codigoLower}`) ||
+                    desc.includes(`os ${codigoLower}`) ||
+                    (desc.includes("ordem de serviço") && desc.includes(codigoLower));
+
+                  const dueDate = String(r.data_vencimento || r.vencimento || "").slice(0, 10);
+                  const expectedValues = expectedByDueDate.get(dueDate) || [];
+                  const recValue = normalizeMoney(r.valor ?? r.valor_total);
+                  const matchesDueAndValue = expectedValues.some((v) => Math.abs(v - recValue) <= 0.02);
+
+                  const recClienteId = String(r.cliente_id || "").trim();
+                  const sameClient = !os.cliente_id || !recClienteId || recClienteId === String(os.cliente_id);
+
+                  return matchesOsByDesc || (sameClient && matchesDueAndValue);
+                });
+
+                const taggedCount = matching.filter((r) => String(r.descricao || "").includes(`[Neg ${negociacao_numero}]`)).length;
+                console.log(
+                  `[negotiate-os] STEP D tentativa ${attempt}/${maxAttempts}: ${allRecs.length} recebimentos varridos, ${matching.length} candidatos, ${taggedCount} já tagueados (OS ${os.codigo})`
+                );
+
+                if (matching.length >= parcelas) break;
+                if (attempt < maxAttempts) await wait(waitBetweenAttemptsMs);
+              }
+
+              if (matching.length === 0) {
+                console.warn(`[negotiate-os] STEP D: nenhum recebimento encontrado para OS ${os.codigo}`);
+              }
+
+              for (const rec of matching) {
+                const recId = String(rec.id || "").trim();
+                if (!recId) continue;
+
+                const currentDesc = String(rec.descricao || "").trim();
+                const cleanedDesc = currentDesc.replace(/^\[Neg\s+\d+\]\s*/i, "");
+                const newDesc = `[Neg ${negociacao_numero}] ${cleanedDesc}`.trim();
+
+                if (currentDesc === newDesc) {
+                  continue;
+                }
 
                 const putPayload: Record<string, unknown> = {
                   descricao: newDesc,
