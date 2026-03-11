@@ -287,6 +287,45 @@ export default function GruposReceberPage() {
     finally { setSavingNfse(false); }
   };
 
+  const handleSyncNfseGC = async () => {
+    if (!selectedGrupo || !grupoItens?.length || !selectedGrupo.nfse_numero) return;
+    setSyncingGC(true);
+    let ok = 0;
+    let erros = 0;
+    try {
+      for (const item of grupoItens) {
+        const rec = item.fin_recebimentos as any;
+        if (!rec?.gc_id || !rec?.gc_payload_raw) { erros++; continue; }
+
+        const descOriginal = rec.descricao || "";
+        const nfTag = `NF ${selectedGrupo.nfse_numero}`;
+        const novaDescricao = descOriginal.includes(nfTag) ? descOriginal : `${descOriginal} — ${nfTag}`;
+        
+        try {
+          await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw, {
+            descricao: novaDescricao,
+            observacao: `NFS-e ${selectedGrupo.nfse_numero} vinculada via ARGUS`,
+          });
+          await gcDelay();
+
+          await supabase.from("fin_recebimentos")
+            .update({ descricao: novaDescricao, nfe_numero: selectedGrupo.nfse_numero })
+            .eq("id", item.recebimento_id);
+          ok++;
+        } catch (e) {
+          console.error(`Erro sync GC item ${rec.gc_codigo}:`, e);
+          erros++;
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens", selectedGrupo.id] });
+      toast.success(`NFS-e sincronizada no GC: ${ok} atualizados${erros ? `, ${erros} erros` : ""}`);
+    } catch (err) {
+      toast.error("Erro ao sincronizar NFS-e no GC");
+    } finally {
+      setSyncingGC(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
