@@ -365,7 +365,8 @@ export default function GruposReceberPage() {
                           if (!itensComGcId.length) { toast.error("Nenhum item com gc_id"); return; }
                           let ok = 0, fail = 0;
                           for (const item of itensComGcId) {
-                            const success = await resyncRecebimentoFromGC(item.fin_recebimentos.gc_id);
+                            const osCodigo = item.os_codigo_original || item.fin_recebimentos?.os_codigo;
+                            const success = await resyncRecebimentoFromGC(item.fin_recebimentos.gc_id, osCodigo);
                             if (success) ok++; else fail++;
                             await gcDelay();
                           }
