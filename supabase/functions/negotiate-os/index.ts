@@ -166,8 +166,17 @@ serve(async (req) => {
         dueDates.push(`${yyyy}-${mm}-${dd}`);
       }
 
-      // 1. Fetch all OS details first (to get required PUT fields + values)
-      const osDetails: { id: string; codigo: string; tipo: string; cliente_id: string; data: string; valor_total: number; nome_cliente: string }[] = [];
+      // 1. Fetch all OS details first (to build a safe full PUT payload and preserve financial values)
+      const osDetails: {
+        id: string;
+        codigo: string;
+        tipo: string;
+        cliente_id: string;
+        data: string;
+        valor_total: number;
+        nome_cliente: string;
+        raw: Record<string, unknown>;
+      }[] = [];
       const gcUpdateResults: { os_id: string; status: string; error?: string }[] = [];
 
       for (const osId of os_ids) {
@@ -199,16 +208,17 @@ serve(async (req) => {
             data: String(os.data || new Date().toISOString().slice(0, 10)),
             valor_total: valorTotal,
             nome_cliente: String(os.nome_cliente || nome_cliente || ""),
+            raw: (os && typeof os === "object" ? os : {}) as Record<string, unknown>,
           });
         } catch (err) {
           gcUpdateResults.push({ os_id: osId, status: "error", error: (err as Error).message });
         }
       }
 
-      // 2. Update each OS in GC — ONLY change situacao_id (preserve value)
+      // 2. Update each OS in GC — preserve commercial/financial payload, changing only situacao
       for (const os of osDetails) {
         try {
-          const updatePayload = {
+          const updatePayload: Record<string, unknown> = {
             tipo: os.tipo,
             codigo: os.codigo,
             cliente_id: os.cliente_id,
@@ -216,7 +226,37 @@ serve(async (req) => {
             data: os.data,
           };
 
-          console.log(`[negotiate-os] PUT OS ${os.id} (codigo=${os.codigo}) — only situacao change`);
+          const passthroughKeys = [
+            "vendedor_id",
+            "tecnico_id",
+            "saida",
+            "previsao_entrega",
+            "transportadora_id",
+            "centro_custo_id",
+            "aos_cuidados_de",
+            "validade",
+            "introducao",
+            "observacoes",
+            "observacoes_interna",
+            "valor_frete",
+            "condicao_pagamento",
+            "forma_pagamento_id",
+            "data_primeira_parcela",
+            "numero_parcelas",
+            "intervalo_dias",
+            "equipamentos",
+            "pagamentos",
+            "produtos",
+            "servicos",
+          ];
+
+          for (const key of passthroughKeys) {
+            if (os.raw[key] !== undefined && os.raw[key] !== null) {
+              updatePayload[key] = os.raw[key];
+            }
+          }
+
+          console.log(`[negotiate-os] PUT OS ${os.id} (codigo=${os.codigo}) — preserving payload`);
 
           const putResp = await rateLimitedFetch(
             `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
