@@ -401,10 +401,14 @@ export default function GruposReceberPage() {
                   <SheetTitle>{selectedGrupo.nome}</SheetTitle>
                   {canEditGroup(selectedGrupo) && (
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
+                     <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
                         setEditNome(selectedGrupo.nome);
                         setEditVencimento(selectedGrupo.data_vencimento || "");
                         setEditObs(selectedGrupo.observacao || "");
+                        setEditItensToRemove([]);
+                        setEditItensToAdd([]);
+                        setSearchReceb("");
+                        setSearchResults([]);
                         setShowEditDialog(true);
                       }}>
                         <Pencil className="h-3 w-3" />
