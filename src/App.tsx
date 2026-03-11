@@ -39,6 +39,7 @@ const RelatorioResultados = lazy(() => import("@/pages/RelatorioResultados"));
 const TvResultados = lazy(() => import("@/pages/TvResultados"));
 const TvTecnicos = lazy(() => import("@/pages/TvTecnicos"));
 const FinFaturaCartao = lazy(() => import("@/pages/financeiro/FaturaCartaoPage"));
+const FinNegociacaoOS = lazy(() => import("@/pages/financeiro/NegociacaoOSPage"));
 const queryClient = new QueryClient();
 
 function LazyFallback() {
@@ -96,6 +97,7 @@ const App = () => (
           <Route path="/financeiro/fornecedores" element={<Suspense fallback={<LazyFallback />}><FinFornecedores /></Suspense>} />
           <Route path="/financeiro/paineis-tv" element={<Suspense fallback={<LazyFallback />}><FinPaineisTv /></Suspense>} />
           <Route path="/financeiro/fatura-cartao" element={<Suspense fallback={<LazyFallback />}><FinFaturaCartao /></Suspense>} />
+          <Route path="/financeiro/negociacao-os" element={<Suspense fallback={<LazyFallback />}><FinNegociacaoOS /></Suspense>} />
           </Route>
 
           {/* Standalone pages (no sidebar) */}
