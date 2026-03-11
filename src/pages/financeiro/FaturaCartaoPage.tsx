@@ -600,14 +600,13 @@ export default function FaturaCartaoPage() {
           <DialogHeader><DialogTitle>Cadastrar Cartão de Crédito</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <Input placeholder="Nome do cartão" value={novoCartao.nome} onChange={e => setNovoCartao(p => ({ ...p, nome: e.target.value }))} />
-            <Select value={novoCartao.bandeira} onValueChange={v => setNovoCartao(p => ({ ...p, bandeira: v }))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {["VISA", "MASTERCARD", "ELO", "AMEX", "HIPERCARD", "OUTRO"].map(b => (
-                  <SelectItem key={b} value={b}>{b}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={novoCartao.bandeira}
+              onValueChange={v => setNovoCartao(p => ({ ...p, bandeira: v }))}
+              placeholder="Bandeira"
+              searchPlaceholder="Buscar bandeira..."
+              options={["VISA", "MASTERCARD", "ELO", "AMEX", "HIPERCARD", "OUTRO"].map(b => ({ value: b, label: b }))}
+            />
             <Input placeholder="Banco" value={novoCartao.banco} onChange={e => setNovoCartao(p => ({ ...p, banco: e.target.value }))} />
             <Input placeholder="Últimos 4 dígitos" maxLength={4} value={novoCartao.ultimos_digitos} onChange={e => setNovoCartao(p => ({ ...p, ultimos_digitos: e.target.value.replace(/\D/g, "") }))} />
             <div className="grid grid-cols-2 gap-3">
