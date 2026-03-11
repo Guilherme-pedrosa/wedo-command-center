@@ -195,7 +195,7 @@ serve(async (req) => {
       }
 
       const clients = Object.values(byClient)
-        .filter((c) => c.os_list.length > 1)
+        .filter((c) => c.os_list.length > 0)
         .sort((a, b) => b.valor_total - a.valor_total);
 
       return new Response(
