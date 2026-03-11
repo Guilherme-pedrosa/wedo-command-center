@@ -175,14 +175,19 @@ export default function NegociacaoOSPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <HandshakeIcon className="h-6 w-6" />
-            Negociação de OS
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            OS em "Executado - Ag Negociação" agrupadas por cliente
-          </p>
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <HandshakeIcon className="h-6 w-6" />
+              Negociação de OS
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              OS em "Executado - Ag Negociação" agrupadas por cliente
+            </p>
+          </div>
         </div>
         <Button onClick={fetchOS} disabled={loading} variant="outline" size="sm">
           {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
