@@ -145,15 +145,28 @@ export default function GruposReceberPage() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={8} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
+              <tr><td colSpan={9} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
             ) : !grupos?.length ? (
-              <tr><td colSpan={8}><EmptyState icon={Layers} title="Nenhum grupo" description="Crie grupos na tela de recebimentos." /></td></tr>
+              <tr><td colSpan={9}><EmptyState icon={Layers} title="Nenhum grupo" description="Crie grupos na tela de recebimentos." /></td></tr>
             ) : grupos.map((g: any) => (
               <tr key={g.id} className="border-b border-border hover:bg-muted/30">
                 <td className="p-3 font-medium text-foreground">{g.nome}</td>
                 <td className="p-3 text-foreground">{g.nome_cliente || "—"}</td>
                 <td className="p-3 text-right font-semibold">{formatCurrency(Number(g.valor_total))}</td>
                 <td className="p-3">{g.data_vencimento ? formatDate(g.data_vencimento) : "—"}</td>
+                <td className="p-3 text-center text-xs">
+                  {g.nfse_numero ? (
+                    g.nfse_link ? (
+                      <a href={g.nfse_link} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1 justify-center">
+                        <FileText className="h-3 w-3" />{g.nfse_numero}
+                      </a>
+                    ) : (
+                      <span className="flex items-center gap-1 justify-center text-foreground"><FileText className="h-3 w-3" />{g.nfse_numero}</span>
+                    )
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
                 <td className="p-3 text-center text-xs">{g.itens_baixados ?? 0}/{g.itens_total ?? 0}</td>
                 <td className="p-3 text-center">{statusBadge(g.status)}</td>
                 <td className="p-3 text-center">
