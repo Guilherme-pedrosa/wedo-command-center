@@ -64,6 +64,20 @@ function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): bool
   return nomeSimilarScore(a, b) >= threshold;
 }
 
+// CNPJs raiz de clientes com prazo de pagamento longo (60-90 dias)
+// Sapore S.A. e Sodexo — janela estendida de ±90 dias
+const CNPJ_PRAZO_ESTENDIDO = [
+  "67945071", // Sapore S.A.
+  "46788569", // Sodexo (CNPJ raiz principal)
+];
+
+function isClientePrazoEstendido(doc: string | null | undefined): boolean {
+  const clean = cleanDoc(doc);
+  if (clean.length < 8) return false;
+  const raiz = clean.substring(0, 8);
+  return CNPJ_PRAZO_ESTENDIDO.includes(raiz);
+}
+
 type MatchRule =
   | "CNPJ_VALOR_DATA_EXATO"
   | "CNPJ_VALOR_EXATO"
