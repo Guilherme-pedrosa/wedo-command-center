@@ -126,7 +126,7 @@ export default function FaturaCartaoPage() {
   // Nova fatura
   const [novaFatura, setNovaFatura] = useState({
     cartao_id: "",
-    forma_pagamento_id: "",
+    forma_pagamento_ids: [] as string[],
     mes_referencia: format(new Date(), "yyyy-MM"),
     data_fechamento_inicio: "",
     data_fechamento_fim: "",
