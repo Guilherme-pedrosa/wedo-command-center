@@ -758,9 +758,15 @@ export default function FaturaCartaoPage() {
               <Input type="date" value={novaFatura.data_vencimento} onChange={e => setNovaFatura(p => ({ ...p, data_vencimento: e.target.value }))} />
             </div>
 
-            {novaFatura.cartao_id && novaFatura.data_fechamento_inicio && novaFatura.data_fechamento_fim && (
+            {novaFatura.forma_pagamento_id && (
               <div className="p-2 rounded bg-muted/50 text-xs text-muted-foreground">
-                <p>O sistema buscará todos os pagamentos com a forma de pagamento selecionada e data de vencimento entre <strong>{fmtDate(novaFatura.data_fechamento_inicio)}</strong> e <strong>{fmtDate(novaFatura.data_fechamento_fim)}</strong>.</p>
+                {novaFatura.data_vencimento ? (
+                  <p>O sistema buscará todos os pagamentos com a forma de pagamento selecionada e <strong>data de vencimento = {fmtDate(novaFatura.data_vencimento)}</strong>.</p>
+                ) : novaFatura.data_fechamento_inicio && novaFatura.data_fechamento_fim ? (
+                  <p>Sem data de vencimento, o sistema usará a <strong>data de competência</strong> entre <strong>{fmtDate(novaFatura.data_fechamento_inicio)}</strong> e <strong>{fmtDate(novaFatura.data_fechamento_fim)}</strong>.</p>
+                ) : (
+                  <p>Informe a data de vencimento da fatura para buscar os pagamentos correspondentes.</p>
+                )}
               </div>
             )}
           </div>
