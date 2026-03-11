@@ -65,7 +65,13 @@ export default function NegociacaoOSPage() {
         body: { action: "list" },
       });
       if (error) throw error;
-      const groupedClients = (data.clients || []).filter((c: ClientGroup) => c.os_list.length > 1);
+      const groupedClients = (data.clients || [])
+        .map((c: ClientGroup) => {
+          const osList = c.os_list.filter((os) => os.valor_total > 0);
+          const valorTotal = osList.reduce((sum, os) => sum + os.valor_total, 0);
+          return { ...c, os_list: osList, valor_total: valorTotal };
+        })
+        .filter((c: ClientGroup) => c.os_list.length > 1 && c.valor_total > 0);
       setClients(groupedClients);
       if (groupedClients.length === 0) {
         toast("Nenhum cliente com 2+ OS em 'Ag Negociação' encontrado", { icon: "ℹ️" });
