@@ -180,6 +180,7 @@ serve(async (req) => {
         data: string;
         valor_total: number;
         nome_cliente: string;
+        nome_equipamento: string;
         raw: Record<string, unknown>;
       }[] = [];
       const gcUpdateResults: { os_id: string; status: string; error?: string }[] = [];
@@ -205,6 +206,17 @@ serve(async (req) => {
             continue;
           }
 
+          // Extract equipment name from OS data
+          let nomeEquipamento = "";
+          const equipamentos = os.equipamentos;
+          if (Array.isArray(equipamentos) && equipamentos.length > 0) {
+            const eq = equipamentos[0];
+            nomeEquipamento = String(eq?.nome || eq?.descricao || eq?.equipamento || "");
+          }
+          if (!nomeEquipamento) {
+            nomeEquipamento = String(os.descricao || os.equipamento || "");
+          }
+
           osDetails.push({
             id: osId,
             codigo: String(os.codigo || ""),
@@ -213,6 +225,7 @@ serve(async (req) => {
             data: String(os.data || new Date().toISOString().slice(0, 10)),
             valor_total: valorTotal,
             nome_cliente: String(os.nome_cliente || nome_cliente || ""),
+            nome_equipamento: nomeEquipamento,
             raw: (os && typeof os === "object" ? os : {}) as Record<string, unknown>,
           });
         } catch (err) {
@@ -359,7 +372,9 @@ serve(async (req) => {
             const { data: receb, error: recebErr } = await supabase
               .from("fin_recebimentos")
               .insert({
-                descricao: `OS ${osDetail.codigo} — Parcela ${i + 1}/${parcelas}`,
+                descricao: osDetail.nome_equipamento
+                  ? `OS ${osDetail.codigo} — ${osDetail.nome_equipamento} — Parcela ${i + 1}/${parcelas}`
+                  : `OS ${osDetail.codigo} — Parcela ${i + 1}/${parcelas}`,
                 valor: item.valor,
                 data_vencimento: vencimento,
                 nome_cliente: clienteNome,
