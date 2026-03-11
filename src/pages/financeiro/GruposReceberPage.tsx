@@ -273,7 +273,7 @@ export default function GruposReceberPage() {
                       <FileText className="h-4 w-4" /> NFS-e
                     </h4>
                     {!selectedGrupo.nfse_numero && (
-                      <Button variant="outline" size="sm" onClick={() => { setNfseForm({ numero: "", link: "" }); setShowNfse(true); }}>
+                      <Button variant="outline" size="sm" onClick={() => { setNfseForm({ numero: "", link: "", valor: "", cliente: "" }); setNfseErrors([]); setShowNfse(true); }}>
                         Vincular NFS-e
                       </Button>
                     )}
