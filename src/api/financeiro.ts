@@ -1471,7 +1471,8 @@ export async function gerarCobrancaPix(grupoId: string): Promise<{
     infoAdicionais: [{ nome: "GrupoId", valor: grupoId }],
   };
 
-  const resp = await interRequest<any>(`/pix/v2/cob/${txid}`, "PUT", payload);
+  const endpoint = g.data_vencimento ? `/pix/v2/cobv/${txid}` : `/pix/v2/cob/${txid}`;
+  const resp = await interRequest<any>(endpoint, "PUT", payload);
 
   await supabase
     .from("fin_grupos_receber" as any)
@@ -1508,7 +1509,13 @@ export async function verificarCobrancaPix(txid: string): Promise<{
   pagadorNome?: string;
   horario?: string;
 }> {
-  const resp = await interRequest<any>(`/pix/v2/cob/${txid}`, "GET");
+  // Try cobv first (cobrança com vencimento), fallback to cob
+  let resp: any;
+  try {
+    resp = await interRequest<any>(`/pix/v2/cobv/${txid}`, "GET");
+  } catch {
+    resp = await interRequest<any>(`/pix/v2/cob/${txid}`, "GET");
+  }
   const pago = resp.status === "CONCLUIDA";
   const pix = resp.pix?.[0];
   return {
