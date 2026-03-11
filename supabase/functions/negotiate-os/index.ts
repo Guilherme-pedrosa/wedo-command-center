@@ -9,10 +9,7 @@ const corsHeaders = {
 
 const GC_BASE_URL = "https://api.gestaoclick.com";
 const MIN_DELAY_MS = 350;
-const SITUACOES_ORIGEM_LISTAGEM = [
-  "7116099", // Executado - Ag Negociação
-  "7063724", // Executado - Ag Pagamento (fallback para reaparecer após negociação)
-];
+const SITUACAO_ORIGEM = "7116099"; // Executado - Ag Negociação Financeira
 const SITUACAO_DESTINO = "7063724"; // Executado - Ag Pagamento
 let lastCallTime = 0;
 
@@ -116,50 +113,38 @@ serve(async (req) => {
 
     // ─── LIST ──────────────────────────────────────────────
     if (body.action === "list") {
-      const allOSById = new Map<string, Record<string, unknown>>();
+      const allOS: Record<string, unknown>[] = [];
+      let page = 1;
+      let totalPages = 1;
 
-      for (const situacaoId of SITUACOES_ORIGEM_LISTAGEM) {
-        let page = 1;
-        let totalPages = 1;
+      while (page <= totalPages) {
+        const params = new URLSearchParams({
+          limite: "100",
+          pagina: String(page),
+          situacao_id: SITUACAO_ORIGEM,
+        });
 
-        while (page <= totalPages) {
-          const params = new URLSearchParams({
-            limite: "100",
-            pagina: String(page),
-            situacao_id: situacaoId,
-          });
+        const response = await rateLimitedFetch(
+          `${GC_BASE_URL}/api/ordens_servicos?${params.toString()}`,
+          { headers: gcHeaders }
+        );
 
-          const response = await rateLimitedFetch(
-            `${GC_BASE_URL}/api/ordens_servicos?${params.toString()}`,
-            { headers: gcHeaders }
-          );
-
-          if (response.status === 429) {
-            await new Promise((r) => setTimeout(r, 2000));
-            continue;
-          }
-
-          if (!response.ok) {
-            throw new Error(`GC API error: ${response.status}`);
-          }
-
-          const data = await response.json();
-          const records = Array.isArray(data?.data) ? data.data : [];
-          totalPages = data?.meta?.total_paginas || 1;
-
-          for (const os of records) {
-            const osId = String(os?.id || "");
-            if (!osId) continue;
-            if (!allOSById.has(osId)) {
-              allOSById.set(osId, os as Record<string, unknown>);
-            }
-          }
-
-          page++;
+        if (response.status === 429) {
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
         }
-      }
 
-      const allOS = Array.from(allOSById.values());
+        if (!response.ok) {
+          throw new Error(`GC API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const records = Array.isArray(data?.data) ? data.data : [];
+        totalPages = data?.meta?.total_paginas || 1;
+
+        allOS.push(...records);
+        page++;
+      }
 
       // Group by client
       const byClient: Record<string, { cliente_id: string; nome_cliente: string; os_list: any[]; valor_total: number }> = {};
