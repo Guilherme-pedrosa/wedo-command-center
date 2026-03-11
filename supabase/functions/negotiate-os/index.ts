@@ -457,6 +457,7 @@ serve(async (req) => {
               const maxAttempts = 8;
               const waitBetweenAttemptsMs = 1500;
               const expectedByDueDate = new Map<string, number[]>();
+              const expectedValuesFlat: number[] = [];
 
               for (let idx = 0; idx < dueDates.length; idx++) {
                 const due = dueDates[idx];
@@ -464,7 +465,14 @@ serve(async (req) => {
                 const bucket = expectedByDueDate.get(due) || [];
                 bucket.push(expectedValue);
                 expectedByDueDate.set(due, bucket);
+                expectedValuesFlat.push(expectedValue);
               }
+
+              const sortedDueDates = [...dueDates].sort();
+              const minDueDate = sortedDueDates[0];
+              const maxDueDate = sortedDueDates[sortedDueDates.length - 1];
+              const minExpectedValue = Math.max(0, Math.min(...expectedValuesFlat) - 0.05);
+              const maxExpectedValue = Math.max(...expectedValuesFlat) + 0.05;
 
               const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
