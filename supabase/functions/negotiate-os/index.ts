@@ -9,7 +9,10 @@ const corsHeaders = {
 
 const GC_BASE_URL = "https://api.gestaoclick.com";
 const MIN_DELAY_MS = 350;
-const SITUACAO_ORIGEM = "7116099"; // Executado - Ag Negociação
+const SITUACOES_ORIGEM_LISTAGEM = [
+  "7116099", // Executado - Ag Negociação
+  "7063724", // Executado - Ag Pagamento (fallback para reaparecer após negociação)
+];
 const SITUACAO_DESTINO = "7063724"; // Executado - Ag Pagamento
 let lastCallTime = 0;
 
