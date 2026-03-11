@@ -324,7 +324,7 @@ export default function TvResultados() {
 
       {/* Footer */}
       <p className="text-center text-sm text-muted-foreground">
-        WeDo Hub • Atualiza automaticamente a cada 5 min • {new Date().toLocaleString('pt-BR')}
+        ARGUS • Atualiza automaticamente a cada 5 min • {new Date().toLocaleString('pt-BR')}
       </p>
     </div>
   );

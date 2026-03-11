@@ -160,7 +160,7 @@ export default function RelatorioResultados() {
         )}
 
         <p className="text-center text-xs text-muted-foreground py-4">
-          WeDo Hub • Gerado em {new Date().toLocaleString('pt-BR')}
+          ARGUS • Gerado em {new Date().toLocaleString('pt-BR')}
         </p>
       </div>
     </div>

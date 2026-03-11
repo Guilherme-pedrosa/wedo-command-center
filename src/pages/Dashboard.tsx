@@ -117,7 +117,7 @@ export default function Dashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Visão geral do WeDo Hub</p>
+          <p className="text-sm text-muted-foreground">Visão geral do ARGUS</p>
         </div>
         <Button variant="outline" size="sm" onClick={handleSyncAll} disabled={syncing}>
           {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
