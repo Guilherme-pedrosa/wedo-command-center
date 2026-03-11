@@ -329,7 +329,26 @@ export default function GruposReceberPage() {
         <SheetContent className="w-[500px] sm:w-[600px] overflow-y-auto">
           {selectedGrupo && (
             <>
-              <SheetHeader><SheetTitle>{selectedGrupo.nome}</SheetTitle></SheetHeader>
+              <SheetHeader>
+                <div className="flex items-center justify-between">
+                  <SheetTitle>{selectedGrupo.nome}</SheetTitle>
+                  {canEditGroup(selectedGrupo) && (
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
+                        setEditNome(selectedGrupo.nome);
+                        setEditVencimento(selectedGrupo.data_vencimento || "");
+                        setEditObs(selectedGrupo.observacao || "");
+                        setShowEditDialog(true);
+                      }}>
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => setShowDeleteConfirm(true)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </SheetHeader>
               <div className="mt-6 space-y-6">
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
