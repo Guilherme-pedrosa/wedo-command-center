@@ -170,7 +170,7 @@ function aplicarRegras(
       return docMatches(extDoc, c.doc) && valorTolerancia(extValor, Number(c.fin.valor), 2)
         && finDate && dataProxima(extDate, finDate, 15);
     });
-    if (matches.length === 1) return { rule: "CNPJ_VALOR_TOLERANCIA", candidato: matches[0], auto: true };
+    if (matches.length === 1) return { rule: "CNPJ_VALOR_TOLERANCIA", candidato: matches[0], auto: false };
   }
 
   // Regra 4: Nome similar + valor exato + data ±30d → auto-baixa
