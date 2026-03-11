@@ -373,6 +373,58 @@ export default function FaturaCartaoPage() {
     } finally { setSaving(false); }
   };
 
+  // Excluir fatura (e transações relacionadas)
+  const handleExcluirFatura = async (faturaId: string) => {
+    if (!confirm("Tem certeza que deseja excluir esta fatura e todas as suas transações?")) return;
+    setSaving(true);
+    try {
+      await supabase.from("fin_fatura_transacoes").delete().eq("fatura_id", faturaId);
+      const { error } = await supabase.from("fin_fatura_cartao").delete().eq("id", faturaId);
+      if (error) throw error;
+      invalidateAll();
+      if (expandedFatura === faturaId) setExpandedFatura(null);
+      toast.success("Fatura excluída.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao excluir fatura.");
+    } finally { setSaving(false); }
+  };
+
+  // Abrir edição
+  const handleAbrirEdicao = (f: Fatura) => {
+    setEditFatura(f);
+    setEditForm({
+      data_fechamento_inicio: f.data_fechamento_inicio || "",
+      data_fechamento_fim: f.data_fechamento_fim || "",
+      data_vencimento: f.data_vencimento || "",
+      mes_referencia: f.mes_referencia,
+    });
+    setShowEditDialog(true);
+  };
+
+  // Salvar edição
+  const handleSalvarEdicao = async () => {
+    if (!editFatura) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("fin_fatura_cartao")
+        .update({
+          mes_referencia: editForm.mes_referencia,
+          data_fechamento_inicio: editForm.data_fechamento_inicio || null,
+          data_fechamento_fim: editForm.data_fechamento_fim || null,
+          data_vencimento: editForm.data_vencimento || null,
+        } as any)
+        .eq("id", editFatura.id);
+      if (error) throw error;
+      invalidateAll();
+      toast.success("Fatura atualizada.");
+      setShowEditDialog(false);
+      setEditFatura(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao atualizar fatura.");
+    } finally { setSaving(false); }
+  };
+
   // ─── Render Helpers ───────────────────────────────────────────────────────
   const statusColor: Record<string, string> = {
     aberta: "bg-blue-500/10 text-blue-700 border-blue-500/20",
