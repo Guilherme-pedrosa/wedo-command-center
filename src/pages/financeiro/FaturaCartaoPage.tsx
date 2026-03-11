@@ -113,6 +113,9 @@ export default function FaturaCartaoPage() {
   const [showExtratoDialog, setShowExtratoDialog] = useState(false);
   const [extratoFaturaId, setExtratoFaturaId] = useState<string | null>(null);
   const [extratoSearch, setExtratoSearch] = useState("");
+  const [editFatura, setEditFatura] = useState<Fatura | null>(null);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editForm, setEditForm] = useState({ data_fechamento_inicio: "", data_fechamento_fim: "", data_vencimento: "", mes_referencia: "" });
 
   // Novo cartão
   const [novoCartao, setNovoCartao] = useState({
