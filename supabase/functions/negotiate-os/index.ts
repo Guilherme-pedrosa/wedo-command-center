@@ -728,10 +728,41 @@ serve(async (req) => {
           return `OS ${os.codigo}${equip} — R$ ${os.valor_total.toFixed(2)}`;
         }).join("\n");
 
+        // Pre-fetch fin_recebimentos for each OS so we can link them to the groups
+        const recebimentosByOS: Record<string, Array<{ id: string; gc_codigo: string; valor: number; data_vencimento: string; os_codigo: string }>> = {};
+        for (const os of successOS) {
+          const { data: recs } = await supabase
+            .from("fin_recebimentos")
+            .select("id, gc_codigo, valor, data_vencimento, os_codigo")
+            .eq("os_codigo", os.codigo)
+            .eq("liquidado", false)
+            .is("grupo_id", null);
+          recebimentosByOS[os.id] = recs || [];
+        }
+
         for (let i = 0; i < parcelas; i++) {
           const valor = i === parcelas - 1 ? valorUltima : valorParcela;
           const vencimento = dueDates[i];
           const nomeGrupo = `${clienteNome} — Neg. nº${negociacao_numero} (${i + 1}/${parcelas})`;
+
+          // Collect matching recebimentos for this installment (by due date)
+          const itensForThisGroup: Array<{ recebimento_id: string; valor: number; os_codigo: string; gc_codigo: string; snapshot_valor: number; snapshot_data: string }> = [];
+          for (const os of successOS) {
+            const osRecs = recebimentosByOS[os.id] || [];
+            for (const rec of osRecs) {
+              const recDue = String(rec.data_vencimento || "").slice(0, 10);
+              if (recDue === vencimento) {
+                itensForThisGroup.push({
+                  recebimento_id: rec.id,
+                  valor: rec.valor,
+                  os_codigo: rec.os_codigo || os.codigo,
+                  gc_codigo: rec.gc_codigo || "",
+                  snapshot_valor: rec.valor,
+                  snapshot_data: recDue,
+                });
+              }
+            }
+          }
 
           const { data: grupo, error: grupoErr } = await supabase
             .from("fin_grupos_receber")
@@ -742,7 +773,7 @@ serve(async (req) => {
               valor_total: valor,
               data_vencimento: vencimento,
               status: "aberto",
-              itens_total: 0,
+              itens_total: itensForThisGroup.length,
               negociacao_numero: negociacao_numero,
               observacao: `Neg. nº${negociacao_numero} — Parcela ${i + 1}/${parcelas} — R$ ${valor.toFixed(2)}\nVencimento: ${vencimento}\n\n${osRef}`,
             })
@@ -754,6 +785,37 @@ serve(async (req) => {
             continue;
           }
           grupoIds.push(grupo.id);
+
+          // Insert items into fin_grupo_receber_itens and link recebimentos
+          if (itensForThisGroup.length > 0) {
+            const insertItems = itensForThisGroup.map((item) => ({
+              grupo_id: grupo.id,
+              recebimento_id: item.recebimento_id,
+              valor: item.valor,
+              os_codigo_original: item.os_codigo,
+              snapshot_valor: item.snapshot_valor,
+              snapshot_data: item.snapshot_data,
+            }));
+
+            const { error: itensErr } = await supabase
+              .from("fin_grupo_receber_itens")
+              .insert(insertItems);
+
+            if (itensErr) {
+              console.error(`[negotiate-os] Error inserting itens for grupo ${i + 1}:`, itensErr.message);
+            }
+
+            // Link recebimentos to the group
+            const recIds = itensForThisGroup.map((item) => item.recebimento_id);
+            await supabase
+              .from("fin_recebimentos")
+              .update({ grupo_id: grupo.id })
+              .in("id", recIds);
+
+            console.log(`[negotiate-os] Grupo ${i + 1}/${parcelas}: ${itensForThisGroup.length} itens vinculados`);
+          } else {
+            console.warn(`[negotiate-os] Grupo ${i + 1}/${parcelas}: nenhum recebimento encontrado para vincular (vencimento=${vencimento})`);
+          }
         }
       }
 
