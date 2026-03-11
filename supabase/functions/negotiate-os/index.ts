@@ -348,7 +348,7 @@ serve(async (req) => {
       }
 
 
-      // 3. Create fin_grupos_receber — one group per installment
+      // 3. Create fin_grupos_receber — one group per installment (NO recebimentos or items)
       const successOS = osDetails.filter((os) =>
         gcUpdateResults.find((r) => r.os_id === os.id && r.status === "ok")
       );
@@ -361,12 +361,17 @@ serve(async (req) => {
         const valorUltima = Math.round((totalValor - valorParcela * (parcelas - 1)) * 100) / 100;
         const clienteNome = successOS[0].nome_cliente || nome_cliente || "Cliente";
 
+        // Build OS reference for observacao
+        const osRef = successOS.map((os) => {
+          const equip = os.nome_equipamento ? ` (${os.nome_equipamento})` : "";
+          return `OS ${os.codigo}${equip} — R$ ${os.valor_total.toFixed(2)}`;
+        }).join("\n");
+
         for (let i = 0; i < parcelas; i++) {
           const valor = i === parcelas - 1 ? valorUltima : valorParcela;
           const vencimento = dueDates[i];
           const nomeGrupo = `${clienteNome} — Neg. nº${negociacao_numero} (${i + 1}/${parcelas})`;
 
-          // Insert grupo
           const { data: grupo, error: grupoErr } = await supabase
             .from("fin_grupos_receber")
             .insert({
@@ -376,9 +381,9 @@ serve(async (req) => {
               valor_total: valor,
               data_vencimento: vencimento,
               status: "aberto",
-              itens_total: successOS.length,
+              itens_total: 0,
               negociacao_numero: negociacao_numero,
-              observacao: `Neg. nº${negociacao_numero} — ${parcelas}x de ${valor.toFixed(2)} — dia ${dia_vencimento} a partir de ${mes_inicio}`,
+              observacao: `Neg. nº${negociacao_numero} — Parcela ${i + 1}/${parcelas} — R$ ${valor.toFixed(2)}\nVencimento: ${vencimento}\n\n${osRef}`,
             })
             .select("id")
             .single();
@@ -389,60 +394,6 @@ serve(async (req) => {
           }
 
           grupoIds.push(grupo.id);
-
-          // Insert grupo items — each OS is linked proportionally
-          const itens = successOS.map((os) => {
-            const proporcao = os.valor_total / totalValor;
-            return {
-              grupo_id: grupo.id,
-              recebimento_id: null as unknown as string, // We'll create recebimentos below
-              gc_os_id: os.id,
-              os_codigo_original: os.codigo,
-              valor: Math.round(valor * proporcao * 100) / 100,
-              snapshot_valor: os.valor_total,
-              snapshot_data: vencimento,
-            };
-          });
-
-          // Create corresponding fin_recebimentos for each OS in this installment
-          for (const item of itens) {
-            const osDetail = successOS.find((o) => o.id === item.gc_os_id);
-            if (!osDetail) continue;
-
-            const { data: receb, error: recebErr } = await supabase
-              .from("fin_recebimentos")
-              .insert({
-                descricao: osDetail.nome_equipamento
-                  ? `OS ${osDetail.codigo} — ${osDetail.nome_equipamento} — Parcela ${i + 1}/${parcelas}`
-                  : `OS ${osDetail.codigo} — Parcela ${i + 1}/${parcelas}`,
-                valor: item.valor,
-                data_vencimento: vencimento,
-                nome_cliente: clienteNome,
-                cliente_gc_id: cliente_gc_id || osDetail.cliente_id || null,
-                os_codigo: osDetail.codigo,
-                origem: "manual",
-                status: "pendente",
-                grupo_id: grupo.id,
-              })
-              .select("id")
-              .single();
-
-            if (recebErr) {
-              console.error(`[negotiate-os] Error creating recebimento for OS ${osDetail.codigo}:`, recebErr.message);
-              continue;
-            }
-
-            // Insert grupo item with recebimento_id
-            await supabase.from("fin_grupo_receber_itens").insert({
-              grupo_id: grupo.id,
-              recebimento_id: receb.id,
-              gc_os_id: osDetail.id,
-              os_codigo_original: osDetail.codigo,
-              valor: item.valor,
-              snapshot_valor: osDetail.valor_total,
-              snapshot_data: vencimento,
-            });
-          }
         }
       }
 
