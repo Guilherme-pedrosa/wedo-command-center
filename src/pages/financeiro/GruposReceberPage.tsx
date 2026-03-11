@@ -271,6 +271,13 @@ export default function GruposReceberPage() {
       }).eq("id", selectedGrupo.id);
       if (error) throw error;
 
+      // Preencher nfe_numero em cada recebimento vinculado ao grupo
+      if (nfData.numero) {
+        await supabase.from("fin_recebimentos")
+          .update({ nfe_numero: nfData.numero })
+          .eq("grupo_id", selectedGrupo.id);
+      }
+
       toast.success("NF vinculada e validada com sucesso");
       setShowNfse(false);
       setSelectedGrupo({ ...selectedGrupo, nfse_numero: nfData.numero, nfse_link: filePath, nfse_emitida_em: nfData.data_emissao || new Date().toISOString(), nfse_status: "validada" });
