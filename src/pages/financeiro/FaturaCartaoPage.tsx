@@ -596,7 +596,11 @@ export default function FaturaCartaoPage() {
         let pagamentos: any[] = [];
 
         if (editForm.data_vencimento) {
-          const { data, error: qErr } = await baseQuery.eq("data_vencimento", editForm.data_vencimento);
+          const vencDate = editForm.data_vencimento;
+          const mesInicio = vencDate.substring(0, 7) + "-01";
+          const { data, error: qErr } = await baseQuery
+            .gte("data_vencimento", mesInicio)
+            .lte("data_vencimento", vencDate);
           if (qErr) throw qErr;
           pagamentos = data ?? [];
         }
