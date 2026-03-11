@@ -259,12 +259,10 @@ export default function FaturaCartaoPage() {
     }
     setSaving(true);
     try {
-      let totalFaturas = 0;
-      let totalTransacoes = 0;
-      let totalValor = 0;
+      // 1. Buscar pagamentos de TODAS as formas de pagamento selecionadas
+      let allPagamentos: any[] = [];
 
       for (const fpId of novaFatura.forma_pagamento_ids) {
-        // 1. Buscar pagamentos pela forma de pagamento
         const baseQuery = supabase
           .from("fin_pagamentos")
           .select("id,descricao,valor,data_vencimento,data_competencia,nome_fornecedor,status")
@@ -300,55 +298,53 @@ export default function FaturaCartaoPage() {
           pagamentos = data ?? [];
         }
 
-        const valorTotal = (pagamentos ?? []).reduce((s, p) => s + Math.abs(p.valor), 0);
+        allPagamentos = [...allPagamentos, ...pagamentos];
+      }
 
-        // 2. Criar a fatura
-        const { data: faturaData, error: fatErr } = await supabase
-          .from("fin_fatura_cartao")
-          .insert([{
-            cartao_id: novaFatura.cartao_id,
-            forma_pagamento_id: fpId,
-            mes_referencia: novaFatura.mes_referencia,
-            data_fechamento_inicio: novaFatura.data_fechamento_inicio,
-            data_fechamento_fim: novaFatura.data_fechamento_fim,
-            data_vencimento: novaFatura.data_vencimento || null,
-            valor_total: valorTotal,
-          } as any])
-          .select("id")
-          .single();
+      const valorTotal = allPagamentos.reduce((s, p) => s + Math.abs(p.valor), 0);
 
-        if (fatErr) throw fatErr;
+      // 2. Criar UMA fatura (forma_pagamento_id = primeira selecionada, ou null se múltiplas)
+      const { data: faturaData, error: fatErr } = await supabase
+        .from("fin_fatura_cartao")
+        .insert([{
+          cartao_id: novaFatura.cartao_id,
+          forma_pagamento_id: novaFatura.forma_pagamento_ids.length === 1 ? novaFatura.forma_pagamento_ids[0] : null,
+          mes_referencia: novaFatura.mes_referencia,
+          data_fechamento_inicio: novaFatura.data_fechamento_inicio,
+          data_fechamento_fim: novaFatura.data_fechamento_fim,
+          data_vencimento: novaFatura.data_vencimento || null,
+          valor_total: valorTotal,
+        } as any])
+        .select("id")
+        .single();
 
-        // 3. Criar transações a partir dos pagamentos encontrados
-        if (pagamentos && pagamentos.length > 0) {
-          const transRows = pagamentos.map(p => ({
-            fatura_id: faturaData.id,
-            data_transacao: p.data_vencimento || novaFatura.data_fechamento_fim,
-            descricao: [p.descricao, p.nome_fornecedor].filter(Boolean).join(" — ").toUpperCase(),
-            valor: Math.abs(p.valor),
-            conciliado: true,
-            lancamento_id: p.id,
-            reconciliation_rule: "AUTO_FORMA_PAGAMENTO",
-            conciliado_em: new Date().toISOString(),
-          }));
+      if (fatErr) throw fatErr;
 
-          const { error: trErr } = await supabase
-            .from("fin_fatura_transacoes")
-            .insert(transRows as any);
-          if (trErr) throw trErr;
+      // 3. Criar transações a partir dos pagamentos encontrados
+      if (allPagamentos.length > 0) {
+        const transRows = allPagamentos.map(p => ({
+          fatura_id: faturaData.id,
+          data_transacao: p.data_vencimento || novaFatura.data_fechamento_fim,
+          descricao: [p.descricao, p.nome_fornecedor].filter(Boolean).join(" — ").toUpperCase(),
+          valor: Math.abs(p.valor),
+          conciliado: true,
+          lancamento_id: p.id,
+          reconciliation_rule: "AUTO_FORMA_PAGAMENTO",
+          conciliado_em: new Date().toISOString(),
+        }));
 
-          await supabase.from("fin_fatura_cartao")
-            .update({ valor_conciliado: valorTotal } as any)
-            .eq("id", faturaData.id);
-        }
+        const { error: trErr } = await supabase
+          .from("fin_fatura_transacoes")
+          .insert(transRows as any);
+        if (trErr) throw trErr;
 
-        totalFaturas++;
-        totalTransacoes += pagamentos?.length ?? 0;
-        totalValor += valorTotal;
+        await supabase.from("fin_fatura_cartao")
+          .update({ valor_conciliado: valorTotal } as any)
+          .eq("id", faturaData.id);
       }
 
       invalidateAll();
-      toast.success(`${totalFaturas} fatura(s) criada(s) com ${totalTransacoes} transações (${fmt(totalValor)})`);
+      toast.success(`Fatura criada com ${allPagamentos.length} transações (${fmt(valorTotal)})`);
       setShowFaturaDialog(false);
       setNovaFatura(prev => ({
         ...prev, forma_pagamento_ids: [], data_fechamento_inicio: "", data_fechamento_fim: "", data_vencimento: "",
