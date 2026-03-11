@@ -118,17 +118,29 @@ serve(async (req) => {
 
         const valor = parseFloat(String(os.valor_total || "0")) || 0;
         const equipamentos = Array.isArray(os.equipamentos) ? os.equipamentos : [];
+        const extractText = (value: unknown): string => {
+          if (typeof value === "string") return value.trim();
+          if (typeof value === "number") return String(value);
+          if (value && typeof value === "object") {
+            const obj = value as Record<string, unknown>;
+            return String(obj.nome || obj.descricao || obj.equipamento || obj.texto || "").trim();
+          }
+          return "";
+        };
+
         const nomeEquipamento = equipamentos
           .map((eq) => {
             const raw = (eq?.Equipamento && typeof eq.Equipamento === "object") ? eq.Equipamento : eq;
-            return String(raw?.nome || raw?.descricao || raw?.equipamento || "").trim();
+            return extractText(raw);
           })
-          .find((nome) => Boolean(nome));
+          .find(Boolean);
+
+        const descricaoOS = extractText(os.descricao) || extractText(os.observacoes);
 
         byClient[clienteId].os_list.push({
           id: String(os.id),
           codigo: String(os.codigo || ""),
-          descricao: nomeEquipamento || String(os.descricao || os.observacoes || ""),
+          descricao: nomeEquipamento || descricaoOS || "Sem descrição",
           valor_total: valor,
           nome_cliente: nomeCliente,
           data: String(os.data || ""),
