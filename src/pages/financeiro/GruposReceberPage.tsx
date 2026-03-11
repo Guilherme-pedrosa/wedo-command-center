@@ -53,6 +53,30 @@ export default function GruposReceberPage() {
     if (!selectedGrupo) return;
     setSaving(true);
     try {
+      // Remove items marked for removal
+      for (const itemId of editItensToRemove) {
+        const { data: item } = await supabase.from("fin_grupo_receber_itens").select("recebimento_id").eq("id", itemId).single();
+        if (item) {
+          await supabase.from("fin_recebimentos").update({ grupo_id: null }).eq("id", item.recebimento_id);
+        }
+        await supabase.from("fin_grupo_receber_itens").delete().eq("id", itemId);
+      }
+
+      // Add new items
+      for (const rec of editItensToAdd) {
+        await supabase.from("fin_grupo_receber_itens").insert({
+          grupo_id: selectedGrupo.id,
+          recebimento_id: rec.id,
+          valor: rec.valor,
+          os_codigo_original: rec.os_codigo || null,
+          gc_os_id: rec.gc_id || null,
+          snapshot_valor: rec.valor,
+          snapshot_data: rec.data_vencimento || null,
+        });
+        await supabase.from("fin_recebimentos").update({ grupo_id: selectedGrupo.id }).eq("id", rec.id);
+      }
+
+      // Update group metadata
       const { error } = await supabase.from("fin_grupos_receber").update({
         nome: editNome,
         data_vencimento: editVencimento || null,
@@ -60,6 +84,17 @@ export default function GruposReceberPage() {
         updated_at: new Date().toISOString(),
       }).eq("id", selectedGrupo.id);
       if (error) throw error;
+
+      // Recalculate totals
+      const { data: allItens } = await supabase
+        .from("fin_grupo_receber_itens")
+        .select("valor")
+        .eq("grupo_id", selectedGrupo.id);
+      const novoTotal = (allItens || []).reduce((s: number, i: any) => s + Number(i.valor || 0), 0);
+      await supabase.from("fin_grupos_receber").update({
+        valor_total: novoTotal,
+        itens_total: allItens?.length || 0,
+      }).eq("id", selectedGrupo.id);
 
       // Update vencimento on linked recebimentos
       if (editVencimento) {
@@ -75,10 +110,33 @@ export default function GruposReceberPage() {
 
       toast.success("Grupo atualizado");
       setShowEditDialog(false);
-      setSelectedGrupo({ ...selectedGrupo, nome: editNome, data_vencimento: editVencimento, observacao: editObs });
+      setSelectedGrupo(null);
       queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
+      queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens"] });
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
     finally { setSaving(false); }
+  };
+
+  const handleSearchRecebimentos = async (term: string) => {
+    setSearchReceb(term);
+    if (term.length < 2) { setSearchResults([]); return; }
+    setSearchingReceb(true);
+    try {
+      let q = supabase.from("fin_recebimentos")
+        .select("id, descricao, valor, os_codigo, gc_codigo, gc_id, data_vencimento, nome_cliente")
+        .is("grupo_id", null)
+        .order("data_vencimento", { ascending: false })
+        .limit(20);
+      
+      // Search by OS code, description, or gc_codigo
+      q = q.or(`os_codigo.ilike.%${term}%,descricao.ilike.%${term}%,gc_codigo.ilike.%${term}%`);
+      
+      const { data } = await q;
+      // Filter out already-added items
+      const addedIds = editItensToAdd.map(i => i.id);
+      setSearchResults((data || []).filter(r => !addedIds.includes(r.id)));
+    } catch { setSearchResults([]); }
+    finally { setSearchingReceb(false); }
   };
 
   const handleDeleteGroup = async () => {
