@@ -151,8 +151,8 @@ serve(async (req) => {
       const byClient: Record<string, { cliente_id: string; nome_cliente: string; os_list: any[]; valor_total: number }> = {};
 
       for (const os of allOS) {
-        const clienteId = String(os.cliente_id || "sem_cliente");
-        const nomeCliente = String(os.nome_cliente || "Sem cliente");
+      const clienteId = String(os.cliente_id || "sem_cliente");
+        const nomeCliente = String(os.nome_cliente || "Sem cliente").trim();
 
         if (!byClient[clienteId]) {
           byClient[clienteId] = {
@@ -161,6 +161,18 @@ serve(async (req) => {
             os_list: [],
             valor_total: 0,
           };
+        }
+
+        // Prefer non-generic client name (GC sometimes returns "Consumidor" for some OS in the same client)
+        const nomeAtual = byClient[clienteId].nome_cliente.toLowerCase();
+        if (
+          (nomeAtual === "consumidor" || nomeAtual === "consumidor final" || nomeAtual === "sem cliente") &&
+          nomeCliente.toLowerCase() !== "consumidor" &&
+          nomeCliente.toLowerCase() !== "consumidor final" &&
+          nomeCliente.toLowerCase() !== "sem cliente" &&
+          nomeCliente !== ""
+        ) {
+          byClient[clienteId].nome_cliente = nomeCliente;
         }
 
         const valor = parseFloat(String(os.valor_total || "0")) || 0;
