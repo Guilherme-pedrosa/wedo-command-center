@@ -85,6 +85,25 @@ export default function GruposReceberPage() {
     finally { setVerifying(false); }
   };
 
+  const handleSalvarNfse = async () => {
+    if (!selectedGrupo || !nfseForm.numero.trim()) return;
+    setSavingNfse(true);
+    try {
+      const { error } = await supabase.from("fin_grupos_receber").update({
+        nfse_numero: nfseForm.numero.trim(),
+        nfse_link: nfseForm.link.trim() || null,
+        nfse_emitida_em: new Date().toISOString(),
+        nfse_status: "emitida",
+      }).eq("id", selectedGrupo.id);
+      if (error) throw error;
+      toast.success("NFS-e vinculada ao grupo");
+      setShowNfse(false);
+      setSelectedGrupo({ ...selectedGrupo, nfse_numero: nfseForm.numero.trim(), nfse_link: nfseForm.link.trim() || null, nfse_emitida_em: new Date().toISOString(), nfse_status: "emitida" });
+      queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao salvar NFS-e"); }
+    finally { setSavingNfse(false); }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
