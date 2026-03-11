@@ -272,13 +272,13 @@ export default function GruposReceberPage() {
                       <FileText className="h-4 w-4" /> NFS-e
                     </h4>
                     {!selectedGrupo.nfse_numero && (
-                      <Button variant="outline" size="sm" onClick={() => { setNfseForm({ numero: "", link: "", valor: "", cliente: "" }); setNfseErrors([]); setShowNfse(true); }}>
-                        Vincular NFS-e
+                      <Button variant="outline" size="sm" onClick={() => { setXmlFile(null); setNfData(null); setNfValidacao(null); setShowNfse(true); }}>
+                        <Upload className="h-3 w-3 mr-1.5" /> Vincular NF
                       </Button>
                     )}
                     {selectedGrupo.nfse_numero && (
-                      <Button variant="ghost" size="sm" onClick={() => { setNfseForm({ numero: selectedGrupo.nfse_numero || "", link: selectedGrupo.nfse_link || "", valor: String(selectedGrupo.valor_total || ""), cliente: selectedGrupo.nome_cliente || "" }); setNfseErrors([]); setShowNfse(true); }}>
-                        Editar
+                      <Button variant="ghost" size="sm" onClick={() => { setXmlFile(null); setNfData(null); setNfValidacao(null); setShowNfse(true); }}>
+                        Reenviar XML
                       </Button>
                     )}
                   </div>
