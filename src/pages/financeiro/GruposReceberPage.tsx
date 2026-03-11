@@ -113,21 +113,26 @@ export default function GruposReceberPage() {
           <h1 className="text-2xl font-bold text-foreground">Grupos a Receber</h1>
           <p className="text-sm text-muted-foreground">Grupos de recebimentos para cobrança</p>
         </div>
-        <SearchableSelect
-          value={statusFilter}
-          onValueChange={v => setStatusFilter(v || "todos")}
-          options={[
-            { value: "todos", label: "Todos" },
-            { value: "aberto", label: "Aberto" },
-            { value: "aguardando_pagamento", label: "Aguardando" },
-            { value: "pago", label: "Pago" },
-            { value: "pago_parcial", label: "Parcial" },
-            { value: "cancelado", label: "Cancelado" },
-          ]}
-          placeholder="Filtrar status"
-          searchPlaceholder="Buscar status..."
-          className="w-[180px] h-9"
-        />
+        <div className="flex items-center gap-3">
+          <SearchableSelect
+            value={statusFilter}
+            onValueChange={v => setStatusFilter(v || "todos")}
+            options={[
+              { value: "todos", label: "Todos" },
+              { value: "aberto", label: "Aberto" },
+              { value: "aguardando_pagamento", label: "Aguardando" },
+              { value: "pago", label: "Pago" },
+              { value: "pago_parcial", label: "Parcial" },
+              { value: "cancelado", label: "Cancelado" },
+            ]}
+            placeholder="Filtrar status"
+            searchPlaceholder="Buscar status..."
+            className="w-[180px] h-9"
+          />
+          <Button size="sm" onClick={() => navigate("/financeiro/recebimentos")}>
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> Criar Grupo
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-lg border border-border bg-card overflow-hidden">
