@@ -23,6 +23,52 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
   return fetch(url, options);
 }
 
+function extractText(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number") return String(value);
+  if (!value || typeof value !== "object") return "";
+
+  const obj = value as Record<string, unknown>;
+  const preferred = [
+    obj.nome,
+    obj.descricao,
+    obj.equipamento,
+    obj.texto,
+    obj.Equipamento,
+    obj.equipamento_nome,
+    obj.modelo,
+    obj.identificacao,
+  ];
+
+  for (const candidate of preferred) {
+    const text = extractText(candidate);
+    if (text && text !== "[object Object]") return text;
+  }
+
+  for (const nested of Object.values(obj)) {
+    const text = extractText(nested);
+    if (text && text !== "[object Object]") return text;
+  }
+
+  return "";
+}
+
+function extractEquipamentoNome(equipamentos: unknown): string {
+  if (!Array.isArray(equipamentos)) return "";
+
+  return equipamentos
+    .map((eq) => {
+      const wrapper = eq && typeof eq === "object" ? (eq as Record<string, unknown>) : null;
+      const raw = wrapper && wrapper.Equipamento && typeof wrapper.Equipamento === "object"
+        ? wrapper.Equipamento
+        : wrapper && wrapper.equipamento && typeof wrapper.equipamento === "object"
+          ? wrapper.equipamento
+          : eq;
+      return extractText(raw);
+    })
+    .find(Boolean) || "";
+}
+
 interface NegotiateRequest {
   action: "list" | "execute";
   os_ids?: string[];
@@ -118,43 +164,7 @@ serve(async (req) => {
 
         const valor = parseFloat(String(os.valor_total || "0")) || 0;
         const equipamentos = Array.isArray(os.equipamentos) ? os.equipamentos : [];
-        const extractText = (value: unknown): string => {
-          if (typeof value === "string") return value.trim();
-          if (typeof value === "number") return String(value);
-          if (!value || typeof value !== "object") return "";
-
-          const obj = value as Record<string, unknown>;
-          const preferred = [
-            obj.nome,
-            obj.descricao,
-            obj.equipamento,
-            obj.texto,
-            obj.Equipamento,
-            obj.equipamento_nome,
-            obj.modelo,
-            obj.identificacao,
-          ];
-
-          for (const candidate of preferred) {
-            const text = extractText(candidate);
-            if (text && text !== "[object Object]") return text;
-          }
-
-          for (const nested of Object.values(obj)) {
-            const text = extractText(nested);
-            if (text && text !== "[object Object]") return text;
-          }
-
-          return "";
-        };
-
-        const nomeEquipamento = equipamentos
-          .map((eq) => {
-            const raw = (eq?.Equipamento && typeof eq.Equipamento === "object") ? eq.Equipamento : eq;
-            return extractText(raw);
-          })
-          .find(Boolean);
-
+        const nomeEquipamento = extractEquipamentoNome(equipamentos);
         const descricaoOS = extractText(os.descricao) || extractText(os.observacoes);
 
         byClient[clienteId].os_list.push({
@@ -247,22 +257,15 @@ serve(async (req) => {
           }
 
           // Extract equipment name from OS data
-          let nomeEquipamento = "";
-          const equipamentos = os.equipamentos;
-          if (Array.isArray(equipamentos) && equipamentos.length > 0) {
-            const eq = equipamentos[0];
-            nomeEquipamento = String(eq?.nome || eq?.descricao || eq?.equipamento || "");
-          }
-          if (!nomeEquipamento) {
-            nomeEquipamento = String(os.descricao || os.equipamento || "");
-          }
+          const nomeEquipamento = extractEquipamentoNome(os.equipamentos) || extractText(os.descricao) || extractText(os.observacoes);
+          const dataBaseOS = String(os.data || os.data_saida || os.data_entrada || new Date().toISOString().slice(0, 10));
 
           osDetails.push({
             id: osId,
             codigo: String(os.codigo || ""),
             tipo: String(os.tipo || "servico"),
             cliente_id: String(os.cliente_id || ""),
-            data: String(os.data || new Date().toISOString().slice(0, 10)),
+            data: dataBaseOS,
             valor_total: valorTotal,
             nome_cliente: String(os.nome_cliente || nome_cliente || ""),
             nome_equipamento: nomeEquipamento,
@@ -309,9 +312,10 @@ serve(async (req) => {
           ];
 
           for (const key of passthroughKeys) {
-            if (os.raw[key] !== undefined && os.raw[key] !== null) {
-              updatePayload[key] = os.raw[key];
-            }
+            const rawValue = os.raw[key];
+            if (rawValue === undefined || rawValue === null) continue;
+            if (key === "forma_pagamento_id" && String(rawValue).trim() === "") continue;
+            updatePayload[key] = rawValue;
           }
 
           // Override payment terms with negotiated values (GC-compliant)
@@ -335,11 +339,14 @@ serve(async (req) => {
           const valorUltimaOS = Math.round((valorOS - valorParcelaOS * (parcelas - 1)) * 100) / 100;
 
           const pagamentosRaw = Array.isArray(os.raw.pagamentos) ? os.raw.pagamentos : [];
-          const primeiroPagamento = (pagamentosRaw[0] && typeof pagamentosRaw[0] === "object")
-            ? ((pagamentosRaw[0] as Record<string, unknown>).pagamento && typeof (pagamentosRaw[0] as Record<string, unknown>).pagamento === "object"
-              ? (pagamentosRaw[0] as Record<string, unknown>).pagamento as Record<string, unknown>
-              : pagamentosRaw[0] as Record<string, unknown>)
+          const primeiroPagamentoWrapper = (pagamentosRaw[0] && typeof pagamentosRaw[0] === "object")
+            ? pagamentosRaw[0] as Record<string, unknown>
             : {};
+          const primeiroPagamento = (
+            (primeiroPagamentoWrapper.pagamento && typeof primeiroPagamentoWrapper.pagamento === "object" && primeiroPagamentoWrapper.pagamento) ||
+            (primeiroPagamentoWrapper.Pagamento && typeof primeiroPagamentoWrapper.Pagamento === "object" && primeiroPagamentoWrapper.Pagamento) ||
+            primeiroPagamentoWrapper
+          ) as Record<string, unknown>;
 
           const formaPagamentoId = String(
             primeiroPagamento.forma_pagamento_id || updatePayload["forma_pagamento_id"] || ""
@@ -348,6 +355,10 @@ serve(async (req) => {
           const planoContasId = String(primeiroPagamento.plano_contas_id || primeiroPagamento.categoria_id || "");
           const nomePlanoConta = String(primeiroPagamento.nome_plano_conta || primeiroPagamento.nome_categoria || "");
 
+          if (formaPagamentoId) {
+            updatePayload["forma_pagamento_id"] = formaPagamentoId;
+          }
+
           updatePayload["pagamentos"] = dueDates.map((dt, idx) => {
             const pagamento: Record<string, unknown> = {
               data_vencimento: dt,
@@ -355,8 +366,14 @@ serve(async (req) => {
             };
             if (formaPagamentoId) pagamento.forma_pagamento_id = formaPagamentoId;
             if (nomeFormaPagamento) pagamento.nome_forma_pagamento = nomeFormaPagamento;
-            if (planoContasId) pagamento.plano_contas_id = planoContasId;
-            if (nomePlanoConta) pagamento.nome_plano_conta = nomePlanoConta;
+            if (planoContasId) {
+              pagamento.plano_contas_id = planoContasId;
+              pagamento.categoria_id = planoContasId;
+            }
+            if (nomePlanoConta) {
+              pagamento.nome_plano_conta = nomePlanoConta;
+              pagamento.nome_categoria = nomePlanoConta;
+            }
             return { pagamento };
           });
           const existingObs = String(updatePayload["observacoes"] || "");
