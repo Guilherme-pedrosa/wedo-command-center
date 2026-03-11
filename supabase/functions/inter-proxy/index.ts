@@ -14,8 +14,7 @@ const INTER_PORT = 443;
 // ─── Cache ─────────────────────────────────────────────────────
 let cachedCert: string | null = null;
 let cachedKey: string | null = null;
-let cachedToken = "";
-let tokenExpiry = 0;
+const tokenCache: Record<string, { token: string; expiry: number }> = {};
 
 // ─── PEM builder ──────────────────────────────────────────────
 function buildPEM(raw: string, type: "CERTIFICATE" | "PRIVATE KEY"): string {
