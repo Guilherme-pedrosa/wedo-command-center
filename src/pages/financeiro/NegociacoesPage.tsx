@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Loader2, Search, HandshakeIcon, ArrowLeft, Eye, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, Search, HandshakeIcon, ArrowLeft, Eye, RefreshCw, ChevronDown, ChevronRight, Trash2, Pencil } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import toast from "react-hot-toast";
 
 interface GrupoReceber {
@@ -47,6 +48,8 @@ export default function NegociacoesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedNeg, setExpandedNeg] = useState<Set<number>>(new Set());
   const [selectedNeg, setSelectedNeg] = useState<Negociacao | null>(null);
+  const [deleteNeg, setDeleteNeg] = useState<Negociacao | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchGrupos = async () => {
     setLoading(true);
@@ -153,6 +156,26 @@ export default function NegociacoesPage() {
 
   const handleReprocess = async (neg: Negociacao) => {
     toast("Reprocessamento será implementado em breve", { icon: "🔄" });
+  };
+
+  const handleDelete = async (neg: Negociacao) => {
+    setDeleting(true);
+    try {
+      const ids = neg.parcelas.map((p) => p.id);
+      const { error } = await supabase
+        .from("fin_grupos_receber")
+        .delete()
+        .in("id", ids);
+      if (error) throw error;
+      toast.success(`Negociação #${neg.numero} apagada (${ids.length} grupos)`);
+      setDeleteNeg(null);
+      setSelectedNeg(null);
+      fetchGrupos();
+    } catch (err) {
+      toast.error(`Erro ao apagar: ${(err as Error).message}`);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -293,16 +316,43 @@ export default function NegociacoesPage() {
                       {neg.created_at ? new Date(neg.created_at).toLocaleDateString("pt-BR") : "—"}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedNeg(neg);
-                        }}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedNeg(neg);
+                          }}
+                          title="Ver detalhes"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/financeiro/negociacao-os`);
+                          }}
+                          title="Editar / Nova negociação"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteNeg(neg);
+                          }}
+                          title="Apagar negociação"
+                          disabled={neg.status === "pago"}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
 
@@ -425,18 +475,46 @@ export default function NegociacoesPage() {
               )}
 
               <DialogFooter>
+                <Button
+                  variant="destructive"
+                  onClick={() => setDeleteNeg(selectedNeg)}
+                  disabled={selectedNeg.status === "pago"}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Apagar
+                </Button>
                 <Button variant="outline" onClick={() => setSelectedNeg(null)}>
                   Fechar
-                </Button>
-                <Button variant="outline" onClick={() => handleReprocess(selectedNeg)}>
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Reprocessar
                 </Button>
               </DialogFooter>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!deleteNeg} onOpenChange={() => setDeleteNeg(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apagar Negociação #{deleteNeg?.numero}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isso vai remover {deleteNeg?.total_parcelas} grupo(s) de recebimento vinculados a esta negociação.
+              Esta ação não pode ser desfeita. Os financeiros no GestãoClick NÃO serão alterados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteNeg && handleDelete(deleteNeg)}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Apagar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
