@@ -249,8 +249,8 @@ export default function FaturaCartaoPage() {
   };
 
   const handleCriarFatura = async () => {
-    if (!novaFatura.cartao_id || !novaFatura.forma_pagamento_id) {
-      toast.error("Selecione o cartão e a forma de pagamento.");
+    if (!novaFatura.cartao_id || novaFatura.forma_pagamento_ids.length === 0) {
+      toast.error("Selecione o cartão e pelo menos uma forma de pagamento.");
       return;
     }
     if (!novaFatura.data_fechamento_inicio || !novaFatura.data_fechamento_fim) {
@@ -259,94 +259,99 @@ export default function FaturaCartaoPage() {
     }
     setSaving(true);
     try {
-      // 1. Buscar pagamentos pela forma de pagamento
-      // Estratégia com fallback:
-      //   A) data_vencimento exata da fatura
-      //   B) mês de referência (data_vencimento no mês)
-      //   C) data_competencia no período de fechamento
-      const baseQuery = supabase
-        .from("fin_pagamentos")
-        .select("id,descricao,valor,data_vencimento,data_competencia,nome_fornecedor,status")
-        .eq("forma_pagamento_id", novaFatura.forma_pagamento_id)
-        .neq("status", "cancelado")
-        .order("data_vencimento");
+      let totalFaturas = 0;
+      let totalTransacoes = 0;
+      let totalValor = 0;
 
-      let pagamentos: any[] = [];
+      for (const fpId of novaFatura.forma_pagamento_ids) {
+        // 1. Buscar pagamentos pela forma de pagamento
+        const baseQuery = supabase
+          .from("fin_pagamentos")
+          .select("id,descricao,valor,data_vencimento,data_competencia,nome_fornecedor,status")
+          .eq("forma_pagamento_id", fpId)
+          .neq("status", "cancelado")
+          .order("data_vencimento");
 
-      if (novaFatura.data_vencimento) {
-        const { data, error } = await baseQuery.eq("data_vencimento", novaFatura.data_vencimento);
-        if (error) throw error;
-        pagamentos = data ?? [];
-      }
+        let pagamentos: any[] = [];
 
-      if (pagamentos.length === 0 && novaFatura.mes_referencia) {
-        const [ano, mes] = novaFatura.mes_referencia.split("-").map(Number);
-        const mesInicio = `${novaFatura.mes_referencia}-01`;
-        const mesFim = format(new Date(ano, mes, 0), "yyyy-MM-dd");
+        if (novaFatura.data_vencimento) {
+          const { data, error } = await baseQuery.eq("data_vencimento", novaFatura.data_vencimento);
+          if (error) throw error;
+          pagamentos = data ?? [];
+        }
 
-        const { data, error } = await baseQuery
-          .gte("data_vencimento", mesInicio)
-          .lte("data_vencimento", mesFim);
-        if (error) throw error;
-        pagamentos = data ?? [];
-      }
+        if (pagamentos.length === 0 && novaFatura.mes_referencia) {
+          const [ano, mes] = novaFatura.mes_referencia.split("-").map(Number);
+          const mesInicio = `${novaFatura.mes_referencia}-01`;
+          const mesFim = format(new Date(ano, mes, 0), "yyyy-MM-dd");
 
-      if (pagamentos.length === 0) {
-        const { data, error } = await baseQuery
-          .gte("data_competencia", novaFatura.data_fechamento_inicio)
-          .lte("data_competencia", novaFatura.data_fechamento_fim);
-        if (error) throw error;
-        pagamentos = data ?? [];
-      }
+          const { data, error } = await baseQuery
+            .gte("data_vencimento", mesInicio)
+            .lte("data_vencimento", mesFim);
+          if (error) throw error;
+          pagamentos = data ?? [];
+        }
 
-      const valorTotal = (pagamentos ?? []).reduce((s, p) => s + Math.abs(p.valor), 0);
+        if (pagamentos.length === 0) {
+          const { data, error } = await baseQuery
+            .gte("data_competencia", novaFatura.data_fechamento_inicio)
+            .lte("data_competencia", novaFatura.data_fechamento_fim);
+          if (error) throw error;
+          pagamentos = data ?? [];
+        }
 
-      // 2. Criar a fatura
-      const { data: faturaData, error: fatErr } = await supabase
-        .from("fin_fatura_cartao")
-        .insert([{
-          cartao_id: novaFatura.cartao_id,
-          forma_pagamento_id: novaFatura.forma_pagamento_id,
-          mes_referencia: novaFatura.mes_referencia,
-          data_fechamento_inicio: novaFatura.data_fechamento_inicio,
-          data_fechamento_fim: novaFatura.data_fechamento_fim,
-          data_vencimento: novaFatura.data_vencimento || null,
-          valor_total: valorTotal,
-        } as any])
-        .select("id")
-        .single();
+        const valorTotal = (pagamentos ?? []).reduce((s, p) => s + Math.abs(p.valor), 0);
 
-      if (fatErr) throw fatErr;
+        // 2. Criar a fatura
+        const { data: faturaData, error: fatErr } = await supabase
+          .from("fin_fatura_cartao")
+          .insert([{
+            cartao_id: novaFatura.cartao_id,
+            forma_pagamento_id: fpId,
+            mes_referencia: novaFatura.mes_referencia,
+            data_fechamento_inicio: novaFatura.data_fechamento_inicio,
+            data_fechamento_fim: novaFatura.data_fechamento_fim,
+            data_vencimento: novaFatura.data_vencimento || null,
+            valor_total: valorTotal,
+          } as any])
+          .select("id")
+          .single();
 
-      // 3. Criar transações a partir dos pagamentos encontrados
-      if (pagamentos && pagamentos.length > 0) {
-        const transRows = pagamentos.map(p => ({
-          fatura_id: faturaData.id,
-          data_transacao: p.data_vencimento || novaFatura.data_fechamento_fim,
-          descricao: [p.descricao, p.nome_fornecedor].filter(Boolean).join(" — ").toUpperCase(),
-          valor: Math.abs(p.valor),
-          conciliado: true,
-          lancamento_id: p.id,
-          reconciliation_rule: "AUTO_FORMA_PAGAMENTO",
-          conciliado_em: new Date().toISOString(),
-        }));
+        if (fatErr) throw fatErr;
 
-        const { error: trErr } = await supabase
-          .from("fin_fatura_transacoes")
-          .insert(transRows as any);
-        if (trErr) throw trErr;
+        // 3. Criar transações a partir dos pagamentos encontrados
+        if (pagamentos && pagamentos.length > 0) {
+          const transRows = pagamentos.map(p => ({
+            fatura_id: faturaData.id,
+            data_transacao: p.data_vencimento || novaFatura.data_fechamento_fim,
+            descricao: [p.descricao, p.nome_fornecedor].filter(Boolean).join(" — ").toUpperCase(),
+            valor: Math.abs(p.valor),
+            conciliado: true,
+            lancamento_id: p.id,
+            reconciliation_rule: "AUTO_FORMA_PAGAMENTO",
+            conciliado_em: new Date().toISOString(),
+          }));
 
-        // Atualizar valor_conciliado
-        await supabase.from("fin_fatura_cartao")
-          .update({ valor_conciliado: valorTotal } as any)
-          .eq("id", faturaData.id);
+          const { error: trErr } = await supabase
+            .from("fin_fatura_transacoes")
+            .insert(transRows as any);
+          if (trErr) throw trErr;
+
+          await supabase.from("fin_fatura_cartao")
+            .update({ valor_conciliado: valorTotal } as any)
+            .eq("id", faturaData.id);
+        }
+
+        totalFaturas++;
+        totalTransacoes += pagamentos?.length ?? 0;
+        totalValor += valorTotal;
       }
 
       invalidateAll();
-      toast.success(`Fatura criada com ${pagamentos?.length ?? 0} transações (${fmt(valorTotal)})`);
+      toast.success(`${totalFaturas} fatura(s) criada(s) com ${totalTransacoes} transações (${fmt(totalValor)})`);
       setShowFaturaDialog(false);
       setNovaFatura(prev => ({
-        ...prev, data_fechamento_inicio: "", data_fechamento_fim: "", data_vencimento: "",
+        ...prev, forma_pagamento_ids: [], data_fechamento_inicio: "", data_fechamento_fim: "", data_vencimento: "",
       }));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao criar fatura.");
