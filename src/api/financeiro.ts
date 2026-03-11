@@ -1471,7 +1471,8 @@ export async function gerarCobrancaPix(grupoId: string): Promise<{
     infoAdicionais: [{ nome: "GrupoId", valor: grupoId }],
   };
 
-  const resp = await interRequest<any>(`/pix/v2/cob/${txid}`, "PUT", payload);
+  const endpoint = g.data_vencimento ? `/pix/v2/cobv/${txid}` : `/pix/v2/cob/${txid}`;
+  const resp = await interRequest<any>(endpoint, "PUT", payload);
 
   await supabase
     .from("fin_grupos_receber" as any)
