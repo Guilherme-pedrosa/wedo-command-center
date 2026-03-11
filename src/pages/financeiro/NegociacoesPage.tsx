@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Loader2, Search, HandshakeIcon, ArrowLeft, Eye, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, Search, HandshakeIcon, ArrowLeft, Eye, RefreshCw, ChevronDown, ChevronRight, Trash2, Pencil } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import toast from "react-hot-toast";
 
 interface GrupoReceber {
