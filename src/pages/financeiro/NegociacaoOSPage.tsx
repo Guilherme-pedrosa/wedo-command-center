@@ -89,6 +89,15 @@ export default function NegociacaoOSPage() {
     setSelectedOSIds(new Set(client.os_list.map((os) => os.id)));
   };
 
+  const handleBack = () => {
+    if (selectedClient) {
+      setSelectedClient(null);
+      setSelectedOSIds(new Set());
+      return;
+    }
+    navigate(-1);
+  };
+
   const toggleOS = (osId: string) => {
     setSelectedOSIds((prev) => {
       const next = new Set(prev);
@@ -176,7 +185,7 @@ export default function NegociacaoOSPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+          <Button variant="ghost" size="icon" onClick={handleBack}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
@@ -245,7 +254,7 @@ export default function NegociacaoOSPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <Button variant="ghost" size="sm" onClick={() => { setSelectedClient(null); setSelectedOSIds(new Set()); }}>
+              <Button variant="ghost" size="sm" onClick={handleBack}>
                 ← Voltar
               </Button>
               <span className="ml-2 font-semibold text-foreground">{selectedClient.nome_cliente}</span>
