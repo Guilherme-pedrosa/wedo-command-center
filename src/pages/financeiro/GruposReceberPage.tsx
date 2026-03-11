@@ -531,6 +531,12 @@ export default function GruposReceberPage() {
                           </button>
                         </div>
                       )}
+                      <div className="col-span-2">
+                        <Button variant="outline" size="sm" onClick={handleSyncNfseGC} disabled={syncingGC} className="w-full">
+                          {syncingGC ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1.5" />}
+                          Sincronizar NFS-e no GC
+                        </Button>
+                      </div>
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">Nenhuma NFS-e vinculada a este grupo.</p>
