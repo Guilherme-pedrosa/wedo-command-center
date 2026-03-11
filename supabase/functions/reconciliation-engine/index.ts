@@ -127,12 +127,14 @@ function aplicarRegras(
     }
   }
 
-  // Regra 1: CNPJ/CPF match + valor exato + data ±30d → auto-baixa imediata
+  // Regra 1: CNPJ/CPF match + valor exato + data guard → auto-baixa imediata
+  // Clientes com prazo estendido (Sapore, Sodexo): ±90 dias; demais: ±30 dias
   if (extDoc && extDate) {
+    const janelaBase = isClientePrazoEstendido(extDoc) ? 90 : 30;
     const matches = candidatos.filter(c => {
       const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
       return docMatches(extDoc, c.doc) && valorExato(extValor, Number(c.fin.valor))
-        && finDate && dataProxima(extDate, finDate, 30);
+        && finDate && dataProxima(extDate, finDate, janelaBase);
     });
     if (matches.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: matches[0], auto: true };
     if (matches.length > 1) {
