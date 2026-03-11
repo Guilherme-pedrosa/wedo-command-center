@@ -292,6 +292,25 @@ export default function GruposReceberPage() {
                     <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setSelectedGrupo(g)}>
                       <Eye className="h-3 w-3" />
                     </Button>
+                    {canEditGroup(g) && (
+                      <>
+                        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
+                          setSelectedGrupo(g);
+                          setEditNome(g.nome);
+                          setEditVencimento(g.data_vencimento || "");
+                          setEditObs(g.observacao || "");
+                          setShowEditDialog(true);
+                        }}>
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => {
+                          setSelectedGrupo(g);
+                          setShowDeleteConfirm(true);
+                        }}>
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </>
+                    )}
                     {(g.status === "aberto" || g.status === "aguardando_pagamento") && !g.inter_txid && (
                       <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => handleGerarPix(g.id)} disabled={generatingPix === g.id}>
                         {generatingPix === g.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <QrCode className="h-3 w-3" />}
