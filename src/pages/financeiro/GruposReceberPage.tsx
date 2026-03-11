@@ -14,7 +14,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix, resyncRecebimentoFromGC, gcDelay } from "@/api/financeiro";
-import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink, FileText, Link2, Plus, Upload, AlertTriangle, ShieldCheck, RefreshCw, Pencil, Trash2, CalendarIcon } from "lucide-react";
+import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink, FileText, Link2, Plus, Upload, AlertTriangle, ShieldCheck, RefreshCw, Pencil, Trash2, CalendarIcon, Search, X, Minus } from "lucide-react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 
@@ -41,6 +41,11 @@ export default function GruposReceberPage() {
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [editItensToRemove, setEditItensToRemove] = useState<string[]>([]);
+  const [editItensToAdd, setEditItensToAdd] = useState<any[]>([]);
+  const [searchReceb, setSearchReceb] = useState("");
+  const [searchingReceb, setSearchingReceb] = useState(false);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
 
   const canEditGroup = (g: any) => !g.nfse_numero && !g.gc_baixado && g.status !== "pago";
 
@@ -48,6 +53,30 @@ export default function GruposReceberPage() {
     if (!selectedGrupo) return;
     setSaving(true);
     try {
+      // Remove items marked for removal
+      for (const itemId of editItensToRemove) {
+        const { data: item } = await supabase.from("fin_grupo_receber_itens").select("recebimento_id").eq("id", itemId).single();
+        if (item) {
+          await supabase.from("fin_recebimentos").update({ grupo_id: null }).eq("id", item.recebimento_id);
+        }
+        await supabase.from("fin_grupo_receber_itens").delete().eq("id", itemId);
+      }
+
+      // Add new items
+      for (const rec of editItensToAdd) {
+        await supabase.from("fin_grupo_receber_itens").insert({
+          grupo_id: selectedGrupo.id,
+          recebimento_id: rec.id,
+          valor: rec.valor,
+          os_codigo_original: rec.os_codigo || null,
+          gc_os_id: rec.gc_id || null,
+          snapshot_valor: rec.valor,
+          snapshot_data: rec.data_vencimento || null,
+        });
+        await supabase.from("fin_recebimentos").update({ grupo_id: selectedGrupo.id }).eq("id", rec.id);
+      }
+
+      // Update group metadata
       const { error } = await supabase.from("fin_grupos_receber").update({
         nome: editNome,
         data_vencimento: editVencimento || null,
@@ -55,6 +84,17 @@ export default function GruposReceberPage() {
         updated_at: new Date().toISOString(),
       }).eq("id", selectedGrupo.id);
       if (error) throw error;
+
+      // Recalculate totals
+      const { data: allItens } = await supabase
+        .from("fin_grupo_receber_itens")
+        .select("valor")
+        .eq("grupo_id", selectedGrupo.id);
+      const novoTotal = (allItens || []).reduce((s: number, i: any) => s + Number(i.valor || 0), 0);
+      await supabase.from("fin_grupos_receber").update({
+        valor_total: novoTotal,
+        itens_total: allItens?.length || 0,
+      }).eq("id", selectedGrupo.id);
 
       // Update vencimento on linked recebimentos
       if (editVencimento) {
@@ -70,10 +110,33 @@ export default function GruposReceberPage() {
 
       toast.success("Grupo atualizado");
       setShowEditDialog(false);
-      setSelectedGrupo({ ...selectedGrupo, nome: editNome, data_vencimento: editVencimento, observacao: editObs });
+      setSelectedGrupo(null);
       queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
+      queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens"] });
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
     finally { setSaving(false); }
+  };
+
+  const handleSearchRecebimentos = async (term: string) => {
+    setSearchReceb(term);
+    if (term.length < 2) { setSearchResults([]); return; }
+    setSearchingReceb(true);
+    try {
+      let q = supabase.from("fin_recebimentos")
+        .select("id, descricao, valor, os_codigo, gc_codigo, gc_id, data_vencimento, nome_cliente")
+        .is("grupo_id", null)
+        .order("data_vencimento", { ascending: false })
+        .limit(20);
+      
+      // Search by OS code, description, or gc_codigo
+      q = q.or(`os_codigo.ilike.%${term}%,descricao.ilike.%${term}%,gc_codigo.ilike.%${term}%`);
+      
+      const { data } = await q;
+      // Filter out already-added items
+      const addedIds = editItensToAdd.map(i => i.id);
+      setSearchResults((data || []).filter(r => !addedIds.includes(r.id)));
+    } catch { setSearchResults([]); }
+    finally { setSearchingReceb(false); }
   };
 
   const handleDeleteGroup = async () => {
@@ -294,13 +357,17 @@ export default function GruposReceberPage() {
                     </Button>
                     {canEditGroup(g) && (
                       <>
-                        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
-                          setSelectedGrupo(g);
-                          setEditNome(g.nome);
-                          setEditVencimento(g.data_vencimento || "");
-                          setEditObs(g.observacao || "");
-                          setShowEditDialog(true);
-                        }}>
+                     <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
+                        setSelectedGrupo(g);
+                        setEditNome(g.nome);
+                        setEditVencimento(g.data_vencimento || "");
+                        setEditObs(g.observacao || "");
+                        setEditItensToRemove([]);
+                        setEditItensToAdd([]);
+                        setSearchReceb("");
+                        setSearchResults([]);
+                        setShowEditDialog(true);
+                      }}>
                           <Pencil className="h-3 w-3" />
                         </Button>
                         <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => {
@@ -334,10 +401,14 @@ export default function GruposReceberPage() {
                   <SheetTitle>{selectedGrupo.nome}</SheetTitle>
                   {canEditGroup(selectedGrupo) && (
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
+                     <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
                         setEditNome(selectedGrupo.nome);
                         setEditVencimento(selectedGrupo.data_vencimento || "");
                         setEditObs(selectedGrupo.observacao || "");
+                        setEditItensToRemove([]);
+                        setEditItensToAdd([]);
+                        setSearchReceb("");
+                        setSearchResults([]);
                         setShowEditDialog(true);
                       }}>
                         <Pencil className="h-3 w-3" />
@@ -719,22 +790,113 @@ export default function GruposReceberPage() {
 
       {/* Edit Group Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="sm:max-w-[420px]">
+        <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Editar Grupo</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Nome do Grupo</Label>
-              <Input value={editNome} onChange={e => setEditNome(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Data de Vencimento</Label>
-              <Input type="date" value={editVencimento} onChange={e => setEditVencimento(e.target.value)} />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Nome do Grupo</Label>
+                <Input value={editNome} onChange={e => setEditNome(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Data de Vencimento</Label>
+                <Input type="date" value={editVencimento} onChange={e => setEditVencimento(e.target.value)} />
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Observação</Label>
               <Input value={editObs} onChange={e => setEditObs(e.target.value)} placeholder="Opcional" />
+            </div>
+
+            {/* Current items */}
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">Itens do Grupo</Label>
+              <div className="rounded-md border border-border overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="p-2 text-left">OS</th>
+                      <th className="p-2 text-left">Descrição</th>
+                      <th className="p-2 text-right">Valor</th>
+                      <th className="p-2 w-8"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {grupoItens?.filter((i: any) => !editItensToRemove.includes(i.id)).map((i: any) => {
+                      const rec = i.fin_recebimentos;
+                      return (
+                        <tr key={i.id} className="border-t border-border">
+                          <td className="p-2 font-mono">{i.os_codigo_original || rec?.os_codigo || "—"}</td>
+                          <td className="p-2 truncate max-w-[200px]">{rec?.descricao || "—"}</td>
+                          <td className="p-2 text-right font-medium">{formatCurrency(Number(i.valor || rec?.valor))}</td>
+                          <td className="p-2">
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive" onClick={() => setEditItensToRemove(prev => [...prev, i.id])}>
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {editItensToAdd.map((rec: any) => (
+                      <tr key={rec.id} className="border-t border-border bg-emerald-500/5">
+                        <td className="p-2 font-mono">{rec.os_codigo || "—"}</td>
+                        <td className="p-2 truncate max-w-[200px]">{rec.descricao || "—"}</td>
+                        <td className="p-2 text-right font-medium">{formatCurrency(Number(rec.valor))}</td>
+                        <td className="p-2">
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive" onClick={() => setEditItensToAdd(prev => prev.filter(r => r.id !== rec.id))}>
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                    {(!grupoItens?.length && !editItensToAdd.length) && (
+                      <tr><td colSpan={4} className="p-3 text-center text-muted-foreground">Nenhum item</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {editItensToRemove.length > 0 && (
+                <p className="text-xs text-destructive">{editItensToRemove.length} item(ns) será(ão) removido(s)</p>
+              )}
+            </div>
+
+            {/* Add new items */}
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">Adicionar Recebimentos</Label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por OS, código GC ou descrição..."
+                  value={searchReceb}
+                  onChange={e => handleSearchRecebimentos(e.target.value)}
+                  className="pl-8 h-9 text-xs"
+                />
+                {searchingReceb && <Loader2 className="absolute right-2.5 top-2.5 h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+              </div>
+              {searchResults.length > 0 && (
+                <div className="rounded-md border border-border max-h-[200px] overflow-y-auto">
+                  {searchResults.map((rec: any) => (
+                    <div key={rec.id} className="flex items-center justify-between px-3 py-2 hover:bg-muted/50 border-b border-border last:border-0 text-xs">
+                      <div className="flex-1 min-w-0">
+                        <span className="font-mono mr-2">{rec.os_codigo || rec.gc_codigo || "—"}</span>
+                        <span className="text-muted-foreground truncate">{rec.descricao}</span>
+                        {rec.nome_cliente && <span className="text-muted-foreground ml-2">• {rec.nome_cliente}</span>}
+                      </div>
+                      <div className="flex items-center gap-2 ml-2 shrink-0">
+                        <span className="font-medium">{formatCurrency(Number(rec.valor))}</span>
+                        <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={() => {
+                          setEditItensToAdd(prev => [...prev, rec]);
+                          setSearchResults(prev => prev.filter(r => r.id !== rec.id));
+                        }}>
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
