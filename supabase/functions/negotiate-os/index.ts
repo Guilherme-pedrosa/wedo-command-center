@@ -117,10 +117,18 @@ serve(async (req) => {
         }
 
         const valor = parseFloat(String(os.valor_total || "0")) || 0;
+        const equipamentos = Array.isArray(os.equipamentos) ? os.equipamentos : [];
+        const nomeEquipamento = equipamentos
+          .map((eq) => {
+            const raw = (eq?.Equipamento && typeof eq.Equipamento === "object") ? eq.Equipamento : eq;
+            return String(raw?.nome || raw?.descricao || raw?.equipamento || "").trim();
+          })
+          .find((nome) => Boolean(nome));
+
         byClient[clienteId].os_list.push({
           id: String(os.id),
           codigo: String(os.codigo || ""),
-          descricao: String(os.descricao || os.observacoes || ""),
+          descricao: nomeEquipamento || String(os.descricao || os.observacoes || ""),
           valor_total: valor,
           nome_cliente: nomeCliente,
           data: String(os.data || ""),
