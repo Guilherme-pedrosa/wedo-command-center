@@ -372,7 +372,9 @@ serve(async (req) => {
             const { data: receb, error: recebErr } = await supabase
               .from("fin_recebimentos")
               .insert({
-                descricao: `OS ${osDetail.codigo} — Parcela ${i + 1}/${parcelas}`,
+                descricao: osDetail.nome_equipamento
+                  ? `OS ${osDetail.codigo} — ${osDetail.nome_equipamento} — Parcela ${i + 1}/${parcelas}`
+                  : `OS ${osDetail.codigo} — Parcela ${i + 1}/${parcelas}`,
                 valor: item.valor,
                 data_vencimento: vencimento,
                 nome_cliente: clienteNome,
