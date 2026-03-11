@@ -8,11 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix } from "@/api/financeiro";
-import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink } from "lucide-react";
+import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink, FileText, Link2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function GruposReceberPage() {
@@ -23,6 +25,9 @@ export default function GruposReceberPage() {
   const [baixaGrupoId, setBaixaGrupoId] = useState<string>("");
   const [generatingPix, setGeneratingPix] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [showNfse, setShowNfse] = useState(false);
+  const [nfseForm, setNfseForm] = useState({ numero: "", link: "" });
+  const [savingNfse, setSavingNfse] = useState(false);
 
   const { data: grupos, isLoading } = useQuery({
     queryKey: ["fin-grupos-receber", statusFilter],
@@ -80,6 +85,25 @@ export default function GruposReceberPage() {
     finally { setVerifying(false); }
   };
 
+  const handleSalvarNfse = async () => {
+    if (!selectedGrupo || !nfseForm.numero.trim()) return;
+    setSavingNfse(true);
+    try {
+      const { error } = await supabase.from("fin_grupos_receber").update({
+        nfse_numero: nfseForm.numero.trim(),
+        nfse_link: nfseForm.link.trim() || null,
+        nfse_emitida_em: new Date().toISOString(),
+        nfse_status: "emitida",
+      }).eq("id", selectedGrupo.id);
+      if (error) throw error;
+      toast.success("NFS-e vinculada ao grupo");
+      setShowNfse(false);
+      setSelectedGrupo({ ...selectedGrupo, nfse_numero: nfseForm.numero.trim(), nfse_link: nfseForm.link.trim() || null, nfse_emitida_em: new Date().toISOString(), nfse_status: "emitida" });
+      queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao salvar NFS-e"); }
+    finally { setSavingNfse(false); }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -112,6 +136,7 @@ export default function GruposReceberPage() {
               <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Cliente</th>
               <th className="p-3 text-right text-xs font-medium text-muted-foreground uppercase">Valor</th>
               <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Vencimento</th>
+              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">NFS-e</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Itens</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Status</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Baixa GC</th>
@@ -120,15 +145,28 @@ export default function GruposReceberPage() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={8} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
+              <tr><td colSpan={9} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
             ) : !grupos?.length ? (
-              <tr><td colSpan={8}><EmptyState icon={Layers} title="Nenhum grupo" description="Crie grupos na tela de recebimentos." /></td></tr>
+              <tr><td colSpan={9}><EmptyState icon={Layers} title="Nenhum grupo" description="Crie grupos na tela de recebimentos." /></td></tr>
             ) : grupos.map((g: any) => (
               <tr key={g.id} className="border-b border-border hover:bg-muted/30">
                 <td className="p-3 font-medium text-foreground">{g.nome}</td>
                 <td className="p-3 text-foreground">{g.nome_cliente || "—"}</td>
                 <td className="p-3 text-right font-semibold">{formatCurrency(Number(g.valor_total))}</td>
                 <td className="p-3">{g.data_vencimento ? formatDate(g.data_vencimento) : "—"}</td>
+                <td className="p-3 text-center text-xs">
+                  {g.nfse_numero ? (
+                    g.nfse_link ? (
+                      <a href={g.nfse_link} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1 justify-center">
+                        <FileText className="h-3 w-3" />{g.nfse_numero}
+                      </a>
+                    ) : (
+                      <span className="flex items-center gap-1 justify-center text-foreground"><FileText className="h-3 w-3" />{g.nfse_numero}</span>
+                    )
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
                 <td className="p-3 text-center text-xs">{g.itens_baixados ?? 0}/{g.itens_total ?? 0}</td>
                 <td className="p-3 text-center">{statusBadge(g.status)}</td>
                 <td className="p-3 text-center">
@@ -184,6 +222,46 @@ export default function GruposReceberPage() {
                     <span className="text-muted-foreground">Vencimento</span>
                     <p>{selectedGrupo.data_vencimento ? formatDate(selectedGrupo.data_vencimento) : "—"}</p>
                   </div>
+                </div>
+
+                {/* NFS-e section */}
+                <div className="rounded-lg border border-border p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold flex items-center gap-2">
+                      <FileText className="h-4 w-4" /> NFS-e
+                    </h4>
+                    {!selectedGrupo.nfse_numero && (
+                      <Button variant="outline" size="sm" onClick={() => { setNfseForm({ numero: "", link: "" }); setShowNfse(true); }}>
+                        Vincular NFS-e
+                      </Button>
+                    )}
+                    {selectedGrupo.nfse_numero && (
+                      <Button variant="ghost" size="sm" onClick={() => { setNfseForm({ numero: selectedGrupo.nfse_numero || "", link: selectedGrupo.nfse_link || "" }); setShowNfse(true); }}>
+                        Editar
+                      </Button>
+                    )}
+                  </div>
+                  {selectedGrupo.nfse_numero ? (
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Número</span>
+                        <p className="font-semibold">{selectedGrupo.nfse_numero}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Emitida em</span>
+                        <p>{selectedGrupo.nfse_emitida_em ? formatDateTime(selectedGrupo.nfse_emitida_em) : "—"}</p>
+                      </div>
+                      {selectedGrupo.nfse_link && (
+                        <div className="col-span-2">
+                          <a href={selectedGrupo.nfse_link} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1 text-sm">
+                            <Link2 className="h-3 w-3" /> Acessar NFS-e
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Nenhuma NFS-e vinculada a este grupo.</p>
+                  )}
                 </div>
 
                 {/* PIX section */}
@@ -336,6 +414,31 @@ export default function GruposReceberPage() {
         })) || []}
         onConfirmar={async (dataLiq) => { await baixarGrupoReceberNoGC(baixaGrupoId || selectedGrupo?.id, dataLiq); }} 
       />
+
+      {/* NFS-e Dialog */}
+      <Dialog open={showNfse} onOpenChange={setShowNfse}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Vincular NFS-e ao Grupo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Número da NFS-e *</Label>
+              <Input value={nfseForm.numero} onChange={e => setNfseForm(f => ({ ...f, numero: e.target.value }))} placeholder="Ex: 12345" />
+            </div>
+            <div className="space-y-2">
+              <Label>Link de acesso à NFS-e</Label>
+              <Input value={nfseForm.link} onChange={e => setNfseForm(f => ({ ...f, link: e.target.value }))} placeholder="https://..." />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNfse(false)}>Cancelar</Button>
+            <Button onClick={handleSalvarNfse} disabled={savingNfse || !nfseForm.numero.trim()}>
+              {savingNfse ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

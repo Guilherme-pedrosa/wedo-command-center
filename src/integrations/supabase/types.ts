@@ -974,6 +974,10 @@ export type Database = {
           inter_txid: string | null
           itens_baixados: number | null
           itens_total: number | null
+          nfse_emitida_em: string | null
+          nfse_link: string | null
+          nfse_numero: string | null
+          nfse_status: string | null
           nome: string
           nome_cliente: string | null
           observacao: string | null
@@ -999,6 +1003,10 @@ export type Database = {
           inter_txid?: string | null
           itens_baixados?: number | null
           itens_total?: number | null
+          nfse_emitida_em?: string | null
+          nfse_link?: string | null
+          nfse_numero?: string | null
+          nfse_status?: string | null
           nome: string
           nome_cliente?: string | null
           observacao?: string | null
@@ -1024,6 +1032,10 @@ export type Database = {
           inter_txid?: string | null
           itens_baixados?: number | null
           itens_total?: number | null
+          nfse_emitida_em?: string | null
+          nfse_link?: string | null
+          nfse_numero?: string | null
+          nfse_status?: string | null
           nome?: string
           nome_cliente?: string | null
           observacao?: string | null
