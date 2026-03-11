@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-10-v9-cpu-limit-fix
+// redeploy: 2026-03-11-v10-desc-order
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -537,12 +537,14 @@ serve(async (req) => {
     if (extratoIds.length > 0) {
       extratosQuery = extratosQuery.in("id", extratoIds);
     } else {
-      if (dateFrom) extratosQuery = extratosQuery.gte("data_hora", dateFrom);
+      // Default: only process last 90 days to avoid wasting cycles on ancient records
+      const defaultFloor = dateFrom ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      extratosQuery = extratosQuery.gte("data_hora", defaultFloor);
       if (dateTo) extratosQuery = extratosQuery.lte("data_hora", dateTo);
     }
 
     const { data: extratos, error: errE } = await extratosQuery
-      .order("data_hora", { ascending: true })
+      .order("data_hora", { ascending: false })
       .limit(limit);
 
     if (errE) throw new Error(`fin_extrato_inter: ${errE.message}`);
