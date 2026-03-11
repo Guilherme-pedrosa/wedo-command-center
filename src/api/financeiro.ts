@@ -246,6 +246,29 @@ export async function baixarRecebimentoGC(
   return res;
 }
 
+// ─── Atualizar recebimento no GC (sem baixa) ─────────────────────────
+export async function atualizarRecebimentoGC(
+  gcId: string,
+  gcPayloadRaw: Record<string, unknown>,
+  campos: { data_vencimento?: string; descricao?: string; observacao?: string }
+): Promise<{ status: number; data: unknown; duration_ms: number }> {
+  const payload = { ...gcPayloadRaw, ...campos };
+  // Remove campos de liquidação para não baixar acidentalmente
+  delete (payload as any).liquidado;
+  delete (payload as any).data_liquidacao;
+
+  const res = await callGC({
+    endpoint: `/api/recebimentos/${gcId}`,
+    method: "PUT",
+    payload,
+  });
+
+  if (res.status >= 400) {
+    throw new Error(`Erro ao atualizar recebimento ${gcId}: HTTP ${res.status}`);
+  }
+  return res;
+}
+
 export const baixarRecebimentoNoGC = async (
   gcId: string,
   gcPayloadRaw: Record<string, unknown>,
