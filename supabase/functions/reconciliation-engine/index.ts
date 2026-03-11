@@ -792,17 +792,21 @@ serve(async (req) => {
           // Filter out already-linked IDs
           const poolDisponivel = poolJaPago.filter((fin: any) => !alreadyLinked.has(fin.id));
 
-          // Tentar por CNPJ + valor exato
+          // Tentar por CNPJ + valor exato + data ±60d
           const matchJaPago = poolDisponivel.find((fin: any) => {
             const gcId  = isDebitoExt ? fin.fornecedor_gc_id : fin.cliente_gc_id;
             const lkp   = isDebitoExt ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
             const finDoc = cleanDoc(fin.recipient_document) || lkp?.cpf_cnpj || "";
-            return docMatches(extDoc, finDoc) && valorExato(extValor, Number(fin.valor));
+            const finDate = fin.data_vencimento ?? fin.data_liquidacao ?? "";
+            return docMatches(extDoc, finDoc) && valorExato(extValor, Number(fin.valor))
+              && finDate && extDateRast && dataProxima(extDateRast, finDate, 60);
           })
-          // Fallback 2: nome similar + valor exato (para TEDs/boletos sem CNPJ)
-          ?? (extNomeRast ? poolDisponivel.find((fin: any) => {
+          // Fallback 2: nome similar + valor exato + data ±60d
+          ?? (extNomeRast && extDateRast ? poolDisponivel.find((fin: any) => {
             const finNome = isDebitoExt ? fin.nome_fornecedor : fin.nome_cliente;
-            return nomeSimilar(extNomeRast, finNome) && valorExato(extValor, Number(fin.valor));
+            const finDate = fin.data_vencimento ?? fin.data_liquidacao ?? "";
+            return nomeSimilar(extNomeRast, finNome) && valorExato(extValor, Number(fin.valor))
+              && finDate && dataProxima(extDateRast, finDate, 60);
           }) : null)
           // Fallback 3: valor exato único no pool (TEDs sem CNPJ e nome genérico)
           // Seguro para rastreabilidade: não altera o lançamento, apenas vincula
