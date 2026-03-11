@@ -189,7 +189,7 @@ export default function GruposReceberPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("fin_grupo_receber_itens")
-        .select("*, fin_recebimentos(gc_id, gc_codigo, descricao, valor, os_codigo, pago_sistema, gc_baixado)")
+        .select("*, fin_recebimentos(gc_id, gc_codigo, descricao, valor, os_codigo, pago_sistema, gc_baixado, gc_payload_raw, nfe_numero)")
         .eq("grupo_id", selectedGrupo.id);
       return data || [];
     },
