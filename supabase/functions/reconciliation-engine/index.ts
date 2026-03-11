@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-11-v12-tolerancia-manual
+// redeploy: 2026-03-11-v13-prazo-estendido-clientes
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -62,6 +62,20 @@ function nomeSimilarScore(a: string | null, b: string | null): number {
 
 function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): boolean {
   return nomeSimilarScore(a, b) >= threshold;
+}
+
+// CNPJs raiz de clientes com prazo de pagamento longo (60-90 dias)
+// Sapore S.A. e Sodexo — janela estendida de ±90 dias
+const CNPJ_PRAZO_ESTENDIDO = [
+  "67945071", // Sapore S.A.
+  "46788569", // Sodexo (CNPJ raiz principal)
+];
+
+function isClientePrazoEstendido(doc: string | null | undefined): boolean {
+  const clean = cleanDoc(doc);
+  if (clean.length < 8) return false;
+  const raiz = clean.substring(0, 8);
+  return CNPJ_PRAZO_ESTENDIDO.includes(raiz);
 }
 
 type MatchRule =
@@ -127,12 +141,14 @@ function aplicarRegras(
     }
   }
 
-  // Regra 1: CNPJ/CPF match + valor exato + data ±30d → auto-baixa imediata
+  // Regra 1: CNPJ/CPF match + valor exato + data guard → auto-baixa imediata
+  // Clientes com prazo estendido (Sapore, Sodexo): ±90 dias; demais: ±30 dias
   if (extDoc && extDate) {
+    const janelaBase = isClientePrazoEstendido(extDoc) ? 90 : 30;
     const matches = candidatos.filter(c => {
       const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
       return docMatches(extDoc, c.doc) && valorExato(extValor, Number(c.fin.valor))
-        && finDate && dataProxima(extDate, finDate, 30);
+        && finDate && dataProxima(extDate, finDate, janelaBase);
     });
     if (matches.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: matches[0], auto: true };
     if (matches.length > 1) {
