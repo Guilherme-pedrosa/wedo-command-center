@@ -224,6 +224,46 @@ export default function GruposReceberPage() {
                   </div>
                 </div>
 
+                {/* NFS-e section */}
+                <div className="rounded-lg border border-border p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold flex items-center gap-2">
+                      <FileText className="h-4 w-4" /> NFS-e
+                    </h4>
+                    {!selectedGrupo.nfse_numero && (
+                      <Button variant="outline" size="sm" onClick={() => { setNfseForm({ numero: "", link: "" }); setShowNfse(true); }}>
+                        Vincular NFS-e
+                      </Button>
+                    )}
+                    {selectedGrupo.nfse_numero && (
+                      <Button variant="ghost" size="sm" onClick={() => { setNfseForm({ numero: selectedGrupo.nfse_numero || "", link: selectedGrupo.nfse_link || "" }); setShowNfse(true); }}>
+                        Editar
+                      </Button>
+                    )}
+                  </div>
+                  {selectedGrupo.nfse_numero ? (
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Número</span>
+                        <p className="font-semibold">{selectedGrupo.nfse_numero}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Emitida em</span>
+                        <p>{selectedGrupo.nfse_emitida_em ? formatDateTime(selectedGrupo.nfse_emitida_em) : "—"}</p>
+                      </div>
+                      {selectedGrupo.nfse_link && (
+                        <div className="col-span-2">
+                          <a href={selectedGrupo.nfse_link} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1 text-sm">
+                            <Link2 className="h-3 w-3" /> Acessar NFS-e
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Nenhuma NFS-e vinculada a este grupo.</p>
+                  )}
+                </div>
+
                 {/* PIX section */}
                 {selectedGrupo.inter_txid && (
                   <div className="rounded-lg border border-border p-4 space-y-3">
