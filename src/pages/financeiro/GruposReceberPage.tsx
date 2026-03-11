@@ -41,6 +41,11 @@ export default function GruposReceberPage() {
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [editItensToRemove, setEditItensToRemove] = useState<string[]>([]);
+  const [editItensToAdd, setEditItensToAdd] = useState<any[]>([]);
+  const [searchReceb, setSearchReceb] = useState("");
+  const [searchingReceb, setSearchingReceb] = useState(false);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
 
   const canEditGroup = (g: any) => !g.nfse_numero && !g.gc_baixado && g.status !== "pago";
 
