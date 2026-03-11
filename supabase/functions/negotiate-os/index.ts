@@ -155,6 +155,11 @@ serve(async (req) => {
         );
       }
 
+      // Get sequential negotiation number
+      const { data: negNumData, error: negNumErr } = await supabase.rpc("next_negociacao_number");
+      const negociacao_numero = negNumErr ? Date.now() : (negNumData as number);
+      console.log(`[negotiate-os] Negociação nº${negociacao_numero}`);
+
       // Generate due dates
       const [startYear, startMonth] = mes_inicio.split("-").map(Number);
       const dueDates: string[] = [];
