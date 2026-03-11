@@ -234,7 +234,15 @@ export default function ConciliacaoPage() {
     setAutoRunning(true);
     setAutoResult(null);
     try {
-      const { data, error } = await supabase.functions.invoke("reconciliation-engine", { body: {} });
+      const extratoIds = (extratoNR || []).slice(0, 200).map((item: any) => item.id);
+      const { data, error } = await supabase.functions.invoke("reconciliation-engine", {
+        body: {
+          extratoIds,
+          dateFrom: dateFrom.toISOString(),
+          dateTo: dateTo.toISOString(),
+          limit: 200,
+        },
+      });
       if (error) throw new Error(error.message);
       if (!data?.success) throw new Error(data?.error ?? "Erro desconhecido");
       setAutoResult(data);
