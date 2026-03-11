@@ -212,9 +212,14 @@ export default function RecebimentosPage() {
 
   const handleCreateGroup = async () => {
     if (!groupName.trim()) return;
+    const items = selectedItems;
+    const clientes = new Set(items.map((r: any) => r.nome_cliente || ""));
+    if (clientes.size > 1) {
+      toast.error("Não é possível criar grupo com clientes diferentes.");
+      return;
+    }
     setCreating(true);
     try {
-      const items = selectedItems;
       const total = items.reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
       const { data: grupo, error: gErr } = await supabase.from("fin_grupos_receber").insert({
         nome: groupName,
@@ -540,6 +545,12 @@ export default function RecebimentosPage() {
             <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Limpar</Button>
             {selectedItems.every((r: any) => !r.grupo_id) && (
               <Button size="sm" onClick={() => {
+                // Validate same client
+                const clientes = new Set(selectedItems.map((r: any) => r.nome_cliente || ""));
+                if (clientes.size > 1) {
+                  toast.error("Não é possível criar grupo com clientes diferentes. Selecione itens do mesmo cliente.");
+                  return;
+                }
                 setGroupName(`${(selectedItems[0] as any)?.nome_cliente || "Grupo"} — ${format(new Date(), "dd/MM/yyyy")}`);
                 setShowCreateGroup(true);
               }}>
