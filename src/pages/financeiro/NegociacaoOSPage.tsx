@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, HandshakeIcon, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Loader2, Search, HandshakeIcon, AlertCircle, CheckCircle2, ArrowLeft } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import toast from "react-hot-toast";
@@ -36,6 +37,7 @@ interface NegotiateResult {
 }
 
 export default function NegociacaoOSPage() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [clients, setClients] = useState<ClientGroup[]>([]);
@@ -173,14 +175,19 @@ export default function NegociacaoOSPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <HandshakeIcon className="h-6 w-6" />
-            Negociação de OS
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            OS em "Executado - Ag Negociação" agrupadas por cliente
-          </p>
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <HandshakeIcon className="h-6 w-6" />
+              Negociação de OS
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              OS em "Executado - Ag Negociação" agrupadas por cliente
+            </p>
+          </div>
         </div>
         <Button onClick={fetchOS} disabled={loading} variant="outline" size="sm">
           {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
