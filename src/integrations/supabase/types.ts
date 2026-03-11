@@ -974,6 +974,7 @@ export type Database = {
           inter_txid: string | null
           itens_baixados: number | null
           itens_total: number | null
+          negociacao_numero: number | null
           nfse_emitida_em: string | null
           nfse_link: string | null
           nfse_numero: string | null
@@ -1003,6 +1004,7 @@ export type Database = {
           inter_txid?: string | null
           itens_baixados?: number | null
           itens_total?: number | null
+          negociacao_numero?: number | null
           nfse_emitida_em?: string | null
           nfse_link?: string | null
           nfse_numero?: string | null
@@ -1032,6 +1034,7 @@ export type Database = {
           inter_txid?: string | null
           itens_baixados?: number | null
           itens_total?: number | null
+          negociacao_numero?: number | null
           nfse_emitida_em?: string | null
           nfse_link?: string | null
           nfse_numero?: string | null
