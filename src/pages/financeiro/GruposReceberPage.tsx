@@ -21,6 +21,18 @@ import { useNavigate } from "react-router-dom";
 export default function GruposReceberPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  const handleDownloadXml = async (filePath: string) => {
+    try {
+      const { data, error } = await supabase.storage.from("nf-xmls").createSignedUrl(filePath, 300);
+      if (error || !data?.signedUrl) throw new Error("Erro ao gerar link");
+      window.open(data.signedUrl, "_blank");
+    } catch (err) {
+      toast.error("Erro ao abrir XML");
+    }
+  };
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("todos");
   const [selectedGrupo, setSelectedGrupo] = useState<any>(null);
   const [showBaixa, setShowBaixa] = useState(false);
