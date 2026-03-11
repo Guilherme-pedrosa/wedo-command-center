@@ -127,20 +127,20 @@ function aplicarRegras(
     }
   }
 
-  // Regra 1: CNPJ/CPF match + valor exato → auto-baixa imediata
-  if (extDoc) {
-    const matches = candidatos.filter(c =>
-      docMatches(extDoc, c.doc) && valorExato(extValor, Number(c.fin.valor))
-    );
+  // Regra 1: CNPJ/CPF match + valor exato + data ±30d → auto-baixa imediata
+  if (extDoc && extDate) {
+    const matches = candidatos.filter(c => {
+      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      return docMatches(extDoc, c.doc) && valorExato(extValor, Number(c.fin.valor))
+        && finDate && dataProxima(extDate, finDate, 30);
+    });
     if (matches.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: matches[0], auto: true };
     if (matches.length > 1) {
-      // Desempate por data mais próxima
       const byDate = matches.filter(c => {
         const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
         return finDate && dataProxima(extDate, finDate, 5);
       });
       if (byDate.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: byDate[0], auto: true };
-      // Desempate por nome similar
       if (extNome) {
         const byNome = matches.filter(c => nomeSimilar(extNome, c.nome));
         if (byNome.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: byNome[0], auto: true };
@@ -148,9 +148,11 @@ function aplicarRegras(
     }
   }
 
-  // Regra 2: Chave PIX exata + valor exato → auto-baixa
-  if (extPix) {
+  // Regra 2: Chave PIX exata + valor exato + data ±30d → auto-baixa
+  if (extPix && extDate) {
     const matches = candidatos.filter(c => {
+      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      if (!finDate || !dataProxima(extDate, finDate, 30)) return false;
       if (c.chavePix && c.chavePix.toLowerCase() === extPix)
         return valorExato(extValor, Number(c.fin.valor));
       const pixClean = extPix.replace(/\D/g, "");
@@ -161,19 +163,23 @@ function aplicarRegras(
     if (matches.length === 1) return { rule: "PIX_CHAVE_VALOR", candidato: matches[0], auto: true };
   }
 
-  // Regra 3: CNPJ/CPF match + valor com tolerância ±2%
-  if (extDoc) {
-    const matches = candidatos.filter(c =>
-      docMatches(extDoc, c.doc) && valorTolerancia(extValor, Number(c.fin.valor), 2)
-    );
+  // Regra 3: CNPJ/CPF match + valor com tolerância ±2% + data ±15d
+  if (extDoc && extDate) {
+    const matches = candidatos.filter(c => {
+      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      return docMatches(extDoc, c.doc) && valorTolerancia(extValor, Number(c.fin.valor), 2)
+        && finDate && dataProxima(extDate, finDate, 15);
+    });
     if (matches.length === 1) return { rule: "CNPJ_VALOR_TOLERANCIA", candidato: matches[0], auto: true };
   }
 
-  // Regra 4: Nome similar + valor exato → auto-baixa
-  if (extNome) {
-    const matches = candidatos.filter(c =>
-      nomeSimilar(extNome, c.nome) && valorExato(extValor, Number(c.fin.valor))
-    );
+  // Regra 4: Nome similar + valor exato + data ±30d → auto-baixa
+  if (extNome && extDate) {
+    const matches = candidatos.filter(c => {
+      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      return nomeSimilar(extNome, c.nome) && valorExato(extValor, Number(c.fin.valor))
+        && finDate && dataProxima(extDate, finDate, 30);
+    });
     if (matches.length === 1) return { rule: "NOME_VALOR_EXATO", candidato: matches[0], auto: true };
   }
 
