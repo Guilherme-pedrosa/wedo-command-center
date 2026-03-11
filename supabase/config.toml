@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.sync-auvo-expenses]
 verify_jwt = false
+
+[functions.negotiate-os]
+verify_jwt = false
