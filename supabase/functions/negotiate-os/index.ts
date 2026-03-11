@@ -445,8 +445,83 @@ serve(async (req) => {
           const stepCData = await stepCResp.json();
 
           if (stepCResp.ok || stepCData?.code === 200) {
-            gcUpdateResults.push({ os_id: os.id, status: "ok" });
             console.log(`[negotiate-os] STEP C OK: OS ${os.id} → Ag Pagamento ✓`);
+
+            // ── STEP D: Find generated recebimentos and update descriptions with neg number ──
+            await new Promise((r) => setTimeout(r, 1000)); // wait for GC to generate financials
+            console.log(`[negotiate-os] STEP D: OS ${os.id} → buscando recebimentos gerados`);
+
+            try {
+              // Search recebimentos by client, recent, open
+              const searchParams = new URLSearchParams({
+                limite: "50",
+                cliente_id: os.cliente_id,
+                liquidado: "ab", // em aberto
+              });
+              const recResp = await rateLimitedFetch(
+                `${GC_BASE_URL}/api/recebimentos?${searchParams.toString()}`,
+                { headers: gcHeaders }
+              );
+
+              if (recResp.ok) {
+                const recData = await recResp.json();
+                const recList = Array.isArray(recData?.data) ? recData.data : [];
+
+                // Filter recebimentos that match this OS codigo in description
+                const osPattern = `n${"\u00BA"} ${os.codigo}`; // "nº XXXX"
+                const osPattern2 = `n° ${os.codigo}`;
+                const osPattern3 = `no ${os.codigo}`;
+                const matching = recList.filter((r: any) => {
+                  const desc = String(r.descricao || "").toLowerCase();
+                  return (
+                    desc.includes(osPattern.toLowerCase()) ||
+                    desc.includes(osPattern2.toLowerCase()) ||
+                    desc.includes(osPattern3.toLowerCase()) ||
+                    desc.includes(`os ${os.codigo}`.toLowerCase())
+                  );
+                });
+
+                console.log(`[negotiate-os] STEP D: Encontrados ${matching.length} recebimentos para OS ${os.codigo}`);
+
+                for (const rec of matching) {
+                  const recId = String(rec.id);
+                  const currentDesc = String(rec.descricao || "");
+
+                  // Skip if already tagged
+                  if (currentDesc.includes(`Neg. nº${negociacao_numero}`) || currentDesc.includes(`[Neg ${negociacao_numero}]`)) {
+                    continue;
+                  }
+
+                  const newDesc = `[Neg ${negociacao_numero}] ${currentDesc}`;
+
+                  const putPayload: Record<string, unknown> = {
+                    descricao: newDesc,
+                    data_vencimento: rec.data_vencimento,
+                    plano_contas_id: rec.plano_contas_id,
+                    forma_pagamento_id: rec.forma_pagamento_id,
+                    conta_bancaria_id: rec.conta_bancaria_id,
+                    valor: rec.valor,
+                    data_competencia: rec.data_competencia,
+                  };
+
+                  const putRecResp = await rateLimitedFetch(
+                    `${GC_BASE_URL}/api/recebimentos/${recId}`,
+                    { method: "PUT", headers: gcHeaders, body: JSON.stringify(putPayload) }
+                  );
+                  const putRecData = await putRecResp.json();
+
+                  if (putRecResp.ok || putRecData?.code === 200) {
+                    console.log(`[negotiate-os] STEP D: Recebimento ${recId} atualizado → "${newDesc}"`);
+                  } else {
+                    console.warn(`[negotiate-os] STEP D: Erro ao atualizar recebimento ${recId}: ${putRecData?.message || putRecResp.status}`);
+                  }
+                }
+              }
+            } catch (stepDErr: any) {
+              console.warn(`[negotiate-os] STEP D error (non-fatal): ${stepDErr.message}`);
+            }
+
+            gcUpdateResults.push({ os_id: os.id, status: "ok" });
           } else {
             gcUpdateResults.push({
               os_id: os.id, status: "error",
