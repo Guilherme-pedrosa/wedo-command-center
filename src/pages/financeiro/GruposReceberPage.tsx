@@ -716,6 +716,55 @@ export default function GruposReceberPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Group Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Editar Grupo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nome do Grupo</Label>
+              <Input value={editNome} onChange={e => setEditNome(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Data de Vencimento</Label>
+              <Input type="date" value={editVencimento} onChange={e => setEditVencimento(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Observação</Label>
+              <Input value={editObs} onChange={e => setEditObs(e.target.value)} placeholder="Opcional" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancelar</Button>
+            <Button onClick={handleEditGroup} disabled={saving || !editNome.trim()}>
+              {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Excluir Grupo</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Tem certeza que deseja excluir o grupo <strong className="text-foreground">{selectedGrupo?.nome}</strong>? Os recebimentos serão desvinculados mas não excluídos.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleDeleteGroup} disabled={deleting}>
+              {deleting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
+              Excluir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
