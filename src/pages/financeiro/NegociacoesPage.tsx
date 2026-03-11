@@ -48,6 +48,8 @@ export default function NegociacoesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedNeg, setExpandedNeg] = useState<Set<number>>(new Set());
   const [selectedNeg, setSelectedNeg] = useState<Negociacao | null>(null);
+  const [deleteNeg, setDeleteNeg] = useState<Negociacao | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchGrupos = async () => {
     setLoading(true);
