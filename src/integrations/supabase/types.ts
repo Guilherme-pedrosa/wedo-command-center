@@ -2453,7 +2453,7 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      next_negociacao_number: { Args: never; Returns: number }
     }
     Enums: {
       fin_origem:
