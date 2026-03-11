@@ -192,20 +192,35 @@ export default function FaturaCartaoPage() {
 
   // Extrato para vincular como liquidante
   const { data: extratoItems = [], isLoading: loadingExtrato } = useQuery<ExtratoItem[]>({
-    queryKey: ["extrato_liquidante_search", extratoSearch],
+    queryKey: ["extrato_liquidante_search", extratoFaturaId, extratoSearch],
     queryFn: async () => {
+      const faturaAtual = faturas.find(f => f.id === extratoFaturaId);
+      const valorAlvo = faturaAtual ? Math.abs(faturaAtual.valor_total) : null;
+
       let q = supabase
         .from("fin_extrato_inter")
         .select("id,data_hora,descricao,valor,tipo,nome_contraparte,reconciliado")
-        .lt("valor", 0) // Débitos (pagamentos saindo)
+        .or("tipo.eq.DEBITO,valor.lt.0")
         .order("data_hora", { ascending: false })
-        .limit(50);
+        .limit(200);
+
       if (extratoSearch.trim()) {
         q = q.or(`descricao.ilike.%${extratoSearch}%,nome_contraparte.ilike.%${extratoSearch}%`);
       }
+
       const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []) as unknown as ExtratoItem[];
+
+      const items = ((data ?? []) as unknown as ExtratoItem[])
+        .filter(item => item.reconciliado !== true)
+        .sort((a, b) => {
+          if (valorAlvo == null) return 0;
+          const diffA = Math.abs(Math.abs(a.valor ?? 0) - valorAlvo);
+          const diffB = Math.abs(Math.abs(b.valor ?? 0) - valorAlvo);
+          return diffA - diffB;
+        });
+
+      return items;
     },
     enabled: showExtratoDialog,
   });
@@ -799,7 +814,7 @@ export default function FaturaCartaoPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Vincular Extrato Liquidante</DialogTitle></DialogHeader>
           <p className="text-xs text-muted-foreground">
-            Selecione a transação bancária (débito) que quitou esta fatura do cartão.
+            Selecione a transação bancária (débito) que quitou esta fatura do cartão. Itens com valor mais próximo da fatura aparecem primeiro.
           </p>
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
