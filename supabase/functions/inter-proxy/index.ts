@@ -322,7 +322,7 @@ serve(async (req) => {
 
     // ── Diagnóstico: test-auth ───────────────────────────────
     if (path === "/test-auth") {
-      const token = await getToken(cert, key);
+      const token = await getToken(cert, key, "extrato.read");
       return new Response(
         JSON.stringify({ ok: true, preview: token.slice(0, 20) + "...", method: "Deno.connectTls(cert,key)" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
