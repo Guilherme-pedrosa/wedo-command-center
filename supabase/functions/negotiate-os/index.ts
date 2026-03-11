@@ -180,6 +180,7 @@ serve(async (req) => {
         data: string;
         valor_total: number;
         nome_cliente: string;
+        nome_equipamento: string;
         raw: Record<string, unknown>;
       }[] = [];
       const gcUpdateResults: { os_id: string; status: string; error?: string }[] = [];
