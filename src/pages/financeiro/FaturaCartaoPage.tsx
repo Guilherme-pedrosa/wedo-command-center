@@ -824,6 +824,39 @@ export default function FaturaCartaoPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Editar Fatura */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Editar Fatura</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Mês de referência</label>
+              <Input type="month" value={editForm.mes_referencia} onChange={e => setEditForm(p => ({ ...p, mes_referencia: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Fechamento início</label>
+                <Input type="date" value={editForm.data_fechamento_inicio} onChange={e => setEditForm(p => ({ ...p, data_fechamento_inicio: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Fechamento fim</label>
+                <Input type="date" value={editForm.data_fechamento_fim} onChange={e => setEditForm(p => ({ ...p, data_fechamento_fim: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Data de vencimento</label>
+              <Input type="date" value={editForm.data_vencimento} onChange={e => setEditForm(p => ({ ...p, data_vencimento: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancelar</Button>
+            <Button onClick={handleSalvarEdicao} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
