@@ -648,7 +648,7 @@ serve(async (req) => {
                 ).length;
 
                 console.log(
-                  `[negotiate-os] STEP D tentativa ${attempt}/${maxAttempts}: ${allRecords.length} financeiros varridos, ${matching.length} candidatos, ${alreadyTagged} já com ${negTag} (OS ${os.codigo})`
+                  `[negotiate-os] STEP D tentativa ${attempt}/${maxAttempts}: ${allRecords.length} financeiros varridos, ${matching.length} candidatos, ${alreadyTagged} já com ${negTag} (OS ${os.codigo}, janela ${minDueDate}..${maxDueDate})`
                 );
 
                 if (matching.length >= parcelas) break;
