@@ -7,6 +7,7 @@ const corsHeaders = {
 };
 
 const GC_BASE_URL = "https://api.gestaoclick.com";
+const MIN_DELAY_MS = 350;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -14,6 +15,12 @@ serve(async (req) => {
   try {
     const gcAccessToken = Deno.env.get("GC_ACCESS_TOKEN");
     const gcSecretToken = Deno.env.get("GC_SECRET_TOKEN");
+
+    if (!gcAccessToken || !gcSecretToken) {
+      return new Response(JSON.stringify({ error: "GC credentials not configured" }), {
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const { recebimento_id, atributo_id, valor } = await req.json();
     if (!recebimento_id || !atributo_id || valor === undefined) {
@@ -23,78 +30,85 @@ serve(async (req) => {
     }
 
     const gcHeaders: Record<string, string> = {
-      "access-token": gcAccessToken!,
-      "secret-access-token": gcSecretToken!,
+      "access-token": gcAccessToken,
+      "secret-access-token": gcSecretToken,
       "Content-Type": "application/json",
     };
 
-    const results: Record<string, unknown> = {};
-
-    // ── Tentativa 1: PUT /api/recebimentos/{id}/atributos/{atributo_id}
-    const t1 = await fetch(
-      `${GC_BASE_URL}/api/recebimentos/${recebimento_id}/atributos/${atributo_id}`,
-      { method: "PUT", headers: gcHeaders, body: JSON.stringify({ valor: String(valor) }) }
-    );
-    results.t1_status = t1.status;
-    results.t1_body = await t1.text();
-
-    if (t1.status < 400) {
-      return new Response(JSON.stringify({ success: true, method: "PUT_sub_endpoint", ...results }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // ── Tentativa 2: POST /api/recebimentos/{id}/atributos
-    const t2 = await fetch(
-      `${GC_BASE_URL}/api/recebimentos/${recebimento_id}/atributos`,
-      { method: "POST", headers: gcHeaders, body: JSON.stringify({ atributo_id: Number(atributo_id), valor: String(valor) }) }
-    );
-    results.t2_status = t2.status;
-    results.t2_body = await t2.text();
-
-    if (t2.status < 400) {
-      return new Response(JSON.stringify({ success: true, method: "POST_sub_endpoint", ...results }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // ── Tentativa 3: PUT /api/recebimentos/{id} com atributos usando chave "id"
+    // 1. GET fresh payload from GC
+    console.log(`[gc-atributos] GET /api/recebimentos/${recebimento_id}`);
     const getResp = await fetch(`${GC_BASE_URL}/api/recebimentos/${recebimento_id}`, { headers: gcHeaders });
     const getRaw = await getResp.json();
     const payloadAtual = getRaw?.data ?? getRaw;
 
-    const payloadT3 = {
-      ...payloadAtual,
-      atributos: [{ id: Number(atributo_id), valor: String(valor) }],
-    };
-    delete payloadT3.liquidado;
-    delete payloadT3.data_liquidacao;
-
-    const t3 = await fetch(`${GC_BASE_URL}/api/recebimentos/${recebimento_id}`, {
-      method: "PUT", headers: gcHeaders, body: JSON.stringify(payloadT3),
-    });
-    results.t3_status = t3.status;
-    results.t3_body = await t3.text();
-
-    if (t3.status < 400) {
-      try {
-        const t3Json = JSON.parse(results.t3_body as string);
-        const atribSalvo = t3Json?.data?.atributos?.find(
-          (a: Record<string, unknown>) => a.id == atributo_id || a.atributo_id == atributo_id
-        );
-        if (atribSalvo?.valor === String(valor)) {
-          return new Response(JSON.stringify({ success: true, method: "PUT_id_key", ...results }), {
-            status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-      } catch { /* parse error, fall through */ }
+    if (!payloadAtual?.id) {
+      return new Response(JSON.stringify({ success: false, message: `Recebimento ${recebimento_id} não encontrado no GC`, getRaw }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    return new Response(JSON.stringify({ success: false, message: "Nenhum método funcionou", ...results }), {
+    // 2. Build PUT payload with atributo_id key (what GC expects)
+    const payload = {
+      ...payloadAtual,
+      atributos: [{ atributo_id: Number(atributo_id), valor: String(valor) }],
+    };
+
+    // Remove campos que causam conflito
+    delete payload.liquidado;
+    delete payload.data_liquidacao;
+
+    console.log(`[gc-atributos] PUT /api/recebimentos/${recebimento_id} atributos:`, JSON.stringify(payload.atributos));
+
+    await new Promise((r) => setTimeout(r, MIN_DELAY_MS));
+
+    const putResp = await fetch(`${GC_BASE_URL}/api/recebimentos/${recebimento_id}`, {
+      method: "PUT", headers: gcHeaders, body: JSON.stringify(payload),
+    });
+    const putStatus = putResp.status;
+    const putBody = await putResp.text();
+
+    console.log(`[gc-atributos] PUT status=${putStatus} body=${putBody.substring(0, 500)}`);
+
+    // Parse response — GC sometimes returns HTML errors before JSON
+    const jsonMatch = putBody.match(/\{"code":\d+.*\}$/s);
+    let parsedResponse: any = null;
+    if (jsonMatch) {
+      try { parsedResponse = JSON.parse(jsonMatch[0]); } catch { /* ignore */ }
+    } else {
+      try { parsedResponse = JSON.parse(putBody); } catch { /* ignore */ }
+    }
+
+    // Check if GC returned success
+    if (parsedResponse?.status === "success" || parsedResponse?.code === 200) {
+      // Verify attribute was actually saved
+      const savedAttrs = parsedResponse?.data?.atributos || [];
+      const found = savedAttrs.find((a: any) =>
+        (a.atributo_id == atributo_id || a.id == atributo_id) && a.valor === String(valor)
+      );
+
+      return new Response(JSON.stringify({
+        success: true,
+        verified: !!found,
+        put_status: putStatus,
+        gc_response: parsedResponse,
+      }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Error from GC
+    return new Response(JSON.stringify({
+      success: false,
+      message: parsedResponse?.data?.mensagem || "GC retornou erro ao gravar atributo",
+      put_status: putStatus,
+      gc_response: parsedResponse,
+      raw_body_preview: putBody.substring(0, 300),
+    }), {
       status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (err) {
+    console.error("[gc-atributos] Error:", (err as Error).message);
     return new Response(JSON.stringify({ error: (err as Error).message }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
