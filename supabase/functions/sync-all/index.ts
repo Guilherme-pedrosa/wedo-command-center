@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-11-v2-fin-tables
+// redeploy: 2026-03-11-v3-date-filters
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -134,6 +134,29 @@ serve(async (req) => {
   const results: Record<string, any> = {};
 
   try {
+    // Parse optional date range from request body
+    let bodyDataInicio: string | undefined;
+    let bodyDataFim: string | undefined;
+    try {
+      const body = await req.json();
+      bodyDataInicio = body?.data_inicio;
+      bodyDataFim = body?.data_fim;
+    } catch { /* no body or invalid JSON — use defaults */ }
+
+    // Default: last 6 months if no date range provided
+    if (!bodyDataInicio || !bodyDataFim) {
+      const now = new Date();
+      const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+      bodyDataInicio = sixMonthsAgo.toISOString().split("T")[0];
+      bodyDataFim = now.toISOString().split("T")[0];
+    }
+
+    const finDateParams: Record<string, string> = {
+      data_inicio: bodyDataInicio,
+      data_fim: bodyDataFim,
+    };
+    console.log(`[sync-all] Date range for financeiro: ${bodyDataInicio} → ${bodyDataFim}`);
+
     const gcAccessToken = Deno.env.get("GC_ACCESS_TOKEN");
     const gcSecretToken = Deno.env.get("GC_SECRET_TOKEN");
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -201,7 +224,7 @@ serve(async (req) => {
     console.log("[sync-all] Starting recebimentos sync...");
     const recStart = Date.now();
     try {
-      const { records: recRecords } = await fetchAllPages("/api/recebimentos", gcHeaders);
+      const { records: recRecords } = await fetchAllPages("/api/recebimentos", gcHeaders, finDateParams);
       let gcRecUpserted = 0;
       let finRecUpserted = 0;
       let recErrors = 0;
@@ -300,7 +323,7 @@ serve(async (req) => {
     console.log("[sync-all] Starting pagamentos sync...");
     const pagStart = Date.now();
     try {
-      const { records: pagRecords } = await fetchAllPages("/api/pagamentos", gcHeaders);
+      const { records: pagRecords } = await fetchAllPages("/api/pagamentos", gcHeaders, finDateParams);
       let gcPagUpserted = 0;
       let finPagUpserted = 0;
       let pagErrors = 0;
