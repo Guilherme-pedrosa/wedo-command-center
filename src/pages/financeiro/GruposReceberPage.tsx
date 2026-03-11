@@ -351,7 +351,44 @@ export default function GruposReceberPage() {
 
                 {/* Items */}
                 <div>
-                  <h4 className="text-sm font-semibold mb-2">Itens ({grupoItens?.length || 0})</h4>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-semibold">Itens ({grupoItens?.length || 0})</h4>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      disabled={resyncingGrupo || !grupoItens?.length}
+                      onClick={async () => {
+                        setResyncingGrupo(true);
+                        try {
+                          const itensComGcId = grupoItens?.filter((i: any) => i.fin_recebimentos?.gc_id) || [];
+                          if (!itensComGcId.length) { toast.error("Nenhum item com gc_id"); return; }
+                          let ok = 0, fail = 0;
+                          for (const item of itensComGcId) {
+                            const success = await resyncRecebimentoFromGC(item.fin_recebimentos.gc_id);
+                            if (success) ok++; else fail++;
+                            await gcDelay();
+                          }
+                          // Recalculate group total
+                          const { data: updatedItens } = await supabase
+                            .from("fin_grupo_receber_itens")
+                            .select("valor")
+                            .eq("grupo_id", selectedGrupo.id);
+                          const novoTotal = (updatedItens || []).reduce((s: number, i: any) => s + Number(i.valor || 0), 0);
+                          await supabase.from("fin_grupos_receber").update({ valor_total: novoTotal, updated_at: new Date().toISOString() }).eq("id", selectedGrupo.id);
+
+                          toast.success(`Atualizado ${ok}/${itensComGcId.length} itens do GC`);
+                          if (fail) toast.error(`${fail} item(ns) falharam`);
+                          queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens"] });
+                          queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
+                        } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+                        finally { setResyncingGrupo(false); }
+                      }}
+                    >
+                      {resyncingGrupo ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                      Atualizar do GC
+                    </Button>
+                  </div>
                   <div className="rounded-md border border-border overflow-hidden">
                     <table className="w-full text-xs">
                       <thead className="bg-muted/50">
