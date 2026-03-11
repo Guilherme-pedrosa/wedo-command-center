@@ -330,7 +330,8 @@ serve(async (req) => {
     }
 
     // ── Requisição normal ────────────────────────────────────
-    const token = await getToken(cert, key);
+    const scope = getScopeForPath(path);
+    const token = await getToken(cert, key, scope);
     const bodyStr = payload && method !== "GET" ? JSON.stringify(payload) : undefined;
     const numeroConta = (Deno.env.get("INTER_NUMERO_CONTA") ?? "").trim();
 
