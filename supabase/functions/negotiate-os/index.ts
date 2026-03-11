@@ -261,7 +261,13 @@ serve(async (req) => {
             }
           }
 
-          console.log(`[negotiate-os] PUT OS ${os.id} (codigo=${os.codigo}) — preserving payload`);
+          // Append negotiation tag to observacoes
+          const existingObs = String(updatePayload["observacoes"] || "");
+          updatePayload["observacoes"] = existingObs
+            ? `${existingObs}\nnegociado nº${negociacao_numero}`
+            : `negociado nº${negociacao_numero}`;
+
+          console.log(`[negotiate-os] PUT OS ${os.id} (codigo=${os.codigo}) — negociado nº${negociacao_numero}`);
 
           const putResp = await rateLimitedFetch(
             `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
