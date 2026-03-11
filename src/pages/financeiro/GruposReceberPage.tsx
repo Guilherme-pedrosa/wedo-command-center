@@ -395,7 +395,7 @@ export default function GruposReceberPage() {
               <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Cliente</th>
               <th className="p-3 text-right text-xs font-medium text-muted-foreground uppercase">Valor</th>
               <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Vencimento</th>
-              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">NFS-e</th>
+              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Neg./NFS-e</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Itens</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Status</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Baixa GC</th>
