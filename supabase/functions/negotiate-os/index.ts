@@ -283,7 +283,12 @@ serve(async (req) => {
         }
       }
 
-      // 3. Create fin_grupos_receber — one group per installment
+      // 3. Get sequential negotiation number
+      const { data: negNumData, error: negNumErr } = await supabase.rpc("next_negociacao_number");
+      const negociacao_numero = negNumErr ? Date.now() : (negNumData as number);
+      console.log(`[negotiate-os] Negociação nº${negociacao_numero}`);
+
+      // 4. Create fin_grupos_receber — one group per installment
       const successOS = osDetails.filter((os) =>
         gcUpdateResults.find((r) => r.os_id === os.id && r.status === "ok")
       );
@@ -299,7 +304,7 @@ serve(async (req) => {
         for (let i = 0; i < parcelas; i++) {
           const valor = i === parcelas - 1 ? valorUltima : valorParcela;
           const vencimento = dueDates[i];
-          const nomeGrupo = `${clienteNome} — Negociação ${i + 1}/${parcelas}`;
+          const nomeGrupo = `${clienteNome} — Neg. nº${negociacao_numero} (${i + 1}/${parcelas})`;
 
           // Insert grupo
           const { data: grupo, error: grupoErr } = await supabase
