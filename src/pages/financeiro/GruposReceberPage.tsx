@@ -28,7 +28,8 @@ export default function GruposReceberPage() {
   const [generatingPix, setGeneratingPix] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [showNfse, setShowNfse] = useState(false);
-  const [nfseForm, setNfseForm] = useState({ numero: "", link: "" });
+  const [nfseForm, setNfseForm] = useState({ numero: "", link: "", valor: "", cliente: "" });
+  const [nfseErrors, setNfseErrors] = useState<string[]>([]);
   const [savingNfse, setSavingNfse] = useState(false);
 
   const { data: grupos, isLoading } = useQuery({
@@ -87,8 +88,42 @@ export default function GruposReceberPage() {
     finally { setVerifying(false); }
   };
 
+  const validateNfse = (): string[] => {
+    const errors: string[] = [];
+    if (!nfseForm.numero.trim()) errors.push("Número da NFS-e é obrigatório.");
+    if (nfseForm.link.trim() && !/^https?:\/\/.+/.test(nfseForm.link.trim())) errors.push("Link inválido. Deve começar com http:// ou https://");
+
+    if (!selectedGrupo) return errors;
+
+    // Validate valor
+    const valorNfse = parseFloat(nfseForm.valor.replace(/[^\d.,]/g, "").replace(",", "."));
+    const valorGrupo = Number(selectedGrupo.valor_total);
+    if (!nfseForm.valor.trim() || isNaN(valorNfse)) {
+      errors.push("Valor da NFS-e é obrigatório.");
+    } else if (Math.abs(valorNfse - valorGrupo) > 0.01) {
+      errors.push(`Valor da NFS-e (${formatCurrency(valorNfse)}) não confere com o valor do grupo (${formatCurrency(valorGrupo)}).`);
+    }
+
+    // Validate cliente
+    const clienteNfse = nfseForm.cliente.trim().toLowerCase();
+    const clienteGrupo = (selectedGrupo.nome_cliente || "").trim().toLowerCase();
+    if (!clienteNfse) {
+      errors.push("Nome do cliente/tomador da NFS-e é obrigatório.");
+    } else if (clienteGrupo && !clienteGrupo.includes(clienteNfse) && !clienteNfse.includes(clienteGrupo)) {
+      errors.push(`Cliente da NFS-e ("${nfseForm.cliente.trim()}") não confere com o cliente do grupo ("${selectedGrupo.nome_cliente}").`);
+    }
+
+    return errors;
+  };
+
   const handleSalvarNfse = async () => {
-    if (!selectedGrupo || !nfseForm.numero.trim()) return;
+    const errors = validateNfse();
+    if (errors.length > 0) {
+      setNfseErrors(errors);
+      return;
+    }
+    setNfseErrors([]);
+    if (!selectedGrupo) return;
     setSavingNfse(true);
     try {
       const { error } = await supabase.from("fin_grupos_receber").update({
@@ -238,12 +273,12 @@ export default function GruposReceberPage() {
                       <FileText className="h-4 w-4" /> NFS-e
                     </h4>
                     {!selectedGrupo.nfse_numero && (
-                      <Button variant="outline" size="sm" onClick={() => { setNfseForm({ numero: "", link: "" }); setShowNfse(true); }}>
+                      <Button variant="outline" size="sm" onClick={() => { setNfseForm({ numero: "", link: "", valor: "", cliente: "" }); setNfseErrors([]); setShowNfse(true); }}>
                         Vincular NFS-e
                       </Button>
                     )}
                     {selectedGrupo.nfse_numero && (
-                      <Button variant="ghost" size="sm" onClick={() => { setNfseForm({ numero: selectedGrupo.nfse_numero || "", link: selectedGrupo.nfse_link || "" }); setShowNfse(true); }}>
+                      <Button variant="ghost" size="sm" onClick={() => { setNfseForm({ numero: selectedGrupo.nfse_numero || "", link: selectedGrupo.nfse_link || "", valor: String(selectedGrupo.valor_total || ""), cliente: selectedGrupo.nome_cliente || "" }); setNfseErrors([]); setShowNfse(true); }}>
                         Editar
                       </Button>
                     )}
@@ -423,11 +458,18 @@ export default function GruposReceberPage() {
       />
 
       {/* NFS-e Dialog */}
-      <Dialog open={showNfse} onOpenChange={setShowNfse}>
+      <Dialog open={showNfse} onOpenChange={(o) => { if (!o) { setNfseErrors([]); } setShowNfse(o); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Vincular NFS-e ao Grupo</DialogTitle>
           </DialogHeader>
+          {selectedGrupo && (
+            <div className="rounded-md bg-muted/50 border border-border p-3 text-xs space-y-1">
+              <p><span className="text-muted-foreground">Grupo:</span> <span className="font-medium">{selectedGrupo.nome}</span></p>
+              <p><span className="text-muted-foreground">Cliente:</span> <span className="font-medium">{selectedGrupo.nome_cliente || "—"}</span></p>
+              <p><span className="text-muted-foreground">Valor:</span> <span className="font-semibold">{formatCurrency(Number(selectedGrupo.valor_total))}</span></p>
+            </div>
+          )}
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Número da NFS-e *</Label>
@@ -437,10 +479,27 @@ export default function GruposReceberPage() {
               <Label>Link de acesso à NFS-e</Label>
               <Input value={nfseForm.link} onChange={e => setNfseForm(f => ({ ...f, link: e.target.value }))} placeholder="https://..." />
             </div>
+            <div className="space-y-2">
+              <Label>Valor da NFS-e *</Label>
+              <Input value={nfseForm.valor} onChange={e => setNfseForm(f => ({ ...f, valor: e.target.value }))} placeholder="Ex: 1500.00" />
+            </div>
+            <div className="space-y-2">
+              <Label>Cliente / Tomador da NFS-e *</Label>
+              <Input value={nfseForm.cliente} onChange={e => setNfseForm(f => ({ ...f, cliente: e.target.value }))} placeholder="Nome do cliente na NFS-e" />
+            </div>
+            {nfseErrors.length > 0 && (
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 space-y-1">
+                {nfseErrors.map((err, i) => (
+                  <p key={i} className="text-xs text-destructive flex items-start gap-1.5">
+                    <span className="mt-0.5">⚠️</span> {err}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowNfse(false)}>Cancelar</Button>
-            <Button onClick={handleSalvarNfse} disabled={savingNfse || !nfseForm.numero.trim()}>
+            <Button onClick={handleSalvarNfse} disabled={savingNfse}>
               {savingNfse ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}Salvar
             </Button>
           </DialogFooter>
