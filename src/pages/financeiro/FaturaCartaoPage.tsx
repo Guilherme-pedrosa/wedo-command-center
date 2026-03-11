@@ -776,9 +776,9 @@ export default function FaturaCartaoPage() {
             {novaFatura.forma_pagamento_id && (
               <div className="p-2 rounded bg-muted/50 text-xs text-muted-foreground">
                 {novaFatura.data_vencimento ? (
-                  <p>O sistema buscará todos os pagamentos com a forma de pagamento selecionada e <strong>data de vencimento = {fmtDate(novaFatura.data_vencimento)}</strong>.</p>
+                  <p>O sistema tenta primeiro <strong>data de vencimento = {fmtDate(novaFatura.data_vencimento)}</strong>; se não encontrar, usa o <strong>mês de referência</strong> e depois a <strong>data de competência</strong> no período.</p>
                 ) : novaFatura.data_fechamento_inicio && novaFatura.data_fechamento_fim ? (
-                  <p>Sem data de vencimento, o sistema usará a <strong>data de competência</strong> entre <strong>{fmtDate(novaFatura.data_fechamento_inicio)}</strong> e <strong>{fmtDate(novaFatura.data_fechamento_fim)}</strong>.</p>
+                  <p>Sem data de vencimento, o sistema usará o <strong>mês de referência</strong> e depois a <strong>data de competência</strong> entre <strong>{fmtDate(novaFatura.data_fechamento_inicio)}</strong> e <strong>{fmtDate(novaFatura.data_fechamento_fim)}</strong>.</p>
                 ) : (
                   <p>Informe a data de vencimento da fatura para buscar os pagamentos correspondentes.</p>
                 )}
