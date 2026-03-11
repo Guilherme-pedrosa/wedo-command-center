@@ -34,6 +34,72 @@ export default function GruposReceberPage() {
   const [parsingXml, setParsingXml] = useState(false);
   const [savingNfse, setSavingNfse] = useState(false);
   const [resyncingGrupo, setResyncingGrupo] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editNome, setEditNome] = useState("");
+  const [editVencimento, setEditVencimento] = useState("");
+  const [editObs, setEditObs] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const canEditGroup = (g: any) => !g.nfse_numero && !g.gc_baixado && g.status !== "pago";
+
+  const handleEditGroup = async () => {
+    if (!selectedGrupo) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from("fin_grupos_receber").update({
+        nome: editNome,
+        data_vencimento: editVencimento || null,
+        observacao: editObs || null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", selectedGrupo.id);
+      if (error) throw error;
+
+      // Update vencimento on linked recebimentos
+      if (editVencimento) {
+        const { data: itens } = await supabase
+          .from("fin_grupo_receber_itens")
+          .select("recebimento_id")
+          .eq("grupo_id", selectedGrupo.id);
+        if (itens?.length) {
+          const ids = itens.map((i: any) => i.recebimento_id);
+          await supabase.from("fin_recebimentos").update({ data_vencimento: editVencimento }).in("id", ids);
+        }
+      }
+
+      toast.success("Grupo atualizado");
+      setShowEditDialog(false);
+      setSelectedGrupo({ ...selectedGrupo, nome: editNome, data_vencimento: editVencimento, observacao: editObs });
+      queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+    finally { setSaving(false); }
+  };
+
+  const handleDeleteGroup = async () => {
+    if (!selectedGrupo) return;
+    setDeleting(true);
+    try {
+      // Remove grupo_id from linked recebimentos
+      const { data: itens } = await supabase
+        .from("fin_grupo_receber_itens")
+        .select("recebimento_id")
+        .eq("grupo_id", selectedGrupo.id);
+      if (itens?.length) {
+        const ids = itens.map((i: any) => i.recebimento_id);
+        await supabase.from("fin_recebimentos").update({ grupo_id: null }).in("id", ids);
+      }
+      // Delete items then group
+      await supabase.from("fin_grupo_receber_itens").delete().eq("grupo_id", selectedGrupo.id);
+      await supabase.from("fin_grupos_receber").delete().eq("id", selectedGrupo.id);
+
+      toast.success("Grupo excluído");
+      setShowDeleteConfirm(false);
+      setSelectedGrupo(null);
+      queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+    finally { setDeleting(false); }
+  };
   const { data: grupos, isLoading } = useQuery({
     queryKey: ["fin-grupos-receber", statusFilter],
     queryFn: async () => {
