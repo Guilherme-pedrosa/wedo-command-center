@@ -222,6 +222,8 @@ serve(async (req) => {
         dueDates.push(`${yyyy}-${mm}-${dd}`);
       }
 
+      const negTag = `NEG${negociacao_numero}`;
+
       // 1. Fetch all OS details
       const osDetails: {
         id: string;
@@ -276,28 +278,24 @@ serve(async (req) => {
         }
       }
 
-      // 2. Three-step process for each OS:
-      //    Step A: Move to intermediate status (Ag Compra de Peças) to allow editing
-      //    Step B: Update pagamentos with negotiated installments
-      //    Step C: Move to final status (Ag Pagamento) — GC generates the financial
+      // 2. Steps A → B → C for each OS
+      const passthroughKeys = [
+        "vendedor_id", "tecnico_id", "saida", "previsao_entrega",
+        "transportadora_id", "centro_custo_id", "aos_cuidados_de",
+        "validade", "introducao", "observacoes", "observacoes_interna",
+        "valor_frete", "condicao_pagamento", "forma_pagamento_id",
+        "data_primeira_parcela", "numero_parcelas", "intervalo_dias",
+        "equipamentos", "pagamentos", "produtos", "servicos",
+      ];
+
       for (const os of osDetails) {
         try {
-          // Build base payload preserving all OS fields
           const basePayload: Record<string, unknown> = {
             tipo: os.tipo,
             codigo: os.codigo,
             cliente_id: os.cliente_id,
             data: os.data,
           };
-
-          const passthroughKeys = [
-            "vendedor_id", "tecnico_id", "saida", "previsao_entrega",
-            "transportadora_id", "centro_custo_id", "aos_cuidados_de",
-            "validade", "introducao", "observacoes", "observacoes_interna",
-            "valor_frete", "condicao_pagamento", "forma_pagamento_id",
-            "data_primeira_parcela", "numero_parcelas", "intervalo_dias",
-            "equipamentos", "pagamentos", "produtos", "servicos",
-          ];
 
           for (const key of passthroughKeys) {
             const rawValue = os.raw[key];
@@ -306,36 +304,27 @@ serve(async (req) => {
             basePayload[key] = rawValue;
           }
 
-          // ── STEP A: Move to intermediate status ──
-          console.log(`[negotiate-os] STEP A: OS ${os.id} → status intermediário (${SITUACAO_INTERMEDIARIA})`);
+          // ── STEP A ──
+          console.log(`[negotiate-os] STEP A: OS ${os.id} → intermediário`);
           const stepAPayload = { ...basePayload, situacao_id: SITUACAO_INTERMEDIARIA };
-
           const stepAResp = await rateLimitedFetch(
             `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
             { method: "PUT", headers: gcHeaders, body: JSON.stringify(stepAPayload) }
           );
           const stepAData = await stepAResp.json();
-
           if (!stepAResp.ok && stepAData?.code !== 200) {
-            gcUpdateResults.push({
-              os_id: os.id, status: "error",
-              error: `Step A failed: ${stepAData?.message || stepAResp.status}`,
-            });
+            gcUpdateResults.push({ os_id: os.id, status: "error", error: `Step A failed: ${stepAData?.message || stepAResp.status}` });
             continue;
           }
-          console.log(`[negotiate-os] STEP A OK: OS ${os.id} movida para intermediário`);
-
-          // Small delay between steps
+          console.log(`[negotiate-os] STEP A OK: OS ${os.id}`);
           await new Promise((r) => setTimeout(r, 500));
 
-          // ── STEP B: Edit pagamentos with negotiated installments ──
-          console.log(`[negotiate-os] STEP B: OS ${os.id} → configurando ${parcelas} parcelas`);
-
+          // ── STEP B ──
+          console.log(`[negotiate-os] STEP B: OS ${os.id} → ${parcelas} parcelas`);
           const valorOS = os.valor_total;
           const valorParcelaOS = Math.floor((valorOS / parcelas) * 100) / 100;
           const valorUltimaOS = Math.round((valorOS - valorParcelaOS * (parcelas - 1)) * 100) / 100;
 
-          // Extract forma_pagamento and plano_contas from existing pagamentos
           const pagamentosRaw = Array.isArray(os.raw.pagamentos) ? os.raw.pagamentos : [];
           const primeiroPagamentoWrapper = (pagamentosRaw[0] && typeof pagamentosRaw[0] === "object")
             ? pagamentosRaw[0] as Record<string, unknown> : {};
@@ -350,11 +339,9 @@ serve(async (req) => {
           const planoContasId = String(primeiroPagamento.plano_contas_id || primeiroPagamento.categoria_id || "");
           const nomePlanoConta = String(primeiroPagamento.nome_plano_conta || primeiroPagamento.nome_categoria || "");
 
-          const negTag = `NEG${negociacao_numero}`;
-
-          const stepBPayload = {
+          const stepBPayload: Record<string, unknown> = {
             ...basePayload,
-            situacao_id: SITUACAO_INTERMEDIARIA, // keep same status
+            situacao_id: SITUACAO_INTERMEDIARIA,
             data_primeira_parcela: dueDates[0],
             numero_parcelas: String(parcelas),
             condicao_pagamento: parcelas > 1 ? "parcelado" : "a_vista",
@@ -373,49 +360,32 @@ serve(async (req) => {
               };
               if (formaPagamentoId) pagamento.forma_pagamento_id = formaPagamentoId;
               if (nomeFormaPagamento) pagamento.nome_forma_pagamento = nomeFormaPagamento;
-              if (planoContasId) {
-                pagamento.plano_contas_id = planoContasId;
-                pagamento.categoria_id = planoContasId;
-              }
-              if (nomePlanoConta) {
-                pagamento.nome_plano_conta = nomePlanoConta;
-                pagamento.nome_categoria = nomePlanoConta;
-              }
+              if (planoContasId) { pagamento.plano_contas_id = planoContasId; pagamento.categoria_id = planoContasId; }
+              if (nomePlanoConta) { pagamento.nome_plano_conta = nomePlanoConta; pagamento.nome_categoria = nomePlanoConta; }
               return { pagamento };
             }),
           };
 
-          // Add negotiation note to observacoes
           const existingObs = String(stepBPayload["observacoes"] || "");
           stepBPayload["observacoes"] = existingObs
             ? `${existingObs}\nnegociado nº${negociacao_numero}`
             : `negociado nº${negociacao_numero}`;
-
-          if (formaPagamentoId) {
-            stepBPayload["forma_pagamento_id"] = formaPagamentoId;
-          }
+          if (formaPagamentoId) stepBPayload["forma_pagamento_id"] = formaPagamentoId;
 
           const stepBResp = await rateLimitedFetch(
             `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
             { method: "PUT", headers: gcHeaders, body: JSON.stringify(stepBPayload) }
           );
           const stepBData = await stepBResp.json();
-
           if (!stepBResp.ok && stepBData?.code !== 200) {
-            gcUpdateResults.push({
-              os_id: os.id, status: "error",
-              error: `Step B failed: ${stepBData?.message || stepBResp.status}`,
-            });
+            gcUpdateResults.push({ os_id: os.id, status: "error", error: `Step B failed: ${stepBData?.message || stepBResp.status}` });
             continue;
           }
-          console.log(`[negotiate-os] STEP B OK: OS ${os.id} parcelas configuradas`);
-
+          console.log(`[negotiate-os] STEP B OK: OS ${os.id}`);
           await new Promise((r) => setTimeout(r, 500));
 
-          // ── STEP C: Move to final status (Ag Pagamento) — triggers financial generation ──
-          console.log(`[negotiate-os] STEP C: OS ${os.id} → status final (${SITUACAO_DESTINO})`);
-
-          // Re-fetch OS to get the updated state after step B
+          // ── STEP C ──
+          console.log(`[negotiate-os] STEP C: OS ${os.id} → final`);
           const refreshResp = await rateLimitedFetch(
             `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
             { headers: gcHeaders }
@@ -423,7 +393,6 @@ serve(async (req) => {
           const refreshData = await refreshResp.json();
           const refreshedOS = refreshData?.data || refreshData;
 
-          // Build step C payload from refreshed data
           const stepCPayload: Record<string, unknown> = {
             tipo: String(refreshedOS.tipo || os.tipo),
             codigo: String(refreshedOS.codigo || os.codigo),
@@ -431,8 +400,6 @@ serve(async (req) => {
             data: String(refreshedOS.data || os.data),
             situacao_id: SITUACAO_DESTINO,
           };
-
-          // Passthrough all fields from refreshed OS
           for (const key of passthroughKeys) {
             const val = refreshedOS[key];
             if (val === undefined || val === null) continue;
@@ -447,270 +414,19 @@ serve(async (req) => {
           const stepCData = await stepCResp.json();
 
           if (stepCResp.ok || stepCData?.code === 200) {
-            console.log(`[negotiate-os] STEP C OK: OS ${os.id} → Ag Pagamento ✓`);
-
-            // ── STEP D: Find generated recebimentos and update descriptions with neg number ──
-            await new Promise((r) => setTimeout(r, 1000)); // wait for GC to generate financials
-            console.log(`[negotiate-os] STEP D: OS ${os.id} → buscando recebimentos gerados`);
-
-            try {
-              const maxAttempts = 8;
-              const waitBetweenAttemptsMs = 1500;
-              const expectedByDueDate = new Map<string, number[]>();
-              const expectedValuesFlat: number[] = [];
-
-              for (let idx = 0; idx < dueDates.length; idx++) {
-                const due = dueDates[idx];
-                const expectedValue = Number((idx === parcelas - 1 ? valorUltimaOS : valorParcelaOS).toFixed(2));
-                const bucket = expectedByDueDate.get(due) || [];
-                bucket.push(expectedValue);
-                expectedByDueDate.set(due, bucket);
-                expectedValuesFlat.push(expectedValue);
-              }
-
-              const sortedDueDates = [...dueDates].sort();
-              const minDueDate = sortedDueDates[0];
-              const maxDueDate = sortedDueDates[sortedDueDates.length - 1];
-              const minExpectedValue = Math.max(0, Math.min(...expectedValuesFlat) - 0.05);
-              const maxExpectedValue = Math.max(...expectedValuesFlat) + 0.05;
-
-              const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-              const normalizeMoney = (value: unknown): number => {
-                const parsed = Number.parseFloat(String(value ?? "0").replace(",", "."));
-                if (!Number.isFinite(parsed)) return 0;
-                return Math.round(parsed * 100) / 100;
-              };
-
-              const parseDateLike = (value: unknown): number => {
-                const raw = String(value ?? "").trim();
-                if (!raw) return Number.NaN;
-                const candidate = raw.includes("T") ? raw : raw.replace(" ", "T");
-                const ts = Date.parse(candidate);
-                return Number.isFinite(ts) ? ts : Number.NaN;
-              };
-
-              const unwrapFinancialRecord = (input: unknown): Record<string, unknown> => {
-                let current: unknown = input;
-
-                for (let i = 0; i < 5; i++) {
-                  if (!current || typeof current !== "object") break;
-                  const obj = current as Record<string, unknown>;
-
-                  const hasId = Boolean(obj.id || obj.codigo);
-                  const hasCoreFields = (
-                    obj.descricao !== undefined ||
-                    obj.valor !== undefined ||
-                    obj.valor_total !== undefined ||
-                    obj.data_vencimento !== undefined
-                  );
-
-                  if (hasId && hasCoreFields) return obj;
-
-                  const preferredWrappers = [
-                    "Recebimento",
-                    "recebimento",
-                    "Pagamento",
-                    "pagamento",
-                    "MovimentacaoFinanceira",
-                    "movimentacao_financeira",
-                    "movimentacao",
-                    "data",
-                  ];
-
-                  let next: unknown = null;
-                  for (const key of preferredWrappers) {
-                    const candidate = obj[key];
-                    if (candidate && typeof candidate === "object") {
-                      next = candidate;
-                      break;
-                    }
-                  }
-
-                  if (!next) {
-                    const nestedObjects = Object.values(obj).filter((v) => v && typeof v === "object");
-                    if (nestedObjects.length === 1) {
-                      next = nestedObjects[0];
-                    }
-                  }
-
-                  if (!next) return obj;
-                  current = next;
-                }
-
-                return (current && typeof current === "object") ? current as Record<string, unknown> : {};
-              };
-
-              const fetchFinancialRecords = async (
-                endpoint: "/api/recebimentos" | "/api/pagamentos",
-                maxPages: number,
-                onlyOpen: boolean,
-              ): Promise<Array<{ endpoint: "/api/recebimentos" | "/api/pagamentos"; record: Record<string, unknown> }>> => {
-                const list: Array<{ endpoint: "/api/recebimentos" | "/api/pagamentos"; record: Record<string, unknown> }> = [];
-                let recPage = 1;
-                let recTotalPages = 1;
-
-                while (recPage <= recTotalPages && recPage <= maxPages) {
-                  const paramsObj: Record<string, string> = {
-                    limite: "100",
-                    pagina: String(recPage),
-                    data_inicio: minDueDate,
-                    data_fim: maxDueDate,
-                    valor_inicio: minExpectedValue.toFixed(2),
-                    valor_fim: maxExpectedValue.toFixed(2),
-                  };
-                  if (onlyOpen) paramsObj.liquidado = "ab";
-
-                  const searchParams = new URLSearchParams(paramsObj);
-                  const recResp = await rateLimitedFetch(
-                    `${GC_BASE_URL}${endpoint}?${searchParams.toString()}`,
-                    { headers: gcHeaders }
-                  );
-
-                  if (!recResp.ok) break;
-
-                  const recData = await recResp.json();
-                  const rawList = Array.isArray(recData?.data) ? recData.data : [];
-                  recTotalPages = Number(recData?.meta?.total_paginas || 1);
-
-                  for (const item of rawList) {
-                    const unwrapped = unwrapFinancialRecord(item);
-                    const recId = String(unwrapped.id || unwrapped.codigo || "").trim();
-                    if (!recId) continue;
-                    list.push({ endpoint, record: unwrapped });
-                  }
-                  recPage++;
-                }
-
-                return list;
-              };
-
-              const codigoLower = os.codigo.toLowerCase();
-              const nomeClienteLower = String(os.nome_cliente || "").toLowerCase();
-              let matching: Array<{ endpoint: "/api/recebimentos" | "/api/pagamentos"; record: Record<string, unknown> }> = [];
-
-              for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-                const shouldFetchClosed = attempt % 3 === 0;
-                const maxPages = attempt <= 2 ? 6 : 10;
-                const gathered: Array<{ endpoint: "/api/recebimentos" | "/api/pagamentos"; record: Record<string, unknown> }> = [];
-
-                for (const endpoint of ["/api/recebimentos", "/api/pagamentos"] as const) {
-                  const openRecords = await fetchFinancialRecords(endpoint, maxPages, true);
-                  gathered.push(...openRecords);
-
-                  if (shouldFetchClosed) {
-                    const allRecords = await fetchFinancialRecords(endpoint, Math.max(3, Math.floor(maxPages / 2)), false);
-                    gathered.push(...allRecords);
-                  }
-                }
-
-                const deduped = new Map<string, { endpoint: "/api/recebimentos" | "/api/pagamentos"; record: Record<string, unknown> }>();
-                for (const item of gathered) {
-                  const recId = String(item.record.id || item.record.codigo || "").trim();
-                  if (!recId) continue;
-                  deduped.set(`${item.endpoint}:${recId}`, item);
-                }
-
-                const allRecords = Array.from(deduped.values());
-                const nowTs = Date.now();
-
-                matching = allRecords.filter(({ record }) => {
-                  const desc = String(record.descricao || "").toLowerCase();
-                  const matchesOsByDesc =
-                    desc.includes(`nº ${codigoLower}`) ||
-                    desc.includes(`n° ${codigoLower}`) ||
-                    desc.includes(`nº${codigoLower}`) ||
-                    desc.includes(`n°${codigoLower}`) ||
-                    desc.includes(`n\u00ba ${codigoLower}`) ||
-                    desc.includes(`no ${codigoLower}`) ||
-                    desc.includes(`os ${codigoLower}`) ||
-                    (desc.includes("ordem de serviço") && desc.includes(codigoLower));
-
-                  const dueDate = String(record.data_vencimento || record.vencimento || "").slice(0, 10);
-                  const expectedValues = expectedByDueDate.get(dueDate) || [];
-                  const recValue = normalizeMoney(record.valor ?? record.valor_total);
-                  const matchesDueAndValue = expectedValues.some((v) => Math.abs(v - recValue) <= 0.02);
-
-                  const recClienteId = String(record.cliente_id || "").trim();
-                  const recNomeCliente = String(record.nome_cliente || "").toLowerCase();
-                  const sameClient =
-                    (Boolean(os.cliente_id) && recClienteId === String(os.cliente_id)) ||
-                    (Boolean(nomeClienteLower) && Boolean(recNomeCliente) && recNomeCliente === nomeClienteLower);
-
-                  const createdTs = parseDateLike(record.cadastrado_em || record.created_at || record.modificado_em);
-                  const recentCreation = Number.isFinite(createdTs) && Math.abs(nowTs - createdTs) <= (1000 * 60 * 180);
-
-                  return matchesOsByDesc || (matchesDueAndValue && (sameClient || recentCreation));
-                });
-
-                const alreadyTagged = matching.filter(({ record }) =>
-                  String(record.descricao || "").toUpperCase().includes(negTag.toUpperCase())
-                ).length;
-
-                console.log(
-                  `[negotiate-os] STEP D tentativa ${attempt}/${maxAttempts}: ${allRecords.length} financeiros varridos, ${matching.length} candidatos, ${alreadyTagged} já com ${negTag} (OS ${os.codigo}, janela ${minDueDate}..${maxDueDate})`
-                );
-
-                if (matching.length >= parcelas) break;
-                if (attempt < maxAttempts) await wait(waitBetweenAttemptsMs);
-              }
-
-              if (matching.length === 0) {
-                console.warn(`[negotiate-os] STEP D: nenhum financeiro encontrado para OS ${os.codigo}`);
-              }
-
-              for (const { endpoint, record } of matching) {
-                const recId = String(record.id || "").trim();
-                if (!recId) continue;
-
-                const currentDesc = String(record.descricao || "").trim();
-                const cleanedDesc = currentDesc
-                  .replace(/^\[?\s*neg[\s#\.\-]*\d+\]?\s*[-–—:]?\s*/i, "")
-                  .replace(/^NEG\d+\s*[-–—:]?\s*/i, "")
-                  .trim();
-                const newDesc = `${negTag} - ${cleanedDesc || `OS ${os.codigo}`}`;
-
-                if (currentDesc === newDesc) continue;
-
-                const putPayload: Record<string, unknown> = {
-                  descricao: newDesc,
-                  data_vencimento: record.data_vencimento,
-                  plano_contas_id: record.plano_contas_id,
-                  forma_pagamento_id: record.forma_pagamento_id,
-                  conta_bancaria_id: record.conta_bancaria_id,
-                  valor: record.valor,
-                  data_competencia: record.data_competencia,
-                };
-
-                const putRecResp = await rateLimitedFetch(
-                  `${GC_BASE_URL}${endpoint}/${recId}`,
-                  { method: "PUT", headers: gcHeaders, body: JSON.stringify(putPayload) }
-                );
-                const putRecData = await putRecResp.json();
-
-                if (putRecResp.ok || putRecData?.code === 200) {
-                  console.log(`[negotiate-os] STEP D OK: ${endpoint} ${recId} → "${newDesc}"`);
-                } else {
-                  console.warn(`[negotiate-os] STEP D ERRO: ${endpoint} ${recId}: ${putRecData?.message || putRecResp.status}`);
-                }
-              }
-            } catch (stepDErr: any) {
-              console.warn(`[negotiate-os] STEP D error (non-fatal): ${stepDErr.message}`);
-            }
-
+            console.log(`[negotiate-os] STEP C OK: OS ${os.id} ✓`);
             gcUpdateResults.push({ os_id: os.id, status: "ok" });
           } else {
-            gcUpdateResults.push({
-              os_id: os.id, status: "error",
-              error: `Step C failed: ${stepCData?.message || stepCResp.status}`,
-            });
+            gcUpdateResults.push({ os_id: os.id, status: "error", error: `Step C failed: ${stepCData?.message || stepCResp.status}` });
           }
         } catch (err) {
           gcUpdateResults.push({ os_id: os.id, status: "error", error: (err as Error).message });
         }
       }
 
-      // 3. Create fin_grupos_receber — one group per installment
+      // ═══════════════════════════════════════════════════════════════
+      // 3. CREATE GROUPS IMMEDIATELY (before Step D to avoid timeout)
+      // ═══════════════════════════════════════════════════════════════
       const successOS = osDetails.filter((os) =>
         gcUpdateResults.find((r) => r.os_id === os.id && r.status === "ok")
       );
@@ -728,41 +444,12 @@ serve(async (req) => {
           return `OS ${os.codigo}${equip} — R$ ${os.valor_total.toFixed(2)}`;
         }).join("\n");
 
-        // Pre-fetch fin_recebimentos for each OS so we can link them to the groups
-        const recebimentosByOS: Record<string, Array<{ id: string; gc_codigo: string; valor: number; data_vencimento: string; os_codigo: string }>> = {};
-        for (const os of successOS) {
-          const { data: recs } = await supabase
-            .from("fin_recebimentos")
-            .select("id, gc_codigo, valor, data_vencimento, os_codigo")
-            .eq("os_codigo", os.codigo)
-            .eq("liquidado", false)
-            .is("grupo_id", null);
-          recebimentosByOS[os.id] = recs || [];
-        }
+        console.log(`[negotiate-os] Criando ${parcelas} grupo(s) para ${successOS.length} OS...`);
 
         for (let i = 0; i < parcelas; i++) {
           const valor = i === parcelas - 1 ? valorUltima : valorParcela;
           const vencimento = dueDates[i];
           const nomeGrupo = `${clienteNome} — Neg. nº${negociacao_numero} (${i + 1}/${parcelas})`;
-
-          // Collect matching recebimentos for this installment (by due date)
-          const itensForThisGroup: Array<{ recebimento_id: string; valor: number; os_codigo: string; gc_codigo: string; snapshot_valor: number; snapshot_data: string }> = [];
-          for (const os of successOS) {
-            const osRecs = recebimentosByOS[os.id] || [];
-            for (const rec of osRecs) {
-              const recDue = String(rec.data_vencimento || "").slice(0, 10);
-              if (recDue === vencimento) {
-                itensForThisGroup.push({
-                  recebimento_id: rec.id,
-                  valor: rec.valor,
-                  os_codigo: rec.os_codigo || os.codigo,
-                  gc_codigo: rec.gc_codigo || "",
-                  snapshot_valor: rec.valor,
-                  snapshot_data: recDue,
-                });
-              }
-            }
-          }
 
           const { data: grupo, error: grupoErr } = await supabase
             .from("fin_grupos_receber")
@@ -773,7 +460,7 @@ serve(async (req) => {
               valor_total: valor,
               data_vencimento: vencimento,
               status: "aberto",
-              itens_total: itensForThisGroup.length,
+              itens_total: successOS.length,
               negociacao_numero: negociacao_numero,
               observacao: `Neg. nº${negociacao_numero} — Parcela ${i + 1}/${parcelas} — R$ ${valor.toFixed(2)}\nVencimento: ${vencimento}\n\n${osRef}`,
             })
@@ -785,37 +472,161 @@ serve(async (req) => {
             continue;
           }
           grupoIds.push(grupo.id);
+          console.log(`[negotiate-os] Grupo ${i + 1}/${parcelas} criado: ${grupo.id}`);
+        }
+      }
 
-          // Insert items into fin_grupo_receber_itens and link recebimentos
-          if (itensForThisGroup.length > 0) {
-            const insertItems = itensForThisGroup.map((item) => ({
-              grupo_id: grupo.id,
-              recebimento_id: item.recebimento_id,
-              valor: item.valor,
-              os_codigo_original: item.os_codigo,
-              snapshot_valor: item.snapshot_valor,
-              snapshot_data: item.snapshot_data,
-            }));
+      // ═══════════════════════════════════════════════════════════════
+      // 4. STEP D: Tag descriptions in GC (best-effort, single pass)
+      // ═══════════════════════════════════════════════════════════════
+      for (const os of successOS) {
+        try {
+          await new Promise((r) => setTimeout(r, 800));
+          console.log(`[negotiate-os] STEP D: OS ${os.codigo} → buscando financeiros`);
 
-            const { error: itensErr } = await supabase
-              .from("fin_grupo_receber_itens")
-              .insert(insertItems);
+          const valorOS = os.valor_total;
+          const valorParcelaOS = Math.floor((valorOS / parcelas) * 100) / 100;
+          const valorUltimaOS = Math.round((valorOS - valorParcelaOS * (parcelas - 1)) * 100) / 100;
 
-            if (itensErr) {
-              console.error(`[negotiate-os] Error inserting itens for grupo ${i + 1}:`, itensErr.message);
-            }
-
-            // Link recebimentos to the group
-            const recIds = itensForThisGroup.map((item) => item.recebimento_id);
-            await supabase
-              .from("fin_recebimentos")
-              .update({ grupo_id: grupo.id })
-              .in("id", recIds);
-
-            console.log(`[negotiate-os] Grupo ${i + 1}/${parcelas}: ${itensForThisGroup.length} itens vinculados`);
-          } else {
-            console.warn(`[negotiate-os] Grupo ${i + 1}/${parcelas}: nenhum recebimento encontrado para vincular (vencimento=${vencimento})`);
+          const expectedByDueDate = new Map<string, number[]>();
+          for (let idx = 0; idx < dueDates.length; idx++) {
+            const due = dueDates[idx];
+            const expectedValue = Number((idx === parcelas - 1 ? valorUltimaOS : valorParcelaOS).toFixed(2));
+            const bucket = expectedByDueDate.get(due) || [];
+            bucket.push(expectedValue);
+            expectedByDueDate.set(due, bucket);
           }
+
+          const sortedDueDates = [...dueDates].sort();
+          const minDueDate = sortedDueDates[0];
+          const maxDueDate = sortedDueDates[sortedDueDates.length - 1];
+
+          const normalizeMoney = (value: unknown): number => {
+            const parsed = Number.parseFloat(String(value ?? "0").replace(",", "."));
+            if (!Number.isFinite(parsed)) return 0;
+            return Math.round(parsed * 100) / 100;
+          };
+
+          const codigoLower = os.codigo.toLowerCase();
+
+          // Single fetch pass
+          const searchParams = new URLSearchParams({
+            limite: "100",
+            pagina: "1",
+            data_inicio: minDueDate,
+            data_fim: maxDueDate,
+          });
+
+          const recResp = await rateLimitedFetch(
+            `${GC_BASE_URL}/api/recebimentos?${searchParams.toString()}`,
+            { headers: gcHeaders }
+          );
+
+          if (!recResp.ok) {
+            console.warn(`[negotiate-os] STEP D: fetch failed ${recResp.status}`);
+            continue;
+          }
+
+          const recData = await recResp.json();
+          const rawList = Array.isArray(recData?.data) ? recData.data : [];
+
+          const matching = rawList.filter((item: any) => {
+            const rec = item?.Recebimento || item?.recebimento || item;
+            const desc = String(rec?.descricao || "").toLowerCase();
+            const matchesOS = desc.includes(codigoLower) || desc.includes(`os ${codigoLower}`);
+            const dueDate = String(rec?.data_vencimento || "").slice(0, 10);
+            const expectedValues = expectedByDueDate.get(dueDate) || [];
+            const recValue = normalizeMoney(rec?.valor ?? rec?.valor_total);
+            const matchesValue = expectedValues.some((v) => Math.abs(v - recValue) <= 0.02);
+            return matchesOS || matchesValue;
+          });
+
+          console.log(`[negotiate-os] STEP D: ${rawList.length} financeiros, ${matching.length} candidatos para OS ${os.codigo}`);
+
+          for (const item of matching) {
+            const rec = item?.Recebimento || item?.recebimento || item;
+            const recId = String(rec?.id || "").trim();
+            if (!recId) continue;
+
+            const currentDesc = String(rec?.descricao || "").trim();
+            if (currentDesc.toUpperCase().includes(negTag.toUpperCase())) continue;
+
+            const cleanedDesc = currentDesc
+              .replace(/^\[?\s*neg[\s#\.\-]*\d+\]?\s*[-–—:]?\s*/i, "")
+              .replace(/^NEG\d+\s*[-–—:]?\s*/i, "")
+              .trim();
+            const newDesc = `${negTag} - ${cleanedDesc || `OS ${os.codigo}`}`;
+
+            const putPayload: Record<string, unknown> = {
+              descricao: newDesc,
+              data_vencimento: rec.data_vencimento,
+              plano_contas_id: rec.plano_contas_id,
+              forma_pagamento_id: rec.forma_pagamento_id,
+              conta_bancaria_id: rec.conta_bancaria_id,
+              valor: rec.valor,
+              data_competencia: rec.data_competencia,
+            };
+
+            const putResp = await rateLimitedFetch(
+              `${GC_BASE_URL}/api/recebimentos/${recId}`,
+              { method: "PUT", headers: gcHeaders, body: JSON.stringify(putPayload) }
+            );
+            const putData = await putResp.json();
+
+            if (putResp.ok || putData?.code === 200) {
+              console.log(`[negotiate-os] STEP D OK: ${recId} → "${newDesc}"`);
+            } else {
+              console.warn(`[negotiate-os] STEP D ERRO: ${recId}: ${putData?.message || putResp.status}`);
+            }
+          }
+        } catch (stepDErr: any) {
+          console.warn(`[negotiate-os] STEP D error (non-fatal): ${stepDErr.message}`);
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // 5. Link fin_recebimentos to groups (best-effort after sync)
+      // ═══════════════════════════════════════════════════════════════
+      if (grupoIds.length > 0 && successOS.length > 0) {
+        try {
+          for (let i = 0; i < grupoIds.length && i < parcelas; i++) {
+            const grupoId = grupoIds[i];
+            const vencimento = dueDates[i];
+
+            for (const os of successOS) {
+              const { data: recs } = await supabase
+                .from("fin_recebimentos")
+                .select("id, gc_codigo, valor, data_vencimento, os_codigo")
+                .eq("os_codigo", os.codigo)
+                .eq("liquidado", false)
+                .is("grupo_id", null)
+                .eq("data_vencimento", vencimento)
+                .limit(5);
+
+              if (recs && recs.length > 0) {
+                for (const rec of recs) {
+                  await supabase
+                    .from("fin_grupo_receber_itens")
+                    .insert({
+                      grupo_id: grupoId,
+                      recebimento_id: rec.id,
+                      valor: rec.valor,
+                      os_codigo_original: rec.os_codigo || os.codigo,
+                      snapshot_valor: rec.valor,
+                      snapshot_data: vencimento,
+                    });
+
+                  await supabase
+                    .from("fin_recebimentos")
+                    .update({ grupo_id: grupoId })
+                    .eq("id", rec.id);
+                }
+                console.log(`[negotiate-os] Grupo ${i + 1}: ${recs.length} itens vinculados (OS ${os.codigo})`);
+              }
+            }
+          }
+        } catch (linkErr: any) {
+          console.warn(`[negotiate-os] Link error (non-fatal): ${linkErr.message}`);
         }
       }
 
