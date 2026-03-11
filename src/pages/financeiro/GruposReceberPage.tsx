@@ -305,11 +305,17 @@ export default function GruposReceberPage() {
           await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw, {
             descricao: novaDescricao,
             observacao: `NFS-e ${selectedGrupo.nfse_numero} vinculada via ARGUS`,
+            data_vencimento: selectedGrupo.data_vencimento || undefined,
+            nf_numero: selectedGrupo.nfse_numero,
           });
           await gcDelay();
 
           await supabase.from("fin_recebimentos")
-            .update({ descricao: novaDescricao, nfe_numero: selectedGrupo.nfse_numero })
+            .update({ 
+              descricao: novaDescricao, 
+              nfe_numero: selectedGrupo.nfse_numero,
+              data_vencimento: selectedGrupo.data_vencimento || undefined,
+            })
             .eq("id", item.recebimento_id);
           ok++;
         } catch (e) {
