@@ -452,69 +452,84 @@ serve(async (req) => {
             console.log(`[negotiate-os] STEP D: OS ${os.id} → buscando recebimentos gerados`);
 
             try {
-              // Search recebimentos by client, recent, open
-              const searchParams = new URLSearchParams({
-                limite: "50",
-                cliente_id: os.cliente_id,
-                liquidado: "ab", // em aberto
-              });
-              const recResp = await rateLimitedFetch(
-                `${GC_BASE_URL}/api/recebimentos?${searchParams.toString()}`,
-                { headers: gcHeaders }
-              );
+              // Search recebimentos by client, open, with pagination
+              let allRecs: any[] = [];
+              let recPage = 1;
+              let recTotalPages = 1;
 
-              if (recResp.ok) {
-                const recData = await recResp.json();
-                const recList = Array.isArray(recData?.data) ? recData.data : [];
-
-                // Filter recebimentos that match this OS codigo in description
-                const osPattern = `n${"\u00BA"} ${os.codigo}`; // "nº XXXX"
-                const osPattern2 = `n° ${os.codigo}`;
-                const osPattern3 = `no ${os.codigo}`;
-                const matching = recList.filter((r: any) => {
-                  const desc = String(r.descricao || "").toLowerCase();
-                  return (
-                    desc.includes(osPattern.toLowerCase()) ||
-                    desc.includes(osPattern2.toLowerCase()) ||
-                    desc.includes(osPattern3.toLowerCase()) ||
-                    desc.includes(`os ${os.codigo}`.toLowerCase())
-                  );
+              while (recPage <= recTotalPages && recPage <= 5) {
+                const searchParams = new URLSearchParams({
+                  limite: "100",
+                  pagina: String(recPage),
+                  cliente_id: os.cliente_id,
+                  liquidado: "ab",
                 });
+                const recResp = await rateLimitedFetch(
+                  `${GC_BASE_URL}/api/recebimentos?${searchParams.toString()}`,
+                  { headers: gcHeaders }
+                );
 
-                console.log(`[negotiate-os] STEP D: Encontrados ${matching.length} recebimentos para OS ${os.codigo}`);
+                if (!recResp.ok) break;
 
-                for (const rec of matching) {
-                  const recId = String(rec.id);
-                  const currentDesc = String(rec.descricao || "");
+                const recData = await recResp.json();
+                const rawList = Array.isArray(recData?.data) ? recData.data : [];
+                recTotalPages = recData?.meta?.total_paginas || 1;
 
-                  // Skip if already tagged
-                  if (currentDesc.includes(`Neg. nº${negociacao_numero}`) || currentDesc.includes(`[Neg ${negociacao_numero}]`)) {
-                    continue;
-                  }
+                // Unwrap possible nested objects (e.g. { Recebimento: { ... } })
+                for (const item of rawList) {
+                  const unwrapped = (item?.Recebimento || item?.recebimento || item) as Record<string, unknown>;
+                  allRecs.push(unwrapped);
+                }
+                recPage++;
+              }
 
-                  const newDesc = `[Neg ${negociacao_numero}] ${currentDesc}`;
+              // Filter recebimentos that match this OS codigo in description
+              const codigoLower = os.codigo.toLowerCase();
+              const matching = allRecs.filter((r: any) => {
+                const desc = String(r.descricao || "").toLowerCase();
+                return (
+                  desc.includes(`nº ${codigoLower}`) ||
+                  desc.includes(`n° ${codigoLower}`) ||
+                  desc.includes(`no ${codigoLower}`) ||
+                  desc.includes(`n\u00ba ${codigoLower}`) ||
+                  desc.includes(`os ${codigoLower}`)
+                );
+              });
 
-                  const putPayload: Record<string, unknown> = {
-                    descricao: newDesc,
-                    data_vencimento: rec.data_vencimento,
-                    plano_contas_id: rec.plano_contas_id,
-                    forma_pagamento_id: rec.forma_pagamento_id,
-                    conta_bancaria_id: rec.conta_bancaria_id,
-                    valor: rec.valor,
-                    data_competencia: rec.data_competencia,
-                  };
+              console.log(`[negotiate-os] STEP D: ${allRecs.length} recebimentos do cliente, ${matching.length} matcham OS ${os.codigo}`);
 
-                  const putRecResp = await rateLimitedFetch(
-                    `${GC_BASE_URL}/api/recebimentos/${recId}`,
-                    { method: "PUT", headers: gcHeaders, body: JSON.stringify(putPayload) }
-                  );
-                  const putRecData = await putRecResp.json();
+              for (const rec of matching) {
+                const recId = String(rec.id);
+                const currentDesc = String(rec.descricao || "");
 
-                  if (putRecResp.ok || putRecData?.code === 200) {
-                    console.log(`[negotiate-os] STEP D: Recebimento ${recId} atualizado → "${newDesc}"`);
-                  } else {
-                    console.warn(`[negotiate-os] STEP D: Erro ao atualizar recebimento ${recId}: ${putRecData?.message || putRecResp.status}`);
-                  }
+                // Skip if already tagged with ANY neg number
+                if (currentDesc.includes("[Neg ")) {
+                  console.log(`[negotiate-os] STEP D: Recebimento ${recId} já tagueado, pulando`);
+                  continue;
+                }
+
+                const newDesc = `[Neg ${negociacao_numero}] ${currentDesc}`;
+
+                const putPayload: Record<string, unknown> = {
+                  descricao: newDesc,
+                  data_vencimento: rec.data_vencimento,
+                  plano_contas_id: rec.plano_contas_id,
+                  forma_pagamento_id: rec.forma_pagamento_id,
+                  conta_bancaria_id: rec.conta_bancaria_id,
+                  valor: rec.valor,
+                  data_competencia: rec.data_competencia,
+                };
+
+                const putRecResp = await rateLimitedFetch(
+                  `${GC_BASE_URL}/api/recebimentos/${recId}`,
+                  { method: "PUT", headers: gcHeaders, body: JSON.stringify(putPayload) }
+                );
+                const putRecData = await putRecResp.json();
+
+                if (putRecResp.ok || putRecData?.code === 200) {
+                  console.log(`[negotiate-os] STEP D OK: Recebimento ${recId} → "${newDesc}"`);
+                } else {
+                  console.warn(`[negotiate-os] STEP D ERRO: Recebimento ${recId}: ${putRecData?.message || putRecResp.status}`);
                 }
               }
             } catch (stepDErr: any) {
