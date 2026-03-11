@@ -14,8 +14,7 @@ const INTER_PORT = 443;
 // ─── Cache ─────────────────────────────────────────────────────
 let cachedCert: string | null = null;
 let cachedKey: string | null = null;
-let cachedToken = "";
-let tokenExpiry = 0;
+const tokenCache: Record<string, { token: string; expiry: number }> = {};
 
 // ─── PEM builder ──────────────────────────────────────────────
 function buildPEM(raw: string, type: "CERTIFICATE" | "PRIVATE KEY"): string {
@@ -239,16 +238,24 @@ async function makeHttpsRequest(
   }
 }
 
+// ─── Scope resolver ───────────────────────────────────────────
+function getScopeForPath(path: string): string {
+  if (path.startsWith("/pix/v2/cobv")) return "cobv.read cobv.write";
+  if (path.startsWith("/pix/v2/cob"))  return "cob.read cob.write";
+  if (path.startsWith("/banking/v2/pix") || path.startsWith("/pix/v2/pix")) return "pagamento-pix.read pagamento-pix.write";
+  return "extrato.read";
+}
+
 // ─── OAuth Token ──────────────────────────────────────────────
-async function getToken(cert: string, key: string): Promise<string> {
-  if (cachedToken && Date.now() < tokenExpiry - 30_000) return cachedToken;
+async function getToken(cert: string, key: string, scope: string): Promise<string> {
+  const cached = tokenCache[scope];
+  if (cached && Date.now() < cached.expiry - 30_000) return cached.token;
 
   const clientId     = (Deno.env.get("INTER_CLIENT_ID")     ?? "").trim();
   const clientSecret = (Deno.env.get("INTER_CLIENT_SECRET") ?? "").trim();
   if (!clientId || !clientSecret)
     throw new Error("INTER_CLIENT_ID ou INTER_CLIENT_SECRET ausentes");
 
-  const scope = "extrato.read cobv.write cobv.read pagamento-pix.write pagamento-pix.read";
   const bodyStr = new URLSearchParams({
     client_id: clientId,
     client_secret: clientSecret,
@@ -256,7 +263,7 @@ async function getToken(cert: string, key: string): Promise<string> {
     scope,
   }).toString();
 
-  console.log("[inter-proxy] OAuth via Deno.connectTls (cert/key), client_id:", clientId.slice(0, 8) + "...");
+  console.log("[inter-proxy] OAuth via Deno.connectTls (cert/key), client_id:", clientId.slice(0, 8) + "...", "scope:", scope);
 
   const { status, body: resBody } = await makeHttpsRequest(
     "POST",
@@ -274,10 +281,12 @@ async function getToken(cert: string, key: string): Promise<string> {
   const data = JSON.parse(resBody);
   if (!data.access_token) throw new Error(`OAuth response missing access_token: ${resBody}`);
 
-  cachedToken = data.access_token;
-  tokenExpiry = Date.now() + (data.expires_in ?? 3600) * 1000;
+  tokenCache[scope] = {
+    token: data.access_token,
+    expiry: Date.now() + (data.expires_in ?? 3600) * 1000,
+  };
   console.log("[inter-proxy] OAuth token obtained, scope:", data.scope);
-  return cachedToken;
+  return data.access_token;
 }
 
 // ─── Handler ──────────────────────────────────────────────────
@@ -313,7 +322,7 @@ serve(async (req) => {
 
     // ── Diagnóstico: test-auth ───────────────────────────────
     if (path === "/test-auth") {
-      const token = await getToken(cert, key);
+      const token = await getToken(cert, key, "extrato.read");
       return new Response(
         JSON.stringify({ ok: true, preview: token.slice(0, 20) + "...", method: "Deno.connectTls(cert,key)" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -321,7 +330,8 @@ serve(async (req) => {
     }
 
     // ── Requisição normal ────────────────────────────────────
-    const token = await getToken(cert, key);
+    const scope = getScopeForPath(path);
+    const token = await getToken(cert, key, scope);
     const bodyStr = payload && method !== "GET" ? JSON.stringify(payload) : undefined;
     const numeroConta = (Deno.env.get("INTER_NUMERO_CONTA") ?? "").trim();
 
