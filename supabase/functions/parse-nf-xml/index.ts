@@ -213,15 +213,18 @@ serve(async (req) => {
       const valorGrupo = Number(grupo.valor_total) || 0;
 
       // ── Valor validation ──
-      // Compare valor_liquido (after deductions) with group value
-      const valorComparar = nf.valor_liquido > 0 ? nf.valor_liquido : nf.valor_total;
-      if (Math.abs(valorComparar - valorGrupo) > 0.01) {
-        // Check if total matches (before deductions)
-        if (nf.valor_deducoes > 0 && Math.abs(nf.valor_total - valorGrupo) < 0.01) {
-          avisos.push(`Valor total da NF (${nf.valor_total.toFixed(2)}) confere, mas há retenções de R$ ${nf.valor_deducoes.toFixed(2)}. Líquido: R$ ${nf.valor_liquido.toFixed(2)}`);
-        } else {
-          erros.push(`Valor da NF (total: R$ ${nf.valor_total.toFixed(2)}, líquido: R$ ${nf.valor_liquido.toFixed(2)}) não confere com o grupo (R$ ${valorGrupo.toFixed(2)})`);
+      // Primary check: valor_total (gross) must match group value
+      // Retained taxes don't change the receivable amount
+      if (Math.abs(nf.valor_total - valorGrupo) < 0.01) {
+        // Total matches — if there are deductions, just inform
+        if (nf.valor_deducoes > 0) {
+          avisos.push(`NF possui retenções de R$ ${nf.valor_deducoes.toFixed(2)} (IR: ${nf.valor_ir.toFixed(2)}, ISS: ${nf.valor_iss.toFixed(2)}, PIS: ${nf.valor_pis.toFixed(2)}, COFINS: ${nf.valor_cofins.toFixed(2)}, CSLL: ${nf.valor_csll.toFixed(2)}, INSS: ${nf.valor_inss.toFixed(2)}). Líquido: R$ ${nf.valor_liquido.toFixed(2)}`);
         }
+      } else if (nf.valor_liquido > 0 && Math.abs(nf.valor_liquido - valorGrupo) < 0.01) {
+        // Líquido matches — group may have been created with net value
+        avisos.push(`Valor líquido da NF (R$ ${nf.valor_liquido.toFixed(2)}) confere, mas o total bruto é R$ ${nf.valor_total.toFixed(2)} (retenções: R$ ${nf.valor_deducoes.toFixed(2)})`);
+      } else {
+        erros.push(`Valor da NF (total: R$ ${nf.valor_total.toFixed(2)}, líquido: R$ ${nf.valor_liquido.toFixed(2)}) não confere com o grupo (R$ ${valorGrupo.toFixed(2)})`);
       }
 
       // ── Cliente/CNPJ validation ──
