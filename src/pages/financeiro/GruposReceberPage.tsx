@@ -278,7 +278,7 @@ export default function GruposReceberPage() {
                       </Button>
                     )}
                     {selectedGrupo.nfse_numero && (
-                      <Button variant="ghost" size="sm" onClick={() => { setNfseForm({ numero: selectedGrupo.nfse_numero || "", link: selectedGrupo.nfse_link || "" }); setShowNfse(true); }}>
+                      <Button variant="ghost" size="sm" onClick={() => { setNfseForm({ numero: selectedGrupo.nfse_numero || "", link: selectedGrupo.nfse_link || "", valor: String(selectedGrupo.valor_total || ""), cliente: selectedGrupo.nome_cliente || "" }); setNfseErrors([]); setShowNfse(true); }}>
                         Editar
                       </Button>
                     )}
