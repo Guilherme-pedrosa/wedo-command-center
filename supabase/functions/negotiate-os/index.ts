@@ -121,10 +121,30 @@ serve(async (req) => {
         const extractText = (value: unknown): string => {
           if (typeof value === "string") return value.trim();
           if (typeof value === "number") return String(value);
-          if (value && typeof value === "object") {
-            const obj = value as Record<string, unknown>;
-            return String(obj.nome || obj.descricao || obj.equipamento || obj.texto || "").trim();
+          if (!value || typeof value !== "object") return "";
+
+          const obj = value as Record<string, unknown>;
+          const preferred = [
+            obj.nome,
+            obj.descricao,
+            obj.equipamento,
+            obj.texto,
+            obj.Equipamento,
+            obj.equipamento_nome,
+            obj.modelo,
+            obj.identificacao,
+          ];
+
+          for (const candidate of preferred) {
+            const text = extractText(candidate);
+            if (text && text !== "[object Object]") return text;
           }
+
+          for (const nested of Object.values(obj)) {
+            const text = extractText(nested);
+            if (text && text !== "[object Object]") return text;
+          }
+
           return "";
         };
 
