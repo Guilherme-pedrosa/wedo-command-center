@@ -475,18 +475,46 @@ export default function NegociacoesPage() {
               )}
 
               <DialogFooter>
+                <Button
+                  variant="destructive"
+                  onClick={() => setDeleteNeg(selectedNeg)}
+                  disabled={selectedNeg.status === "pago"}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Apagar
+                </Button>
                 <Button variant="outline" onClick={() => setSelectedNeg(null)}>
                   Fechar
-                </Button>
-                <Button variant="outline" onClick={() => handleReprocess(selectedNeg)}>
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Reprocessar
                 </Button>
               </DialogFooter>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!deleteNeg} onOpenChange={() => setDeleteNeg(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apagar Negociação #{deleteNeg?.numero}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isso vai remover {deleteNeg?.total_parcelas} grupo(s) de recebimento vinculados a esta negociação.
+              Esta ação não pode ser desfeita. Os financeiros no GestãoClick NÃO serão alterados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteNeg && handleDelete(deleteNeg)}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Apagar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
