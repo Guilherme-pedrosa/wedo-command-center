@@ -250,7 +250,7 @@ export async function baixarRecebimentoGC(
 export async function atualizarRecebimentoGC(
   gcId: string,
   gcPayloadRaw: Record<string, unknown>,
-  campos: { data_vencimento?: string; descricao?: string; observacao?: string; nf_numero?: string }
+  campos: { data_vencimento?: string; descricao?: string; observacao?: string; nf_numero?: string; atributos?: Array<{id: number; valor: string}> }
 ): Promise<{ status: number; data: unknown; duration_ms: number }> {
   const payload = { ...gcPayloadRaw, ...campos };
   // Remove campos de liquidação para não baixar acidentalmente
