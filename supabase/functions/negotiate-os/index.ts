@@ -314,21 +314,51 @@ serve(async (req) => {
             }
           }
 
-          // Override payment terms with negotiated values
-          updatePayload["data_primeira_parcela"] = dueDates[0]; // first installment date
+          // Override payment terms with negotiated values (GC-compliant)
+          updatePayload["data_primeira_parcela"] = dueDates[0];
           updatePayload["numero_parcelas"] = String(parcelas);
-          updatePayload["condicao_pagamento"] = `${parcelas}x negociado`;
+          updatePayload["condicao_pagamento"] = parcelas > 1 ? "parcelado" : "a_vista";
 
-          // If GC uses a pagamentos array, rebuild it with correct dates/values
+          const intervaloDias = parcelas > 1
+            ? Math.max(
+              1,
+              Math.round(
+                (new Date(`${dueDates[1]}T00:00:00Z`).getTime() - new Date(`${dueDates[0]}T00:00:00Z`).getTime()) /
+                (1000 * 60 * 60 * 24)
+              )
+            )
+            : 0;
+          updatePayload["intervalo_dias"] = String(intervaloDias);
+
           const valorOS = os.valor_total;
           const valorParcelaOS = Math.floor((valorOS / parcelas) * 100) / 100;
           const valorUltimaOS = Math.round((valorOS - valorParcelaOS * (parcelas - 1)) * 100) / 100;
 
-          const pagamentosNeg = dueDates.map((dt, idx) => ({
-            data_vencimento: dt,
-            valor: idx === parcelas - 1 ? valorUltimaOS : valorParcelaOS,
-          }));
-          updatePayload["pagamentos"] = pagamentosNeg;
+          const pagamentosRaw = Array.isArray(os.raw.pagamentos) ? os.raw.pagamentos : [];
+          const primeiroPagamento = (pagamentosRaw[0] && typeof pagamentosRaw[0] === "object")
+            ? ((pagamentosRaw[0] as Record<string, unknown>).pagamento && typeof (pagamentosRaw[0] as Record<string, unknown>).pagamento === "object"
+              ? (pagamentosRaw[0] as Record<string, unknown>).pagamento as Record<string, unknown>
+              : pagamentosRaw[0] as Record<string, unknown>)
+            : {};
+
+          const formaPagamentoId = String(
+            primeiroPagamento.forma_pagamento_id || updatePayload["forma_pagamento_id"] || ""
+          );
+          const nomeFormaPagamento = String(primeiroPagamento.nome_forma_pagamento || "");
+          const planoContasId = String(primeiroPagamento.plano_contas_id || primeiroPagamento.categoria_id || "");
+          const nomePlanoConta = String(primeiroPagamento.nome_plano_conta || primeiroPagamento.nome_categoria || "");
+
+          updatePayload["pagamentos"] = dueDates.map((dt, idx) => {
+            const pagamento: Record<string, unknown> = {
+              data_vencimento: dt,
+              valor: (idx === parcelas - 1 ? valorUltimaOS : valorParcelaOS).toFixed(2),
+            };
+            if (formaPagamentoId) pagamento.forma_pagamento_id = formaPagamentoId;
+            if (nomeFormaPagamento) pagamento.nome_forma_pagamento = nomeFormaPagamento;
+            if (planoContasId) pagamento.plano_contas_id = planoContasId;
+            if (nomePlanoConta) pagamento.nome_plano_conta = nomePlanoConta;
+            return { pagamento };
+          });
           const existingObs = String(updatePayload["observacoes"] || "");
           updatePayload["observacoes"] = existingObs
             ? `${existingObs}\nnegociado nº${negociacao_numero}`
