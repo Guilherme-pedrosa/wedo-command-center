@@ -31,8 +31,6 @@ export default function GruposReceberPage() {
       toast.error("Erro ao abrir XML");
     }
   };
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("todos");
   const [selectedGrupo, setSelectedGrupo] = useState<any>(null);
   const [showBaixa, setShowBaixa] = useState(false);
