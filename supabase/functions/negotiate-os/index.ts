@@ -314,7 +314,21 @@ serve(async (req) => {
             }
           }
 
-          // Append negotiation tag to observacoes
+          // Override payment terms with negotiated values
+          updatePayload["data_primeira_parcela"] = dueDates[0]; // first installment date
+          updatePayload["numero_parcelas"] = String(parcelas);
+          updatePayload["condicao_pagamento"] = `${parcelas}x negociado`;
+
+          // If GC uses a pagamentos array, rebuild it with correct dates/values
+          const valorOS = os.valor_total;
+          const valorParcelaOS = Math.floor((valorOS / parcelas) * 100) / 100;
+          const valorUltimaOS = Math.round((valorOS - valorParcelaOS * (parcelas - 1)) * 100) / 100;
+
+          const pagamentosNeg = dueDates.map((dt, idx) => ({
+            data_vencimento: dt,
+            valor: idx === parcelas - 1 ? valorUltimaOS : valorParcelaOS,
+          }));
+          updatePayload["pagamentos"] = pagamentosNeg;
           const existingObs = String(updatePayload["observacoes"] || "");
           updatePayload["observacoes"] = existingObs
             ? `${existingObs}\nnegociado nº${negociacao_numero}`
