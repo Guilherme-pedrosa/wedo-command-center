@@ -23,6 +23,52 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
   return fetch(url, options);
 }
 
+function extractText(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number") return String(value);
+  if (!value || typeof value !== "object") return "";
+
+  const obj = value as Record<string, unknown>;
+  const preferred = [
+    obj.nome,
+    obj.descricao,
+    obj.equipamento,
+    obj.texto,
+    obj.Equipamento,
+    obj.equipamento_nome,
+    obj.modelo,
+    obj.identificacao,
+  ];
+
+  for (const candidate of preferred) {
+    const text = extractText(candidate);
+    if (text && text !== "[object Object]") return text;
+  }
+
+  for (const nested of Object.values(obj)) {
+    const text = extractText(nested);
+    if (text && text !== "[object Object]") return text;
+  }
+
+  return "";
+}
+
+function extractEquipamentoNome(equipamentos: unknown): string {
+  if (!Array.isArray(equipamentos)) return "";
+
+  return equipamentos
+    .map((eq) => {
+      const wrapper = eq && typeof eq === "object" ? (eq as Record<string, unknown>) : null;
+      const raw = wrapper && wrapper.Equipamento && typeof wrapper.Equipamento === "object"
+        ? wrapper.Equipamento
+        : wrapper && wrapper.equipamento && typeof wrapper.equipamento === "object"
+          ? wrapper.equipamento
+          : eq;
+      return extractText(raw);
+    })
+    .find(Boolean) || "";
+}
+
 interface NegotiateRequest {
   action: "list" | "execute";
   os_ids?: string[];
