@@ -324,7 +324,8 @@ serve(async (req) => {
               data_vencimento: vencimento,
               status: "aberto",
               itens_total: successOS.length,
-              observacao: `Negociação: ${parcelas}x de ${valor.toFixed(2)} — dia ${dia_vencimento} a partir de ${mes_inicio}`,
+              negociacao_numero: negociacao_numero,
+              observacao: `Neg. nº${negociacao_numero} — ${parcelas}x de ${valor.toFixed(2)} — dia ${dia_vencimento} a partir de ${mes_inicio}`,
             })
             .select("id")
             .single();
