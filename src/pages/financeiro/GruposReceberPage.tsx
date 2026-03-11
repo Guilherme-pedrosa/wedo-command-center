@@ -28,7 +28,8 @@ export default function GruposReceberPage() {
   const [generatingPix, setGeneratingPix] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [showNfse, setShowNfse] = useState(false);
-  const [nfseForm, setNfseForm] = useState({ numero: "", link: "" });
+  const [nfseForm, setNfseForm] = useState({ numero: "", link: "", valor: "", cliente: "" });
+  const [nfseErrors, setNfseErrors] = useState<string[]>([]);
   const [savingNfse, setSavingNfse] = useState(false);
 
   const { data: grupos, isLoading } = useQuery({
