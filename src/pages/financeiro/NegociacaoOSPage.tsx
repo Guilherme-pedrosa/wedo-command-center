@@ -65,9 +65,10 @@ export default function NegociacaoOSPage() {
         body: { action: "list" },
       });
       if (error) throw error;
-      setClients(data.clients || []);
-      if (data.clients?.length === 0) {
-        toast("Nenhuma OS em 'Ag Negociação' encontrada", { icon: "ℹ️" });
+      const groupedClients = (data.clients || []).filter((c: ClientGroup) => c.os_list.length > 1);
+      setClients(groupedClients);
+      if (groupedClients.length === 0) {
+        toast("Nenhum cliente com 2+ OS em 'Ag Negociação' encontrado", { icon: "ℹ️" });
       }
     } catch (err) {
       toast.error(`Erro ao buscar OS: ${(err as Error).message}`);
