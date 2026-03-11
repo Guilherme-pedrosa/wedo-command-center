@@ -25,12 +25,13 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
 
 interface NegotiateRequest {
   action: "list" | "execute";
-  // For execute:
   os_ids?: string[];
   parcelas?: number;
   dia_vencimento?: number;
   mes_inicio?: string; // YYYY-MM
   forma_pagamento_id?: string;
+  nome_cliente?: string;
+  cliente_gc_id?: string;
 }
 
 serve(async (req) => {
@@ -64,8 +65,8 @@ serve(async (req) => {
 
     const body: NegotiateRequest = await req.json();
 
+    // ─── LIST ──────────────────────────────────────────────
     if (body.action === "list") {
-      // Fetch all OS with situacao Ag Negociação
       const allOS: Record<string, unknown>[] = [];
       let page = 1;
       let totalPages = 1;
@@ -141,8 +142,9 @@ serve(async (req) => {
       );
     }
 
+    // ─── EXECUTE ───────────────────────────────────────────
     if (body.action === "execute") {
-      const { os_ids, parcelas, dia_vencimento, mes_inicio, forma_pagamento_id } = body;
+      const { os_ids, parcelas, dia_vencimento, mes_inicio, nome_cliente, cliente_gc_id } = body;
 
       if (!os_ids?.length || !parcelas || !dia_vencimento || !mes_inicio) {
         return new Response(
@@ -153,65 +155,69 @@ serve(async (req) => {
 
       // Generate due dates
       const [startYear, startMonth] = mes_inicio.split("-").map(Number);
-      const duesDates: string[] = [];
+      const dueDates: string[] = [];
       for (let i = 0; i < parcelas; i++) {
         const d = new Date(startYear, startMonth - 1 + i, dia_vencimento);
         const yyyy = d.getFullYear();
         const mm = String(d.getMonth() + 1).padStart(2, "0");
         const dd = String(d.getDate()).padStart(2, "0");
-        duesDates.push(`${yyyy}-${mm}-${dd}`);
+        dueDates.push(`${yyyy}-${mm}-${dd}`);
       }
 
-      const results: { os_id: string; status: string; error?: string }[] = [];
+      // 1. Fetch all OS details first (to get required PUT fields + values)
+      const osDetails: { id: string; codigo: string; tipo: string; cliente_id: string; data: string; valor_total: number; nome_cliente: string }[] = [];
+      const gcUpdateResults: { os_id: string; status: string; error?: string }[] = [];
 
       for (const osId of os_ids) {
         try {
-          // 1. Fetch OS details to get required fields
           const osResp = await rateLimitedFetch(
             `${GC_BASE_URL}/api/ordens_servicos/${osId}`,
             { headers: gcHeaders }
           );
 
           if (!osResp.ok) {
-            results.push({ os_id: osId, status: "error", error: `Fetch failed: ${osResp.status}` });
+            gcUpdateResults.push({ os_id: osId, status: "error", error: `Fetch failed: ${osResp.status}` });
             continue;
           }
 
           const osData = await osResp.json();
           const os = osData?.data || osData;
-
           const valorTotal = parseFloat(String(os.valor_total || "0")) || 0;
+
           if (valorTotal <= 0) {
-            results.push({ os_id: osId, status: "error", error: "Valor total = 0" });
+            gcUpdateResults.push({ os_id: osId, status: "error", error: "Valor total = 0" });
             continue;
           }
 
-          // Split value equally
-          const valorParcela = Math.floor((valorTotal / parcelas) * 100) / 100;
-          const valorUltima = Math.round((valorTotal - valorParcela * (parcelas - 1)) * 100) / 100;
-
-          // Build pagamentos array
-          const pagamentos = duesDates.map((dt, idx) => ({
-            pagamento: {
-              data_vencimento: dt,
-              valor: String(idx === parcelas - 1 ? valorUltima : valorParcela),
-              ...(forma_pagamento_id ? { forma_pagamento_id } : {}),
-            },
-          }));
-
-          // 2. PUT to update OS: change situacao + add pagamentos
-          const updatePayload: Record<string, unknown> = {
-            tipo: String(os.tipo || "servico"),
+          osDetails.push({
+            id: osId,
             codigo: String(os.codigo || ""),
+            tipo: String(os.tipo || "servico"),
             cliente_id: String(os.cliente_id || ""),
-            situacao_id: SITUACAO_DESTINO,
             data: String(os.data || new Date().toISOString().slice(0, 10)),
-            condicao_pagamento: parcelas > 1 ? "parcelado" : "a_vista",
-            pagamentos,
+            valor_total: valorTotal,
+            nome_cliente: String(os.nome_cliente || nome_cliente || ""),
+          });
+        } catch (err) {
+          gcUpdateResults.push({ os_id: osId, status: "error", error: (err as Error).message });
+        }
+      }
+
+      // 2. Update each OS in GC — ONLY change situacao_id (preserve value)
+      for (const os of osDetails) {
+        try {
+          const updatePayload = {
+            tipo: os.tipo,
+            codigo: os.codigo,
+            cliente_id: os.cliente_id,
+            situacao_id: SITUACAO_DESTINO,
+            data: os.data,
           };
 
+          console.log(`[negotiate-os] PUT OS ${os.id} (codigo=${os.codigo}) — only situacao change`);
+
           const putResp = await rateLimitedFetch(
-            `${GC_BASE_URL}/api/ordens_servicos/${osId}`,
+            `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
             {
               method: "PUT",
               headers: gcHeaders,
@@ -221,37 +227,134 @@ serve(async (req) => {
 
           const putData = await putResp.json();
 
-          if (putResp.ok && putData?.code === 200) {
-            results.push({ os_id: osId, status: "ok" });
+          if (putResp.ok && (putData?.code === 200 || putData?.status === "success")) {
+            gcUpdateResults.push({ os_id: os.id, status: "ok" });
           } else {
-            results.push({
-              os_id: osId,
+            gcUpdateResults.push({
+              os_id: os.id,
               status: "error",
               error: putData?.message || putData?.status || `HTTP ${putResp.status}`,
             });
           }
         } catch (err) {
-          results.push({ os_id: osId, status: "error", error: (err as Error).message });
+          gcUpdateResults.push({ os_id: os.id, status: "error", error: (err as Error).message });
         }
       }
 
-      const successCount = results.filter((r) => r.status === "ok").length;
-      const errorCount = results.filter((r) => r.status === "error").length;
+      // 3. Create fin_grupos_receber — one group per installment
+      const successOS = osDetails.filter((os) =>
+        gcUpdateResults.find((r) => r.os_id === os.id && r.status === "ok")
+      );
+
+      const totalValor = successOS.reduce((sum, os) => sum + os.valor_total, 0);
+      const grupoIds: string[] = [];
+
+      if (successOS.length > 0 && totalValor > 0) {
+        const valorParcela = Math.floor((totalValor / parcelas) * 100) / 100;
+        const valorUltima = Math.round((totalValor - valorParcela * (parcelas - 1)) * 100) / 100;
+        const clienteNome = successOS[0].nome_cliente || nome_cliente || "Cliente";
+
+        for (let i = 0; i < parcelas; i++) {
+          const valor = i === parcelas - 1 ? valorUltima : valorParcela;
+          const vencimento = dueDates[i];
+          const nomeGrupo = `${clienteNome} — Negociação ${i + 1}/${parcelas}`;
+
+          // Insert grupo
+          const { data: grupo, error: grupoErr } = await supabase
+            .from("fin_grupos_receber")
+            .insert({
+              nome: nomeGrupo,
+              cliente_gc_id: cliente_gc_id || successOS[0].cliente_id || null,
+              nome_cliente: clienteNome,
+              valor_total: valor,
+              data_vencimento: vencimento,
+              status: "aberto",
+              itens_total: successOS.length,
+              observacao: `Negociação: ${parcelas}x de ${valor.toFixed(2)} — dia ${dia_vencimento} a partir de ${mes_inicio}`,
+            })
+            .select("id")
+            .single();
+
+          if (grupoErr) {
+            console.error(`[negotiate-os] Error creating grupo ${i + 1}:`, grupoErr.message);
+            continue;
+          }
+
+          grupoIds.push(grupo.id);
+
+          // Insert grupo items — each OS is linked proportionally
+          const itens = successOS.map((os) => {
+            const proporcao = os.valor_total / totalValor;
+            return {
+              grupo_id: grupo.id,
+              recebimento_id: null as unknown as string, // We'll create recebimentos below
+              gc_os_id: os.id,
+              os_codigo_original: os.codigo,
+              valor: Math.round(valor * proporcao * 100) / 100,
+              snapshot_valor: os.valor_total,
+              snapshot_data: vencimento,
+            };
+          });
+
+          // Create corresponding fin_recebimentos for each OS in this installment
+          for (const item of itens) {
+            const osDetail = successOS.find((o) => o.id === item.gc_os_id);
+            if (!osDetail) continue;
+
+            const { data: receb, error: recebErr } = await supabase
+              .from("fin_recebimentos")
+              .insert({
+                descricao: `OS ${osDetail.codigo} — Parcela ${i + 1}/${parcelas}`,
+                valor: item.valor,
+                data_vencimento: vencimento,
+                nome_cliente: clienteNome,
+                cliente_gc_id: cliente_gc_id || osDetail.cliente_id || null,
+                os_codigo: osDetail.codigo,
+                origem: "manual",
+                status: "pendente",
+                grupo_id: grupo.id,
+              })
+              .select("id")
+              .single();
+
+            if (recebErr) {
+              console.error(`[negotiate-os] Error creating recebimento for OS ${osDetail.codigo}:`, recebErr.message);
+              continue;
+            }
+
+            // Insert grupo item with recebimento_id
+            await supabase.from("fin_grupo_receber_itens").insert({
+              grupo_id: grupo.id,
+              recebimento_id: receb.id,
+              gc_os_id: osDetail.id,
+              os_codigo_original: osDetail.codigo,
+              valor: item.valor,
+              snapshot_valor: osDetail.valor_total,
+              snapshot_data: vencimento,
+            });
+          }
+        }
+      }
+
+      const okCount = gcUpdateResults.filter((r) => r.status === "ok").length;
+      const errCount = gcUpdateResults.filter((r) => r.status === "error").length;
 
       // Log
       await supabase.from("fin_sync_log").insert({
         tipo: "negotiate-os",
-        status: errorCount > 0 ? (successCount > 0 ? "partial" : "erro") : "ok",
-        payload: { os_ids, parcelas, dia_vencimento, mes_inicio, forma_pagamento_id },
-        resposta: { results },
+        status: errCount > 0 ? (okCount > 0 ? "partial" : "erro") : "ok",
+        payload: { os_ids, parcelas, dia_vencimento, mes_inicio, cliente_gc_id },
+        resposta: { gcUpdateResults, grupoIds, totalValor },
         duracao_ms: Date.now() - startTime,
       });
 
       return new Response(
         JSON.stringify({
           success: true,
-          results,
-          summary: { total: os_ids.length, ok: successCount, errors: errorCount },
+          results: gcUpdateResults,
+          grupos_criados: grupoIds.length,
+          grupo_ids: grupoIds,
+          summary: { total: os_ids.length, ok: okCount, errors: errCount },
           duration_ms: Date.now() - startTime,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
