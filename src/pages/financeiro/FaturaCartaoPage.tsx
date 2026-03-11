@@ -880,7 +880,7 @@ export default function FaturaCartaoPage() {
             {novaFatura.forma_pagamento_ids.length > 0 && (
               <div className="p-2 rounded bg-muted/50 text-xs text-muted-foreground">
                 {novaFatura.forma_pagamento_ids.length > 1 ? (
-                  <p>Serão criadas <strong>{novaFatura.forma_pagamento_ids.length} faturas</strong>, uma para cada forma de pagamento selecionada.</p>
+                  <p>Uma fatura será criada com pagamentos de <strong>{novaFatura.forma_pagamento_ids.length} formas de pagamento</strong> combinadas.</p>
                 ) : novaFatura.data_vencimento ? (
                   <p>O sistema tenta primeiro <strong>data de vencimento = {fmtDate(novaFatura.data_vencimento)}</strong>; se não encontrar, usa o <strong>mês de referência</strong> e depois a <strong>data de competência</strong> no período.</p>
                 ) : novaFatura.data_fechamento_inicio && novaFatura.data_fechamento_fim ? (
@@ -894,7 +894,7 @@ export default function FaturaCartaoPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowFaturaDialog(false)}>Cancelar</Button>
             <Button onClick={handleCriarFatura} disabled={!novaFatura.cartao_id || novaFatura.forma_pagamento_ids.length === 0 || saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : novaFatura.forma_pagamento_ids.length > 1 ? `Criar ${novaFatura.forma_pagamento_ids.length} Faturas` : "Criar Fatura"}
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Criar Fatura"}
             </Button>
           </DialogFooter>
         </DialogContent>
