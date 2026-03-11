@@ -417,19 +417,20 @@ export default function FaturaCartaoPage() {
 
       {/* Filtros */}
       <div className="flex gap-3 items-center">
-        <Select value={cartaoSel} onValueChange={setCartaoSel}>
-          <SelectTrigger className="w-[220px]">
-            <SelectValue placeholder="Filtrar cartão" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos os cartões</SelectItem>
-            {cartoes.map(c => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.nome}{c.ultimos_digitos ? ` •••${c.ultimos_digitos}` : ""}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={cartaoSel}
+          onValueChange={setCartaoSel}
+          placeholder="Filtrar cartão"
+          searchPlaceholder="Buscar cartão..."
+          className="w-[220px]"
+          options={[
+            { value: "all", label: "Todos os cartões" },
+            ...cartoes.map(c => ({
+              value: c.id,
+              label: `${c.nome}${c.ultimos_digitos ? ` •••${c.ultimos_digitos}` : ""}`,
+            })),
+          ]}
+        />
         <Input type="month" value={mesSel} onChange={e => setMesSel(e.target.value)} className="w-[160px]" />
         {(cartaoSel !== "all" || mesSel) && (
           <Button variant="ghost" size="sm" onClick={() => { setCartaoSel("all"); setMesSel(""); }}>
