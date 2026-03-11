@@ -454,7 +454,7 @@ serve(async (req) => {
             console.log(`[negotiate-os] STEP D: OS ${os.id} → buscando recebimentos gerados`);
 
             try {
-              const maxAttempts = 12;
+              const maxAttempts = 8;
               const waitBetweenAttemptsMs = 1500;
               const expectedByDueDate = new Map<string, number[]>();
 
@@ -474,8 +474,71 @@ serve(async (req) => {
                 return Math.round(parsed * 100) / 100;
               };
 
-              const fetchRecebimentos = async (scopedByClient: boolean, maxPages: number): Promise<Record<string, unknown>[]> => {
-                const list: Record<string, unknown>[] = [];
+              const parseDateLike = (value: unknown): number => {
+                const raw = String(value ?? "").trim();
+                if (!raw) return Number.NaN;
+                const candidate = raw.includes("T") ? raw : raw.replace(" ", "T");
+                const ts = Date.parse(candidate);
+                return Number.isFinite(ts) ? ts : Number.NaN;
+              };
+
+              const unwrapFinancialRecord = (input: unknown): Record<string, unknown> => {
+                let current: unknown = input;
+
+                for (let i = 0; i < 5; i++) {
+                  if (!current || typeof current !== "object") break;
+                  const obj = current as Record<string, unknown>;
+
+                  const hasId = Boolean(obj.id || obj.codigo);
+                  const hasCoreFields = (
+                    obj.descricao !== undefined ||
+                    obj.valor !== undefined ||
+                    obj.valor_total !== undefined ||
+                    obj.data_vencimento !== undefined
+                  );
+
+                  if (hasId && hasCoreFields) return obj;
+
+                  const preferredWrappers = [
+                    "Recebimento",
+                    "recebimento",
+                    "Pagamento",
+                    "pagamento",
+                    "MovimentacaoFinanceira",
+                    "movimentacao_financeira",
+                    "movimentacao",
+                    "data",
+                  ];
+
+                  let next: unknown = null;
+                  for (const key of preferredWrappers) {
+                    const candidate = obj[key];
+                    if (candidate && typeof candidate === "object") {
+                      next = candidate;
+                      break;
+                    }
+                  }
+
+                  if (!next) {
+                    const nestedObjects = Object.values(obj).filter((v) => v && typeof v === "object");
+                    if (nestedObjects.length === 1) {
+                      next = nestedObjects[0];
+                    }
+                  }
+
+                  if (!next) return obj;
+                  current = next;
+                }
+
+                return (current && typeof current === "object") ? current as Record<string, unknown> : {};
+              };
+
+              const fetchFinancialRecords = async (
+                endpoint: "/api/recebimentos" | "/api/pagamentos",
+                maxPages: number,
+                onlyOpen: boolean,
+              ): Promise<Array<{ endpoint: "/api/recebimentos" | "/api/pagamentos"; record: Record<string, unknown> }>> => {
+                const list: Array<{ endpoint: "/api/recebimentos" | "/api/pagamentos"; record: Record<string, unknown> }> = [];
                 let recPage = 1;
                 let recTotalPages = 1;
 
@@ -483,15 +546,12 @@ serve(async (req) => {
                   const paramsObj: Record<string, string> = {
                     limite: "100",
                     pagina: String(recPage),
-                    liquidado: "ab",
                   };
-                  if (scopedByClient && os.cliente_id) {
-                    paramsObj.cliente_id = os.cliente_id;
-                  }
+                  if (onlyOpen) paramsObj.liquidado = "0";
 
                   const searchParams = new URLSearchParams(paramsObj);
                   const recResp = await rateLimitedFetch(
-                    `${GC_BASE_URL}/api/recebimentos?${searchParams.toString()}`,
+                    `${GC_BASE_URL}${endpoint}?${searchParams.toString()}`,
                     { headers: gcHeaders }
                   );
 
@@ -499,11 +559,13 @@ serve(async (req) => {
 
                   const recData = await recResp.json();
                   const rawList = Array.isArray(recData?.data) ? recData.data : [];
-                  recTotalPages = recData?.meta?.total_paginas || 1;
+                  recTotalPages = Number(recData?.meta?.total_paginas || 1);
 
                   for (const item of rawList) {
-                    const unwrapped = (item?.Recebimento || item?.recebimento || item) as Record<string, unknown>;
-                    list.push(unwrapped);
+                    const unwrapped = unwrapFinancialRecord(item);
+                    const recId = String(unwrapped.id || unwrapped.codigo || "").trim();
+                    if (!recId) continue;
+                    list.push({ endpoint, record: unwrapped });
                   }
                   recPage++;
                 }
@@ -512,23 +574,36 @@ serve(async (req) => {
               };
 
               const codigoLower = os.codigo.toLowerCase();
-              let matching: Record<string, unknown>[] = [];
+              const nomeClienteLower = String(os.nome_cliente || "").toLowerCase();
+              let matching: Array<{ endpoint: "/api/recebimentos" | "/api/pagamentos"; record: Record<string, unknown> }> = [];
 
               for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-                const scoped = await fetchRecebimentos(true, 8);
-                const fallback = scoped.length < parcelas ? await fetchRecebimentos(false, 3) : [];
+                const shouldFetchClosed = attempt % 3 === 0;
+                const maxPages = attempt <= 2 ? 6 : 10;
+                const gathered: Array<{ endpoint: "/api/recebimentos" | "/api/pagamentos"; record: Record<string, unknown> }> = [];
 
-                const mergedById = new Map<string, Record<string, unknown>>();
-                for (const rec of [...scoped, ...fallback]) {
-                  const recId = String(rec.id || rec.codigo || "").trim();
-                  if (!recId) continue;
-                  mergedById.set(recId, rec);
+                for (const endpoint of ["/api/recebimentos", "/api/pagamentos"] as const) {
+                  const openRecords = await fetchFinancialRecords(endpoint, maxPages, true);
+                  gathered.push(...openRecords);
+
+                  if (shouldFetchClosed) {
+                    const allRecords = await fetchFinancialRecords(endpoint, Math.max(3, Math.floor(maxPages / 2)), false);
+                    gathered.push(...allRecords);
+                  }
                 }
 
-                const allRecs = Array.from(mergedById.values());
+                const deduped = new Map<string, { endpoint: "/api/recebimentos" | "/api/pagamentos"; record: Record<string, unknown> }>();
+                for (const item of gathered) {
+                  const recId = String(item.record.id || item.record.codigo || "").trim();
+                  if (!recId) continue;
+                  deduped.set(`${item.endpoint}:${recId}`, item);
+                }
 
-                matching = allRecs.filter((r) => {
-                  const desc = String(r.descricao || "").toLowerCase();
+                const allRecords = Array.from(deduped.values());
+                const nowTs = Date.now();
+
+                matching = allRecords.filter(({ record }) => {
+                  const desc = String(record.descricao || "").toLowerCase();
                   const matchesOsByDesc =
                     desc.includes(`nº ${codigoLower}`) ||
                     desc.includes(`n° ${codigoLower}`) ||
@@ -539,20 +614,29 @@ serve(async (req) => {
                     desc.includes(`os ${codigoLower}`) ||
                     (desc.includes("ordem de serviço") && desc.includes(codigoLower));
 
-                  const dueDate = String(r.data_vencimento || r.vencimento || "").slice(0, 10);
+                  const dueDate = String(record.data_vencimento || record.vencimento || "").slice(0, 10);
                   const expectedValues = expectedByDueDate.get(dueDate) || [];
-                  const recValue = normalizeMoney(r.valor ?? r.valor_total);
+                  const recValue = normalizeMoney(record.valor ?? record.valor_total);
                   const matchesDueAndValue = expectedValues.some((v) => Math.abs(v - recValue) <= 0.02);
 
-                  const recClienteId = String(r.cliente_id || "").trim();
-                  const sameClient = !os.cliente_id || !recClienteId || recClienteId === String(os.cliente_id);
+                  const recClienteId = String(record.cliente_id || "").trim();
+                  const recNomeCliente = String(record.nome_cliente || "").toLowerCase();
+                  const sameClient =
+                    (Boolean(os.cliente_id) && recClienteId === String(os.cliente_id)) ||
+                    (Boolean(nomeClienteLower) && Boolean(recNomeCliente) && recNomeCliente === nomeClienteLower);
 
-                  return matchesOsByDesc || (sameClient && matchesDueAndValue);
+                  const createdTs = parseDateLike(record.cadastrado_em || record.created_at || record.modificado_em);
+                  const recentCreation = Number.isFinite(createdTs) && Math.abs(nowTs - createdTs) <= (1000 * 60 * 180);
+
+                  return matchesOsByDesc || (matchesDueAndValue && (sameClient || recentCreation));
                 });
 
-                const taggedCount = matching.filter((r) => String(r.descricao || "").includes(`[Neg ${negociacao_numero}]`)).length;
+                const alreadyTagged = matching.filter(({ record }) =>
+                  String(record.descricao || "").toUpperCase().includes(negTag.toUpperCase())
+                ).length;
+
                 console.log(
-                  `[negotiate-os] STEP D tentativa ${attempt}/${maxAttempts}: ${allRecs.length} recebimentos varridos, ${matching.length} candidatos, ${taggedCount} já tagueados (OS ${os.codigo})`
+                  `[negotiate-os] STEP D tentativa ${attempt}/${maxAttempts}: ${allRecords.length} financeiros varridos, ${matching.length} candidatos, ${alreadyTagged} já com ${negTag} (OS ${os.codigo})`
                 );
 
                 if (matching.length >= parcelas) break;
@@ -560,41 +644,42 @@ serve(async (req) => {
               }
 
               if (matching.length === 0) {
-                console.warn(`[negotiate-os] STEP D: nenhum recebimento encontrado para OS ${os.codigo}`);
+                console.warn(`[negotiate-os] STEP D: nenhum financeiro encontrado para OS ${os.codigo}`);
               }
 
-              for (const rec of matching) {
-                const recId = String(rec.id || "").trim();
+              for (const { endpoint, record } of matching) {
+                const recId = String(record.id || "").trim();
                 if (!recId) continue;
 
-                const currentDesc = String(rec.descricao || "").trim();
-                const cleanedDesc = currentDesc.replace(/^\[Neg\s+\d+\]\s*/i, "");
-                const newDesc = `[Neg ${negociacao_numero}] ${cleanedDesc}`.trim();
+                const currentDesc = String(record.descricao || "").trim();
+                const cleanedDesc = currentDesc
+                  .replace(/^\[?\s*neg[\s#\.\-]*\d+\]?\s*[-–—:]?\s*/i, "")
+                  .replace(/^NEG\d+\s*[-–—:]?\s*/i, "")
+                  .trim();
+                const newDesc = `${negTag} - ${cleanedDesc || `OS ${os.codigo}`}`;
 
-                if (currentDesc === newDesc) {
-                  continue;
-                }
+                if (currentDesc === newDesc) continue;
 
                 const putPayload: Record<string, unknown> = {
                   descricao: newDesc,
-                  data_vencimento: rec.data_vencimento,
-                  plano_contas_id: rec.plano_contas_id,
-                  forma_pagamento_id: rec.forma_pagamento_id,
-                  conta_bancaria_id: rec.conta_bancaria_id,
-                  valor: rec.valor,
-                  data_competencia: rec.data_competencia,
+                  data_vencimento: record.data_vencimento,
+                  plano_contas_id: record.plano_contas_id,
+                  forma_pagamento_id: record.forma_pagamento_id,
+                  conta_bancaria_id: record.conta_bancaria_id,
+                  valor: record.valor,
+                  data_competencia: record.data_competencia,
                 };
 
                 const putRecResp = await rateLimitedFetch(
-                  `${GC_BASE_URL}/api/recebimentos/${recId}`,
+                  `${GC_BASE_URL}${endpoint}/${recId}`,
                   { method: "PUT", headers: gcHeaders, body: JSON.stringify(putPayload) }
                 );
                 const putRecData = await putRecResp.json();
 
                 if (putRecResp.ok || putRecData?.code === 200) {
-                  console.log(`[negotiate-os] STEP D OK: Recebimento ${recId} → "${newDesc}"`);
+                  console.log(`[negotiate-os] STEP D OK: ${endpoint} ${recId} → "${newDesc}"`);
                 } else {
-                  console.warn(`[negotiate-os] STEP D ERRO: Recebimento ${recId}: ${putRecData?.message || putRecResp.status}`);
+                  console.warn(`[negotiate-os] STEP D ERRO: ${endpoint} ${recId}: ${putRecData?.message || putRecResp.status}`);
                 }
               }
             } catch (stepDErr: any) {
