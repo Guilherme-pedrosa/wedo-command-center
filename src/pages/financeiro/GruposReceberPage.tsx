@@ -31,6 +31,26 @@ export default function GruposReceberPage() {
       toast.error("Erro ao abrir XML");
     }
   };
+
+  const handleOpenNfseGC = async (nfseNumero: string) => {
+    try {
+      toast.loading("Buscando NFS-e no GestãoClick...", { id: "nfse-gc" });
+      const { callGC } = await import("@/lib/gc-client");
+      const res = await callGC<any>({
+        endpoint: "/api/notas_fiscais_servicos",
+        params: { numero: nfseNumero, limite: "1" },
+      });
+      const nfse = res.data?.data?.[0];
+      if (!nfse?.id) {
+        toast.error("NFS-e não encontrada no GestãoClick", { id: "nfse-gc" });
+        return;
+      }
+      toast.dismiss("nfse-gc");
+      window.open(`https://gestaoclick.com/notas_fiscais_servicos/visualizar/${nfse.id}`, "_blank");
+    } catch (err) {
+      toast.error("Erro ao buscar NFS-e no GC", { id: "nfse-gc" });
+    }
+  };
   const [statusFilter, setStatusFilter] = useState("todos");
   const [selectedGrupo, setSelectedGrupo] = useState<any>(null);
   const [showBaixa, setShowBaixa] = useState(false);
