@@ -581,6 +581,12 @@ export default function FaturaCartaoPage() {
                           <Unlink className="h-3.5 w-3.5 mr-1" /> Desvincular Extrato
                         </Button>
                       )}
+                      <Button size="sm" variant="outline" onClick={() => handleAbrirEdicao(f)}>
+                        <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+                      </Button>
+                      <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => handleExcluirFatura(f.id)} disabled={saving}>
+                        <Trash2 className="h-3.5 w-3.5 mr-1" /> Excluir
+                      </Button>
                     </div>
 
                     {/* Tabela de transações */}
