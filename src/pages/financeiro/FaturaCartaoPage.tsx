@@ -244,15 +244,28 @@ export default function FaturaCartaoPage() {
     }
     setSaving(true);
     try {
-      // 1. Buscar pagamentos no período pela forma de pagamento
-      const { data: pagamentos, error: pgErr } = await supabase
+      // 1. Buscar pagamentos pela forma de pagamento
+      // No ERP, todos os lançamentos de cartão compartilham a mesma data_vencimento
+      // (dia de pagamento da fatura). Então filtramos por data_vencimento = vencimento da fatura
+      // OU por data_competencia dentro do período de fechamento como fallback.
+      let pgQuery = supabase
         .from("fin_pagamentos")
-        .select("id,descricao,valor,data_vencimento,nome_fornecedor,status")
+        .select("id,descricao,valor,data_vencimento,data_competencia,nome_fornecedor,status")
         .eq("forma_pagamento_id", novaFatura.forma_pagamento_id)
-        .gte("data_vencimento", novaFatura.data_fechamento_inicio)
-        .lte("data_vencimento", novaFatura.data_fechamento_fim)
         .neq("status", "cancelado")
         .order("data_vencimento");
+
+      if (novaFatura.data_vencimento) {
+        // Estratégia principal: buscar pelo vencimento da fatura (como o ERP grava)
+        pgQuery = pgQuery.eq("data_vencimento", novaFatura.data_vencimento);
+      } else {
+        // Fallback: buscar por data_competencia no período de fechamento
+        pgQuery = pgQuery
+          .gte("data_competencia", novaFatura.data_fechamento_inicio)
+          .lte("data_competencia", novaFatura.data_fechamento_fim);
+      }
+
+      const { data: pagamentos, error: pgErr } = await pgQuery;
 
       if (pgErr) throw pgErr;
 
@@ -745,9 +758,15 @@ export default function FaturaCartaoPage() {
               <Input type="date" value={novaFatura.data_vencimento} onChange={e => setNovaFatura(p => ({ ...p, data_vencimento: e.target.value }))} />
             </div>
 
-            {novaFatura.cartao_id && novaFatura.data_fechamento_inicio && novaFatura.data_fechamento_fim && (
+            {novaFatura.forma_pagamento_id && (
               <div className="p-2 rounded bg-muted/50 text-xs text-muted-foreground">
-                <p>O sistema buscará todos os pagamentos com a forma de pagamento selecionada e data de vencimento entre <strong>{fmtDate(novaFatura.data_fechamento_inicio)}</strong> e <strong>{fmtDate(novaFatura.data_fechamento_fim)}</strong>.</p>
+                {novaFatura.data_vencimento ? (
+                  <p>O sistema buscará todos os pagamentos com a forma de pagamento selecionada e <strong>data de vencimento = {fmtDate(novaFatura.data_vencimento)}</strong>.</p>
+                ) : novaFatura.data_fechamento_inicio && novaFatura.data_fechamento_fim ? (
+                  <p>Sem data de vencimento, o sistema usará a <strong>data de competência</strong> entre <strong>{fmtDate(novaFatura.data_fechamento_inicio)}</strong> e <strong>{fmtDate(novaFatura.data_fechamento_fim)}</strong>.</p>
+                ) : (
+                  <p>Informe a data de vencimento da fatura para buscar os pagamentos correspondentes.</p>
+                )}
               </div>
             )}
           </div>
