@@ -515,15 +515,35 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+    const dateFrom = typeof body?.dateFrom === "string" ? body.dateFrom : null;
+    const dateTo = typeof body?.dateTo === "string" ? body.dateTo : null;
+    const extratoIds = Array.isArray(body?.extratoIds)
+      ? body.extratoIds.filter((id: unknown): id is string => typeof id === "string" && id.length > 0)
+      : [];
+    const requestedLimit = Number(body?.limit);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(requestedLimit, 500))
+      : (extratoIds.length > 0 || dateFrom || dateTo ? 200 : 50);
+
     // 1. Extrato não reconciliado (excluindo exceções manuais)
     const MANUAL_EXCEPTIONS = ['SEM_PAR_GC', 'TRANSFERENCIA_INTERNA', 'PIX_DEVOLVIDO_MANUAL'];
-    const { data: extratos, error: errE } = await supabase
+    let extratosQuery = supabase
       .from("fin_extrato_inter")
       .select("*")
       .eq("reconciliado", false)
-      .or(`reconciliation_rule.is.null,reconciliation_rule.not.in.(${MANUAL_EXCEPTIONS.join(",")})`)
+      .or(`reconciliation_rule.is.null,reconciliation_rule.not.in.(${MANUAL_EXCEPTIONS.join(",")})`);
+
+    if (extratoIds.length > 0) {
+      extratosQuery = extratosQuery.in("id", extratoIds);
+    } else {
+      if (dateFrom) extratosQuery = extratosQuery.gte("data_hora", dateFrom);
+      if (dateTo) extratosQuery = extratosQuery.lte("data_hora", dateTo);
+    }
+
+    const { data: extratos, error: errE } = await extratosQuery
       .order("data_hora", { ascending: true })
-      .limit(50);
+      .limit(limit);
 
     if (errE) throw new Error(`fin_extrato_inter: ${errE.message}`);
 
