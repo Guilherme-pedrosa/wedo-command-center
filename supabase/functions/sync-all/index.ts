@@ -224,7 +224,7 @@ serve(async (req) => {
     console.log("[sync-all] Starting recebimentos sync...");
     const recStart = Date.now();
     try {
-      const { records: recRecords } = await fetchAllPages("/api/recebimentos", gcHeaders);
+      const { records: recRecords } = await fetchAllPages("/api/recebimentos", gcHeaders, finDateParams);
       let gcRecUpserted = 0;
       let finRecUpserted = 0;
       let recErrors = 0;
