@@ -878,14 +878,6 @@ export default function PrecificacaoPage() {
                   onChange={(e) => setTaxEntrada({ ...taxEntrada, frete: parseFloat(e.target.value) || 0 })}
                   className="h-8 bg-secondary text-sm" />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Custo fixo/un (R$)</Label>
-                <Input type="number" placeholder={custoFixoAutoUnit.toFixed(2)}
-                  value={taxEntrada.custoFixoUnit || ""}
-                  onChange={(e) => setTaxEntrada({ ...taxEntrada, custoFixoUnit: parseFloat(e.target.value) || 0 })}
-                  className="h-8 bg-secondary text-sm" />
-                <p className="text-[10px] text-muted-foreground">Vazio = rateio auto</p>
-              </div>
             </div>
           </CardContent>
         </Card>
