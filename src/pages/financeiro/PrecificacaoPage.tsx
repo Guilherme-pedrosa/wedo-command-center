@@ -249,7 +249,15 @@ export default function PrecificacaoPage() {
     },
   });
 
-  // ── Fetch product tax profiles from NFs ──
+  // Show toast when GC API limit is hit
+  const isApiLimitHit = produtosError?.message?.includes("Limite diário");
+  useEffect(() => {
+    if (isApiLimitHit) {
+      toast.error("Limite diário da API GestãoClick atingido. Exibindo dados offline (tributos das NFs).");
+    }
+  }, [isApiLimitHit]);
+
+
   const { data: tributos, refetch: refetchTributos } = useQuery({
     queryKey: ["produto-tributos"],
     queryFn: async () => {
