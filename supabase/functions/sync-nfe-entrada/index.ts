@@ -699,6 +699,12 @@ serve(async (req) => {
       });
     }
 
+    // ── Increment daily counter with actual GC calls made ──
+    if (gcCallCount > 0) {
+      await incrementDailyCounter(supabase, gcCallCount);
+      console.log(`[sync-nfe-entrada] ${gcCallCount} chamadas GC neste batch`);
+    }
+
     return new Response(
       JSON.stringify({
         ok: true,
@@ -712,6 +718,7 @@ serve(async (req) => {
         xmls_usados: xmlsUsed,
         produtos_processados: records.length,
         upserted,
+        gc_calls_this_batch: gcCallCount,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
