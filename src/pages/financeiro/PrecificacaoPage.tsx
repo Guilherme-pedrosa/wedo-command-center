@@ -1043,7 +1043,6 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs text-right">Créd. Entrada</TableHead>
                   <TableHead className="text-xs text-right">Custo Total</TableHead>
                   <TableHead className="text-xs text-right">Trib. Saída</TableHead>
-                  <TableHead className="text-xs text-right">IR s/ Lucro</TableHead>
                   <TableHead className="text-xs text-right font-semibold text-primary">Preço Mín.</TableHead>
                   <TableHead className="text-xs text-right">Venda GC</TableHead>
                   <TableHead className="text-xs text-center">Status</TableHead>
