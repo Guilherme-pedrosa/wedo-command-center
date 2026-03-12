@@ -1045,7 +1045,9 @@ export default function PrecificacaoPage() {
                                   : "bg-primary/20 text-primary"
                               }`}>
                                 <FileText className="h-3 w-3" />
-                                {tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito ? "NF·SN" : "NF"}
+                                {tributo.fornecedor_nome || "NF"}
+                                {tributo.nf_numero ? ` #${tributo.nf_numero}` : ""}
+                                {(tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito) ? " ·SN" : ""}
                               </Badge>
                             </TooltipTrigger>
                             <TooltipContent className="text-xs max-w-sm">
