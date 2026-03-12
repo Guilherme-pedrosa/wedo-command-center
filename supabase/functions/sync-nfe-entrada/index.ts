@@ -98,16 +98,158 @@ interface ProductTaxRecord {
   custo_efetivo_unit: number;
 }
 
+// ══════════════════════════════════════════════════════════════
+//  XML PARSER — extrai impostos POR ITEM do XML real da NF-e
+// ══════════════════════════════════════════════════════════════
+
+function getTag(xml: string, tag: string): string {
+  const patterns = [
+    new RegExp(`<(?:[a-zA-Z0-9]+:)?${tag}[^>]*>([^<]*)<\\/(?:[a-zA-Z0-9]+:)?${tag}>`, "i"),
+    new RegExp(`<${tag}[^>]*>([^<]*)<\\/${tag}>`, "i"),
+  ];
+  for (const re of patterns) {
+    const m = xml.match(re);
+    if (m?.[1]?.trim()) return m[1].trim();
+  }
+  return "";
+}
+
+function getBlock(xml: string, tag: string): string {
+  const re = new RegExp(`<(?:[a-zA-Z0-9]+:)?${tag}[^>]*>([\\s\\S]*?)<\\/(?:[a-zA-Z0-9]+:)?${tag}>`, "i");
+  const m = xml.match(re);
+  return m?.[1] ?? "";
+}
+
+function getAllBlocks(xml: string, tag: string): string[] {
+  const re = new RegExp(`<(?:[a-zA-Z0-9]+:)?${tag}[^>]*>[\\s\\S]*?<\\/(?:[a-zA-Z0-9]+:)?${tag}>`, "gi");
+  return [...xml.matchAll(re)].map(m => m[0]);
+}
+
+interface XmlItemTax {
+  nItem: number;
+  cProd: string;
+  xProd: string;
+  NCM: string;
+  CFOP: string;
+  qCom: number;
+  vProd: number;
+  vUnCom: number;
+  // ICMS
+  icms_orig: string;
+  icms_cst: string;
+  icms_pRedBC: number;
+  icms_vBC: number;
+  icms_pICMS: number;
+  icms_vICMS: number;
+  // IPI
+  ipi_cst: string;
+  ipi_vBC: number;
+  ipi_pIPI: number;
+  ipi_vIPI: number;
+  // PIS
+  pis_cst: string;
+  pis_vBC: number;
+  pis_pPIS: number;
+  pis_vPIS: number;
+  // COFINS
+  cofins_cst: string;
+  cofins_vBC: number;
+  cofins_pCOFINS: number;
+  cofins_vCOFINS: number;
+}
+
+function parseXmlItems(xml: string): XmlItemTax[] {
+  const detBlocks = getAllBlocks(xml, "det");
+  const items: XmlItemTax[] = [];
+
+  for (const det of detBlocks) {
+    const nItemMatch = det.match(/nItem="(\d+)"/i);
+    const nItem = nItemMatch ? parseInt(nItemMatch[1]) : items.length + 1;
+
+    const prod = getBlock(det, "prod");
+    const imposto = getBlock(det, "imposto");
+
+    // ── Produto ──
+    const cProd = getTag(prod, "cProd");
+    const xProd = getTag(prod, "xProd");
+    const NCM = getTag(prod, "NCM");
+    const CFOP = getTag(prod, "CFOP");
+    const qCom = parseFloat(getTag(prod, "qCom")) || 1;
+    const vProd = parseFloat(getTag(prod, "vProd")) || 0;
+    const vUnCom = parseFloat(getTag(prod, "vUnCom")) || 0;
+
+    // ── ICMS — try all CST variants (ICMS00, ICMS10, ICMS20, ICMS30, ICMS40, ICMS51, ICMS60, ICMS70, ICMS90, ICMSSN101...) ──
+    const icmsBlock = getBlock(imposto, "ICMS");
+    // Find the actual CST-specific block inside <ICMS>
+    const icmsInner = icmsBlock.replace(/<\/?(?:[a-zA-Z0-9]+:)?ICMS>/gi, "").trim();
+    const icms_orig = getTag(icmsInner, "orig");
+    const icms_cst = getTag(icmsInner, "CST") || getTag(icmsInner, "CSOSN");
+    const icms_pRedBC = parseFloat(getTag(icmsInner, "pRedBC")) || 0;
+    const icms_vBC = parseFloat(getTag(icmsInner, "vBC")) || 0;
+    const icms_pICMS = parseFloat(getTag(icmsInner, "pICMS")) || 0;
+    const icms_vICMS = parseFloat(getTag(icmsInner, "vICMS")) || 0;
+
+    // ── IPI ──
+    const ipiBlock = getBlock(imposto, "IPI");
+    const ipiTrib = getBlock(ipiBlock, "IPITrib") || ipiBlock;
+    const ipi_cst = getTag(ipiTrib, "CST") || getTag(getBlock(ipiBlock, "IPINT"), "CST") || "";
+    const ipi_vBC = parseFloat(getTag(ipiTrib, "vBC")) || 0;
+    const ipi_pIPI = parseFloat(getTag(ipiTrib, "pIPI")) || 0;
+    const ipi_vIPI = parseFloat(getTag(ipiTrib, "vIPI")) || 0;
+
+    // ── PIS ──
+    const pisBlock = getBlock(imposto, "PIS");
+    const pisInner = getBlock(pisBlock, "PISAliq") || getBlock(pisBlock, "PISQtde") || getBlock(pisBlock, "PISOutr") || pisBlock;
+    const pis_cst = getTag(pisInner, "CST") || getTag(getBlock(pisBlock, "PISNT"), "CST") || "";
+    const pis_vBC = parseFloat(getTag(pisInner, "vBC")) || 0;
+    const pis_pPIS = parseFloat(getTag(pisInner, "pPIS")) || 0;
+    const pis_vPIS = parseFloat(getTag(pisInner, "vPIS")) || 0;
+
+    // ── COFINS ──
+    const cofinsBlock = getBlock(imposto, "COFINS");
+    const cofinsInner = getBlock(cofinsBlock, "COFINSAliq") || getBlock(cofinsBlock, "COFINSQtde") || getBlock(cofinsBlock, "COFINSOutr") || cofinsBlock;
+    const cofins_cst = getTag(cofinsInner, "CST") || getTag(getBlock(cofinsBlock, "COFINSNT"), "CST") || "";
+    const cofins_vBC = parseFloat(getTag(cofinsInner, "vBC")) || 0;
+    const cofins_pCOFINS = parseFloat(getTag(cofinsInner, "pCOFINS")) || 0;
+    const cofins_vCOFINS = parseFloat(getTag(cofinsInner, "vCOFINS")) || 0;
+
+    items.push({
+      nItem, cProd, xProd, NCM, CFOP, qCom, vProd, vUnCom,
+      icms_orig, icms_cst, icms_pRedBC, icms_vBC, icms_pICMS, icms_vICMS,
+      ipi_cst, ipi_vBC, ipi_pIPI, ipi_vIPI,
+      pis_cst, pis_vBC, pis_pPIS, pis_vPIS,
+      cofins_cst, cofins_vBC, cofins_pCOFINS, cofins_vCOFINS,
+    });
+  }
+
+  return items;
+}
+
+function getXmlFrete(xml: string): number {
+  const infNFe = getBlock(xml, "infNFe") || xml;
+  const total = getBlock(infNFe, "total");
+  const icmsTot = getBlock(total, "ICMSTot");
+  return parseFloat(getTag(icmsTot, "vFrete")) || 0;
+}
+
+// Detect Simples Nacional from XML: CRT=1 or CRT=2 in <emit>
+function isXmlSimplesNacional(xml: string): boolean {
+  const emit = getBlock(xml, "emit");
+  const crt = getTag(emit, "CRT");
+  return crt === "1" || crt === "2";
+}
+
+// ══════════════════════════════════════════════════════════════
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // Accept batch params: offset (0-based index into compras list), batch_size (default 80)
     const body = await req.json().catch(() => ({}));
     const offset = Number(body.offset) || 0;
-    const batchSize = Math.min(Number(body.batch_size) || 80, 120); // cap at 120
+    const batchSize = Math.min(Number(body.batch_size) || 80, 120);
 
     const gcAccessToken = Deno.env.get("GC_ACCESS_TOKEN");
     const gcSecretToken = Deno.env.get("GC_SECRET_TOKEN");
@@ -151,7 +293,7 @@ serve(async (req) => {
       });
     }
 
-    // ── Step 2: Fetch ALL compra IDs (paginated) — only IDs + fornecedor + produtos ──
+    // ── Step 2: Fetch ALL compra IDs (paginated) ──
     interface CompraRaw {
       id: string;
       codigo: string;
@@ -213,6 +355,7 @@ serve(async (req) => {
     let nfsProcessed = 0;
     let comprasWithNf = 0;
     let comprasWithoutNf = 0;
+    let xmlsUsed = 0;
 
     const compraIds = batchCompras.map((c) => String(c.id || "")).filter(Boolean);
     const compraFornecedorMap = new Map<string, string>();
@@ -249,9 +392,11 @@ serve(async (req) => {
         const retry = await rateLimitedFetch(nfUrl, { headers: gcHeaders });
         if (!retry.ok) continue;
         const retryJson = await retry.json();
-        processNFs(retryJson.data || [], compra, compraProdutos, fornecedorNome, productTaxMap);
-        nfsProcessed += (retryJson.data || []).length;
-        if ((retryJson.data || []).length > 0) comprasWithNf++;
+        const nfs = retryJson.data || [];
+        const used = await processNFs(nfs, compra, compraProdutos, fornecedorNome, productTaxMap, supabase);
+        xmlsUsed += used;
+        nfsProcessed += nfs.length;
+        if (nfs.length > 0) comprasWithNf++;
         else comprasWithoutNf++;
         continue;
       }
@@ -271,10 +416,11 @@ serve(async (req) => {
 
       comprasWithNf++;
       nfsProcessed += nfs.length;
-      processNFs(nfs, compra, compraProdutos, fornecedorNome, productTaxMap);
+      const used = await processNFs(nfs, compra, compraProdutos, fornecedorNome, productTaxMap, supabase);
+      xmlsUsed += used;
     }
 
-    console.log(`[sync-nfe-entrada] Batch done: com NF=${comprasWithNf}, sem NF=${comprasWithoutNf}, NFs=${nfsProcessed}`);
+    console.log(`[sync-nfe-entrada] Batch done: com NF=${comprasWithNf}, sem NF=${comprasWithoutNf}, NFs=${nfsProcessed}, XMLs=${xmlsUsed}`);
 
     // ── Step 5: Upsert product tax profiles ──
     const existingIds = [...productTaxMap.keys()];
@@ -328,6 +474,7 @@ serve(async (req) => {
           compras_com_nf: comprasWithNf,
           compras_sem_nf: comprasWithoutNf,
           nfs_processadas: nfsProcessed,
+          xmls_usados: xmlsUsed,
           total_produtos: records.length,
         },
         resposta: { upserted },
@@ -344,6 +491,7 @@ serve(async (req) => {
         next_offset: hasMore ? nextOffset : null,
         compras_com_nf: comprasWithNf,
         nfs_processadas: nfsProcessed,
+        xmls_usados: xmlsUsed,
         produtos_processados: records.length,
         upserted,
       }),
@@ -379,14 +527,49 @@ function resolveCompraFornecedorNome(compra: any, nomeFornecedorDb?: string): st
     .find(Boolean) || "";
 }
 
-// ── Process NFs and extract per-product tax data ──
-function processNFs(
+// ══════════════════════════════════════════════════════════════
+//  Tenta baixar o XML do bucket nf-xmls pela chave da NF
+// ══════════════════════════════════════════════════════════════
+async function tryDownloadXml(chave: string, supabase: any): Promise<string | null> {
+  if (!chave || chave.length < 44) return null;
+
+  // Try common naming patterns
+  const paths = [
+    `${chave}.xml`,
+    `NF-e${chave}.xml`,
+    `NFe${chave}.xml`,
+    `nfe-${chave}.xml`,
+  ];
+
+  for (const path of paths) {
+    const { data, error } = await supabase.storage
+      .from("nf-xmls")
+      .download(path);
+    if (!error && data) {
+      const text = await data.text();
+      if (text && text.includes("<nfeProc") || text.includes("<NFe") || text.includes("<infNFe")) {
+        console.log(`[sync-nfe-entrada] XML encontrado: ${path}`);
+        return text;
+      }
+    }
+  }
+  return null;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Process NFs — agora com parsing XML real por item
+// ══════════════════════════════════════════════════════════════
+async function processNFs(
   nfs: any[],
   compra: any,
   compraProdutos: CompraProduct[],
   fornecedorNome: string,
-  productTaxMap: Map<string, ProductTaxRecord>
-) {
+  productTaxMap: Map<string, ProductTaxRecord>,
+  supabase: any
+): Promise<number> {
+  let xmlsUsed = 0;
+  const r = (v: number) => Math.round(v * 100) / 100;
+
   for (const nfRaw of nfs) {
     const nf: NFData = nfRaw.Nota_Fiscal_Produto ?? nfRaw;
     if (nf.situacao_nf === "Cancelada") continue;
@@ -394,83 +577,205 @@ function processNFs(
     const valorProdutos = parseFloat(nf.valor_produtos) || 0;
     if (valorProdutos <= 0) continue;
 
-    const icmsTotal = parseFloat(nf.valor_icms) || 0;
-    const baseIcms = parseFloat(nf.base_icms) || 0;
-    const pisTotal = parseFloat(nf.valor_pis) || 0;
-    const cofinsTotal = parseFloat(nf.valor_cofins) || 0;
-    const ipiTotal = parseFloat(nf.valor_ipi) || 0;
     const freteTotal = parseFloat(nf.valor_frete) || 0;
 
-    const isSimplesNacional = valorProdutos > 0 && baseIcms === 0 && icmsTotal === 0 && pisTotal === 0 && cofinsTotal === 0;
+    // ── Tentar buscar XML real do bucket ──
+    const xmlContent = await tryDownloadXml(nf.chave, supabase);
+    
+    if (xmlContent) {
+      // ═══════════════════════════════════════════════
+      // MODO XML: impostos reais por item
+      // ═══════════════════════════════════════════════
+      xmlsUsed++;
+      const xmlItems = parseXmlItems(xmlContent);
+      const xmlFrete = getXmlFrete(xmlContent);
+      const isSN = isXmlSimplesNacional(xmlContent);
+      const totalVProd = xmlItems.reduce((s, i) => s + i.vProd, 0);
 
-    const icmsRate = baseIcms > 0 ? (icmsTotal / baseIcms) * 100 : 0;
-    const pisRate = valorProdutos > 0 ? (pisTotal / valorProdutos) * 100 : 0;
-    const cofinsRate = valorProdutos > 0 ? (cofinsTotal / valorProdutos) * 100 : 0;
-    const ipiRate = valorProdutos > 0 ? (ipiTotal / valorProdutos) * 100 : 0;
-    const freteRate = valorProdutos > 0 ? (freteTotal / valorProdutos) * 100 : 0;
+      // Map GC produto_id -> XML item by matching cProd or nome
+      const nfProdutos: NFProduct[] = (nf.produtos || []).map((p: any) => p.produto ?? p);
 
-    const nfProdutos: NFProduct[] = (nf.produtos || []).map((p: any) => p.produto ?? p);
-    if (nfProdutos.length === 0) continue;
+      for (const compraProd of compraProdutos) {
+        const gcProdId = String(compraProd.produto_id);
+        
+        // Find GC NF product entry to get the link between GC produto_id and XML cProd
+        const nfProd = nfProdutos.find(np => String(np.produto_id) === gcProdId);
+        
+        // Match XML item: by codigo_produto (cProd), or by nome similarity
+        let xmlItem: XmlItemTax | undefined;
+        if (nfProd) {
+          // Try match by codigo_produto = cProd
+          xmlItem = xmlItems.find(xi => xi.cProd === nfProd.codigo_produto);
+          // Try match by nome
+          if (!xmlItem) {
+            const nfNome = (nfProd.nome_produto || "").toLowerCase().trim();
+            xmlItem = xmlItems.find(xi => {
+              const xmlNome = xi.xProd.toLowerCase().trim();
+              return xmlNome === nfNome || xmlNome.includes(nfNome) || nfNome.includes(xmlNome);
+            });
+          }
+        }
+        // Fallback: match by compraProd nome
+        if (!xmlItem) {
+          const compNome = (compraProd.nome_produto || "").toLowerCase().trim();
+          xmlItem = xmlItems.find(xi => {
+            const xmlNome = xi.xProd.toLowerCase().trim();
+            return xmlNome.includes(compNome) || compNome.includes(xmlNome);
+          });
+        }
 
-    const nfProdMap = new Map<string, NFProduct>();
-    for (const np of nfProdutos) {
-      if (np.produto_id) nfProdMap.set(String(np.produto_id), np);
-    }
+        if (!xmlItem) {
+          console.log(`[sync-nfe-entrada] XML item não encontrado para produto GC ${gcProdId} (${compraProd.nome_produto})`);
+          // Fallback to proportional method for this item
+          processItemProportional(gcProdId, compraProd, nfProd, nf, freteTotal, fornecedorNome, compra, productTaxMap);
+          continue;
+        }
 
-    for (const compraProd of compraProdutos) {
-      const gcProdId = String(compraProd.produto_id);
-      const nfProd = nfProdMap.get(gcProdId);
-      
-      const nomeProduto = nfProd?.nome_produto || compraProd.nome_produto || "";
-      const ncm = nfProd?.NCM || "";
-      const cfop = nfProd?.cfop || "";
-      const qtd = parseFloat(nfProd?.quantidade || compraProd.quantidade || "1") || 1;
-      const valorProd = parseFloat(nfProd?.valor_venda || compraProd.valor_total || "0") || 0;
-      const proporcao = valorProdutos > 0 ? valorProd / valorProdutos : 1 / nfProdutos.length;
-      const valorUnit = qtd > 0 ? valorProd / qtd : valorProd;
+        const qtd = xmlItem.qCom || 1;
+        const valorUnit = xmlItem.vProd / qtd;
+        const proporcao = totalVProd > 0 ? xmlItem.vProd / totalVProd : 0;
+        const freteUnit = qtd > 0 ? (xmlFrete * proporcao) / qtd : 0;
+        const ipiUnit = qtd > 0 ? xmlItem.ipi_vIPI / qtd : 0;
 
-      const icmsUnit = isSimplesNacional ? 0 : (qtd > 0 ? (icmsTotal * proporcao) / qtd : 0);
-      const pisUnit = isSimplesNacional ? 0 : (qtd > 0 ? (pisTotal * proporcao) / qtd : 0);
-      const cofinsUnit = isSimplesNacional ? 0 : (qtd > 0 ? (cofinsTotal * proporcao) / qtd : 0);
-      const ipiUnit = qtd > 0 ? (ipiTotal * proporcao) / qtd : 0;
-      const freteUnit = qtd > 0 ? (freteTotal * proporcao) / qtd : 0;
+        // Crédito ICMS: usar alíquota REAL do XML
+        // Para orig 1,2,3,6,7,8 (importados) a alíquota interestadual é 4% (Res. SF 13/2012)
+        // O XML já traz o valor correto em vICMS
+        const icmsUnit = isSN ? 0 : (qtd > 0 ? xmlItem.icms_vICMS / qtd : 0);
+        const pisUnit = isSN ? 0 : (qtd > 0 ? xmlItem.pis_vPIS / qtd : 0);
+        const cofinsUnit = isSN ? 0 : (qtd > 0 ? xmlItem.cofins_vCOFINS / qtd : 0);
 
-      const custoEfetivo = valorUnit + ipiUnit + freteUnit - icmsUnit - pisUnit - cofinsUnit;
+        // Alíquota efetiva real sobre o valor do produto
+        const icmsAliqReal = xmlItem.vProd > 0 ? (xmlItem.icms_vICMS / xmlItem.vProd) * 100 : 0;
+        const pisAliqReal = xmlItem.pis_pPIS || (xmlItem.vProd > 0 ? (xmlItem.pis_vPIS / xmlItem.vProd) * 100 : 0);
+        const cofinsAliqReal = xmlItem.cofins_pCOFINS || (xmlItem.vProd > 0 ? (xmlItem.cofins_vCOFINS / xmlItem.vProd) * 100 : 0);
+        const ipiAliqReal = xmlItem.ipi_pIPI || (xmlItem.vProd > 0 ? (xmlItem.ipi_vIPI / xmlItem.vProd) * 100 : 0);
+        const freteRate = totalVProd > 0 ? (xmlFrete / totalVProd) * 100 : 0;
 
-      const existing = productTaxMap.get(gcProdId);
-      if (existing && existing.nf_data_emissao > (nf.data_emissao || "")) {
-        continue;
+        // Base ICMS como % do valor do produto (para detectar redução de base)
+        const icmsBasePerc = xmlItem.vProd > 0 ? (xmlItem.icms_vBC / xmlItem.vProd) * 100 : 100;
+
+        const custoEfetivo = valorUnit + ipiUnit + freteUnit - icmsUnit - pisUnit - cofinsUnit;
+
+        const existing = productTaxMap.get(gcProdId);
+        if (existing && existing.nf_data_emissao > (nf.data_emissao || "")) {
+          continue;
+        }
+
+        productTaxMap.set(gcProdId, {
+          gc_produto_id: gcProdId,
+          nome_produto: xmlItem.xProd || compraProd.nome_produto || "",
+          ncm: xmlItem.NCM || "",
+          cfop: xmlItem.CFOP || "",
+          nf_gc_id: String(nf.id || ""),
+          nf_numero: nf.numero_nf || "",
+          nf_chave: nf.chave || "",
+          nf_data_emissao: nf.data_emissao || "",
+          compra_gc_id: String(compra.id || ""),
+          fornecedor_nome: fornecedorNome || nf.fantasia_emitente || nf.nome_emitente || "",
+          regime_fornecedor: isSN ? "simples_nacional" : "normal",
+          sem_credito: isSN,
+          icms_aliquota: isSN ? 0 : r(icmsAliqReal),
+          icms_base: isSN ? 0 : r(icmsBasePerc),
+          pis_aliquota: isSN ? 0 : r(pisAliqReal),
+          cofins_aliquota: isSN ? 0 : r(cofinsAliqReal),
+          ipi_aliquota: r(ipiAliqReal),
+          frete_percentual: r(freteRate),
+          valor_unitario_nf: r(valorUnit),
+          valor_icms_unit: r(icmsUnit),
+          valor_pis_unit: r(pisUnit),
+          valor_cofins_unit: r(cofinsUnit),
+          valor_ipi_unit: r(ipiUnit),
+          valor_frete_unit: r(freteUnit),
+          custo_efetivo_unit: r(custoEfetivo),
+        });
+
+        console.log(`[sync-nfe-entrada] XML ✓ ${gcProdId} "${xmlItem.xProd}" → ICMS=${r(icmsAliqReal)}% PIS=${r(pisAliqReal)}% COFINS=${r(cofinsAliqReal)}% IPI=${r(ipiAliqReal)}%`);
       }
-
-      const r = (v: number) => Math.round(v * 100) / 100;
-
-      productTaxMap.set(gcProdId, {
-        gc_produto_id: gcProdId,
-        nome_produto: nomeProduto,
-        ncm,
-        cfop,
-        nf_gc_id: String(nf.id || ""),
-        nf_numero: nf.numero_nf || "",
-        nf_chave: nf.chave || "",
-        nf_data_emissao: nf.data_emissao || "",
-        compra_gc_id: String(compra.id || ""),
-        fornecedor_nome: fornecedorNome || nf.fantasia_emitente || nf.nome_emitente || "",
-        regime_fornecedor: isSimplesNacional ? "simples_nacional" : "normal",
-        sem_credito: isSimplesNacional,
-        icms_aliquota: isSimplesNacional ? 0 : r(icmsRate),
-        icms_base: isSimplesNacional ? 0 : (baseIcms > 0 ? r((baseIcms / valorProdutos) * 100) : 100),
-        pis_aliquota: isSimplesNacional ? 0 : r(pisRate),
-        cofins_aliquota: isSimplesNacional ? 0 : r(cofinsRate),
-        ipi_aliquota: r(ipiRate),
-        frete_percentual: r(freteRate),
-        valor_unitario_nf: r(valorUnit),
-        valor_icms_unit: r(icmsUnit),
-        valor_pis_unit: r(pisUnit),
-        valor_cofins_unit: r(cofinsUnit),
-        valor_ipi_unit: r(ipiUnit),
-        valor_frete_unit: r(freteUnit),
-        custo_efetivo_unit: r(custoEfetivo),
-      });
+    } else {
+      // ═══════════════════════════════════════════════
+      // MODO FALLBACK: distribuição proporcional (sem XML)
+      // ═══════════════════════════════════════════════
+      console.log(`[sync-nfe-entrada] XML não encontrado para NF chave=${nf.chave || "sem_chave"}, usando proporção`);
+      
+      const nfProdutos: NFProduct[] = (nf.produtos || []).map((p: any) => p.produto ?? p);
+      for (const compraProd of compraProdutos) {
+        const gcProdId = String(compraProd.produto_id);
+        const nfProd = nfProdutos.find(np => String(np.produto_id) === gcProdId);
+        processItemProportional(gcProdId, compraProd, nfProd, nf, freteTotal, fornecedorNome, compra, productTaxMap);
+      }
     }
   }
+
+  return xmlsUsed;
+}
+
+// ── Fallback: método proporcional original (quando não há XML) ──
+function processItemProportional(
+  gcProdId: string,
+  compraProd: CompraProduct,
+  nfProd: NFProduct | undefined,
+  nf: NFData,
+  freteTotal: number,
+  fornecedorNome: string,
+  compra: any,
+  productTaxMap: Map<string, ProductTaxRecord>
+) {
+  const r = (v: number) => Math.round(v * 100) / 100;
+  const valorProdutos = parseFloat(nf.valor_produtos) || 0;
+  const icmsTotal = parseFloat(nf.valor_icms) || 0;
+  const baseIcms = parseFloat(nf.base_icms) || 0;
+  const pisTotal = parseFloat(nf.valor_pis) || 0;
+  const cofinsTotal = parseFloat(nf.valor_cofins) || 0;
+  const ipiTotal = parseFloat(nf.valor_ipi) || 0;
+
+  const isSimplesNacional = valorProdutos > 0 && baseIcms === 0 && icmsTotal === 0 && pisTotal === 0 && cofinsTotal === 0;
+
+  const icmsRate = baseIcms > 0 ? (icmsTotal / baseIcms) * 100 : 0;
+  const pisRate = valorProdutos > 0 ? (pisTotal / valorProdutos) * 100 : 0;
+  const cofinsRate = valorProdutos > 0 ? (cofinsTotal / valorProdutos) * 100 : 0;
+  const ipiRate = valorProdutos > 0 ? (ipiTotal / valorProdutos) * 100 : 0;
+  const freteRate = valorProdutos > 0 ? (freteTotal / valorProdutos) * 100 : 0;
+
+  const qtd = parseFloat(nfProd?.quantidade || compraProd.quantidade || "1") || 1;
+  const valorProd = parseFloat(nfProd?.valor_venda || compraProd.valor_total || "0") || 0;
+  const proporcao = valorProdutos > 0 ? valorProd / valorProdutos : 1;
+  const valorUnit = qtd > 0 ? valorProd / qtd : valorProd;
+
+  const icmsUnit = isSimplesNacional ? 0 : (qtd > 0 ? (icmsTotal * proporcao) / qtd : 0);
+  const pisUnit = isSimplesNacional ? 0 : (qtd > 0 ? (pisTotal * proporcao) / qtd : 0);
+  const cofinsUnit = isSimplesNacional ? 0 : (qtd > 0 ? (cofinsTotal * proporcao) / qtd : 0);
+  const ipiUnit = qtd > 0 ? (ipiTotal * proporcao) / qtd : 0;
+  const freteUnit = qtd > 0 ? (freteTotal * proporcao) / qtd : 0;
+  const custoEfetivo = valorUnit + ipiUnit + freteUnit - icmsUnit - pisUnit - cofinsUnit;
+
+  const existing = productTaxMap.get(gcProdId);
+  if (existing && existing.nf_data_emissao > (nf.data_emissao || "")) return;
+
+  productTaxMap.set(gcProdId, {
+    gc_produto_id: gcProdId,
+    nome_produto: nfProd?.nome_produto || compraProd.nome_produto || "",
+    ncm: nfProd?.NCM || "",
+    cfop: nfProd?.cfop || "",
+    nf_gc_id: String(nf.id || ""),
+    nf_numero: nf.numero_nf || "",
+    nf_chave: nf.chave || "",
+    nf_data_emissao: nf.data_emissao || "",
+    compra_gc_id: String(compra.id || ""),
+    fornecedor_nome: fornecedorNome || nf.fantasia_emitente || nf.nome_emitente || "",
+    regime_fornecedor: isSimplesNacional ? "simples_nacional" : "normal",
+    sem_credito: isSimplesNacional,
+    icms_aliquota: isSimplesNacional ? 0 : r(icmsRate),
+    icms_base: isSimplesNacional ? 0 : (baseIcms > 0 ? r((baseIcms / valorProdutos) * 100) : 100),
+    pis_aliquota: isSimplesNacional ? 0 : r(pisRate),
+    cofins_aliquota: isSimplesNacional ? 0 : r(cofinsRate),
+    ipi_aliquota: r(ipiRate),
+    frete_percentual: r(freteRate),
+    valor_unitario_nf: r(valorUnit),
+    valor_icms_unit: r(icmsUnit),
+    valor_pis_unit: r(pisUnit),
+    valor_cofins_unit: r(cofinsUnit),
+    valor_ipi_unit: r(ipiUnit),
+    valor_frete_unit: r(freteUnit),
+    custo_efetivo_unit: r(custoEfetivo),
+  });
 }
