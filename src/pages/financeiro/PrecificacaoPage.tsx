@@ -415,6 +415,18 @@ export default function PrecificacaoPage() {
           const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
           return nome.includes(q) || codigo.includes(q);
         })
+        .sort((a, b) => {
+          const estoqueA = Number(a.estoque) || 0;
+          const estoqueB = Number(b.estoque) || 0;
+          const custoA = Number(a.valor_custo) || 0;
+          const custoB = Number(b.valor_custo) || 0;
+          // Score: estoque * custo (prioriza alto valor + alto estoque)
+          const scoreA = estoqueA * custoA;
+          const scoreB = estoqueB * custoB;
+          if (scoreB !== scoreA) return scoreB - scoreA;
+          // Desempate por custo
+          return custoB - custoA;
+        })
         .slice(0, 100);
     }
     // Sem produtos GC → usa tributos como fonte (modo offline)
