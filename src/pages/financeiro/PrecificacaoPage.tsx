@@ -91,10 +91,10 @@ const DEFAULT_ENTRADA: TaxConfigEntrada = {
 };
 
 const DEFAULT_SAIDA: TaxConfigSaida = {
-  icmsSaida: 18,
+  icmsSaida: 8.8,
   pisSaida: 1.65,
   cofinsSaida: 7.6,
-  iss: 3,
+  iss: 3.65,
   pisSaidaServico: 1.65,
   cofinsSaidaServico: 7.6,
   irpjCsll: 0, // Desconsiderado no custo da peça — incide sobre lucro da empresa, não do produto
@@ -230,7 +230,7 @@ export default function PrecificacaoPage() {
   const [taxEntrada, setTaxEntrada] = useState<TaxConfigEntrada>(DEFAULT_ENTRADA);
   const [taxSaida, setTaxSaida] = useState<TaxConfigSaida>(DEFAULT_SAIDA);
   const [tipoSaidaGlobal, setTipoSaidaGlobal] = useState<TipoSaida>("venda");
-  const [margemAlvo, setMargemAlvo] = useState(15);
+  const [margemAlvo, setMargemAlvo] = useState(30);
   const [syncing, setSyncing] = useState(false);
   const [calcCusto, setCalcCusto] = useState<string>("");
   const [calcTipoSaida, setCalcTipoSaida] = useState<TipoSaida>("venda");
