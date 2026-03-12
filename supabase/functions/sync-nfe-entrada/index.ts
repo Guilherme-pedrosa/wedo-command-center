@@ -745,7 +745,7 @@ async function processNFs(
       xmlsUsed++;
       const xmlItems = parseXmlItems(xmlContent);
       const xmlFrete = getXmlFrete(xmlContent);
-      const isSN = isXmlSimplesNacional(xmlContent);
+      const isSN = isXmlSimplesNacional(xmlContent, xmlItems);
       const totalVProd = xmlItems.reduce((s, i) => s + i.vProd, 0);
 
       // Match GC produtos -> XML items por VALOR do produto
