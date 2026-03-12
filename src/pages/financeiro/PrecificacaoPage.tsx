@@ -182,8 +182,18 @@ function normalizeForMatch(value?: string | null) {
 
 function isTributoCompativelComProduto(produto: GCProduto, tributo?: ProdutoTributo) {
   if (!tributo) return false;
-  // gc_produto_id é a chave primária de vínculo — se bate, o tributo pertence a este produto
-  return tributo.gc_produto_id === produto.id;
+  if (tributo.gc_produto_id !== produto.id) return false;
+
+  const nomeProduto = normalizeForMatch(produto.nome);
+  const nomeTributo = normalizeForMatch(tributo.nome_produto);
+  if (!nomeProduto || !nomeTributo) return true;
+  if (nomeProduto.includes(nomeTributo) || nomeTributo.includes(nomeProduto)) return true;
+
+  const tokensProduto = nomeProduto.split(" ").filter(Boolean);
+  const tokensTributo = new Set(nomeTributo.split(" ").filter(Boolean));
+  const comuns = tokensProduto.filter((token) => tokensTributo.has(token)).length;
+  const base = Math.max(1, Math.min(tokensProduto.length, tokensTributo.size));
+  return comuns / base >= 0.5;
 }
 
 
