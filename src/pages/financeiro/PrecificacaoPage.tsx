@@ -108,10 +108,10 @@ function calcPricing(
   tipo: TipoSaida,
   margemDesejada: number
 ) {
-  // Créditos de entrada — serviço não aproveita ICMS
+  // Créditos de entrada — serviço não aproveita nenhum crédito fiscal
   const creditoIcms = tipo === "servico" ? 0 : custoBruto * (entrada.icmsCredito / 100);
-  const creditoPis = custoBruto * (entrada.pisCredito / 100);
-  const creditoCofins = custoBruto * (entrada.cofinsCredito / 100);
+  const creditoPis = tipo === "servico" ? 0 : custoBruto * (entrada.pisCredito / 100);
+  const creditoCofins = tipo === "servico" ? 0 : custoBruto * (entrada.cofinsCredito / 100);
   const totalCreditosEntrada = creditoIcms + creditoPis + creditoCofins;
 
   const custoLiquido = custoBruto - totalCreditosEntrada;
