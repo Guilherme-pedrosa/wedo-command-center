@@ -350,6 +350,24 @@ serve(async (req) => {
       );
     }
 
+    // ── Step 3.5: On first batch, clear stale tributos data (preserve manual overrides) ──
+    if (offset === 0) {
+      console.log("[sync-nfe-entrada] Limpando dados antigos de tributos (preservando overrides manuais)...");
+      const { error: delErr } = await supabase
+        .from("fin_produto_tributos")
+        .delete()
+        .is("icms_aliquota_manual", null)
+        .is("pis_aliquota_manual", null)
+        .is("cofins_aliquota_manual", null)
+        .is("ipi_aliquota_manual", null)
+        .eq("sem_credito", false);
+      if (delErr) {
+        console.error("[sync-nfe-entrada] Erro ao limpar tributos antigos:", delErr.message);
+      } else {
+        console.log("[sync-nfe-entrada] Dados antigos limpos com sucesso");
+      }
+    }
+
     // ── Step 4: Build CNPJ → XMLs index from fin_nfe_xml_index ──
     const { data: xmlIndex } = await supabase
       .from("fin_nfe_xml_index")
