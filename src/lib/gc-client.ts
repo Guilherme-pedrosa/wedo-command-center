@@ -89,6 +89,10 @@ export async function fetchAllGCPages<T>(
   let page = 1;
   let totalPages = 1;
 
+  if (await isDailyLimitReached()) {
+    return [];
+  }
+
   while (page <= totalPages) {
     let res: GCProxyResponse<GCApiResponse<T>>;
     try {
