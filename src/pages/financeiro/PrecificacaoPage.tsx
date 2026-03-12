@@ -612,7 +612,7 @@ export default function PrecificacaoPage() {
     }));
   }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida]);
 
-  const totalComTributoNF = tributos?.length || 0;
+  const totalComTributoNF = tributosXml.length;
 
   // Helper to get exit tax label
   const getTipoSaidaLabel = (tipo: TipoSaida) =>
