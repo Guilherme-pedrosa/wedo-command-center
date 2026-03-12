@@ -398,6 +398,7 @@ export default function PrecificacaoPage() {
 
   // ── Filtered products (works with or without GC products loaded) ──
   const EXCLUDED_GROUPS = ["ferramentas"];
+  const EXCLUDED_NAME_KEYWORDS = ["consignado"];
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     if (produtos) {
@@ -406,6 +407,7 @@ export default function PrecificacaoPage() {
           if (!tributosMap.has(p.id)) return false;
           if (EXCLUDED_GROUPS.includes((p.nome_grupo || "").toLowerCase())) return false;
           const nome = (p.nome || "").toLowerCase();
+          if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
           const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
           return nome.includes(q) || codigo.includes(q);
         })
@@ -414,6 +416,7 @@ export default function PrecificacaoPage() {
     return tributosXml
       .filter((t) => {
         const nome = (t.nome_produto || "").toLowerCase();
+        if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
         const codigo = (t.gc_produto_id || "").toLowerCase();
         return nome.includes(q) || codigo.includes(q);
       })
