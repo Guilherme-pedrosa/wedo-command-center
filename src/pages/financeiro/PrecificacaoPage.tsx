@@ -1069,9 +1069,11 @@ export default function PrecificacaoPage() {
                   const estoque = Number(p.estoque) || 0;
                   const tributo = tributosMap.get(p.id);
                   const hasNF = !!tributo;
-                  // Venda GC = markup médio de 80% sobre custo real (média das 3 tabelas)
                   const custoBase = hasNF ? tributo.valor_unitario_nf : custoBruto;
-                  const vendaGC = custoBase > 0 ? custoBase * 1.8 : 0;
+                  const vendaA = custoBase * MARKUP_TABELAS.A;
+                  const vendaB = custoBase * MARKUP_TABELAS.B;
+                  const vendaP = custoBase * MARKUP_TABELAS.P;
+                  const vendaGC = custoBase * MARKUP_TABELAS[tabelaVenda];
 
                   let calc: ReturnType<typeof calcPricing>;
                   if (hasNF) {
