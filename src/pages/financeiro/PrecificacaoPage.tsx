@@ -328,29 +328,45 @@ export default function PrecificacaoPage() {
     onProgress: (done: number, total: number) => void
   ) => {
     let uploaded = 0;
+    let duplicates = 0;
     let errors = 0;
     const total = items.length;
+    const seenChaves = new Set<string>();
 
     for (let i = 0; i < total; i += batchSize) {
       const batch = items.slice(i, i + batchSize);
       const results = await Promise.allSettled(
         batch.map(async (item) => {
           const chave = await extractChaveFromXml(item.blob);
+
+          // Mesmo arquivo fiscal em múltiplos XMLs (NFe/procNFe/eventos): mantém só 1 por chave
+          if (chave && seenChaves.has(chave)) return "duplicate" as const;
+          if (chave) seenChaves.add(chave);
+
           const path = chave ? `${chave}.xml` : item.name.replace(/^.*[\\/]/, "");
           const { error } = await supabase.storage.from("nf-xmls").upload(path, item.blob, {
             contentType: "text/xml",
             upsert: true,
           });
           if (error) throw error;
+          return "uploaded" as const;
         })
       );
+
       for (const r of results) {
-        if (r.status === "fulfilled") uploaded++;
-        else { errors++; console.error("Upload error:", r.reason); }
+        if (r.status === "fulfilled") {
+          if (r.value === "uploaded") uploaded++;
+          else duplicates++;
+        } else {
+          errors++;
+          console.error("Upload error:", r.reason);
+        }
       }
-      onProgress(uploaded + errors, total);
+
+      onProgress(uploaded + duplicates + errors, total);
     }
-    return { uploaded, errors };
+
+    return { uploaded, duplicates, errors };
   };
 
   const handleUploadXmls = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -360,6 +376,11 @@ export default function PrecificacaoPage() {
     setUploadProgress("Preparando arquivos...");
 
     try {
+      // Heurística: alguns navegadores limitam seleção múltipla em ~1000 arquivos
+      if (files.length === 1000) {
+        toast("Se você selecionou mais de 1000, prefira ZIP para enviar tudo de uma vez.");
+      }
+
       // Collect all XML items (from .xml files and from .zip files)
       const allItems: { name: string; blob: Blob }[] = [];
 
@@ -378,13 +399,17 @@ export default function PrecificacaoPage() {
         return;
       }
 
-      setUploadProgress(`0 / ${allItems.length} enviados`);
+      setUploadProgress(`0 / ${allItems.length} processados`);
       const BATCH_SIZE = 15;
-      const { uploaded, errors } = await uploadBatch(allItems, BATCH_SIZE, (done, total) => {
-        setUploadProgress(`${done} / ${total} enviados`);
+      const { uploaded, duplicates, errors } = await uploadBatch(allItems, BATCH_SIZE, (done, total) => {
+        setUploadProgress(`${done} / ${total} processados`);
       });
 
-      toast.success(`${uploaded} XML(s) enviados${errors > 0 ? `, ${errors} erro(s)` : ""}`);
+      toast.success(
+        `${uploaded} XML(s) únicos enviados` +
+          (duplicates > 0 ? `, ${duplicates} duplicado(s) de mesma chave NF` : "") +
+          (errors > 0 ? `, ${errors} erro(s)` : "")
+      );
     } catch (err) {
       toast.error(`Erro no upload: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
