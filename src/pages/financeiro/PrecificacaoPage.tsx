@@ -376,6 +376,11 @@ export default function PrecificacaoPage() {
     setUploadProgress("Preparando arquivos...");
 
     try {
+      // Heurística: alguns navegadores limitam seleção múltipla em ~1000 arquivos
+      if (files.length === 1000) {
+        toast("Se você selecionou mais de 1000, prefira ZIP para enviar tudo de uma vez.");
+      }
+
       // Collect all XML items (from .xml files and from .zip files)
       const allItems: { name: string; blob: Blob }[] = [];
 
@@ -394,13 +399,17 @@ export default function PrecificacaoPage() {
         return;
       }
 
-      setUploadProgress(`0 / ${allItems.length} enviados`);
+      setUploadProgress(`0 / ${allItems.length} processados`);
       const BATCH_SIZE = 15;
-      const { uploaded, errors } = await uploadBatch(allItems, BATCH_SIZE, (done, total) => {
-        setUploadProgress(`${done} / ${total} enviados`);
+      const { uploaded, duplicates, errors } = await uploadBatch(allItems, BATCH_SIZE, (done, total) => {
+        setUploadProgress(`${done} / ${total} processados`);
       });
 
-      toast.success(`${uploaded} XML(s) enviados${errors > 0 ? `, ${errors} erro(s)` : ""}`);
+      toast.success(
+        `${uploaded} XML(s) únicos enviados` +
+          (duplicates > 0 ? `, ${duplicates} duplicado(s) de mesma chave NF` : "") +
+          (errors > 0 ? `, ${errors} erro(s)` : "")
+      );
     } catch (err) {
       toast.error(`Erro no upload: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
