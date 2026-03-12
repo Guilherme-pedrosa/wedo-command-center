@@ -323,6 +323,10 @@ async function processNFs(
     const ipiTotal = parseFloat(nf.valor_ipi) || 0;
     const freteTotal = parseFloat(nf.valor_frete) || 0;
 
+    // Detect Simples Nacional: if NF has products but base_icms=0 and valor_icms=0,
+    // the supplier is likely Simples Nacional → no tax credits
+    const isSimplesNacional = valorProdutos > 0 && baseIcms === 0 && icmsTotal === 0 && pisTotal === 0 && cofinsTotal === 0;
+
     // Effective NF-level rates
     const icmsRate = baseIcms > 0 ? (icmsTotal / baseIcms) * 100 : 0;
     const pisRate = valorProdutos > 0 ? (pisTotal / valorProdutos) * 100 : 0;
