@@ -298,32 +298,100 @@ export default function PrecificacaoPage() {
   const custoFixoAutoUnit = custoFixoMensal ? custoFixoMensal / totalProdutosEstoque : 0;
   const activeEntrada = { ...taxEntrada, custoFixoUnit: taxEntrada.custoFixoUnit || custoFixoAutoUnit };
 
-  // ── Upload XMLs de NF para o bucket ──
+  // ── Upload XMLs de NF para o bucket (suporta ZIP + lotes) ──
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState("");
+  
+  const extractXmlsFromZip = async (file: File): Promise<{ name: string; blob: Blob }[]> => {
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(file);
+    const xmlFiles: { name: string; blob: Blob }[] = [];
+    const entries = Object.entries(zip.files).filter(
+      ([name, entry]) => !entry.dir && name.toLowerCase().endsWith(".xml")
+    );
+    for (const [name, entry] of entries) {
+      const blob = await entry.async("blob");
+      xmlFiles.push({ name, blob });
+    }
+    return xmlFiles;
+  };
+
+  const extractChaveFromXml = async (blob: Blob): Promise<string | null> => {
+    const text = await blob.text();
+    const match = text.match(/Id="NFe(\d{44})"/i) || text.match(/chNFe>(\d{44})</i);
+    return match?.[1] || null;
+  };
+
+  const uploadBatch = async (
+    items: { name: string; blob: Blob }[],
+    batchSize: number,
+    onProgress: (done: number, total: number) => void
+  ) => {
+    let uploaded = 0;
+    let errors = 0;
+    const total = items.length;
+
+    for (let i = 0; i < total; i += batchSize) {
+      const batch = items.slice(i, i + batchSize);
+      const results = await Promise.allSettled(
+        batch.map(async (item) => {
+          const chave = await extractChaveFromXml(item.blob);
+          const path = chave ? `${chave}.xml` : item.name.replace(/^.*[\\/]/, "");
+          const { error } = await supabase.storage.from("nf-xmls").upload(path, item.blob, {
+            contentType: "text/xml",
+            upsert: true,
+          });
+          if (error) throw error;
+        })
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") uploaded++;
+        else { errors++; console.error("Upload error:", r.reason); }
+      }
+      onProgress(uploaded + errors, total);
+    }
+    return { uploaded, errors };
+  };
+
   const handleUploadXmls = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     setUploading(true);
-    let uploaded = 0;
-    let errors = 0;
-    for (const file of Array.from(files)) {
-      try {
-        const text = await file.text();
-        // Extract chave from XML
-        const chaveMatch = text.match(/Id="NFe(\d{44})"/i) || text.match(/chNFe>(\d{44})</i);
-        const chave = chaveMatch?.[1];
-        const path = chave ? `${chave}.xml` : file.name;
-        const { error } = await supabase.storage.from("nf-xmls").upload(path, file, { 
-          contentType: "text/xml",
-          upsert: true,
-        });
-        if (error) { errors++; console.error("Upload error:", error.message); }
-        else uploaded++;
-      } catch { errors++; }
+    setUploadProgress("Preparando arquivos...");
+
+    try {
+      // Collect all XML items (from .xml files and from .zip files)
+      const allItems: { name: string; blob: Blob }[] = [];
+
+      for (const file of Array.from(files)) {
+        if (file.name.toLowerCase().endsWith(".zip")) {
+          setUploadProgress(`Extraindo ${file.name}...`);
+          const xmlsFromZip = await extractXmlsFromZip(file);
+          allItems.push(...xmlsFromZip);
+        } else {
+          allItems.push({ name: file.name, blob: file });
+        }
+      }
+
+      if (allItems.length === 0) {
+        toast.error("Nenhum XML encontrado nos arquivos selecionados");
+        return;
+      }
+
+      setUploadProgress(`0 / ${allItems.length} enviados`);
+      const BATCH_SIZE = 15;
+      const { uploaded, errors } = await uploadBatch(allItems, BATCH_SIZE, (done, total) => {
+        setUploadProgress(`${done} / ${total} enviados`);
+      });
+
+      toast.success(`${uploaded} XML(s) enviados${errors > 0 ? `, ${errors} erro(s)` : ""}`);
+    } catch (err) {
+      toast.error(`Erro no upload: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setUploading(false);
+      setUploadProgress("");
+      e.target.value = "";
     }
-    toast.success(`${uploaded} XML(s) enviados${errors > 0 ? `, ${errors} erro(s)` : ""}`);
-    setUploading(false);
-    e.target.value = "";
   };
 
   // ── Sync NFs de entrada (batched to avoid timeout) ──
