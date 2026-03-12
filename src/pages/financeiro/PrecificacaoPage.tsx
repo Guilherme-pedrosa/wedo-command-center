@@ -1029,7 +1029,7 @@ export default function PrecificacaoPage() {
             <Info className="h-3.5 w-3.5" />
             Saída como <strong className={tipoSaidaGlobal === "venda" ? "text-blue-400" : "text-amber-400"}>
               {getTipoSaidaLabel(tipoSaidaGlobal)}
-            </strong>: {getTipoSaidaAliquota(tipoSaidaGlobal)} + IRPJ/CSLL {taxSaida.irpjCsll}% s/ lucro
+            </strong>: {getTipoSaidaAliquota(tipoSaidaGlobal)}
           </div>
 
           <Card className="border-border bg-card overflow-hidden">
