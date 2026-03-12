@@ -158,6 +158,18 @@ function calcPricing(
   };
 }
 
+// Get effective aliquota (manual override > NF sync value; sem_credito zeroes all)
+function getEffectiveRates(t: ProdutoTributo) {
+  const semCredito = t.sem_credito || t.regime_fornecedor === "simples_nacional";
+  return {
+    icms: semCredito ? 0 : (t.icms_aliquota_manual ?? t.icms_aliquota),
+    pis: semCredito ? 0 : (t.pis_aliquota_manual ?? t.pis_aliquota),
+    cofins: semCredito ? 0 : (t.cofins_aliquota_manual ?? t.cofins_aliquota),
+    ipi: t.ipi_aliquota_manual ?? t.ipi_aliquota,
+    semCredito,
+  };
+}
+
 function calcPricingWithNF(
   tributo: ProdutoTributo,
   saida: TaxConfigSaida,
@@ -165,8 +177,19 @@ function calcPricingWithNF(
   custoFixo: number,
   margemDesejada: number
 ) {
-  // custo_efetivo_unit already has entry credits applied
-  const custoTotal = tributo.custo_efetivo_unit + custoFixo;
+  const eff = getEffectiveRates(tributo);
+  const valorUnit = tributo.valor_unitario_nf;
+  
+  // Recalculate credits based on effective rates
+  const creditoIcms = valorUnit * (eff.icms / 100);
+  const creditoPis = valorUnit * (eff.pis / 100);
+  const creditoCofins = valorUnit * (eff.cofins / 100);
+  const ipiUnit = tributo.valor_ipi_unit;
+  const freteUnit = tributo.valor_frete_unit;
+  
+  // Custo efetivo recalculado com alíquotas efetivas
+  const custoEfetivo = valorUnit + ipiUnit + freteUnit - creditoIcms - creditoPis - creditoCofins;
+  const custoTotal = custoEfetivo + custoFixo;
 
   let aliquotaSaidaFaturamento: number;
   if (tipo === "venda") {
@@ -186,6 +209,11 @@ function calcPricingWithNF(
   const lucroLiquido = lucroAnteIR - impostoRenda;
 
   return {
+    creditoIcms,
+    creditoPis,
+    creditoCofins,
+    totalCreditosEntrada: creditoIcms + creditoPis + creditoCofins,
+    custoEfetivo,
     custoTotal,
     precoMinimo,
     tributosSaida,
