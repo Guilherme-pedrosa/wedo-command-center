@@ -231,10 +231,14 @@ export default function PrecificacaoPage() {
   const [taxSaida, setTaxSaida] = useState<TaxConfigSaida>(DEFAULT_SAIDA);
   const [tipoSaidaGlobal, setTipoSaidaGlobal] = useState<TipoSaida>("venda");
   const [margemAlvo, setMargemAlvo] = useState(30);
-  const [syncing, setSyncing] = useState(false);
+  const [activeSync, setActiveSync] = useState<"gc" | "offline" | null>(null);
   const [calcCusto, setCalcCusto] = useState<string>("");
   const [calcTipoSaida, setCalcTipoSaida] = useState<TipoSaida>("venda");
   const [calcMargens] = useState([10, 15, 20, 25, 30]);
+  const activeSyncRef = useRef<"gc" | "offline" | null>(null);
+  const isSyncing = activeSync !== null;
+  const syncingGC = activeSync === "gc";
+  const syncingOffline = activeSync === "offline";
 
   // ── Fetch products from GC ──
   const { data: produtos, isLoading: loadingProdutos } = useQuery({
@@ -242,6 +246,7 @@ export default function PrecificacaoPage() {
     queryFn: () => fetchAllGCPages<GCProduto>("/api/produtos"),
     staleTime: 30 * 60_000,
     refetchOnWindowFocus: false,
+    retry: false,
   });
 
 
