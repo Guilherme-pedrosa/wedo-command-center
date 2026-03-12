@@ -115,10 +115,9 @@ export async function fetchAllGCPages<T>(
 
     if (res.status === 401) throw new Error("GC_AUTH_ERROR");
     if (res.status === 429) {
-      // Check if it's our daily limit
       const resData = res.data as any;
       if (resData?.code === "DAILY_LIMIT_EXCEEDED") {
-        throw new Error(resData.error || "Limite diário de chamadas à API atingido.");
+        break;
       }
       await new Promise((r) => setTimeout(r, 2000));
       continue; // retry same page
