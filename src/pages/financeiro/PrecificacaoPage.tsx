@@ -403,8 +403,8 @@ export default function PrecificacaoPage() {
   });
 
   // ── Filtered products (works with or without GC products loaded) ──
-  const EXCLUDED_GROUPS = ["ferramentas"];
-  const EXCLUDED_NAME_KEYWORDS = ["consignado", "garantia metalfrio"];
+  const EXCLUDED_GROUP_KEYWORDS = ["ferramentas"];
+  const EXCLUDED_NAME_KEYWORDS = ["consignado", "garantia metalfrio", "lona plastica"];
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     if (produtos) {
