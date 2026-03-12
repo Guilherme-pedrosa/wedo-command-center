@@ -1024,6 +1024,21 @@ export default function PrecificacaoPage() {
               </Select>
             </div>
             <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Tabela ref.:</Label>
+              <div className="flex gap-1">
+                {(["A", "B", "P"] as const).map((t) => (
+                  <Badge
+                    key={t}
+                    variant={tabelaVenda === t ? "default" : "outline"}
+                    className={`cursor-pointer text-xs px-2 py-0.5 ${tabelaVenda === t ? "" : "opacity-60 hover:opacity-100"}`}
+                    onClick={() => setTabelaVenda(t)}
+                  >
+                    {t}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Margem alvo:</Label>
               <div className="w-32">
                 <Slider value={[margemAlvo]} onValueChange={([v]) => setMargemAlvo(v)} min={5} max={50} step={1} />
