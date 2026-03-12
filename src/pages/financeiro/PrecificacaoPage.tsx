@@ -1208,14 +1208,14 @@ export default function PrecificacaoPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(!tributos || tributos.length === 0) && (
+                {tributosXml.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
-                      Nenhum tributo de NF de entrada encontrado. Clique em "Sync NFs Entrada" para importar.
+                      Nenhum tributo com XML de entrada indexado encontrado. Clique em "Sync NFs Entrada" para importar.
                     </TableCell>
                   </TableRow>
                 )}
-                {tributos?.map((t) => {
+                {tributosXml.map((t) => {
                   const eff = getEffectiveRates(t);
                   // Recalculate effective cost
                   const effCreditoIcms = t.valor_unitario_nf * (eff.icms / 100);
