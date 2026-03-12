@@ -291,8 +291,15 @@ function isXmlSimplesNacional(xml: string, xmlItems?: XmlItemTax[]): boolean {
   const crt = getTag(emit, "CRT");
   const crtIsSN = crt === "1" || crt === "2";
   
-  // If CRT says normal (3), it's definitely not SN
-  if (!crtIsSN && crt) return false;
+  // Fix #4: Also detect SN by presence of CSOSN tag in any item
+  // If any item has <CSOSN> instead of <CST> inside ICMS, it's SN
+  const hasCSOSN = xmlItems?.some(item => item.icms_cst && /^\d{3}$/.test(item.icms_cst) && 
+    ["101","102","103","201","202","203","300","400","500","900"].includes(item.icms_cst));
+  
+  const isSNByTag = crtIsSN || !!hasCSOSN;
+  
+  // If CRT says normal (3) AND no CSOSN found, it's definitely not SN
+  if (!isSNByTag && crt) return false;
   
   // If we have parsed items, check if any item actually has tax values
   // If they do, the emitter is NOT operating under SN for this NF
@@ -301,12 +308,12 @@ function isXmlSimplesNacional(xml: string, xmlItems?: XmlItemTax[]): boolean {
       item.icms_vICMS > 0 || item.pis_vPIS > 0 || item.cofins_vCOFINS > 0
     );
     if (hasRealTaxes) {
-      console.log(`[sync-nfe-entrada] CRT=${crt} mas itens têm impostos reais — NÃO é Simples Nacional`);
+      console.log(`[sync-nfe-entrada] CRT=${crt} CSOSN=${hasCSOSN} mas itens têm impostos reais — NÃO é Simples Nacional`);
       return false;
     }
   }
   
-  return crtIsSN;
+  return isSNByTag;
 }
 
 // ══════════════════════════════════════════════════════════════
