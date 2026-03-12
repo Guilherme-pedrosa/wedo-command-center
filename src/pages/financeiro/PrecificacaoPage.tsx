@@ -1055,7 +1055,7 @@ export default function PrecificacaoPage() {
             </strong>: {getTipoSaidaAliquota(tipoSaidaGlobal)}
           </div>
 
-          <Card className="border-border bg-card overflow-auto max-h-[calc(100vh-320px)]">
+          <Card className="border-border bg-card overflow-hidden">
             <Table>
               <TableHeader className="sticky top-0 z-20 bg-card shadow-sm">
                 <TableRow className="border-border hover:bg-transparent">
