@@ -1373,6 +1373,84 @@ export type Database = {
           },
         ]
       }
+      fin_produto_tributos: {
+        Row: {
+          cofins_aliquota: number | null
+          created_at: string | null
+          custo_efetivo_unit: number | null
+          fornecedor_nome: string | null
+          frete_percentual: number | null
+          gc_produto_id: string
+          icms_aliquota: number | null
+          icms_base: number | null
+          id: string
+          ipi_aliquota: number | null
+          ncm: string | null
+          nf_data_emissao: string | null
+          nf_gc_id: string | null
+          nf_numero: string | null
+          nome_produto: string
+          pis_aliquota: number | null
+          ultima_atualizacao: string | null
+          valor_cofins_unit: number | null
+          valor_frete_unit: number | null
+          valor_icms_unit: number | null
+          valor_ipi_unit: number | null
+          valor_pis_unit: number | null
+          valor_unitario_nf: number | null
+        }
+        Insert: {
+          cofins_aliquota?: number | null
+          created_at?: string | null
+          custo_efetivo_unit?: number | null
+          fornecedor_nome?: string | null
+          frete_percentual?: number | null
+          gc_produto_id: string
+          icms_aliquota?: number | null
+          icms_base?: number | null
+          id?: string
+          ipi_aliquota?: number | null
+          ncm?: string | null
+          nf_data_emissao?: string | null
+          nf_gc_id?: string | null
+          nf_numero?: string | null
+          nome_produto: string
+          pis_aliquota?: number | null
+          ultima_atualizacao?: string | null
+          valor_cofins_unit?: number | null
+          valor_frete_unit?: number | null
+          valor_icms_unit?: number | null
+          valor_ipi_unit?: number | null
+          valor_pis_unit?: number | null
+          valor_unitario_nf?: number | null
+        }
+        Update: {
+          cofins_aliquota?: number | null
+          created_at?: string | null
+          custo_efetivo_unit?: number | null
+          fornecedor_nome?: string | null
+          frete_percentual?: number | null
+          gc_produto_id?: string
+          icms_aliquota?: number | null
+          icms_base?: number | null
+          id?: string
+          ipi_aliquota?: number | null
+          ncm?: string | null
+          nf_data_emissao?: string | null
+          nf_gc_id?: string | null
+          nf_numero?: string | null
+          nome_produto?: string
+          pis_aliquota?: number | null
+          ultima_atualizacao?: string | null
+          valor_cofins_unit?: number | null
+          valor_frete_unit?: number | null
+          valor_icms_unit?: number | null
+          valor_ipi_unit?: number | null
+          valor_pis_unit?: number | null
+          valor_unitario_nf?: number | null
+        }
+        Relationships: []
+      }
       fin_recebimentos: {
         Row: {
           centro_custo_id: string | null
