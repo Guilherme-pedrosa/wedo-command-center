@@ -358,6 +358,27 @@ serve(async (req) => {
   }
 });
 
+function normalizeText(value: unknown): string {
+  const text = String(value ?? "").trim();
+  if (!text || text.toLowerCase() === "null" || text.toLowerCase() === "undefined") {
+    return "";
+  }
+  return text;
+}
+
+function resolveCompraFornecedorNome(compra: any, nomeFornecedorDb?: string): string {
+  return [
+    compra?.nome_fornecedor,
+    compra?.fornecedor_nome,
+    compra?.fornecedor?.nome,
+    compra?.fornecedor?.razao_social,
+    compra?.fornecedor?.nome_fantasia,
+    nomeFornecedorDb,
+  ]
+    .map(normalizeText)
+    .find(Boolean) || "";
+}
+
 // ── Process NFs and extract per-product tax data ──
 function processNFs(
   nfs: any[],
