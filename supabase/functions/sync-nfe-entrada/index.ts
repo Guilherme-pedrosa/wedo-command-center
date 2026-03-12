@@ -84,6 +84,8 @@ interface ProductTaxRecord {
   nf_data_emissao: string;
   compra_gc_id: string;
   fornecedor_nome: string;
+  regime_fornecedor: string;
+  sem_credito: boolean;
   // NF-level rates (applied proportionally)
   icms_aliquota: number;
   icms_base: number;
@@ -247,10 +249,35 @@ serve(async (req) => {
     console.log(`[sync-nfe-entrada] Compras com NF: ${comprasWithNf}, sem NF: ${comprasWithoutNf}, NFs processadas: ${nfsProcessed}`);
 
     // ── Step 4: Upsert all product tax profiles ──
-    const records = [...productTaxMap.values()].map((r) => ({
-      ...r,
-      ultima_atualizacao: new Date().toISOString(),
-    }));
+    // First, fetch existing records to preserve manual overrides
+    const existingIds = [...productTaxMap.keys()];
+    const existingManual = new Set<string>();
+    for (let i = 0; i < existingIds.length; i += 100) {
+      const batch = existingIds.slice(i, i + 100);
+      const { data } = await supabase
+        .from("fin_produto_tributos")
+        .select("gc_produto_id, icms_aliquota_manual, pis_aliquota_manual, cofins_aliquota_manual, sem_credito")
+        .in("gc_produto_id", batch);
+      for (const row of (data || [])) {
+        // If user has manually set sem_credito or any manual aliquota, preserve their regime choice
+        if (row.sem_credito || row.icms_aliquota_manual != null || row.pis_aliquota_manual != null || row.cofins_aliquota_manual != null) {
+          existingManual.add(row.gc_produto_id);
+        }
+      }
+    }
+
+    const records = [...productTaxMap.values()].map((r) => {
+      const rec: Record<string, unknown> = {
+        ...r,
+        ultima_atualizacao: new Date().toISOString(),
+      };
+      // Don't overwrite user's manual regime choice
+      if (existingManual.has(r.gc_produto_id)) {
+        delete rec.sem_credito;
+        delete rec.regime_fornecedor;
+      }
+      return rec;
+    });
 
     let upserted = 0;
     const batchSize = 50;
@@ -258,7 +285,7 @@ serve(async (req) => {
       const batch = records.slice(i, i + batchSize);
       const { error } = await supabase
         .from("fin_produto_tributos")
-        .upsert(batch, { onConflict: "gc_produto_id" });
+        .upsert(batch as any, { onConflict: "gc_produto_id" });
       if (error) {
         console.error(`[sync-nfe-entrada] Upsert error batch ${i}:`, error.message);
       } else {
@@ -323,6 +350,10 @@ async function processNFs(
     const ipiTotal = parseFloat(nf.valor_ipi) || 0;
     const freteTotal = parseFloat(nf.valor_frete) || 0;
 
+    // Detect Simples Nacional: if NF has products but base_icms=0 and valor_icms=0,
+    // the supplier is likely Simples Nacional → no tax credits
+    const isSimplesNacional = valorProdutos > 0 && baseIcms === 0 && icmsTotal === 0 && pisTotal === 0 && cofinsTotal === 0;
+
     // Effective NF-level rates
     const icmsRate = baseIcms > 0 ? (icmsTotal / baseIcms) * 100 : 0;
     const pisRate = valorProdutos > 0 ? (pisTotal / valorProdutos) * 100 : 0;
@@ -358,9 +389,9 @@ async function processNFs(
       const valorUnit = qtd > 0 ? valorProd / qtd : valorProd;
 
       // Proportional tax per this product
-      const icmsUnit = qtd > 0 ? (icmsTotal * proporcao) / qtd : 0;
-      const pisUnit = qtd > 0 ? (pisTotal * proporcao) / qtd : 0;
-      const cofinsUnit = qtd > 0 ? (cofinsTotal * proporcao) / qtd : 0;
+      const icmsUnit = isSimplesNacional ? 0 : (qtd > 0 ? (icmsTotal * proporcao) / qtd : 0);
+      const pisUnit = isSimplesNacional ? 0 : (qtd > 0 ? (pisTotal * proporcao) / qtd : 0);
+      const cofinsUnit = isSimplesNacional ? 0 : (qtd > 0 ? (cofinsTotal * proporcao) / qtd : 0);
       const ipiUnit = qtd > 0 ? (ipiTotal * proporcao) / qtd : 0;
       const freteUnit = qtd > 0 ? (freteTotal * proporcao) / qtd : 0;
 
@@ -386,10 +417,12 @@ async function processNFs(
         nf_data_emissao: nf.data_emissao || "",
         compra_gc_id: String(compra.id || ""),
         fornecedor_nome: nf.nome_emitente || compra.nome_fornecedor || "",
-        icms_aliquota: r(icmsRate),
-        icms_base: baseIcms > 0 ? r((baseIcms / valorProdutos) * 100) : 100,
-        pis_aliquota: r(pisRate),
-        cofins_aliquota: r(cofinsRate),
+        regime_fornecedor: isSimplesNacional ? "simples_nacional" : "normal",
+        sem_credito: isSimplesNacional,
+        icms_aliquota: isSimplesNacional ? 0 : r(icmsRate),
+        icms_base: isSimplesNacional ? 0 : (baseIcms > 0 ? r((baseIcms / valorProdutos) * 100) : 100),
+        pis_aliquota: isSimplesNacional ? 0 : r(pisRate),
+        cofins_aliquota: isSimplesNacional ? 0 : r(cofinsRate),
         ipi_aliquota: r(ipiRate),
         frete_percentual: r(freteRate),
         valor_unitario_nf: r(valorUnit),

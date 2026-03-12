@@ -1377,6 +1377,7 @@ export type Database = {
         Row: {
           cfop: string | null
           cofins_aliquota: number | null
+          cofins_aliquota_manual: number | null
           compra_gc_id: string | null
           created_at: string | null
           custo_efetivo_unit: number | null
@@ -1384,9 +1385,11 @@ export type Database = {
           frete_percentual: number | null
           gc_produto_id: string
           icms_aliquota: number | null
+          icms_aliquota_manual: number | null
           icms_base: number | null
           id: string
           ipi_aliquota: number | null
+          ipi_aliquota_manual: number | null
           ncm: string | null
           nf_chave: string | null
           nf_data_emissao: string | null
@@ -1394,6 +1397,9 @@ export type Database = {
           nf_numero: string | null
           nome_produto: string
           pis_aliquota: number | null
+          pis_aliquota_manual: number | null
+          regime_fornecedor: string | null
+          sem_credito: boolean | null
           ultima_atualizacao: string | null
           valor_cofins_unit: number | null
           valor_frete_unit: number | null
@@ -1405,6 +1411,7 @@ export type Database = {
         Insert: {
           cfop?: string | null
           cofins_aliquota?: number | null
+          cofins_aliquota_manual?: number | null
           compra_gc_id?: string | null
           created_at?: string | null
           custo_efetivo_unit?: number | null
@@ -1412,9 +1419,11 @@ export type Database = {
           frete_percentual?: number | null
           gc_produto_id: string
           icms_aliquota?: number | null
+          icms_aliquota_manual?: number | null
           icms_base?: number | null
           id?: string
           ipi_aliquota?: number | null
+          ipi_aliquota_manual?: number | null
           ncm?: string | null
           nf_chave?: string | null
           nf_data_emissao?: string | null
@@ -1422,6 +1431,9 @@ export type Database = {
           nf_numero?: string | null
           nome_produto: string
           pis_aliquota?: number | null
+          pis_aliquota_manual?: number | null
+          regime_fornecedor?: string | null
+          sem_credito?: boolean | null
           ultima_atualizacao?: string | null
           valor_cofins_unit?: number | null
           valor_frete_unit?: number | null
@@ -1433,6 +1445,7 @@ export type Database = {
         Update: {
           cfop?: string | null
           cofins_aliquota?: number | null
+          cofins_aliquota_manual?: number | null
           compra_gc_id?: string | null
           created_at?: string | null
           custo_efetivo_unit?: number | null
@@ -1440,9 +1453,11 @@ export type Database = {
           frete_percentual?: number | null
           gc_produto_id?: string
           icms_aliquota?: number | null
+          icms_aliquota_manual?: number | null
           icms_base?: number | null
           id?: string
           ipi_aliquota?: number | null
+          ipi_aliquota_manual?: number | null
           ncm?: string | null
           nf_chave?: string | null
           nf_data_emissao?: string | null
@@ -1450,6 +1465,9 @@ export type Database = {
           nf_numero?: string | null
           nome_produto?: string
           pis_aliquota?: number | null
+          pis_aliquota_manual?: number | null
+          regime_fornecedor?: string | null
+          sem_credito?: boolean | null
           ultima_atualizacao?: string | null
           valor_cofins_unit?: number | null
           valor_frete_unit?: number | null
