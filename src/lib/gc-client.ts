@@ -66,6 +66,20 @@ export async function callGC<T = unknown>(request: GCProxyRequest): Promise<GCPr
   return data as GCProxyResponse<T>;
 }
 
+async function isDailyLimitReached(): Promise<boolean> {
+  const today = new Date().toISOString().split("T")[0];
+  const { data } = await supabase
+    .from("fin_configuracoes")
+    .select("valor, updated_at")
+    .eq("chave", "gc_api_daily_counter")
+    .maybeSingle();
+
+  if (!data?.updated_at) return false;
+  const rowDay = String(data.updated_at).split("T")[0];
+  const count = Number(data.valor || 0);
+  return rowDay === today && count >= 2000;
+}
+
 // Paginated fetch helper — fetches ALL pages from GC
 export async function fetchAllGCPages<T>(
   endpoint: string,
