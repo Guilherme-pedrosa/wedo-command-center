@@ -291,8 +291,15 @@ function isXmlSimplesNacional(xml: string, xmlItems?: XmlItemTax[]): boolean {
   const crt = getTag(emit, "CRT");
   const crtIsSN = crt === "1" || crt === "2";
   
-  // If CRT says normal (3), it's definitely not SN
-  if (!crtIsSN && crt) return false;
+  // Fix #4: Also detect SN by presence of CSOSN tag in any item
+  // If any item has <CSOSN> instead of <CST> inside ICMS, it's SN
+  const hasCSOSN = xmlItems?.some(item => item.icms_cst && /^\d{3}$/.test(item.icms_cst) && 
+    ["101","102","103","201","202","203","300","400","500","900"].includes(item.icms_cst));
+  
+  const isSNByTag = crtIsSN || !!hasCSOSN;
+  
+  // If CRT says normal (3) AND no CSOSN found, it's definitely not SN
+  if (!isSNByTag && crt) return false;
   
   // If we have parsed items, check if any item actually has tax values
   // If they do, the emitter is NOT operating under SN for this NF
@@ -301,12 +308,12 @@ function isXmlSimplesNacional(xml: string, xmlItems?: XmlItemTax[]): boolean {
       item.icms_vICMS > 0 || item.pis_vPIS > 0 || item.cofins_vCOFINS > 0
     );
     if (hasRealTaxes) {
-      console.log(`[sync-nfe-entrada] CRT=${crt} mas itens têm impostos reais — NÃO é Simples Nacional`);
+      console.log(`[sync-nfe-entrada] CRT=${crt} CSOSN=${hasCSOSN} mas itens têm impostos reais — NÃO é Simples Nacional`);
       return false;
     }
   }
   
-  return crtIsSN;
+  return isSNByTag;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -835,23 +842,27 @@ async function processNFs(
         let bestDiff = Infinity;
         let bestIdx = -1;
 
+        // Fix #2: Tolerância aumentada para 5% do valor, mínimo R$0.50
+        const matchTolerance = Math.max(compraProdValor * 0.05, 0.50);
+        const unitTolerance = Math.max(compraProdUnitario * 0.05, 0.10);
+
         for (let i = 0; i < xmlItems.length; i++) {
           if (usedXmlIndices.has(i)) continue;
           const xi = xmlItems[i];
           
           // Match 1: valor total do produto (mais confiável)
           const diffTotal = Math.abs(xi.vProd - compraProdValor);
-          if (diffTotal < 0.02 && diffTotal < bestDiff) {
+          if (diffTotal <= matchTolerance && diffTotal < bestDiff) {
             bestDiff = diffTotal;
             bestIdx = i;
             xmlItem = xi;
           }
           
           // Match 2: valor unitário + mesma quantidade
-          if (!xmlItem || diffTotal >= 0.02) {
+          if (!xmlItem || diffTotal > matchTolerance) {
             const diffUnit = Math.abs(xi.vUnCom - compraProdUnitario);
             const sameQtd = Math.abs(xi.qCom - compraProdQtd) < 0.01;
-            if (sameQtd && diffUnit < 0.02 && diffUnit < bestDiff) {
+            if (sameQtd && diffUnit <= unitTolerance && diffUnit < bestDiff) {
               bestDiff = diffUnit;
               bestIdx = i;
               xmlItem = xi;
@@ -859,7 +870,7 @@ async function processNFs(
           }
         }
 
-        // Match 3 (fallback): código do produto no GC = cProd no XML
+        // Match 3: código do produto no GC = cProd no XML
         if (!xmlItem && nfProd) {
           for (let i = 0; i < xmlItems.length; i++) {
             if (usedXmlIndices.has(i)) continue;
@@ -871,15 +882,32 @@ async function processNFs(
           }
         }
 
+        // Match 3b: NCM match (mesmo NCM + valor mais próximo)
+        if (!xmlItem && nfProd?.NCM) {
+          let ncmBestDiff = Infinity;
+          for (let i = 0; i < xmlItems.length; i++) {
+            if (usedXmlIndices.has(i)) continue;
+            if (xmlItems[i].NCM === nfProd.NCM) {
+              const diff = Math.abs(xmlItems[i].vProd - compraProdValor);
+              if (diff < ncmBestDiff) {
+                ncmBestDiff = diff;
+                xmlItem = xmlItems[i];
+                bestIdx = i;
+              }
+            }
+          }
+        }
+
         // Match 4 (último recurso): se compra tem 1 produto e XML tem 1 item
         if (!xmlItem && compraProdutos.length === 1 && xmlItems.length === 1 && usedXmlIndices.size === 0) {
           xmlItem = xmlItems[0];
           bestIdx = 0;
         }
 
+        // Fix #1: Se match falhou mas temos XML real → rateio proporcional pelos totais do XML
         if (!xmlItem || bestIdx < 0) {
-          console.log(`[sync-nfe-entrada] XML match falhou p/ GC ${gcProdId} "${compraProd.nome_produto}" (valor=${compraProdValor})`);
-          processItemProportional(gcProdId, compraProd, nfProd, nf, freteTotal, fornecedorNome, compra, productTaxMap);
+          console.log(`[sync-nfe-entrada] XML match falhou p/ GC ${gcProdId} "${compraProd.nome_produto}" (valor=${compraProdValor}) → usando rateio proporcional do XML`);
+          processItemXmlProportional(gcProdId, compraProd, nfProd, xmlItems, xmlFrete, isSN, nf, fornecedorNome, compra, productTaxMap);
           continue;
         }
 
@@ -893,14 +921,12 @@ async function processNFs(
         const ipiUnit = qtd > 0 ? xmlItem.ipi_vIPI / qtd : 0;
 
         // Crédito ICMS: usar alíquota REAL do XML
-        // Para orig 1,2,3,6,7,8 (importados) a alíquota interestadual é 4% (Res. SF 13/2012)
-        // O XML já traz o valor correto em vICMS
         const icmsUnit = isSN ? 0 : (qtd > 0 ? xmlItem.icms_vICMS / qtd : 0);
         const pisUnit = isSN ? 0 : (qtd > 0 ? xmlItem.pis_vPIS / qtd : 0);
         const cofinsUnit = isSN ? 0 : (qtd > 0 ? xmlItem.cofins_vCOFINS / qtd : 0);
 
-        // Alíquota efetiva real sobre o valor do produto
-        const icmsAliqReal = xmlItem.vProd > 0 ? (xmlItem.icms_vICMS / xmlItem.vProd) * 100 : 0;
+        // Fix #5: Usar pICMS direto do XML (não calcular) — preserva 4% importados
+        const icmsAliqReal = xmlItem.icms_pICMS || (xmlItem.vProd > 0 ? (xmlItem.icms_vICMS / xmlItem.vProd) * 100 : 0);
         const pisAliqReal = xmlItem.pis_pPIS || (xmlItem.vProd > 0 ? (xmlItem.pis_vPIS / xmlItem.vProd) * 100 : 0);
         const cofinsAliqReal = xmlItem.cofins_pCOFINS || (xmlItem.vProd > 0 ? (xmlItem.cofins_vCOFINS / xmlItem.vProd) * 100 : 0);
         const ipiAliqReal = xmlItem.ipi_pIPI || (xmlItem.vProd > 0 ? (xmlItem.ipi_vIPI / xmlItem.vProd) * 100 : 0);
@@ -926,7 +952,7 @@ async function processNFs(
           nf_chave: nf.chave || "",
           nf_data_emissao: nf.data_emissao || "",
           compra_gc_id: String(compra.id || ""),
-          fornecedor_nome: fornecedorNome || nf.fantasia_emitente || nf.nome_emitente || "",
+          fornecedor_nome: fornecedorNome || "",  // Fix #3: NUNCA usar nf.emit (pode ser WD)
           regime_fornecedor: isSN ? "simples_nacional" : "normal",
           sem_credito: isSN,
           icms_aliquota: isSN ? 0 : r(icmsAliqReal),
@@ -962,6 +988,86 @@ async function processNFs(
   }
 
   return xmlsUsed;
+}
+
+// ── Fix #1: Rateio proporcional usando TOTAIS do XML real (quando match por item falha) ──
+function processItemXmlProportional(
+  gcProdId: string,
+  compraProd: CompraProduct,
+  nfProd: NFProduct | undefined,
+  xmlItems: XmlItemTax[],
+  xmlFrete: number,
+  isSN: boolean,
+  nf: NFData,
+  fornecedorNome: string,
+  compra: any,
+  productTaxMap: Map<string, ProductTaxRecord>
+) {
+  const r = (v: number) => Math.round(v * 100) / 100;
+  
+  // Somar totais reais do XML
+  const totalVProd = xmlItems.reduce((s, i) => s + i.vProd, 0);
+  const totalICMS = xmlItems.reduce((s, i) => s + i.icms_vICMS, 0);
+  const totalPIS = xmlItems.reduce((s, i) => s + i.pis_vPIS, 0);
+  const totalCOFINS = xmlItems.reduce((s, i) => s + i.cofins_vCOFINS, 0);
+  const totalIPI = xmlItems.reduce((s, i) => s + i.ipi_vIPI, 0);
+  const totalBaseICMS = xmlItems.reduce((s, i) => s + i.icms_vBC, 0);
+  
+  // Média ponderada das alíquotas do XML
+  const avgIcmsAliq = totalVProd > 0 ? (totalICMS / totalVProd) * 100 : 0;
+  const avgPisAliq = totalVProd > 0 ? (totalPIS / totalVProd) * 100 : 0;
+  const avgCofinsAliq = totalVProd > 0 ? (totalCOFINS / totalVProd) * 100 : 0;
+  const avgIpiAliq = totalVProd > 0 ? (totalIPI / totalVProd) * 100 : 0;
+  const freteRate = totalVProd > 0 ? (xmlFrete / totalVProd) * 100 : 0;
+  const icmsBasePerc = totalVProd > 0 ? (totalBaseICMS / totalVProd) * 100 : 100;
+  
+  // Pegar NCM/CFOP do primeiro item como referência
+  const refItem = xmlItems[0];
+  
+  const qtd = parseFloat(nfProd?.quantidade || compraProd.quantidade || "1") || 1;
+  const valorProd = parseFloat(nfProd?.valor_venda || compraProd.valor_total || "0") || 0;
+  const valorUnit = qtd > 0 ? valorProd / qtd : valorProd;
+  const proporcao = totalVProd > 0 ? valorProd / totalVProd : 1 / (xmlItems.length || 1);
+  
+  const icmsUnit = isSN ? 0 : valorUnit * (avgIcmsAliq / 100);
+  const pisUnit = isSN ? 0 : valorUnit * (avgPisAliq / 100);
+  const cofinsUnit = isSN ? 0 : valorUnit * (avgCofinsAliq / 100);
+  const ipiUnit = valorUnit * (avgIpiAliq / 100);
+  const freteUnit = valorUnit * (freteRate / 100);
+  const custoEfetivo = valorUnit + ipiUnit + freteUnit - icmsUnit - pisUnit - cofinsUnit;
+  
+  const existing = productTaxMap.get(gcProdId);
+  if (existing && existing.nf_data_emissao > (nf.data_emissao || "")) return;
+  
+  productTaxMap.set(gcProdId, {
+    gc_produto_id: gcProdId,
+    nome_produto: compraProd.nome_produto || "",
+    ncm: refItem?.NCM || nfProd?.NCM || "",
+    cfop: refItem?.CFOP || nfProd?.cfop || "",
+    nf_gc_id: String(nf.id || ""),
+    nf_numero: nf.numero_nf || "",
+    nf_chave: nf.chave || "",
+    nf_data_emissao: nf.data_emissao || "",
+    compra_gc_id: String(compra.id || ""),
+    fornecedor_nome: fornecedorNome || "",
+    regime_fornecedor: isSN ? "simples_nacional" : "normal",
+    sem_credito: isSN,
+    icms_aliquota: isSN ? 0 : r(avgIcmsAliq),
+    icms_base: isSN ? 0 : r(icmsBasePerc),
+    pis_aliquota: isSN ? 0 : r(avgPisAliq),
+    cofins_aliquota: isSN ? 0 : r(avgCofinsAliq),
+    ipi_aliquota: r(avgIpiAliq),
+    frete_percentual: r(freteRate),
+    valor_unitario_nf: r(valorUnit),
+    valor_icms_unit: r(icmsUnit),
+    valor_pis_unit: r(pisUnit),
+    valor_cofins_unit: r(cofinsUnit),
+    valor_ipi_unit: r(ipiUnit),
+    valor_frete_unit: r(freteUnit),
+    custo_efetivo_unit: r(custoEfetivo),
+  });
+  
+  console.log(`[sync-nfe-entrada] XML rateio ✓ ${gcProdId} "${compraProd.nome_produto}" → ICMS=${r(avgIcmsAliq)}% PIS=${r(avgPisAliq)}% COFINS=${r(avgCofinsAliq)}%`);
 }
 
 // ── Fallback: método proporcional original (quando não há XML) ──
@@ -1016,7 +1122,7 @@ function processItemProportional(
     nf_chave: nf.chave || "",
     nf_data_emissao: nf.data_emissao || "",
     compra_gc_id: String(compra.id || ""),
-    fornecedor_nome: fornecedorNome || nf.fantasia_emitente || nf.nome_emitente || "",
+    fornecedor_nome: fornecedorNome || "",  // Fix #3: NUNCA usar nf.emit
     regime_fornecedor: isSimplesNacional ? "simples_nacional" : "normal",
     sem_credito: isSimplesNacional,
     icms_aliquota: isSimplesNacional ? 0 : r(icmsRate),
