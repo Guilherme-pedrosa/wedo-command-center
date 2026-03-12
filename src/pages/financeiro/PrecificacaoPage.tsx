@@ -1192,7 +1192,7 @@ export default function PrecificacaoPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{estoque}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{formatCurrency(hasNF ? tributo.valor_unitario_nf : custoBruto)}</TableCell>
+                      <TableCell className="text-right font-mono text-sm">{formatCurrency(custoBase)}</TableCell>
                       <TableCell className="text-center">
                         {hasNF ? (
                           <Tooltip>
