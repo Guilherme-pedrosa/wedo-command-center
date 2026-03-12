@@ -420,19 +420,23 @@ export default function PrecificacaoPage() {
         .sort((a, b) => {
           const estoqueA = Number(a.estoque) || 0;
           const estoqueB = Number(b.estoque) || 0;
-          const custoA = Number(a.valor_custo) || 0;
-          const custoB = Number(b.valor_custo) || 0;
-          // Produtos com estoque vêm primeiro
-          if (estoqueA > 0 && estoqueB === 0) return -1;
-          if (estoqueA === 0 && estoqueB > 0) return 1;
-          // Entre produtos com estoque: maior valor em estoque primeiro
-          if (estoqueA > 0 && estoqueB > 0) {
-            const scoreA = estoqueA * custoA;
-            const scoreB = estoqueB * custoB;
-            if (scoreB !== scoreA) return scoreB - scoreA;
-          }
-          // Desempate (ou ambos sem estoque): maior custo primeiro
-          return custoB - custoA;
+
+          const tributoA = tributosMap.get(a.id);
+          const tributoB = tributosMap.get(b.id);
+
+          // Usa o mesmo custo-base exibido na tabela (NF quando existir)
+          const custoA = tributoA ? Number(tributoA.valor_unitario_nf) || 0 : Number(a.valor_custo) || 0;
+          const custoB = tributoB ? Number(tributoB.valor_unitario_nf) || 0 : Number(b.valor_custo) || 0;
+
+          const valorEstoqueA = estoqueA * custoA;
+          const valorEstoqueB = estoqueB * custoB;
+
+          // Regra principal: maior valor em estoque (qtd × custo)
+          if (valorEstoqueB !== valorEstoqueA) return valorEstoqueB - valorEstoqueA;
+          // Desempate: maior custo unitário
+          if (custoB !== custoA) return custoB - custoA;
+          // Último desempate: maior quantidade
+          return estoqueB - estoqueA;
         })
         .slice(0, 100);
     }
