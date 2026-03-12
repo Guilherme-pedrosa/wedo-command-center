@@ -1070,7 +1070,7 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs text-center text-yellow-400 border-l border-border" colSpan={3}>Tabela B (70%)</TableHead>
                   <TableHead className="text-xs text-center text-purple-400 border-l border-border" colSpan={3}>Tabela P (50%)</TableHead>
                 </TableRow>
-                <TableRow className="border-border hover:bg-transparent">
+                <TableRow className="border-border hover:bg-transparent bg-card">
                   <TableHead className="text-[10px] text-right border-l border-border">Venda</TableHead>
                   <TableHead className="text-[10px] text-right">Tributo</TableHead>
                   <TableHead className="text-[10px] text-center">Margem</TableHead>
