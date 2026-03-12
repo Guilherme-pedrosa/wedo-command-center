@@ -186,19 +186,6 @@ function isTributoCompativelComProduto(produto: GCProduto, tributo?: ProdutoTrib
   return tributo.gc_produto_id === produto.id;
 }
 
-/**
- * Verifica se o valor_unitario_nf da NF é razoável em relação ao valor_custo do ERP.
- * Se divergir muito (ex: NF por embalagem de 5L vs ERP por litro), retorna false.
- * Nesse caso a alíquota do tributo ainda é usada, mas o custo base vem do ERP.
- */
-function isNfCustoRazoavel(produto: GCProduto, tributo: ProdutoTributo): boolean {
-  const custoERP = parseFloat(produto.valor_custo) || 0;
-  const custoNF = tributo.valor_unitario_nf || 0;
-  if (custoERP <= 0 || custoNF <= 0) return true; // sem base para comparar, aceita NF
-  const ratio = custoNF / custoERP;
-  // Aceita se NF estiver entre 0.3x e 3x do custo ERP
-  return ratio >= 0.3 && ratio <= 3;
-}
 
 function calcPricingWithNF(
   tributo: ProdutoTributo,
