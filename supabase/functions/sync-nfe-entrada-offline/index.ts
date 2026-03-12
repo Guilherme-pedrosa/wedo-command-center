@@ -62,9 +62,9 @@ interface ProductTaxRecord {
   ncm: string;
   cfop: string;
   nf_gc_id: string;
-  nf_numero: string;
+  nf_numero: string | null;
   nf_chave: string;
-  nf_data_emissao: string;
+  nf_data_emissao: string | null;
   compra_gc_id: string;
   fornecedor_nome: string;
   regime_fornecedor: string;
