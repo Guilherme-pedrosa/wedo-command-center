@@ -1039,16 +1039,21 @@ export default function PrecificacaoPage() {
                         {hasNF ? (
                           <Tooltip>
                             <TooltipTrigger>
-                              <Badge className={`text-[10px] gap-1 ${
-                                tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito
-                                  ? "bg-amber-500/20 text-amber-400"
-                                  : "bg-primary/20 text-primary"
-                              }`}>
-                                <FileText className="h-3 w-3" />
-                                {tributo.fornecedor_nome || "NF"}
-                                {tributo.nf_numero ? ` #${tributo.nf_numero}` : ""}
-                                {(tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito) ? " ·SN" : ""}
-                              </Badge>
+                              {(() => {
+                                const nfNum = tributo.nf_numero || (tributo.nf_chave?.length === 44 ? String(parseInt(tributo.nf_chave.substring(25, 34))) : "");
+                                return (
+                                  <Badge className={`text-[10px] gap-1 ${
+                                    tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito
+                                      ? "bg-amber-500/20 text-amber-400"
+                                      : "bg-primary/20 text-primary"
+                                  }`}>
+                                    <FileText className="h-3 w-3" />
+                                    {tributo.fornecedor_nome || "NF"}
+                                    {nfNum ? ` #${nfNum}` : ""}
+                                    {(tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito) ? " ·SN" : ""}
+                                  </Badge>
+                                );
+                              })()}
                             </TooltipTrigger>
                             <TooltipContent className="text-xs max-w-sm">
                               <p className="font-semibold">NF #{tributo.nf_numero} — {tributo.fornecedor_nome}</p>
