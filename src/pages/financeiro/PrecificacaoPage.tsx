@@ -230,7 +230,7 @@ export default function PrecificacaoPage() {
   const [taxEntrada, setTaxEntrada] = useState<TaxConfigEntrada>(DEFAULT_ENTRADA);
   const [taxSaida, setTaxSaida] = useState<TaxConfigSaida>(DEFAULT_SAIDA);
   const [tipoSaidaGlobal, setTipoSaidaGlobal] = useState<TipoSaida>("venda");
-  const [margemAlvo, setMargemAlvo] = useState(15);
+  const [margemAlvo, setMargemAlvo] = useState(30);
   const [syncing, setSyncing] = useState(false);
   const [calcCusto, setCalcCusto] = useState<string>("");
   const [calcTipoSaida, setCalcTipoSaida] = useState<TipoSaida>("venda");
