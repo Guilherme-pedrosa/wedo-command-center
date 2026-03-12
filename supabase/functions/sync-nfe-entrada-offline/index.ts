@@ -598,7 +598,7 @@ serve(async (req) => {
             custo_efetivo_unit: r(custoEfetivo),
           });
 
-          console.log(`[offline] rateio ✓ ${gcProdId} "${compraProd.nome_produto}" ICMS=${r(avgIcmsAliq)}%`);
+          console.log(`[offline] rateio ✓ ${gcProdId} "${compraProd.nome_produto}" ICMS=${r(avgIcmsAliq)}% PIS=${r(avgPisAliq)}% COFINS=${r(avgCofinsAliq)}%`);
         }
       }
     }
