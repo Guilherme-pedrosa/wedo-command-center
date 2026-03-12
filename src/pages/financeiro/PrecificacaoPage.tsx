@@ -515,13 +515,13 @@ export default function PrecificacaoPage() {
 
       setUploadProgress(`0 / ${allItems.length} processados`);
       const BATCH_SIZE = 15;
-      const { uploaded, repeatedKeys, errors } = await uploadBatch(allItems, BATCH_SIZE, (done, total) => {
+      const { uploaded, repeatedKeys, errors, indexed } = await uploadBatch(allItems, BATCH_SIZE, (done, total) => {
         setUploadProgress(`${done} / ${total} processados`);
       });
 
       toast.success(
-        `${uploaded} arquivo(s) enviados` +
-          (repeatedKeys > 0 ? `, ${repeatedKeys} com chave repetida (salvos em /repetidos)` : "") +
+        `${uploaded} arquivo(s) enviados, ${indexed} indexados` +
+          (repeatedKeys > 0 ? `, ${repeatedKeys} chave(s) repetida(s)` : "") +
           (errors > 0 ? `, ${errors} erro(s)` : "")
       );
     } catch (err) {
