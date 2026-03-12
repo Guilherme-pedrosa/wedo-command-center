@@ -1052,7 +1052,9 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs text-right">Custo Total</TableHead>
                   <TableHead className="text-xs text-right">Trib. Saída</TableHead>
                   <TableHead className="text-xs text-right font-semibold text-primary">Preço Mín.</TableHead>
-                  <TableHead className="text-xs text-right">Venda GC</TableHead>
+                  <TableHead className="text-xs text-right text-blue-400">Tab A (120%)</TableHead>
+                  <TableHead className="text-xs text-right text-yellow-400">Tab B (70%)</TableHead>
+                  <TableHead className="text-xs text-right text-purple-400">Tab P (50%)</TableHead>
                   <TableHead className="text-xs text-center">Status</TableHead>
                 </TableRow>
               </TableHeader>
