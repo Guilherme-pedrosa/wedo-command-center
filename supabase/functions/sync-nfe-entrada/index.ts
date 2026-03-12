@@ -1042,7 +1042,7 @@ function processItemProportional(
     nf_chave: nf.chave || "",
     nf_data_emissao: nf.data_emissao || "",
     compra_gc_id: String(compra.id || ""),
-    fornecedor_nome: fornecedorNome || nf.fantasia_emitente || nf.nome_emitente || "",
+    fornecedor_nome: fornecedorNome || "",  // Fix #3: NUNCA usar nf.emit
     regime_fornecedor: isSimplesNacional ? "simples_nacional" : "normal",
     sem_credito: isSimplesNacional,
     icms_aliquota: isSimplesNacional ? 0 : r(icmsRate),
