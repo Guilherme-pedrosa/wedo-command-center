@@ -1325,8 +1325,8 @@ export default function PrecificacaoPage() {
                     Clique na alíquota para editar · Marque "SN" para Simples Nacional
                   </Badge>
                 </span>
-                <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={syncing}>
-                  {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={isSyncing}>
+                  {syncingOffline ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
                   Atualizar
                 </Button>
               </CardTitle>
