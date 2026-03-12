@@ -990,6 +990,86 @@ async function processNFs(
   return xmlsUsed;
 }
 
+// ── Fix #1: Rateio proporcional usando TOTAIS do XML real (quando match por item falha) ──
+function processItemXmlProportional(
+  gcProdId: string,
+  compraProd: CompraProduct,
+  nfProd: NFProduct | undefined,
+  xmlItems: XmlItemTax[],
+  xmlFrete: number,
+  isSN: boolean,
+  nf: NFData,
+  fornecedorNome: string,
+  compra: any,
+  productTaxMap: Map<string, ProductTaxRecord>
+) {
+  const r = (v: number) => Math.round(v * 100) / 100;
+  
+  // Somar totais reais do XML
+  const totalVProd = xmlItems.reduce((s, i) => s + i.vProd, 0);
+  const totalICMS = xmlItems.reduce((s, i) => s + i.icms_vICMS, 0);
+  const totalPIS = xmlItems.reduce((s, i) => s + i.pis_vPIS, 0);
+  const totalCOFINS = xmlItems.reduce((s, i) => s + i.cofins_vCOFINS, 0);
+  const totalIPI = xmlItems.reduce((s, i) => s + i.ipi_vIPI, 0);
+  const totalBaseICMS = xmlItems.reduce((s, i) => s + i.icms_vBC, 0);
+  
+  // Média ponderada das alíquotas do XML
+  const avgIcmsAliq = totalVProd > 0 ? (totalICMS / totalVProd) * 100 : 0;
+  const avgPisAliq = totalVProd > 0 ? (totalPIS / totalVProd) * 100 : 0;
+  const avgCofinsAliq = totalVProd > 0 ? (totalCOFINS / totalVProd) * 100 : 0;
+  const avgIpiAliq = totalVProd > 0 ? (totalIPI / totalVProd) * 100 : 0;
+  const freteRate = totalVProd > 0 ? (xmlFrete / totalVProd) * 100 : 0;
+  const icmsBasePerc = totalVProd > 0 ? (totalBaseICMS / totalVProd) * 100 : 100;
+  
+  // Pegar NCM/CFOP do primeiro item como referência
+  const refItem = xmlItems[0];
+  
+  const qtd = parseFloat(nfProd?.quantidade || compraProd.quantidade || "1") || 1;
+  const valorProd = parseFloat(nfProd?.valor_venda || compraProd.valor_total || "0") || 0;
+  const valorUnit = qtd > 0 ? valorProd / qtd : valorProd;
+  const proporcao = totalVProd > 0 ? valorProd / totalVProd : 1 / (xmlItems.length || 1);
+  
+  const icmsUnit = isSN ? 0 : valorUnit * (avgIcmsAliq / 100);
+  const pisUnit = isSN ? 0 : valorUnit * (avgPisAliq / 100);
+  const cofinsUnit = isSN ? 0 : valorUnit * (avgCofinsAliq / 100);
+  const ipiUnit = valorUnit * (avgIpiAliq / 100);
+  const freteUnit = valorUnit * (freteRate / 100);
+  const custoEfetivo = valorUnit + ipiUnit + freteUnit - icmsUnit - pisUnit - cofinsUnit;
+  
+  const existing = productTaxMap.get(gcProdId);
+  if (existing && existing.nf_data_emissao > (nf.data_emissao || "")) return;
+  
+  productTaxMap.set(gcProdId, {
+    gc_produto_id: gcProdId,
+    nome_produto: compraProd.nome_produto || "",
+    ncm: refItem?.NCM || nfProd?.NCM || "",
+    cfop: refItem?.CFOP || nfProd?.cfop || "",
+    nf_gc_id: String(nf.id || ""),
+    nf_numero: nf.numero_nf || "",
+    nf_chave: nf.chave || "",
+    nf_data_emissao: nf.data_emissao || "",
+    compra_gc_id: String(compra.id || ""),
+    fornecedor_nome: fornecedorNome || "",
+    regime_fornecedor: isSN ? "simples_nacional" : "normal",
+    sem_credito: isSN,
+    icms_aliquota: isSN ? 0 : r(avgIcmsAliq),
+    icms_base: isSN ? 0 : r(icmsBasePerc),
+    pis_aliquota: isSN ? 0 : r(avgPisAliq),
+    cofins_aliquota: isSN ? 0 : r(avgCofinsAliq),
+    ipi_aliquota: r(avgIpiAliq),
+    frete_percentual: r(freteRate),
+    valor_unitario_nf: r(valorUnit),
+    valor_icms_unit: r(icmsUnit),
+    valor_pis_unit: r(pisUnit),
+    valor_cofins_unit: r(cofinsUnit),
+    valor_ipi_unit: r(ipiUnit),
+    valor_frete_unit: r(freteUnit),
+    custo_efetivo_unit: r(custoEfetivo),
+  });
+  
+  console.log(`[sync-nfe-entrada] XML rateio ✓ ${gcProdId} "${compraProd.nome_produto}" → ICMS=${r(avgIcmsAliq)}% PIS=${r(avgPisAliq)}% COFINS=${r(avgCofinsAliq)}%`);
+}
+
 // ── Fallback: método proporcional original (quando não há XML) ──
 function processItemProportional(
   gcProdId: string,
