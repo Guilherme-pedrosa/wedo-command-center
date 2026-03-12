@@ -538,15 +538,22 @@ serve(async (req) => {
           console.log(`[offline] ✓ ${gcProdId} "${xmlItem.xProd}" ICMS=${r(icmsAliqReal)}% PIS=${r(pisAliqReal)}% COFINS=${r(cofinsAliqReal)}%`);
         } else {
           // Fallback: rateio proporcional pelos totais do XML
+          // Use actual values first, but fallback to weighted average of aliquotas if values are zero
           const totalICMS = xmlItems.reduce((s, i) => s + i.icms_vICMS, 0);
           const totalPIS = xmlItems.reduce((s, i) => s + i.pis_vPIS, 0);
           const totalCOFINS = xmlItems.reduce((s, i) => s + i.cofins_vCOFINS, 0);
           const totalIPI = xmlItems.reduce((s, i) => s + i.ipi_vIPI, 0);
           const totalBaseICMS = xmlItems.reduce((s, i) => s + i.icms_vBC, 0);
 
+          // If PIS/COFINS values are zero but aliquotas exist, use weighted average of aliquotas
+          const avgPisAliqFromRate = xmlItems.length > 0
+            ? xmlItems.reduce((s, i) => s + i.pis_pPIS * i.vProd, 0) / (totalVProd || 1) : 0;
+          const avgCofinsAliqFromRate = xmlItems.length > 0
+            ? xmlItems.reduce((s, i) => s + i.cofins_pCOFINS * i.vProd, 0) / (totalVProd || 1) : 0;
+
           const avgIcmsAliq = totalVProd > 0 ? (totalICMS / totalVProd) * 100 : 0;
-          const avgPisAliq = totalVProd > 0 ? (totalPIS / totalVProd) * 100 : 0;
-          const avgCofinsAliq = totalVProd > 0 ? (totalCOFINS / totalVProd) * 100 : 0;
+          const avgPisAliq = totalPIS > 0 ? (totalPIS / totalVProd) * 100 : avgPisAliqFromRate;
+          const avgCofinsAliq = totalCOFINS > 0 ? (totalCOFINS / totalVProd) * 100 : avgCofinsAliqFromRate;
           const avgIpiAliq = totalVProd > 0 ? (totalIPI / totalVProd) * 100 : 0;
           const freteRate = totalVProd > 0 ? (xmlFrete / totalVProd) * 100 : 0;
           const icmsBasePerc = totalVProd > 0 ? (totalBaseICMS / totalVProd) * 100 : 100;
