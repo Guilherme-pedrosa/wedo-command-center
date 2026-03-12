@@ -396,20 +396,41 @@ export default function PrecificacaoPage() {
     staleTime: 10 * 60_000,
   });
 
-  // ── Filtered products ──
+  // ── Filtered products (works with or without GC products loaded) ──
   const filtered = useMemo(() => {
-    if (!produtos) return [];
     const q = search.toLowerCase();
-    return produtos
-      .filter((p) => {
-        // Só exibe produtos que possuem tributo mapeado via XML de entrada
-        if (!tributosMap.has(p.id)) return false;
-        const nome = (p.nome || "").toLowerCase();
-        const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
+    if (produtos) {
+      // Full mode: GC products loaded
+      return produtos
+        .filter((p) => {
+          if (!tributosMap.has(p.id)) return false;
+          const nome = (p.nome || "").toLowerCase();
+          const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
+          return nome.includes(q) || codigo.includes(q);
+        })
+        .slice(0, 100);
+    }
+    // Offline mode: build list from tributos only
+    return tributosXml
+      .filter((t) => {
+        const nome = (t.nome_produto || "").toLowerCase();
+        const codigo = (t.gc_produto_id || "").toLowerCase();
         return nome.includes(q) || codigo.includes(q);
       })
+      .map((t) => ({
+        id: t.gc_produto_id,
+        nome: t.nome_produto,
+        codigo: t.gc_produto_id,
+        codigo_interno: "",
+        estoque: 0,
+        valor_custo: String(t.valor_unitario_nf || "0"),
+        valor_venda: "0",
+        nome_grupo: "",
+        ncm: t.ncm || "",
+        unidade: "",
+      } as GCProduto))
       .slice(0, 100);
-  }, [produtos, search, tributosMap]);
+  }, [produtos, search, tributosMap, tributosXml]);
 
   const totalProdutosEstoque = useMemo(() => {
     if (!produtos) return 1;
