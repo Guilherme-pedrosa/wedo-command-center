@@ -717,18 +717,25 @@ export default function PrecificacaoPage() {
   // ── Sync NFs de entrada OFFLINE (usa BD local + XMLs, sem chamar API GC) ──
   const [syncProgress, setSyncProgress] = useState("");
   const handleSyncNFEntrada = async () => {
-    // Cooldown check
-    const { checkSyncCooldown, markSyncStarted } = await import("@/lib/gc-client");
-    const cooldown = checkSyncCooldown("sync-nfe-entrada");
-    if (!cooldown.allowed) {
-      toast.error(`Aguarde ${Math.ceil(cooldown.remainingSeconds / 60)} minuto(s) antes de sincronizar novamente.`);
+    if (activeSyncRef.current) {
+      toast.error("Já existe uma sincronização em andamento.");
       return;
     }
-    markSyncStarted("sync-nfe-entrada");
 
-    setSyncing(true);
-    setSyncProgress("Iniciando (modo offline)...");
+    activeSyncRef.current = "offline";
+    setActiveSync("offline");
+
     try {
+      // Cooldown check
+      const { checkSyncCooldown, markSyncStarted } = await import("@/lib/gc-client");
+      const cooldown = checkSyncCooldown("sync-nfe-entrada");
+      if (!cooldown.allowed) {
+        toast.error(`Aguarde ${Math.ceil(cooldown.remainingSeconds / 60)} minuto(s) antes de sincronizar novamente.`);
+        return;
+      }
+      markSyncStarted("sync-nfe-entrada");
+
+      setSyncProgress("Iniciando (modo offline)...");
       let offset = 0;
       const batchSize = 80;
       let totalProdutos = 0;
@@ -740,13 +747,13 @@ export default function PrecificacaoPage() {
           body: { offset, batch_size: batchSize },
         });
         if (error) throw error;
-        
+
         totalCompras = data.total_compras || 0;
         totalProdutos += data.produtos_processados || 0;
         totalXmls += data.xmls_usados || 0;
         const processed = offset + (data.processed || 0);
         setSyncProgress(`Processando compras ${processed}/${totalCompras}...`);
-        
+
         if (!data.has_more) break;
         offset = data.next_offset;
       }
@@ -758,7 +765,8 @@ export default function PrecificacaoPage() {
       toast.error(`Erro: ${err instanceof Error ? err.message : String(err)}`);
       setSyncProgress("");
     } finally {
-      setSyncing(false);
+      activeSyncRef.current = null;
+      setActiveSync(null);
     }
   };
 
