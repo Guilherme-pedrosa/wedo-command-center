@@ -605,11 +605,11 @@ export default function PrecificacaoPage() {
                   if (hasNF) {
                     const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, activeEntrada.custoFixoUnit, margemAlvo);
                     calc = {
-                      creditoIcms: tributo.valor_icms_unit,
-                      creditoPis: tributo.valor_pis_unit,
-                      creditoCofins: tributo.valor_cofins_unit,
-                      totalCreditosEntrada: tributo.valor_icms_unit + tributo.valor_pis_unit + tributo.valor_cofins_unit,
-                      custoLiquido: tributo.custo_efetivo_unit,
+                      creditoIcms: nfCalc.creditoIcms,
+                      creditoPis: nfCalc.creditoPis,
+                      creditoCofins: nfCalc.creditoCofins,
+                      totalCreditosEntrada: nfCalc.totalCreditosEntrada,
+                      custoLiquido: nfCalc.custoEfetivo,
                       custoFrete: tributo.valor_frete_unit,
                       custoTotal: nfCalc.custoTotal,
                       precoMinimo: nfCalc.precoMinimo,
