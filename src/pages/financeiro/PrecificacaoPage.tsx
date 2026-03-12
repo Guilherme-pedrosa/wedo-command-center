@@ -449,9 +449,13 @@ export default function PrecificacaoPage() {
           const tributoA = tributosMap.get(a.id);
           const tributoB = tributosMap.get(b.id);
 
-          // Usa o mesmo custo-base exibido na tabela (NF quando existir)
-          const custoA = tributoA ? Number(tributoA.valor_unitario_nf) || 0 : Number(a.valor_custo) || 0;
-          const custoB = tributoB ? Number(tributoB.valor_unitario_nf) || 0 : Number(b.valor_custo) || 0;
+          // Usa custo de NF só quando o registro está compatível com o produto atual
+          const custoA = isTributoCompativelComProduto(a, tributoA)
+            ? Number(tributoA?.valor_unitario_nf) || 0
+            : Number(a.valor_custo) || 0;
+          const custoB = isTributoCompativelComProduto(b, tributoB)
+            ? Number(tributoB?.valor_unitario_nf) || 0
+            : Number(b.valor_custo) || 0;
 
           const valorEstoqueA = estoqueA * custoA;
           const valorEstoqueB = estoqueB * custoB;
