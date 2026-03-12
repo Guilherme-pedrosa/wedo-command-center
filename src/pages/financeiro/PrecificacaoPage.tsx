@@ -420,12 +420,17 @@ export default function PrecificacaoPage() {
 
       // Collect all XML items (from .xml files and from .zip files)
       const allItems: { name: string; blob: Blob }[] = [];
+      let totalZipEntries = 0;
+      let totalNestedZips = 0;
 
       for (const file of Array.from(files)) {
         if (file.name.toLowerCase().endsWith(".zip")) {
           setUploadProgress(`Extraindo ${file.name}...`);
-          const xmlsFromZip = await extractXmlsFromZip(file);
-          allItems.push(...xmlsFromZip);
+          const zipResult = await extractXmlsFromZip(file);
+          allItems.push(...zipResult.xmlFiles);
+          totalZipEntries += zipResult.totalEntries;
+          totalNestedZips += zipResult.nestedZips;
+          setUploadProgress(`Encontrados ${zipResult.xmlFiles.length} XML(s) em ${file.name}`);
         } else {
           allItems.push({ name: file.name, blob: file });
         }
@@ -434,6 +439,13 @@ export default function PrecificacaoPage() {
       if (allItems.length === 0) {
         toast.error("Nenhum XML encontrado nos arquivos selecionados");
         return;
+      }
+
+      if (totalZipEntries > 0) {
+        toast(
+          `Diagnóstico ZIP: ${totalZipEntries} entrada(s), ${allItems.length} XML(s)` +
+            (totalNestedZips > 0 ? `, ${totalNestedZips} ZIP(ns) interno(s)` : "")
+        );
       }
 
       setUploadProgress(`0 / ${allItems.length} processados`);
