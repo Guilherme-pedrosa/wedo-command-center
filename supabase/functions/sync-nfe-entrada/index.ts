@@ -368,12 +368,12 @@ function normalizeText(value: unknown): string {
 
 function resolveCompraFornecedorNome(compra: any, nomeFornecedorDb?: string): string {
   return [
+    nomeFornecedorDb,
     compra?.nome_fornecedor,
     compra?.fornecedor_nome,
     compra?.fornecedor?.nome,
     compra?.fornecedor?.razao_social,
     compra?.fornecedor?.nome_fantasia,
-    nomeFornecedorDb,
   ]
     .map(normalizeText)
     .find(Boolean) || "";
