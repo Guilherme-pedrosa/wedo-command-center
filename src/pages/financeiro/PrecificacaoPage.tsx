@@ -397,20 +397,20 @@ export default function PrecificacaoPage() {
   });
 
   // ── Filtered products (works with or without GC products loaded) ──
+  const EXCLUDED_GROUPS = ["ferramentas"];
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     if (produtos) {
-      // Full mode: GC products loaded
       return produtos
         .filter((p) => {
           if (!tributosMap.has(p.id)) return false;
+          if (EXCLUDED_GROUPS.includes((p.nome_grupo || "").toLowerCase())) return false;
           const nome = (p.nome || "").toLowerCase();
           const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
           return nome.includes(q) || codigo.includes(q);
         })
         .slice(0, 100);
     }
-    // Offline mode: build list from tributos only
     return tributosXml
       .filter((t) => {
         const nome = (t.nome_produto || "").toLowerCase();
@@ -434,7 +434,9 @@ export default function PrecificacaoPage() {
 
   const totalProdutosEstoque = useMemo(() => {
     if (!produtos) return 1;
-    return produtos.reduce((sum, p) => sum + (Number(p.estoque) || 0), 0) || 1;
+    return produtos
+      .filter(p => !EXCLUDED_GROUPS.includes((p.nome_grupo || "").toLowerCase()))
+      .reduce((sum, p) => sum + (Number(p.estoque) || 0), 0) || 1;
   }, [produtos]);
 
   const custoFixoAutoUnit = custoFixoMensal ? custoFixoMensal / totalProdutosEstoque : 0;
