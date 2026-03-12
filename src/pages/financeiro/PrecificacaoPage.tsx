@@ -1057,20 +1057,20 @@ export default function PrecificacaoPage() {
 
           <Card className="border-border bg-card overflow-hidden">
             <Table>
-              <TableHeader className="sticky top-0 z-20 bg-card shadow-sm">
-                <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="text-xs bg-card" rowSpan={2}>Produto</TableHead>
-                  <TableHead className="text-xs text-right bg-card" rowSpan={2}>Estoque</TableHead>
-                  <TableHead className="text-xs text-right bg-card" rowSpan={2}>Custo</TableHead>
-                  <TableHead className="text-xs text-center bg-card" rowSpan={2}>Fonte</TableHead>
-                  <TableHead className="text-xs text-right bg-card" rowSpan={2}>Créd. Entrada</TableHead>
-                  <TableHead className="text-xs text-right bg-card" rowSpan={2}>Custo Total</TableHead>
-                  <TableHead className="text-xs text-right font-semibold text-primary bg-card" rowSpan={2}>Preço Mín.</TableHead>
-                  <TableHead className="text-xs text-center text-blue-400 border-l border-border bg-card" colSpan={3}>Tabela A (120%)</TableHead>
-                  <TableHead className="text-xs text-center text-yellow-400 border-l border-border bg-card" colSpan={3}>Tabela B (70%)</TableHead>
-                  <TableHead className="text-xs text-center text-purple-400 border-l border-border bg-card" colSpan={3}>Tabela P (50%)</TableHead>
+              <TableHeader>
+                <TableRow className="border-border hover:bg-transparent [&>th]:sticky [&>th]:top-0 [&>th]:z-30 [&>th]:bg-card">
+                  <TableHead className="text-xs" rowSpan={2}>Produto</TableHead>
+                  <TableHead className="text-xs text-right" rowSpan={2}>Estoque</TableHead>
+                  <TableHead className="text-xs text-right" rowSpan={2}>Custo</TableHead>
+                  <TableHead className="text-xs text-center" rowSpan={2}>Fonte</TableHead>
+                  <TableHead className="text-xs text-right" rowSpan={2}>Créd. Entrada</TableHead>
+                  <TableHead className="text-xs text-right" rowSpan={2}>Custo Total</TableHead>
+                  <TableHead className="text-xs text-right font-semibold text-primary" rowSpan={2}>Preço Mín.</TableHead>
+                  <TableHead className="text-xs text-center text-blue-400 border-l border-border" colSpan={3}>Tabela A (120%)</TableHead>
+                  <TableHead className="text-xs text-center text-yellow-400 border-l border-border" colSpan={3}>Tabela B (70%)</TableHead>
+                  <TableHead className="text-xs text-center text-purple-400 border-l border-border" colSpan={3}>Tabela P (50%)</TableHead>
                 </TableRow>
-                <TableRow className="border-border hover:bg-transparent">
+                <TableRow className="border-border hover:bg-transparent [&>th]:sticky [&>th]:top-12 [&>th]:z-30 [&>th]:bg-card">
                   <TableHead className="text-[10px] text-right border-l border-border bg-card">Venda</TableHead>
                   <TableHead className="text-[10px] text-right bg-card">Tributo</TableHead>
                   <TableHead className="text-[10px] text-center bg-card">Margem</TableHead>
