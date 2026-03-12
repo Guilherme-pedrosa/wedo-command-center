@@ -415,6 +415,13 @@ export default function PrecificacaoPage() {
             {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
             Sync NFs Entrada
           </Button>
+          <Button variant="outline" size="sm" disabled={uploading} asChild>
+            <label className="cursor-pointer">
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
+              Upload XMLs
+              <input type="file" accept=".xml" multiple className="hidden" onChange={handleUploadXmls} />
+            </label>
+          </Button>
           {syncing && syncProgress && (
             <span className="text-xs text-muted-foreground animate-pulse">{syncProgress}</span>
           )}
