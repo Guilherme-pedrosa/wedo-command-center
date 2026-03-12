@@ -84,6 +84,8 @@ interface ProductTaxRecord {
   nf_data_emissao: string;
   compra_gc_id: string;
   fornecedor_nome: string;
+  regime_fornecedor: string;
+  sem_credito: boolean;
   // NF-level rates (applied proportionally)
   icms_aliquota: number;
   icms_base: number;
