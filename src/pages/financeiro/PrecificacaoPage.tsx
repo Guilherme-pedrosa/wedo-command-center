@@ -11,7 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Loader2, Search, Calculator, Package, TrendingUp, AlertTriangle, DollarSign, BarChart3, RefreshCw, FileText, Info } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Loader2, Search, Calculator, Package, TrendingUp, AlertTriangle, DollarSign, BarChart3, RefreshCw, FileText, Info, ShoppingCart, Wrench } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 import toast from "react-hot-toast";
 
@@ -50,66 +51,153 @@ interface ProdutoTributo {
   custo_efetivo_unit: number;
 }
 
-interface TaxConfig {
-  icmsCredito: number;
-  pisCofins: number;
-  irpjCsll: number;
-  frete: number;
-  custoFixoUnit: number;
+type TipoSaida = "venda" | "servico";
+
+interface TaxConfigEntrada {
+  icmsCredito: number;   // Crédito ICMS entrada (%)
+  pisCredito: number;    // Crédito PIS entrada (%)
+  cofinsCredito: number; // Crédito COFINS entrada (%)
+  frete: number;         // Frete (% custo)
+  custoFixoUnit: number; // Custo fixo por unidade (R$)
 }
 
-const DEFAULT_TAX: TaxConfig = {
+interface TaxConfigSaida {
+  // Venda de produto
+  icmsSaida: number;     // ICMS saída (%)
+  pisSaida: number;      // PIS saída (%)
+  cofinsSaida: number;   // COFINS saída (%)
+  // Serviço
+  iss: number;           // ISS (%)
+  pisSaidaServico: number;
+  cofinsSaidaServico: number;
+  // Comum
+  irpjCsll: number;     // IRPJ+CSLL sobre lucro (%)
+}
+
+const DEFAULT_ENTRADA: TaxConfigEntrada = {
   icmsCredito: 18,
-  pisCofins: 9.25,
-  irpjCsll: 24,
+  pisCredito: 1.65,
+  cofinsCredito: 7.6,
   frete: 5,
   custoFixoUnit: 0,
 };
 
+const DEFAULT_SAIDA: TaxConfigSaida = {
+  icmsSaida: 18,
+  pisSaida: 1.65,
+  cofinsSaida: 7.6,
+  iss: 3,
+  pisSaidaServico: 1.65,
+  cofinsSaidaServico: 7.6,
+  irpjCsll: 24,
+};
+
 // ── Helpers ──
-function calcPricing(custoBruto: number, tax: TaxConfig, margemDesejada: number) {
-  const creditoIcms = custoBruto * (tax.icmsCredito / 100);
-  const custoLiquido = custoBruto - creditoIcms;
-  const custoFrete = custoBruto * (tax.frete / 100);
-  const custoTotal = custoLiquido + custoFrete + tax.custoFixoUnit;
+function calcPricing(
+  custoBruto: number,
+  entrada: TaxConfigEntrada,
+  saida: TaxConfigSaida,
+  tipo: TipoSaida,
+  margemDesejada: number
+) {
+  // Créditos de entrada
+  const creditoIcms = custoBruto * (entrada.icmsCredito / 100);
+  const creditoPis = custoBruto * (entrada.pisCredito / 100);
+  const creditoCofins = custoBruto * (entrada.cofinsCredito / 100);
+  const totalCreditosEntrada = creditoIcms + creditoPis + creditoCofins;
 
-  const aliquotaSaida = (tax.pisCofins + tax.irpjCsll) / 100;
+  const custoLiquido = custoBruto - totalCreditosEntrada;
+  const custoFrete = custoBruto * (entrada.frete / 100);
+  const custoTotal = custoLiquido + custoFrete + entrada.custoFixoUnit;
+
+  // Alíquotas de saída (incidem sobre faturamento)
+  let aliquotaSaidaFaturamento: number;
+  if (tipo === "venda") {
+    aliquotaSaidaFaturamento = (saida.icmsSaida + saida.pisSaida + saida.cofinsSaida) / 100;
+  } else {
+    aliquotaSaidaFaturamento = (saida.iss + saida.pisSaidaServico + saida.cofinsSaidaServico) / 100;
+  }
+
+  // IRPJ/CSLL incide sobre lucro, não faturamento — simplificamos como % do faturamento
+  // Na prática Lucro Real: IRPJ 15% + adicional 10% + CSLL 9% sobre lucro líquido
+  // Para markup inverso, tratamos como % do faturamento para simplificar
+  const irpjPct = saida.irpjCsll / 100;
+
   const margemDecimal = margemDesejada / 100;
-  const divisor = 1 - aliquotaSaida - margemDecimal;
+  // Preço = CustoTotal / (1 - tributos_saida - margem)
+  const divisor = 1 - aliquotaSaidaFaturamento - margemDecimal;
+  const precoMinimo = divisor > 0 ? custoTotal / divisor : custoTotal * 3;
 
-  const precoMinimo = divisor > 0 ? custoTotal / divisor : custoTotal * 2;
-  const lucroEstimado = precoMinimo - custoTotal - (precoMinimo * aliquotaSaida);
+  const tributosSaida = precoMinimo * aliquotaSaidaFaturamento;
+  const lucroAnteIR = precoMinimo - custoTotal - tributosSaida;
+  const impostoRenda = Math.max(0, lucroAnteIR * irpjPct);
+  const lucroLiquido = lucroAnteIR - impostoRenda;
 
   return {
     creditoIcms,
+    creditoPis,
+    creditoCofins,
+    totalCreditosEntrada,
     custoLiquido,
     custoFrete,
     custoTotal,
     precoMinimo,
-    lucroEstimado,
-    margemReal: precoMinimo > 0 ? (lucroEstimado / precoMinimo) * 100 : 0,
-    tributosVenda: precoMinimo * aliquotaSaida,
+    tributosSaida,
+    impostoRenda,
+    lucroAnteIR,
+    lucroLiquido,
+    margemReal: precoMinimo > 0 ? (lucroLiquido / precoMinimo) * 100 : 0,
+    aliquotaSaidaFaturamento,
   };
 }
 
-function calcPricingWithNF(tributo: ProdutoTributo, irpjCsll: number, custoFixo: number, margemDesejada: number) {
-  // Use real NF data: custo_efetivo already accounts for ICMS/PIS/COFINS credits
+function calcPricingWithNF(
+  tributo: ProdutoTributo,
+  saida: TaxConfigSaida,
+  tipo: TipoSaida,
+  custoFixo: number,
+  margemDesejada: number
+) {
+  // custo_efetivo_unit already has entry credits applied
   const custoTotal = tributo.custo_efetivo_unit + custoFixo;
-  const aliquotaSaida = irpjCsll / 100;
-  const margemDecimal = margemDesejada / 100;
-  const divisor = 1 - aliquotaSaida - margemDecimal;
-  const precoMinimo = divisor > 0 ? custoTotal / divisor : custoTotal * 2;
-  const lucroEstimado = precoMinimo - custoTotal - (precoMinimo * aliquotaSaida);
 
-  return { custoTotal, precoMinimo, lucroEstimado, tributosVenda: precoMinimo * aliquotaSaida };
+  let aliquotaSaidaFaturamento: number;
+  if (tipo === "venda") {
+    aliquotaSaidaFaturamento = (saida.icmsSaida + saida.pisSaida + saida.cofinsSaida) / 100;
+  } else {
+    aliquotaSaidaFaturamento = (saida.iss + saida.pisSaidaServico + saida.cofinsSaidaServico) / 100;
+  }
+
+  const irpjPct = saida.irpjCsll / 100;
+  const margemDecimal = margemDesejada / 100;
+  const divisor = 1 - aliquotaSaidaFaturamento - margemDecimal;
+  const precoMinimo = divisor > 0 ? custoTotal / divisor : custoTotal * 3;
+
+  const tributosSaida = precoMinimo * aliquotaSaidaFaturamento;
+  const lucroAnteIR = precoMinimo - custoTotal - tributosSaida;
+  const impostoRenda = Math.max(0, lucroAnteIR * irpjPct);
+  const lucroLiquido = lucroAnteIR - impostoRenda;
+
+  return {
+    custoTotal,
+    precoMinimo,
+    tributosSaida,
+    impostoRenda,
+    lucroAnteIR,
+    lucroLiquido,
+    aliquotaSaidaFaturamento,
+  };
 }
 
 export default function PrecificacaoPage() {
   const [search, setSearch] = useState("");
-  const [tax, setTax] = useState<TaxConfig>(DEFAULT_TAX);
+  const [taxEntrada, setTaxEntrada] = useState<TaxConfigEntrada>(DEFAULT_ENTRADA);
+  const [taxSaida, setTaxSaida] = useState<TaxConfigSaida>(DEFAULT_SAIDA);
+  const [tipoSaidaGlobal, setTipoSaidaGlobal] = useState<TipoSaida>("venda");
   const [margemAlvo, setMargemAlvo] = useState(15);
   const [syncing, setSyncing] = useState(false);
   const [calcCusto, setCalcCusto] = useState<string>("");
+  const [calcTipoSaida, setCalcTipoSaida] = useState<TipoSaida>("venda");
   const [calcMargens] = useState([10, 15, 20, 25, 30]);
 
   // ── Fetch products from GC ──
@@ -132,7 +220,6 @@ export default function PrecificacaoPage() {
     staleTime: 5 * 60_000,
   });
 
-  // Build tributos map by gc_produto_id
   const tributosMap = useMemo(() => {
     const map = new Map<string, ProdutoTributo>();
     tributos?.forEach((t) => map.set(t.gc_produto_id, t));
@@ -174,7 +261,7 @@ export default function PrecificacaoPage() {
   }, [produtos]);
 
   const custoFixoAutoUnit = custoFixoMensal ? custoFixoMensal / totalProdutosEstoque : 0;
-  const activeTax = { ...tax, custoFixoUnit: tax.custoFixoUnit || custoFixoAutoUnit };
+  const activeEntrada = { ...taxEntrada, custoFixoUnit: taxEntrada.custoFixoUnit || custoFixoAutoUnit };
 
   // ── Sync NFs de entrada ──
   const handleSyncNFEntrada = async () => {
@@ -197,11 +284,22 @@ export default function PrecificacaoPage() {
     if (custo <= 0) return [];
     return calcMargens.map((m) => ({
       margem: m,
-      ...calcPricing(custo, activeTax, m),
+      ...calcPricing(custo, activeEntrada, taxSaida, calcTipoSaida, m),
     }));
-  }, [calcCusto, calcMargens, activeTax]);
+  }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida]);
 
   const totalComTributoNF = tributos?.length || 0;
+
+  // Helper to get exit tax label
+  const getTipoSaidaLabel = (tipo: TipoSaida) =>
+    tipo === "venda" ? "Venda Produto" : "Prestação Serviço";
+
+  const getTipoSaidaAliquota = (tipo: TipoSaida) => {
+    if (tipo === "venda") {
+      return `ICMS ${taxSaida.icmsSaida}% + PIS ${taxSaida.pisSaida}% + COFINS ${taxSaida.cofinsSaida}%`;
+    }
+    return `ISS ${taxSaida.iss}% + PIS ${taxSaida.pisSaidaServico}% + COFINS ${taxSaida.cofinsSaidaServico}%`;
+  };
 
   return (
     <div className="space-y-6">
@@ -213,7 +311,7 @@ export default function PrecificacaoPage() {
             Precificação de Produtos
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Análise de custos, tributos reais (NF entrada) e margem de revenda — Lucro Real
+            Tributação de entrada (NF) + saída (Venda/Serviço) — Lucro Real
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -226,87 +324,161 @@ export default function PrecificacaoPage() {
             <FileText className="h-3 w-3 mr-1" />
             {totalComTributoNF} produtos c/ tributo NF
           </Badge>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSyncNFEntrada}
-            disabled={syncing}
-          >
+          <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={syncing}>
             {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
             Sync NFs Entrada
           </Button>
         </div>
       </div>
 
-      {/* Tax Config (fallback for products without NF data) */}
-      <Card className="border-border bg-card">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-            <BarChart3 className="h-4 w-4" />
-            Parâmetros Tributários Padrão
-            <Tooltip>
-              <TooltipTrigger>
-                <Info className="h-3.5 w-3.5 text-muted-foreground" />
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs">
-                Usado para produtos SEM NF de entrada vinculada. Quando o produto tem NF, 
-                as alíquotas reais da NF são priorizadas automaticamente.
-              </TooltipContent>
-            </Tooltip>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Crédito ICMS (%)</Label>
-              <Input
-                type="number"
-                value={tax.icmsCredito}
-                onChange={(e) => setTax({ ...tax, icmsCredito: parseFloat(e.target.value) || 0 })}
-                className="h-9 bg-secondary"
-              />
+      {/* ── Tax Config: Entrada + Saída side by side ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* ENTRADA */}
+        <Card className="border-border bg-card">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <Package className="h-4 w-4" />
+              Tributos de Entrada (Créditos)
+              <Tooltip>
+                <TooltipTrigger><Info className="h-3.5 w-3.5 text-muted-foreground" /></TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Créditos fiscais na compra (Lucro Real). Quando o produto tem NF de entrada, os valores reais da NF são priorizados.
+                </TooltipContent>
+              </Tooltip>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Créd. ICMS (%)</Label>
+                <Input type="number" value={taxEntrada.icmsCredito}
+                  onChange={(e) => setTaxEntrada({ ...taxEntrada, icmsCredito: parseFloat(e.target.value) || 0 })}
+                  className="h-8 bg-secondary text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Créd. PIS (%)</Label>
+                <Input type="number" value={taxEntrada.pisCredito}
+                  onChange={(e) => setTaxEntrada({ ...taxEntrada, pisCredito: parseFloat(e.target.value) || 0 })}
+                  className="h-8 bg-secondary text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Créd. COFINS (%)</Label>
+                <Input type="number" value={taxEntrada.cofinsCredito}
+                  onChange={(e) => setTaxEntrada({ ...taxEntrada, cofinsCredito: parseFloat(e.target.value) || 0 })}
+                  className="h-8 bg-secondary text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Frete (% custo)</Label>
+                <Input type="number" value={taxEntrada.frete}
+                  onChange={(e) => setTaxEntrada({ ...taxEntrada, frete: parseFloat(e.target.value) || 0 })}
+                  className="h-8 bg-secondary text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Custo fixo/un (R$)</Label>
+                <Input type="number" placeholder={custoFixoAutoUnit.toFixed(2)}
+                  value={taxEntrada.custoFixoUnit || ""}
+                  onChange={(e) => setTaxEntrada({ ...taxEntrada, custoFixoUnit: parseFloat(e.target.value) || 0 })}
+                  className="h-8 bg-secondary text-sm" />
+                <p className="text-[10px] text-muted-foreground">Vazio = rateio auto</p>
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">PIS+COFINS (%)</Label>
-              <Input
-                type="number"
-                value={tax.pisCofins}
-                onChange={(e) => setTax({ ...tax, pisCofins: parseFloat(e.target.value) || 0 })}
-                className="h-9 bg-secondary"
-              />
+          </CardContent>
+        </Card>
+
+        {/* SAÍDA */}
+        <Card className="border-border bg-card">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" />
+              Tributos de Saída (Faturamento)
+              <Tooltip>
+                <TooltipTrigger><Info className="h-3.5 w-3.5 text-muted-foreground" /></TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Tributos que incidem na venda. Muda conforme o produto sai como <strong>Venda</strong> (ICMS) ou <strong>Serviço</strong> (ISS).
+                  IRPJ+CSLL incide sobre o lucro.
+                </TooltipContent>
+              </Tooltip>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              {/* Venda */}
+              <div className="space-y-2 p-3 rounded-lg bg-secondary/50 border border-border">
+                <div className="flex items-center gap-1.5">
+                  <ShoppingCart className="h-3.5 w-3.5 text-blue-400" />
+                  <span className="text-xs font-semibold text-blue-400 uppercase">Venda Produto</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">ICMS %</Label>
+                    <Input type="number" value={taxSaida.icmsSaida}
+                      onChange={(e) => setTaxSaida({ ...taxSaida, icmsSaida: parseFloat(e.target.value) || 0 })}
+                      className="h-7 bg-background text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">PIS %</Label>
+                    <Input type="number" value={taxSaida.pisSaida}
+                      onChange={(e) => setTaxSaida({ ...taxSaida, pisSaida: parseFloat(e.target.value) || 0 })}
+                      className="h-7 bg-background text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">COFINS %</Label>
+                    <Input type="number" value={taxSaida.cofinsSaida}
+                      onChange={(e) => setTaxSaida({ ...taxSaida, cofinsSaida: parseFloat(e.target.value) || 0 })}
+                      className="h-7 bg-background text-xs" />
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Total: {(taxSaida.icmsSaida + taxSaida.pisSaida + taxSaida.cofinsSaida).toFixed(2)}% s/ faturamento
+                </p>
+              </div>
+
+              {/* Serviço */}
+              <div className="space-y-2 p-3 rounded-lg bg-secondary/50 border border-border">
+                <div className="flex items-center gap-1.5">
+                  <Wrench className="h-3.5 w-3.5 text-amber-400" />
+                  <span className="text-xs font-semibold text-amber-400 uppercase">Serviço</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">ISS %</Label>
+                    <Input type="number" value={taxSaida.iss}
+                      onChange={(e) => setTaxSaida({ ...taxSaida, iss: parseFloat(e.target.value) || 0 })}
+                      className="h-7 bg-background text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">PIS %</Label>
+                    <Input type="number" value={taxSaida.pisSaidaServico}
+                      onChange={(e) => setTaxSaida({ ...taxSaida, pisSaidaServico: parseFloat(e.target.value) || 0 })}
+                      className="h-7 bg-background text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">COFINS %</Label>
+                    <Input type="number" value={taxSaida.cofinsSaidaServico}
+                      onChange={(e) => setTaxSaida({ ...taxSaida, cofinsSaidaServico: parseFloat(e.target.value) || 0 })}
+                      className="h-7 bg-background text-xs" />
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Total: {(taxSaida.iss + taxSaida.pisSaidaServico + taxSaida.cofinsSaidaServico).toFixed(2)}% s/ faturamento
+                </p>
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">IRPJ+CSLL (%)</Label>
-              <Input
-                type="number"
-                value={tax.irpjCsll}
-                onChange={(e) => setTax({ ...tax, irpjCsll: parseFloat(e.target.value) || 0 })}
-                className="h-9 bg-secondary"
-              />
+
+            <div className="flex items-center gap-3">
+              <div className="space-y-1 flex-1">
+                <Label className="text-xs text-muted-foreground">IRPJ+CSLL s/ lucro (%)</Label>
+                <Input type="number" value={taxSaida.irpjCsll}
+                  onChange={(e) => setTaxSaida({ ...taxSaida, irpjCsll: parseFloat(e.target.value) || 0 })}
+                  className="h-8 bg-secondary text-sm" />
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-4 flex-1">
+                IRPJ 15% + Adicional 10% (lucro &gt; 20k/mês) + CSLL 9% = ~24% sobre lucro líquido antes IR
+              </p>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Frete (% custo)</Label>
-              <Input
-                type="number"
-                value={tax.frete}
-                onChange={(e) => setTax({ ...tax, frete: parseFloat(e.target.value) || 0 })}
-                className="h-9 bg-secondary"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Custo fixo/un (R$)</Label>
-              <Input
-                type="number"
-                placeholder={custoFixoAutoUnit.toFixed(2)}
-                value={tax.custoFixoUnit || ""}
-                onChange={(e) => setTax({ ...tax, custoFixoUnit: parseFloat(e.target.value) || 0 })}
-                className="h-9 bg-secondary"
-              />
-              <p className="text-[10px] text-muted-foreground">Vazio = rateio auto</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
 
       <Tabs defaultValue="estoque" className="space-y-4">
         <TabsList className="bg-secondary">
@@ -323,15 +495,27 @@ export default function PrecificacaoPage() {
 
         {/* ── TAB: Análise Estoque ── */}
         <TabsContent value="estoque" className="space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1 max-w-md">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="relative flex-1 min-w-[200px] max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar produto por nome ou código..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 bg-secondary"
-              />
+              <Input placeholder="Buscar produto por nome ou código..." value={search}
+                onChange={(e) => setSearch(e.target.value)} className="pl-9 bg-secondary" />
+            </div>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Tipo saída:</Label>
+              <Select value={tipoSaidaGlobal} onValueChange={(v) => setTipoSaidaGlobal(v as TipoSaida)}>
+                <SelectTrigger className="w-[160px] h-8 text-xs bg-secondary">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="venda">
+                    <span className="flex items-center gap-1.5"><ShoppingCart className="h-3 w-3" /> Venda Produto</span>
+                  </SelectItem>
+                  <SelectItem value="servico">
+                    <span className="flex items-center gap-1.5"><Wrench className="h-3 w-3" /> Serviço</span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Margem alvo:</Label>
@@ -343,17 +527,25 @@ export default function PrecificacaoPage() {
             {loadingProdutos && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
           </div>
 
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Info className="h-3.5 w-3.5" />
+            Saída como <strong className={tipoSaidaGlobal === "venda" ? "text-blue-400" : "text-amber-400"}>
+              {getTipoSaidaLabel(tipoSaidaGlobal)}
+            </strong>: {getTipoSaidaAliquota(tipoSaidaGlobal)} + IRPJ/CSLL {taxSaida.irpjCsll}% s/ lucro
+          </div>
+
           <Card className="border-border bg-card overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow className="border-border hover:bg-transparent">
                   <TableHead className="text-xs">Produto</TableHead>
                   <TableHead className="text-xs text-right">Estoque</TableHead>
-                  <TableHead className="text-xs text-right">Custo GC</TableHead>
-                  <TableHead className="text-xs text-center">Fonte Tributo</TableHead>
-                  <TableHead className="text-xs text-right">Créd. ICMS</TableHead>
+                  <TableHead className="text-xs text-right">Custo</TableHead>
+                  <TableHead className="text-xs text-center">Fonte</TableHead>
+                  <TableHead className="text-xs text-right">Créd. Entrada</TableHead>
                   <TableHead className="text-xs text-right">Custo Total</TableHead>
-                  <TableHead className="text-xs text-right">Tributos Venda</TableHead>
+                  <TableHead className="text-xs text-right">Trib. Saída</TableHead>
+                  <TableHead className="text-xs text-right">IR s/ Lucro</TableHead>
                   <TableHead className="text-xs text-right font-semibold text-primary">Preço Mín.</TableHead>
                   <TableHead className="text-xs text-right">Venda GC</TableHead>
                   <TableHead className="text-xs text-center">Status</TableHead>
@@ -362,7 +554,7 @@ export default function PrecificacaoPage() {
               <TableBody>
                 {filtered.length === 0 && !loadingProdutos && (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                       {search ? "Nenhum produto encontrado" : "Busque produtos do estoque GestãoClick"}
                     </TableCell>
                   </TableRow>
@@ -374,26 +566,38 @@ export default function PrecificacaoPage() {
                   const tributo = tributosMap.get(p.id);
                   const hasNF = !!tributo;
 
-                  let calc;
+                  let calc: ReturnType<typeof calcPricing>;
                   if (hasNF) {
-                    const nfCalc = calcPricingWithNF(tributo, activeTax.irpjCsll, activeTax.custoFixoUnit, margemAlvo);
+                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, activeEntrada.custoFixoUnit, margemAlvo);
                     calc = {
-                      creditoIcms: tributo.valor_icms_unit + tributo.valor_pis_unit + tributo.valor_cofins_unit,
+                      creditoIcms: tributo.valor_icms_unit,
+                      creditoPis: tributo.valor_pis_unit,
+                      creditoCofins: tributo.valor_cofins_unit,
+                      totalCreditosEntrada: tributo.valor_icms_unit + tributo.valor_pis_unit + tributo.valor_cofins_unit,
                       custoLiquido: tributo.custo_efetivo_unit,
                       custoFrete: tributo.valor_frete_unit,
                       custoTotal: nfCalc.custoTotal,
                       precoMinimo: nfCalc.precoMinimo,
-                      lucroEstimado: nfCalc.lucroEstimado,
-                      tributosVenda: nfCalc.tributosVenda,
-                      margemReal: nfCalc.precoMinimo > 0 ? (nfCalc.lucroEstimado / nfCalc.precoMinimo) * 100 : 0,
+                      tributosSaida: nfCalc.tributosSaida,
+                      impostoRenda: nfCalc.impostoRenda,
+                      lucroAnteIR: nfCalc.lucroAnteIR,
+                      lucroLiquido: nfCalc.lucroLiquido,
+                      margemReal: nfCalc.precoMinimo > 0 ? (nfCalc.lucroLiquido / nfCalc.precoMinimo) * 100 : 0,
+                      aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
                     };
                   } else {
-                    calc = calcPricing(custoBruto, activeTax, margemAlvo);
+                    calc = calcPricing(custoBruto, activeEntrada, taxSaida, tipoSaidaGlobal, margemAlvo);
                   }
 
                   const abaixoMinimo = vendaGC > 0 && vendaGC < calc.precoMinimo;
-                  const margemAtual = vendaGC > 0 && calc.custoTotal > 0
-                    ? ((vendaGC - calc.custoTotal - calc.tributosVenda * (vendaGC / calc.precoMinimo)) / vendaGC) * 100
+                  // Estimate current margin at GC sale price
+                  const margemAtualVendaGC = vendaGC > 0 && calc.custoTotal > 0
+                    ? (() => {
+                        const tribSaida = vendaGC * calc.aliquotaSaidaFaturamento;
+                        const lucroAI = vendaGC - calc.custoTotal - tribSaida;
+                        const ir = Math.max(0, lucroAI * (taxSaida.irpjCsll / 100));
+                        return ((lucroAI - ir) / vendaGC) * 100;
+                      })()
                     : 0;
 
                   return (
@@ -410,7 +614,7 @@ export default function PrecificacaoPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{estoque}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{formatCurrency(custoBruto)}</TableCell>
+                      <TableCell className="text-right font-mono text-sm">{formatCurrency(hasNF ? tributo.valor_unitario_nf : custoBruto)}</TableCell>
                       <TableCell className="text-center">
                         {hasNF ? (
                           <Tooltip>
@@ -431,11 +635,14 @@ export default function PrecificacaoPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm text-green-400">
-                        -{formatCurrency(calc.creditoIcms)}
+                        -{formatCurrency(calc.totalCreditosEntrada)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(calc.custoTotal)}</TableCell>
                       <TableCell className="text-right font-mono text-sm text-orange-400">
-                        {formatCurrency(calc.tributosVenda)}
+                        {formatCurrency(calc.tributosSaida)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm text-red-400">
+                        {formatCurrency(calc.impostoRenda)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
                         {formatCurrency(calc.precoMinimo)}
@@ -446,11 +653,11 @@ export default function PrecificacaoPage() {
                           <Badge variant="outline" className="text-[10px] text-muted-foreground">Sem custo</Badge>
                         ) : abaixoMinimo ? (
                           <Badge className="bg-destructive/20 text-destructive text-[10px] gap-1">
-                            <AlertTriangle className="h-3 w-3" /> Abaixo
+                            <AlertTriangle className="h-3 w-3" /> {margemAtualVendaGC.toFixed(1)}%
                           </Badge>
                         ) : (
                           <Badge className="bg-green-500/20 text-green-400 text-[10px] gap-1">
-                            <TrendingUp className="h-3 w-3" /> {margemAtual.toFixed(1)}%
+                            <TrendingUp className="h-3 w-3" /> {margemAtualVendaGC.toFixed(1)}%
                           </Badge>
                         )}
                       </TableCell>
@@ -463,7 +670,7 @@ export default function PrecificacaoPage() {
 
           {produtos && (
             <p className="text-xs text-muted-foreground">
-              {produtos.length} produtos · {totalComTributoNF} com tributo NF · Mostrando {filtered.length}
+              {produtos.length} produtos · {totalComTributoNF} com tributo NF · Mostrando {filtered.length} · Tipo saída: {getTipoSaidaLabel(tipoSaidaGlobal)}
             </p>
           )}
         </TabsContent>
@@ -481,40 +688,67 @@ export default function PrecificacaoPage() {
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label>Custo de aquisição (R$)</Label>
-                  <Input
-                    type="number"
-                    placeholder="Ex: 5000.00"
-                    value={calcCusto}
+                  <Input type="number" placeholder="Ex: 5000.00" value={calcCusto}
                     onChange={(e) => setCalcCusto(e.target.value)}
-                    className="text-lg h-12 bg-secondary font-mono"
-                  />
+                    className="text-lg h-12 bg-secondary font-mono" />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Como o produto vai sair?</Label>
+                  <Select value={calcTipoSaida} onValueChange={(v) => setCalcTipoSaida(v as TipoSaida)}>
+                    <SelectTrigger className="bg-secondary">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="venda">
+                        <span className="flex items-center gap-1.5"><ShoppingCart className="h-3.5 w-3.5 text-blue-400" /> Venda de Produto (ICMS)</span>
+                      </SelectItem>
+                      <SelectItem value="servico">
+                        <span className="flex items-center gap-1.5"><Wrench className="h-3.5 w-3.5 text-amber-400" /> Prestação de Serviço (ISS)</span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {calcCusto && parseFloat(calcCusto) > 0 && (
                   <div className="bg-secondary/50 rounded-lg p-4 space-y-2 text-sm">
+                    <p className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider mb-2">Composição de custo</p>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Custo bruto</span>
                       <span className="font-mono">{formatCurrency(parseFloat(calcCusto))}</span>
                     </div>
                     <div className="flex justify-between text-green-400">
-                      <span>Crédito ICMS ({activeTax.icmsCredito}%)</span>
-                      <span className="font-mono">-{formatCurrency(parseFloat(calcCusto) * activeTax.icmsCredito / 100)}</span>
+                      <span>Créd. ICMS ({activeEntrada.icmsCredito}%)</span>
+                      <span className="font-mono">-{formatCurrency(parseFloat(calcCusto) * activeEntrada.icmsCredito / 100)}</span>
+                    </div>
+                    <div className="flex justify-between text-green-400">
+                      <span>Créd. PIS ({activeEntrada.pisCredito}%)</span>
+                      <span className="font-mono">-{formatCurrency(parseFloat(calcCusto) * activeEntrada.pisCredito / 100)}</span>
+                    </div>
+                    <div className="flex justify-between text-green-400">
+                      <span>Créd. COFINS ({activeEntrada.cofinsCredito}%)</span>
+                      <span className="font-mono">-{formatCurrency(parseFloat(calcCusto) * activeEntrada.cofinsCredito / 100)}</span>
                     </div>
                     <div className="flex justify-between text-muted-foreground">
-                      <span>Frete ({activeTax.frete}%)</span>
-                      <span className="font-mono">+{formatCurrency(parseFloat(calcCusto) * activeTax.frete / 100)}</span>
+                      <span>Frete ({activeEntrada.frete}%)</span>
+                      <span className="font-mono">+{formatCurrency(parseFloat(calcCusto) * activeEntrada.frete / 100)}</span>
                     </div>
                     <div className="flex justify-between text-muted-foreground">
                       <span>Custo fixo unit.</span>
-                      <span className="font-mono">+{formatCurrency(activeTax.custoFixoUnit)}</span>
+                      <span className="font-mono">+{formatCurrency(activeEntrada.custoFixoUnit)}</span>
                     </div>
                     <div className="border-t border-border pt-2 flex justify-between font-semibold">
                       <span>Custo total</span>
                       <span className="font-mono">
                         {formatCurrency(
-                          parseFloat(calcCusto) * (1 - activeTax.icmsCredito / 100 + activeTax.frete / 100) + activeTax.custoFixoUnit
+                          parseFloat(calcCusto) * (1 - (activeEntrada.icmsCredito + activeEntrada.pisCredito + activeEntrada.cofinsCredito) / 100 + activeEntrada.frete / 100) + activeEntrada.custoFixoUnit
                         )}
                       </span>
+                    </div>
+                    <div className="border-t border-border pt-2 mt-1">
+                      <p className="text-[10px] text-muted-foreground">
+                        Tributos de saída ({calcTipoSaida === "venda" ? "Venda" : "Serviço"}): {getTipoSaidaAliquota(calcTipoSaida)}
+                      </p>
                     </div>
                   </div>
                 )}
@@ -526,6 +760,9 @@ export default function PrecificacaoPage() {
                 <CardTitle className="text-base flex items-center gap-2">
                   <TrendingUp className="h-5 w-5 text-primary" />
                   Cenários de Margem
+                  <Badge variant="outline" className={`text-[10px] ${calcTipoSaida === "venda" ? "text-blue-400 border-blue-400/30" : "text-amber-400 border-amber-400/30"}`}>
+                    {calcTipoSaida === "venda" ? "Venda" : "Serviço"}
+                  </Badge>
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -539,8 +776,9 @@ export default function PrecificacaoPage() {
                       <TableRow className="border-border hover:bg-transparent">
                         <TableHead className="text-xs">Margem</TableHead>
                         <TableHead className="text-xs text-right">Preço Mín.</TableHead>
-                        <TableHead className="text-xs text-right">Tributos</TableHead>
-                        <TableHead className="text-xs text-right">Lucro Est.</TableHead>
+                        <TableHead className="text-xs text-right">Trib. Saída</TableHead>
+                        <TableHead className="text-xs text-right">IR s/ Lucro</TableHead>
+                        <TableHead className="text-xs text-right">Lucro Líq.</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -558,10 +796,13 @@ export default function PrecificacaoPage() {
                             {formatCurrency(r.precoMinimo)}
                           </TableCell>
                           <TableCell className="text-right font-mono text-orange-400">
-                            {formatCurrency(r.tributosVenda)}
+                            {formatCurrency(r.tributosSaida)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-red-400">
+                            {formatCurrency(r.impostoRenda)}
                           </TableCell>
                           <TableCell className="text-right font-mono text-green-400">
-                            {formatCurrency(r.lucroEstimado)}
+                            {formatCurrency(r.lucroLiquido)}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -576,9 +817,11 @@ export default function PrecificacaoPage() {
             <CardContent className="pt-4">
               <p className="text-xs text-muted-foreground leading-relaxed">
                 <strong className="text-foreground">Fórmula (Markup Inverso — Lucro Real):</strong>{" "}
-                Preço = Custo Total ÷ (1 − PIS/COFINS − IRPJ/CSLL − Margem). 
-                O crédito de ICMS reduz o custo de aquisição. 
-                PIS ({(activeTax.pisCofins).toFixed(2)}%) e IRPJ+CSLL ({activeTax.irpjCsll}%) incidem sobre o faturamento/lucro.
+                Preço = Custo Total ÷ (1 − Tributos Saída − Margem).{" "}
+                <strong>Venda:</strong> ICMS + PIS + COFINS sobre faturamento.{" "}
+                <strong>Serviço:</strong> ISS + PIS + COFINS sobre faturamento.{" "}
+                Em ambos, IRPJ+CSLL ({taxSaida.irpjCsll}%) incide sobre o lucro.
+                Créditos de entrada (ICMS {activeEntrada.icmsCredito}% + PIS {activeEntrada.pisCredito}% + COFINS {activeEntrada.cofinsCredito}%) reduzem o custo de aquisição.
               </p>
             </CardContent>
           </Card>
