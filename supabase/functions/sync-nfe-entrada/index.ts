@@ -358,28 +358,9 @@ serve(async (req) => {
       );
     }
 
-    // ── Step 1: Find situação IDs for finalized purchases ──
-    console.log("[sync-nfe-entrada] Fetching situacoes_compras...");
-    const sitResp = await rateLimitedFetch(`${GC_BASE_URL}/api/situacoes_compras`, { headers: gcHeaders });
-    const situacaoIds: string[] = [];
-    if (sitResp.ok) {
-      const sitData = await sitResp.json();
-      for (const sit of (sitData?.data || [])) {
-        const nome = String(sit.nome || "").toLowerCase().trim();
-        if (
-          (nome.includes("finalizado") && nome.includes("mercadoria chegou")) ||
-          (nome.includes("comprado") && nome.includes("ag chegada"))
-        ) {
-          situacaoIds.push(String(sit.id));
-          console.log(`[sync-nfe-entrada] Situacao: ${sit.nome} (id=${sit.id})`);
-        }
-      }
-    }
-    if (situacaoIds.length === 0) {
-      return new Response(JSON.stringify({ error: "No matching situacao_ids found for compras" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // ── Step 1: Use hardcoded situação IDs for purchases with NF-e ──
+    const situacaoIds = ["1675070", "2072508", "2072509", "2072571"];
+    console.log(`[sync-nfe-entrada] Using situacao_ids: ${situacaoIds.join(", ")}`);
 
     // ── Step 2: Fetch ALL compra IDs (paginated) ──
     interface CompraRaw {
