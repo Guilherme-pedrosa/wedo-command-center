@@ -171,6 +171,31 @@ function getEffectiveRates(t: ProdutoTributo) {
   };
 }
 
+function normalizeForMatch(value?: string | null) {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function isTributoCompativelComProduto(produto: GCProduto, tributo?: ProdutoTributo) {
+  if (!tributo) return false;
+  if (tributo.gc_produto_id !== produto.id) return false;
+
+  const nomeProduto = normalizeForMatch(produto.nome);
+  const nomeTributo = normalizeForMatch(tributo.nome_produto);
+  if (!nomeProduto || !nomeTributo) return false;
+  if (nomeProduto.includes(nomeTributo) || nomeTributo.includes(nomeProduto)) return true;
+
+  const tokensProduto = nomeProduto.split(" ").filter(Boolean);
+  const tokensTributo = new Set(nomeTributo.split(" ").filter(Boolean));
+  const comuns = tokensProduto.filter((token) => tokensTributo.has(token)).length;
+  const base = Math.max(1, Math.min(tokensProduto.length, tokensTributo.size));
+  return comuns / base >= 0.6;
+}
+
 function calcPricingWithNF(
   tributo: ProdutoTributo,
   saida: TaxConfigSaida,
