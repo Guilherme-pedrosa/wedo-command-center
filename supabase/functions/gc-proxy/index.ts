@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,7 +8,6 @@ const corsHeaders = {
 
 const GC_BASE_URL = "https://api.gestaoclick.com";
 const MIN_DELAY_MS = 350;
-const DAILY_LIMIT = 2000; // máximo de chamadas GC por dia
 let lastCallTime = 0;
 
 async function rateLimitedFetch(url: string, options: RequestInit): Promise<Response> {
@@ -20,43 +18,6 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
   }
   lastCallTime = Date.now();
   return fetch(url, options);
-}
-
-// ── Contador diário de chamadas GC ──
-async function checkAndIncrementDailyCounter(supabase: any): Promise<{ allowed: boolean; count: number; limit: number }> {
-  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-  const chave = "gc_api_daily_counter";
-
-  const { data: row } = await supabase
-    .from("fin_configuracoes")
-    .select("valor, updated_at")
-    .eq("chave", chave)
-    .maybeSingle();
-
-  let currentCount = 0;
-
-  if (row) {
-    const lastDate = row.updated_at ? row.updated_at.split("T")[0] : "";
-    if (lastDate === today) {
-      currentCount = parseInt(row.valor || "0") || 0;
-    }
-    // Se mudou o dia, reseta
-  }
-
-  if (currentCount >= DAILY_LIMIT) {
-    return { allowed: false, count: currentCount, limit: DAILY_LIMIT };
-  }
-
-  // Incrementa
-  const newCount = currentCount + 1;
-  await supabase
-    .from("fin_configuracoes")
-    .upsert(
-      { chave, valor: String(newCount), updated_at: new Date().toISOString(), descricao: "Contador diário de chamadas à API GestãoClick" },
-      { onConflict: "chave" }
-    );
-
-  return { allowed: true, count: newCount, limit: DAILY_LIMIT };
 }
 
 serve(async (req) => {
@@ -72,26 +33,6 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ error: "GC credentials not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-
-    // ── Verificar limite diário ──
-    const { allowed, count, limit } = await checkAndIncrementDailyCounter(supabase);
-    if (!allowed) {
-      console.warn(`[gc-proxy] LIMITE DIÁRIO ATINGIDO: ${count}/${limit} chamadas`);
-      return new Response(
-        JSON.stringify({
-          error: `Limite diário de ${limit} chamadas à API atingido (${count} usadas). Tente novamente amanhã.`,
-          code: "DAILY_LIMIT_EXCEEDED",
-          count,
-          limit,
-        }),
-        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -153,6 +94,12 @@ serve(async (req) => {
        endpoint.includes("financeiro"))
     ) {
       try {
+        const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+        const supabase = createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+        );
+
         const lista: any[] = Array.isArray(responseData)
           ? responseData
           : (responseData as any)?.data ??
@@ -180,13 +127,6 @@ serve(async (req) => {
             `/clientes/${contatoId}`,
             `/fornecedores/${contatoId}`,
           ]) {
-            // Incrementar contador para cada sub-chamada
-            const subCheck = await checkAndIncrementDailyCounter(supabase);
-            if (!subCheck.allowed) {
-              console.warn(`[gc-proxy] Limite diário atingido durante enriquecimento`);
-              break;
-            }
-
             const resp = await rateLimitedFetch(
               `${GC_BASE_URL}${ep}`,
               { headers: gcHeaders }
@@ -236,7 +176,6 @@ serve(async (req) => {
         status: response.status,
         data: responseData,
         duration_ms: duration,
-        _gc_calls_today: count,
       }),
       {
         status: 200,
