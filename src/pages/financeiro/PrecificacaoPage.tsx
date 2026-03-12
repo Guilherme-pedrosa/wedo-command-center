@@ -1125,15 +1125,14 @@ export default function PrecificacaoPage() {
                    const tributoRaw = tributosMap.get(p.id);
                    const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
                    const hasNF = !!tributo;
-                   const usarCustoNF = hasNF && isNfCustoRazoavel(p, tributo);
-                   const custoBase = usarCustoNF ? tributo.valor_unitario_nf : custoBruto;
+                   const custoBase = hasNF ? tributo.valor_unitario_nf : custoBruto;
                   const vendaA = custoBase * MARKUP_TABELAS.A;
                   const vendaB = custoBase * MARKUP_TABELAS.B;
                   const vendaP = custoBase * MARKUP_TABELAS.P;
                   const vendaGC = vendaB; // default ref for backwards compat
 
                   let calc: ReturnType<typeof calcPricing>;
-                  if (usarCustoNF) {
+                  if (hasNF) {
                     const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, activeEntrada.custoFixoUnit, margemAlvo);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
@@ -1151,17 +1150,6 @@ export default function PrecificacaoPage() {
                       margemReal: nfCalc.precoMinimo > 0 ? (nfCalc.lucroLiquido / nfCalc.precoMinimo) * 100 : 0,
                       aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
                     };
-                  } else if (hasNF) {
-                    // Tributo existe mas custo NF não é razoável — usa alíquotas da NF com custo do ERP
-                    const eff = getEffectiveRates(tributo);
-                    const entradaComNF: TaxConfigEntrada = {
-                      icmsCredito: eff.icms,
-                      pisCredito: eff.pis,
-                      cofinsCredito: eff.cofins,
-                      frete: tributo.frete_percentual || activeEntrada.frete,
-                      custoFixoUnit: activeEntrada.custoFixoUnit,
-                    };
-                    calc = calcPricing(custoBruto, entradaComNF, taxSaida, tipoSaidaGlobal, margemAlvo);
                   } else {
                     calc = calcPricing(custoBruto, activeEntrada, taxSaida, tipoSaidaGlobal, margemAlvo);
                   }
