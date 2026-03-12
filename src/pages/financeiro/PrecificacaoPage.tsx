@@ -433,13 +433,14 @@ export default function PrecificacaoPage() {
   }, [produtos, search, tributosMap, tributosXml]);
 
   const totalProdutosEstoque = useMemo(() => {
-    if (!produtos) return 1;
+    if (!produtos) return null; // sem dados de estoque carregados
     return produtos
       .filter(p => !EXCLUDED_GROUPS.includes((p.nome_grupo || "").toLowerCase()))
       .reduce((sum, p) => sum + (Number(p.estoque) || 0), 0) || 1;
   }, [produtos]);
 
-  const custoFixoAutoUnit = custoFixoMensal ? custoFixoMensal / totalProdutosEstoque : 0;
+  // Custo fixo só é rateado se temos dados de estoque; caso contrário, só usa override manual
+  const custoFixoAutoUnit = (custoFixoMensal && totalProdutosEstoque) ? custoFixoMensal / totalProdutosEstoque : 0;
   const activeEntrada = { ...taxEntrada, custoFixoUnit: taxEntrada.custoFixoUnit || custoFixoAutoUnit };
 
   // ── Upload XMLs de NF para o bucket (suporta ZIP + lotes) ──
