@@ -321,18 +321,75 @@ export default function PrecificacaoPage() {
     return map;
   }, [tributosXml]);
 
-  // ── Fetch monthly fixed costs for auto-rateio ──
+  // ── Fetch monthly fixed costs using same logic as Resultados Operação ──
+  const now = new Date();
   const { data: custoFixoMensal } = useQuery({
-    queryKey: ["custo-fixo-mensal"],
+    queryKey: ["custo-fixo-mensal-resultados", now.getFullYear(), now.getMonth() + 1],
     queryFn: async () => {
-      const now = new Date();
-      const mesAtual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-      const { data } = await supabase
-        .from("fin_pagamentos")
-        .select("valor")
-        .like("data_competencia", `${mesAtual}%`)
-        .not("plano_contas_id", "is", null);
-      return data?.reduce((sum, r) => sum + Math.abs(Number(r.valor) || 0), 0) || 0;
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      const start = `${year}-${String(month).padStart(2, "0")}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const end = `${year}-${String(month).padStart(2, "0")}-${lastDay}`;
+
+      // 1) Fetch active metas of category 'custo_fixo'
+      const { data: metas } = await supabase.from("fin_metas").select("id, nome, categoria").eq("ativo", true).eq("categoria", "custo_fixo");
+      if (!metas || metas.length === 0) return 0;
+
+      // 2) Fetch plano_contas mappings for these metas
+      const metaIds = metas.map(m => m.id);
+      const { data: links } = await supabase.from("fin_meta_plano_contas").select("meta_id, plano_contas_id, centro_custo_id, peso").in("meta_id", metaIds);
+      if (!links || links.length === 0) return 0;
+
+      // 3) Build plano UUID → GC ID map
+      const { data: planos } = await supabase.from("fin_plano_contas").select("id, gc_id");
+      const uuidToGcId: Record<string, string> = {};
+      for (const p of (planos || [])) { if (p.gc_id) uuidToGcId[p.id] = p.gc_id; }
+
+      // 4) Build centro_custo UUID → codigo map
+      const { data: centros } = await supabase.from("fin_centros_custo").select("id, codigo");
+      const centroMap: Record<string, string> = {};
+      for (const c of (centros || [])) { if (c.codigo) centroMap[c.id] = c.codigo; }
+
+      // 5) Fetch GC pagamentos for the period
+      const { data: gcPag } = await supabase.from("gc_pagamentos")
+        .select("valor, plano_contas_id, centro_custo_id")
+        .gte("data_vencimento", start).lte("data_vencimento", end);
+
+      // 6) Fetch Auvo expenses for the period
+      const { data: auvoExp } = await supabase.from("auvo_expenses_sync")
+        .select("type_id, amount")
+        .gte("expense_date", start).lte("expense_date", end);
+
+      // Auvo typeId → plano gc_id mapping (same as hook)
+      const AUVO_SOURCE_MAP: Record<string, number[]> = {
+        '27867667': [48782], '27912040': [48784], '28160784': [49032], '28223100': [49032],
+      };
+
+      // 7) Calculate realized for each custo_fixo meta
+      let totalFixo = 0;
+      for (const meta of metas) {
+        const metaLinks = links.filter(l => l.meta_id === meta.id);
+        for (const link of metaLinks) {
+          const gcId = uuidToGcId[link.plano_contas_id];
+          const auvoTypeIds = gcId ? AUVO_SOURCE_MAP[gcId] : undefined;
+          const centroCodigo = link.centro_custo_id ? centroMap[link.centro_custo_id] : null;
+
+          if (auvoTypeIds && auvoExp && auvoExp.length > 0) {
+            const auvoSum = auvoExp
+              .filter((e: any) => auvoTypeIds.includes(e.type_id))
+              .reduce((acc: number, e: any) => acc + (Number(e.amount) || 0), 0);
+            totalFixo += auvoSum * (link.peso || 1);
+          } else if (gcId && gcPag) {
+            const soma = gcPag
+              .filter((r: any) => r.plano_contas_id === gcId &&
+                (!centroCodigo || !r.centro_custo_id || r.centro_custo_id === centroCodigo))
+              .reduce((acc: number, r: any) => acc + Math.abs(r.valor || 0), 0);
+            totalFixo += soma * (link.peso || 1);
+          }
+        }
+      }
+      return totalFixo;
     },
     staleTime: 10 * 60_000,
   });
