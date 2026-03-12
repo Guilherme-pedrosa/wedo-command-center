@@ -1160,7 +1160,7 @@ export default function PrecificacaoPage() {
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(calc.custoTotal)}</TableCell>
                       <TableCell className="text-right font-mono text-sm text-orange-400">
-                        {formatCurrency(calc.tributosSaida)}
+                        {formatCurrency(vendaGC > 0 ? vendaGC * calc.aliquotaSaidaFaturamento : calc.tributosSaida)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
                         {formatCurrency(calc.precoMinimo)}
