@@ -664,6 +664,7 @@ export default function PrecificacaoPage() {
 
   // ── Sync NFs de entrada via API GC ──
   const handleSyncGC = async () => {
+    if (!window.confirm("⚠️ Isso consome chamadas da API do GestãoClick.\n\nDeseja continuar?")) return;
     const { checkSyncCooldown, markSyncStarted } = await import("@/lib/gc-client");
     const cooldown = checkSyncCooldown("sync-nfe-entrada-gc");
     if (!cooldown.allowed) {
