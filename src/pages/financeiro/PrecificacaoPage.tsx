@@ -1157,9 +1157,6 @@ export default function PrecificacaoPage() {
                       <TableCell className="text-right font-mono text-sm text-orange-400">
                         {formatCurrency(calc.tributosSaida)}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-sm text-red-400">
-                        {formatCurrency(calc.impostoRenda)}
-                      </TableCell>
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
                         {formatCurrency(calc.precoMinimo)}
                       </TableCell>
