@@ -921,14 +921,12 @@ async function processNFs(
         const ipiUnit = qtd > 0 ? xmlItem.ipi_vIPI / qtd : 0;
 
         // Crédito ICMS: usar alíquota REAL do XML
-        // Para orig 1,2,3,6,7,8 (importados) a alíquota interestadual é 4% (Res. SF 13/2012)
-        // O XML já traz o valor correto em vICMS
         const icmsUnit = isSN ? 0 : (qtd > 0 ? xmlItem.icms_vICMS / qtd : 0);
         const pisUnit = isSN ? 0 : (qtd > 0 ? xmlItem.pis_vPIS / qtd : 0);
         const cofinsUnit = isSN ? 0 : (qtd > 0 ? xmlItem.cofins_vCOFINS / qtd : 0);
 
-        // Alíquota efetiva real sobre o valor do produto
-        const icmsAliqReal = xmlItem.vProd > 0 ? (xmlItem.icms_vICMS / xmlItem.vProd) * 100 : 0;
+        // Fix #5: Usar pICMS direto do XML (não calcular) — preserva 4% importados
+        const icmsAliqReal = xmlItem.icms_pICMS || (xmlItem.vProd > 0 ? (xmlItem.icms_vICMS / xmlItem.vProd) * 100 : 0);
         const pisAliqReal = xmlItem.pis_pPIS || (xmlItem.vProd > 0 ? (xmlItem.pis_vPIS / xmlItem.vProd) * 100 : 0);
         const cofinsAliqReal = xmlItem.cofins_pCOFINS || (xmlItem.vProd > 0 ? (xmlItem.cofins_vCOFINS / xmlItem.vProd) * 100 : 0);
         const ipiAliqReal = xmlItem.ipi_pIPI || (xmlItem.vProd > 0 ? (xmlItem.ipi_vIPI / xmlItem.vProd) * 100 : 0);
