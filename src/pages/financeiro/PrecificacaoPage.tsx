@@ -253,7 +253,7 @@ export default function PrecificacaoPage() {
   const isApiLimitHit = produtosError?.message?.includes("Limite diário");
   useEffect(() => {
     if (isApiLimitHit) {
-      toast.error("Limite diário da API GestãoClick atingido. Exibindo dados offline (tributos das NFs).");
+      toast.error("Limite diário da API GestãoClick atingido. A lista de produtos fica indisponível até o reset diário.");
     }
   }, [isApiLimitHit]);
 

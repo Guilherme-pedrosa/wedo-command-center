@@ -66,6 +66,20 @@ export async function callGC<T = unknown>(request: GCProxyRequest): Promise<GCPr
   return data as GCProxyResponse<T>;
 }
 
+async function isDailyLimitReached(): Promise<boolean> {
+  const today = new Date().toISOString().split("T")[0];
+  const { data } = await supabase
+    .from("fin_configuracoes")
+    .select("valor, updated_at")
+    .eq("chave", "gc_api_daily_counter")
+    .maybeSingle();
+
+  if (!data?.updated_at) return false;
+  const rowDay = String(data.updated_at).split("T")[0];
+  const count = Number(data.valor || 0);
+  return rowDay === today && count >= 2000;
+}
+
 // Paginated fetch helper — fetches ALL pages from GC
 export async function fetchAllGCPages<T>(
   endpoint: string,
@@ -75,18 +89,35 @@ export async function fetchAllGCPages<T>(
   let page = 1;
   let totalPages = 1;
 
+  if (await isDailyLimitReached()) {
+    return [];
+  }
+
   while (page <= totalPages) {
-    const res = await callGC<GCApiResponse<T>>({
-      endpoint,
-      params: { limite: "100", pagina: String(page) },
-    });
+    let res: GCProxyResponse<GCApiResponse<T>>;
+    try {
+      res = await callGC<GCApiResponse<T>>({
+        endpoint,
+        params: { limite: "100", pagina: String(page) },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Limite diário: para a paginação sem quebrar a tela
+      if (
+        msg.includes("DAILY_LIMIT_EXCEEDED") ||
+        msg.includes("Limite diário") ||
+        msg.includes("Edge function returned 429")
+      ) {
+        break;
+      }
+      throw err;
+    }
 
     if (res.status === 401) throw new Error("GC_AUTH_ERROR");
     if (res.status === 429) {
-      // Check if it's our daily limit
       const resData = res.data as any;
       if (resData?.code === "DAILY_LIMIT_EXCEEDED") {
-        throw new Error(resData.error || "Limite diário de chamadas à API atingido.");
+        break;
       }
       await new Promise((r) => setTimeout(r, 2000));
       continue; // retry same page
