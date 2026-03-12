@@ -598,6 +598,15 @@ export default function PrecificacaoPage() {
   // ── Sync NFs de entrada (batched to avoid timeout) ──
   const [syncProgress, setSyncProgress] = useState("");
   const handleSyncNFEntrada = async () => {
+    // Cooldown check
+    const { checkSyncCooldown, markSyncStarted } = await import("@/lib/gc-client");
+    const cooldown = checkSyncCooldown("sync-nfe-entrada");
+    if (!cooldown.allowed) {
+      toast.error(`Aguarde ${Math.ceil(cooldown.remainingSeconds / 60)} minuto(s) antes de sincronizar novamente.`);
+      return;
+    }
+    markSyncStarted("sync-nfe-entrada");
+
     setSyncing(true);
     setSyncProgress("Iniciando...");
     try {

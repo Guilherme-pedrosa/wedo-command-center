@@ -38,6 +38,15 @@ export function SyncPeriodDialog({ open, onOpenChange, onSync, title = "Sincroni
   const [running, setRunning] = useState(false);
 
   const handleSync = async () => {
+    // Cooldown check
+    const { checkSyncCooldown, markSyncStarted } = await import("@/lib/gc-client");
+    const cooldown = checkSyncCooldown("sync-period");
+    if (!cooldown.allowed) {
+      setSyncResult(`Aguarde ${Math.ceil(cooldown.remainingSeconds / 60)} minuto(s) antes de sincronizar novamente.`);
+      return;
+    }
+    markSyncStarted("sync-period");
+
     setProgress({ etapa: "Iniciando...", atual: 0, total: 0 });
     setEtapasConcluidas([]);
     setSyncResult(null);

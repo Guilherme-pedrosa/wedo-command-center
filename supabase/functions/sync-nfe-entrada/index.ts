@@ -9,7 +9,9 @@ const corsHeaders = {
 
 const GC_BASE_URL = "https://api.gestaoclick.com";
 const MIN_DELAY_MS = 350;
+const DAILY_LIMIT = 2000;
 let lastCallTime = 0;
+let gcCallCount = 0;
 
 async function rateLimitedFetch(url: string, options: RequestInit): Promise<Response> {
   const now = Date.now();
@@ -18,7 +20,56 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
     await new Promise((r) => setTimeout(r, MIN_DELAY_MS - elapsed));
   }
   lastCallTime = Date.now();
+  gcCallCount++;
   return fetch(url, options);
+}
+
+// Check daily counter (shared with gc-proxy via fin_configuracoes)
+async function checkDailyLimit(supabase: any): Promise<{ allowed: boolean; count: number }> {
+  const today = new Date().toISOString().split("T")[0];
+  const chave = "gc_api_daily_counter";
+
+  const { data: row } = await supabase
+    .from("fin_configuracoes")
+    .select("valor, updated_at")
+    .eq("chave", chave)
+    .maybeSingle();
+
+  let currentCount = 0;
+  if (row) {
+    const lastDate = row.updated_at ? row.updated_at.split("T")[0] : "";
+    if (lastDate === today) {
+      currentCount = parseInt(row.valor || "0") || 0;
+    }
+  }
+
+  return { allowed: currentCount < DAILY_LIMIT, count: currentCount };
+}
+
+async function incrementDailyCounter(supabase: any, increment: number) {
+  const today = new Date().toISOString().split("T")[0];
+  const chave = "gc_api_daily_counter";
+
+  const { data: row } = await supabase
+    .from("fin_configuracoes")
+    .select("valor, updated_at")
+    .eq("chave", chave)
+    .maybeSingle();
+
+  let currentCount = 0;
+  if (row) {
+    const lastDate = row.updated_at ? row.updated_at.split("T")[0] : "";
+    if (lastDate === today) {
+      currentCount = parseInt(row.valor || "0") || 0;
+    }
+  }
+
+  await supabase
+    .from("fin_configuracoes")
+    .upsert(
+      { chave, valor: String(currentCount + increment), updated_at: new Date().toISOString(), descricao: "Contador diário de chamadas à API GestãoClick" },
+      { onConflict: "chave" }
+    );
 }
 
 // ── Types ──
@@ -288,6 +339,17 @@ serve(async (req) => {
       "secret-access-token": gcSecretToken,
       "Content-Type": "application/json",
     };
+
+    // ── Check daily API limit before proceeding ──
+    gcCallCount = 0; // reset counter for this invocation
+    const { allowed, count: dailyCount } = await checkDailyLimit(supabase);
+    if (!allowed) {
+      console.warn(`[sync-nfe-entrada] LIMITE DIÁRIO ATINGIDO: ${dailyCount}/${DAILY_LIMIT}`);
+      return new Response(
+        JSON.stringify({ error: `Limite diário de ${DAILY_LIMIT} chamadas à API atingido (${dailyCount} usadas). Tente amanhã.`, code: "DAILY_LIMIT_EXCEEDED" }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // ── Step 1: Find situação IDs for finalized purchases ──
     console.log("[sync-nfe-entrada] Fetching situacoes_compras...");
@@ -637,6 +699,12 @@ serve(async (req) => {
       });
     }
 
+    // ── Increment daily counter with actual GC calls made ──
+    if (gcCallCount > 0) {
+      await incrementDailyCounter(supabase, gcCallCount);
+      console.log(`[sync-nfe-entrada] ${gcCallCount} chamadas GC neste batch`);
+    }
+
     return new Response(
       JSON.stringify({
         ok: true,
@@ -650,6 +718,7 @@ serve(async (req) => {
         xmls_usados: xmlsUsed,
         produtos_processados: records.length,
         upserted,
+        gc_calls_this_batch: gcCallCount,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
