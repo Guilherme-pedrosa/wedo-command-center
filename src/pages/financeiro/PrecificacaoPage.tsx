@@ -855,28 +855,12 @@ export default function PrecificacaoPage() {
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Créd. ICMS (%)</Label>
-                <Input type="number" value={taxEntrada.icmsCredito}
-                  onChange={(e) => setTaxEntrada({ ...taxEntrada, icmsCredito: parseFloat(e.target.value) || 0 })}
+                <Label className="text-xs text-muted-foreground">Custo fixo/un (R$)</Label>
+                <Input type="number" placeholder={custoFixoAutoUnit.toFixed(2)}
+                  value={taxEntrada.custoFixoUnit || ""}
+                  onChange={(e) => setTaxEntrada({ ...taxEntrada, custoFixoUnit: parseFloat(e.target.value) || 0 })}
                   className="h-8 bg-secondary text-sm" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Créd. PIS (%)</Label>
-                <Input type="number" value={taxEntrada.pisCredito}
-                  onChange={(e) => setTaxEntrada({ ...taxEntrada, pisCredito: parseFloat(e.target.value) || 0 })}
-                  className="h-8 bg-secondary text-sm" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Créd. COFINS (%)</Label>
-                <Input type="number" value={taxEntrada.cofinsCredito}
-                  onChange={(e) => setTaxEntrada({ ...taxEntrada, cofinsCredito: parseFloat(e.target.value) || 0 })}
-                  className="h-8 bg-secondary text-sm" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Frete (% custo)</Label>
-                <Input type="number" value={taxEntrada.frete}
-                  onChange={(e) => setTaxEntrada({ ...taxEntrada, frete: parseFloat(e.target.value) || 0 })}
-                  className="h-8 bg-secondary text-sm" />
+                <p className="text-[10px] text-muted-foreground">Vazio = rateio auto</p>
               </div>
             </div>
           </CardContent>
