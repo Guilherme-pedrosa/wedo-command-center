@@ -817,15 +817,15 @@ export default function PrecificacaoPage() {
             {totalComTributoNF} produtos c/ tributo NF
           </Badge>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleSyncGC} disabled={syncing}>
-              {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+            <Button variant="outline" size="sm" onClick={handleSyncGC} disabled={isSyncing}>
+              {syncingGC ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
               Sync NFs Entrada (GC)
             </Button>
-            <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={syncing}>
-              {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+            <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={isSyncing}>
+              {syncingOffline ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
               Reprocessar Tributos
             </Button>
-            {syncing && syncProgress && (
+            {isSyncing && syncProgress && (
               <span className="text-xs text-muted-foreground font-mono animate-pulse">{syncProgress}</span>
             )}
           </div>
@@ -836,7 +836,7 @@ export default function PrecificacaoPage() {
               <input type="file" accept=".xml,.zip" multiple className="hidden" onChange={handleUploadXmls} />
             </label>
           </Button>
-          {syncing && syncProgress && (
+          {isSyncing && syncProgress && (
             <span className="text-xs text-muted-foreground animate-pulse">{syncProgress}</span>
           )}
         </div>
