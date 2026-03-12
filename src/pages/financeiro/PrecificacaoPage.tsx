@@ -36,6 +36,7 @@ interface ProdutoTributo {
   ncm: string | null;
   cfop: string | null;
   nf_numero: string | null;
+  nf_chave: string | null;
   nf_data_emissao: string | null;
   fornecedor_nome: string | null;
   regime_fornecedor: string | null;
