@@ -1193,11 +1193,10 @@ export default function PrecificacaoPage() {
             </Table>
           </Card>
 
-          {produtos && (
-            <p className="text-xs text-muted-foreground">
-              {produtos.length} produtos · {totalComTributoNF} com tributo NF · Mostrando {filtered.length} · Tipo saída: {getTipoSaidaLabel(tipoSaidaGlobal)}
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground">
+            {produtos ? `${produtos.length} produtos GC · ` : "Modo offline (sem dados de estoque) · "}
+            {totalComTributoNF} com tributo NF · Mostrando {filtered.length} · Tipo saída: {getTipoSaidaLabel(tipoSaidaGlobal)}
+          </p>
         </TabsContent>
 
         {/* ── TAB: Calculadora ── */}
