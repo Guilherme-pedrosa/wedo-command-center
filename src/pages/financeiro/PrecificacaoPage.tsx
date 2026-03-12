@@ -1064,7 +1064,9 @@ export default function PrecificacaoPage() {
                 )}
                 {filtered.map((p) => {
                   const custoBruto = parseFloat(p.valor_custo) || 0;
-                  const vendaGC = parseFloat(p.valor_venda) || 0;
+                  const vendaGCTabP = parseFloat(p.valor_venda) || 0;
+                  // Venda GC usa markup médio de 80% sobre custo (média das 3 tabelas)
+                  const vendaGC = custoBruto > 0 ? custoBruto * 1.8 : vendaGCTabP;
                   const estoque = Number(p.estoque) || 0;
                   const tributo = tributosMap.get(p.id);
                   const hasNF = !!tributo;
