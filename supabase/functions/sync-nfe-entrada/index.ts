@@ -340,6 +340,17 @@ serve(async (req) => {
       "Content-Type": "application/json",
     };
 
+    // ── Check daily API limit before proceeding ──
+    gcCallCount = 0; // reset counter for this invocation
+    const { allowed, count: dailyCount } = await checkDailyLimit(supabase);
+    if (!allowed) {
+      console.warn(`[sync-nfe-entrada] LIMITE DIÁRIO ATINGIDO: ${dailyCount}/${DAILY_LIMIT}`);
+      return new Response(
+        JSON.stringify({ error: `Limite diário de ${DAILY_LIMIT} chamadas à API atingido (${dailyCount} usadas). Tente amanhã.`, code: "DAILY_LIMIT_EXCEEDED" }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // ── Step 1: Find situação IDs for finalized purchases ──
     console.log("[sync-nfe-entrada] Fetching situacoes_compras...");
     const sitResp = await rateLimitedFetch(`${GC_BASE_URL}/api/situacoes_compras`, { headers: gcHeaders });
