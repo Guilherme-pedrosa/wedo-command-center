@@ -62,9 +62,9 @@ interface ProductTaxRecord {
   ncm: string;
   cfop: string;
   nf_gc_id: string;
-  nf_numero: string;
+  nf_numero: string | null;
   nf_chave: string;
-  nf_data_emissao: string;
+  nf_data_emissao: string | null;
   compra_gc_id: string;
   fornecedor_nome: string;
   regime_fornecedor: string;
@@ -407,6 +407,10 @@ serve(async (req) => {
       const usedXmlIndices = new Set<number>();
       const r = (v: number) => Math.round(v * 100) / 100;
 
+      // Extract NF number from chave (positions 25-33) and data_emissao from XML
+      const nfNumeroFromChave = matchedChave.length === 44 ? String(parseInt(matchedChave.substring(25, 34))) : null;
+      const xmlDataEmissao = getTag(xmlContent, "dhEmi")?.substring(0, 10) || getTag(xmlContent, "dEmi") || null;
+
       for (const compraProd of compraProdutos) {
         const gcProdId = String(compraProd.produto_id);
         const compraProdValor = parseFloat(compraProd.valor_total || "0") || 0;
@@ -509,9 +513,9 @@ serve(async (req) => {
             ncm: xmlItem.NCM || "",
             cfop: xmlItem.CFOP || "",
             nf_gc_id: matchedChave,
-            nf_numero: "",
+            nf_numero: nfNumeroFromChave,
             nf_chave: matchedChave,
-            nf_data_emissao: "",
+            nf_data_emissao: xmlDataEmissao,
             compra_gc_id: compraId,
             fornecedor_nome: fornecedorNome || "",
             regime_fornecedor: isSN ? "simples_nacional" : "normal",
@@ -534,15 +538,22 @@ serve(async (req) => {
           console.log(`[offline] ✓ ${gcProdId} "${xmlItem.xProd}" ICMS=${r(icmsAliqReal)}% PIS=${r(pisAliqReal)}% COFINS=${r(cofinsAliqReal)}%`);
         } else {
           // Fallback: rateio proporcional pelos totais do XML
+          // Use actual values first, but fallback to weighted average of aliquotas if values are zero
           const totalICMS = xmlItems.reduce((s, i) => s + i.icms_vICMS, 0);
           const totalPIS = xmlItems.reduce((s, i) => s + i.pis_vPIS, 0);
           const totalCOFINS = xmlItems.reduce((s, i) => s + i.cofins_vCOFINS, 0);
           const totalIPI = xmlItems.reduce((s, i) => s + i.ipi_vIPI, 0);
           const totalBaseICMS = xmlItems.reduce((s, i) => s + i.icms_vBC, 0);
 
+          // If PIS/COFINS values are zero but aliquotas exist, use weighted average of aliquotas
+          const avgPisAliqFromRate = xmlItems.length > 0
+            ? xmlItems.reduce((s, i) => s + i.pis_pPIS * i.vProd, 0) / (totalVProd || 1) : 0;
+          const avgCofinsAliqFromRate = xmlItems.length > 0
+            ? xmlItems.reduce((s, i) => s + i.cofins_pCOFINS * i.vProd, 0) / (totalVProd || 1) : 0;
+
           const avgIcmsAliq = totalVProd > 0 ? (totalICMS / totalVProd) * 100 : 0;
-          const avgPisAliq = totalVProd > 0 ? (totalPIS / totalVProd) * 100 : 0;
-          const avgCofinsAliq = totalVProd > 0 ? (totalCOFINS / totalVProd) * 100 : 0;
+          const avgPisAliq = totalPIS > 0 ? (totalPIS / totalVProd) * 100 : avgPisAliqFromRate;
+          const avgCofinsAliq = totalCOFINS > 0 ? (totalCOFINS / totalVProd) * 100 : avgCofinsAliqFromRate;
           const avgIpiAliq = totalVProd > 0 ? (totalIPI / totalVProd) * 100 : 0;
           const freteRate = totalVProd > 0 ? (xmlFrete / totalVProd) * 100 : 0;
           const icmsBasePerc = totalVProd > 0 ? (totalBaseICMS / totalVProd) * 100 : 100;
@@ -565,9 +576,9 @@ serve(async (req) => {
             ncm: xmlItems[0]?.NCM || "",
             cfop: xmlItems[0]?.CFOP || "",
             nf_gc_id: matchedChave,
-            nf_numero: "",
+            nf_numero: nfNumeroFromChave,
             nf_chave: matchedChave,
-            nf_data_emissao: "",
+            nf_data_emissao: xmlDataEmissao,
             compra_gc_id: compraId,
             fornecedor_nome: fornecedorNome || "",
             regime_fornecedor: isSN ? "simples_nacional" : "normal",
@@ -587,7 +598,7 @@ serve(async (req) => {
             custo_efetivo_unit: r(custoEfetivo),
           });
 
-          console.log(`[offline] rateio ✓ ${gcProdId} "${compraProd.nome_produto}" ICMS=${r(avgIcmsAliq)}%`);
+          console.log(`[offline] rateio ✓ ${gcProdId} "${compraProd.nome_produto}" ICMS=${r(avgIcmsAliq)}% PIS=${r(avgPisAliq)}% COFINS=${r(avgCofinsAliq)}%`);
         }
       }
     }
