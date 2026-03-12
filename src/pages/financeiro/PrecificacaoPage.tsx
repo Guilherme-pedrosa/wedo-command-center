@@ -689,10 +689,15 @@ export default function PrecificacaoPage() {
             <FileText className="h-3 w-3 mr-1" />
             {totalComTributoNF} produtos c/ tributo NF
           </Badge>
-          <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={syncing}>
-            {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-            Sync NFs Entrada
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={syncing}>
+              {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+              Sync NFs Entrada
+            </Button>
+            {syncing && syncProgress && (
+              <span className="text-xs text-muted-foreground font-mono animate-pulse">{syncProgress}</span>
+            )}
+          </div>
           <Button variant="outline" size="sm" disabled={uploading} asChild>
             <label className="cursor-pointer">
               {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
