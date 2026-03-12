@@ -882,6 +882,9 @@ export default function PrecificacaoPage() {
                 <span className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-primary" />
                   Tributos Extraídos das NFs de Entrada
+                  <Badge variant="outline" className="text-[10px]">
+                    Clique na alíquota para editar · Marque "SN" para Simples Nacional
+                  </Badge>
                 </span>
                 <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={syncing}>
                   {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
@@ -895,6 +898,7 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs">Produto</TableHead>
                   <TableHead className="text-xs">Fornecedor / NF</TableHead>
                   <TableHead className="text-xs">NCM</TableHead>
+                  <TableHead className="text-xs text-center">Regime</TableHead>
                   <TableHead className="text-xs text-right">Valor Unit.</TableHead>
                   <TableHead className="text-xs text-right">ICMS %</TableHead>
                   <TableHead className="text-xs text-right">PIS %</TableHead>
@@ -907,15 +911,24 @@ export default function PrecificacaoPage() {
               <TableBody>
                 {(!tributos || tributos.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                       Nenhum tributo de NF de entrada encontrado. Clique em "Sync NFs Entrada" para importar.
                     </TableCell>
                   </TableRow>
                 )}
-                {tributos?.map((t) => (
-                  <TableRow key={t.gc_produto_id} className="border-border">
+                {tributos?.map((t) => {
+                  const eff = getEffectiveRates(t);
+                  // Recalculate effective cost
+                  const effCreditoIcms = t.valor_unitario_nf * (eff.icms / 100);
+                  const effCreditoPis = t.valor_unitario_nf * (eff.pis / 100);
+                  const effCreditoCofins = t.valor_unitario_nf * (eff.cofins / 100);
+                  const effCustoEfetivo = t.valor_unitario_nf + t.valor_ipi_unit + t.valor_frete_unit - effCreditoIcms - effCreditoPis - effCreditoCofins;
+                  
+                  return (
+                  <TableRow key={t.gc_produto_id} className={`border-border ${eff.semCredito ? "bg-amber-500/5" : ""}`}>
                     <TableCell>
                       <span className="font-medium text-foreground text-sm">{t.nome_produto}</span>
+                      {t.cfop && <span className="text-[10px] text-muted-foreground ml-1">CFOP {t.cfop}</span>}
                     </TableCell>
                     <TableCell>
                       <div className="text-xs">
@@ -926,22 +939,122 @@ export default function PrecificacaoPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-xs font-mono text-muted-foreground">{t.ncm || "—"}</TableCell>
+                    <TableCell className="text-center">
+                      <Button
+                        variant={eff.semCredito ? "default" : "outline"}
+                        size="sm"
+                        className={`text-[10px] h-6 px-2 ${eff.semCredito ? "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border-amber-500/30" : ""}`}
+                        onClick={async () => {
+                          const newSemCredito = !eff.semCredito;
+                          const { error } = await supabase
+                            .from("fin_produto_tributos")
+                            .update({ 
+                              sem_credito: newSemCredito,
+                              regime_fornecedor: newSemCredito ? "simples_nacional" : "normal"
+                            })
+                            .eq("gc_produto_id", t.gc_produto_id);
+                          if (!error) {
+                            refetchTributos();
+                            toast.success(newSemCredito ? "Marcado como Simples Nacional" : "Regime alterado para Normal");
+                          }
+                        }}
+                      >
+                        {eff.semCredito ? "SN ✓" : "Normal"}
+                      </Button>
+                    </TableCell>
                     <TableCell className="text-right font-mono text-sm">{formatCurrency(t.valor_unitario_nf)}</TableCell>
-                    <TableCell className="text-right font-mono text-sm">{t.icms_aliquota}%</TableCell>
-                    <TableCell className="text-right font-mono text-sm">{t.pis_aliquota}%</TableCell>
-                    <TableCell className="text-right font-mono text-sm">{t.cofins_aliquota}%</TableCell>
-                    <TableCell className="text-right font-mono text-sm">{t.ipi_aliquota}%</TableCell>
+                    <TableCell className="text-right">
+                      <EditableRate value={eff.icms} originalValue={t.icms_aliquota} disabled={eff.semCredito}
+                        onSave={async (v) => {
+                          await supabase.from("fin_produto_tributos").update({ icms_aliquota_manual: v }).eq("gc_produto_id", t.gc_produto_id);
+                          refetchTributos();
+                        }} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <EditableRate value={eff.pis} originalValue={t.pis_aliquota} disabled={eff.semCredito}
+                        onSave={async (v) => {
+                          await supabase.from("fin_produto_tributos").update({ pis_aliquota_manual: v }).eq("gc_produto_id", t.gc_produto_id);
+                          refetchTributos();
+                        }} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <EditableRate value={eff.cofins} originalValue={t.cofins_aliquota} disabled={eff.semCredito}
+                        onSave={async (v) => {
+                          await supabase.from("fin_produto_tributos").update({ cofins_aliquota_manual: v }).eq("gc_produto_id", t.gc_produto_id);
+                          refetchTributos();
+                        }} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <EditableRate value={eff.ipi} originalValue={t.ipi_aliquota}
+                        onSave={async (v) => {
+                          await supabase.from("fin_produto_tributos").update({ ipi_aliquota_manual: v }).eq("gc_produto_id", t.gc_produto_id);
+                          refetchTributos();
+                        }} />
+                    </TableCell>
                     <TableCell className="text-right font-mono text-sm">{t.frete_percentual}%</TableCell>
                     <TableCell className="text-right font-mono text-sm font-bold text-primary">
-                      {formatCurrency(t.custo_efetivo_unit)}
+                      {formatCurrency(effCustoEfetivo)}
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </Card>
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// ── Editable Rate Component ──
+function EditableRate({ value, originalValue, disabled, onSave }: {
+  value: number;
+  originalValue: number;
+  disabled?: boolean;
+  onSave: (v: number | null) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(String(value));
+  const isOverridden = value !== originalValue;
+
+  if (disabled) {
+    return <span className="font-mono text-sm text-muted-foreground">0%</span>;
+  }
+
+  if (editing) {
+    return (
+      <Input
+        type="number"
+        step="0.01"
+        value={editValue}
+        onChange={(e) => setEditValue(e.target.value)}
+        onBlur={async () => {
+          const parsed = parseFloat(editValue);
+          if (!isNaN(parsed) && parsed !== originalValue) {
+            await onSave(parsed);
+          } else if (parsed === originalValue) {
+            await onSave(null); // remove override
+          }
+          setEditing(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          if (e.key === "Escape") setEditing(false);
+        }}
+        autoFocus
+        className="h-6 w-16 text-xs font-mono bg-secondary text-right p-1"
+      />
+    );
+  }
+
+  return (
+    <button
+      onClick={() => { setEditValue(String(value)); setEditing(true); }}
+      className={`font-mono text-sm cursor-pointer hover:underline ${isOverridden ? "text-blue-400 font-semibold" : ""}`}
+      title={isOverridden ? `Original: ${originalValue}% · Editado: ${value}%` : "Clique para editar"}
+    >
+      {value}%
+    </button>
   );
 }
