@@ -247,11 +247,27 @@ export default function PrecificacaoPage() {
   const { data: tributos, refetch: refetchTributos } = useQuery({
     queryKey: ["produto-tributos"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("fin_produto_tributos")
-        .select("*")
-        .order("nome_produto");
-      return (data || []) as ProdutoTributo[];
+      const pageSize = 1000;
+      let from = 0;
+      const allRows: ProdutoTributo[] = [];
+
+      while (true) {
+        const { data, error } = await supabase
+          .from("fin_produto_tributos")
+          .select("*")
+          .order("nome_produto")
+          .range(from, from + pageSize - 1);
+
+        if (error) throw error;
+
+        const batch = (data || []) as ProdutoTributo[];
+        allRows.push(...batch);
+
+        if (batch.length < pageSize) break;
+        from += pageSize;
+      }
+
+      return allRows;
     },
     staleTime: 5 * 60_000,
   });
@@ -260,10 +276,26 @@ export default function PrecificacaoPage() {
   const { data: xmlIndexRows } = useQuery({
     queryKey: ["nfe-xml-index-keys"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("fin_nfe_xml_index")
-        .select("chave");
-      return (data || []) as { chave: string | null }[];
+      const pageSize = 1000;
+      let from = 0;
+      const allRows: { chave: string | null }[] = [];
+
+      while (true) {
+        const { data, error } = await supabase
+          .from("fin_nfe_xml_index")
+          .select("chave")
+          .range(from, from + pageSize - 1);
+
+        if (error) throw error;
+
+        const batch = (data || []) as { chave: string | null }[];
+        allRows.push(...batch);
+
+        if (batch.length < pageSize) break;
+        from += pageSize;
+      }
+
+      return allRows;
     },
     staleTime: 5 * 60_000,
   });
