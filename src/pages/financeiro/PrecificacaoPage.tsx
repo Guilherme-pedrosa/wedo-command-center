@@ -486,8 +486,8 @@ export default function PrecificacaoPage() {
           <Button variant="outline" size="sm" disabled={uploading} asChild>
             <label className="cursor-pointer">
               {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
-              Upload XMLs
-              <input type="file" accept=".xml" multiple className="hidden" onChange={handleUploadXmls} />
+              {uploading && uploadProgress ? uploadProgress : "Upload XMLs / ZIP"}
+              <input type="file" accept=".xml,.zip" multiple className="hidden" onChange={handleUploadXmls} />
             </label>
           </Button>
           {syncing && syncProgress && (
