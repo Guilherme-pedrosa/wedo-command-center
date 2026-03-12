@@ -654,15 +654,27 @@ export default function PrecificacaoPage() {
                         {hasNF ? (
                           <Tooltip>
                             <TooltipTrigger>
-                              <Badge className="bg-primary/20 text-primary text-[10px] gap-1">
-                                <FileText className="h-3 w-3" /> NF
+                              <Badge className={`text-[10px] gap-1 ${
+                                tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito
+                                  ? "bg-amber-500/20 text-amber-400"
+                                  : "bg-primary/20 text-primary"
+                              }`}>
+                                <FileText className="h-3 w-3" />
+                                {tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito ? "NF·SN" : "NF"}
                               </Badge>
                             </TooltipTrigger>
                             <TooltipContent className="text-xs max-w-sm">
                               <p className="font-semibold">NF #{tributo.nf_numero} — {tributo.fornecedor_nome}</p>
-                              <p>ICMS: {tributo.icms_aliquota}% · PIS: {tributo.pis_aliquota}% · COFINS: {tributo.cofins_aliquota}%</p>
-                              <p>IPI: {tributo.ipi_aliquota}% · Frete: {tributo.frete_percentual}%</p>
-                              <p>Custo efetivo: {formatCurrency(tributo.custo_efetivo_unit)}</p>
+                              {(tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito) && (
+                                <p className="text-amber-400 font-semibold">⚠ Simples Nacional — Sem créditos de entrada</p>
+                              )}
+                              {(() => { const eff = getEffectiveRates(tributo); return (
+                                <>
+                                  <p>ICMS: {eff.icms}% · PIS: {eff.pis}% · COFINS: {eff.cofins}%</p>
+                                  <p>IPI: {eff.ipi}% · Frete: {tributo.frete_percentual}%</p>
+                                </>
+                              ); })()}
+                              <p>CFOP: {tributo.cfop || "—"}</p>
                             </TooltipContent>
                           </Tooltip>
                         ) : (
