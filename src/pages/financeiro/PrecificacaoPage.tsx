@@ -1173,7 +1173,9 @@ export default function PrecificacaoPage() {
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
                         {formatCurrency(calc.precoMinimo)}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-sm">{formatCurrency(vendaGC)}</TableCell>
+                      <TableCell className={`text-right font-mono text-sm ${vendaA < calc.precoMinimo ? "text-destructive" : "text-blue-400"}`}>{formatCurrency(vendaA)}</TableCell>
+                      <TableCell className={`text-right font-mono text-sm ${vendaB < calc.precoMinimo ? "text-destructive" : "text-yellow-400"}`}>{formatCurrency(vendaB)}</TableCell>
+                      <TableCell className={`text-right font-mono text-sm ${vendaP < calc.precoMinimo ? "text-destructive" : "text-purple-400"}`}>{formatCurrency(vendaP)}</TableCell>
                       <TableCell className="text-center">
                         {custoBruto === 0 && !hasNF ? (
                           <Badge variant="outline" className="text-[10px] text-muted-foreground">Sem custo</Badge>
