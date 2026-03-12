@@ -1329,7 +1329,7 @@ export default function PrecificacaoPage() {
                 Preço = Custo Total ÷ (1 − Tributos Saída − Margem).{" "}
                 <strong>Venda:</strong> ICMS + PIS + COFINS sobre faturamento.{" "}
                 <strong>Serviço:</strong> ISS + PIS + COFINS sobre faturamento.{" "}
-                Em ambos, IRPJ+CSLL ({taxSaida.irpjCsll}%) incide sobre o lucro.
+                
                 Créditos de entrada (ICMS {activeEntrada.icmsCredito}% + PIS {activeEntrada.pisCredito}% + COFINS {activeEntrada.cofinsCredito}%) reduzem o custo de aquisição.
               </p>
             </CardContent>
