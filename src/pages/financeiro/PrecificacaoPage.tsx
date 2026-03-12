@@ -1088,7 +1088,7 @@ export default function PrecificacaoPage() {
                   const vendaA = custoBase * MARKUP_TABELAS.A;
                   const vendaB = custoBase * MARKUP_TABELAS.B;
                   const vendaP = custoBase * MARKUP_TABELAS.P;
-                  const vendaGC = custoBase * MARKUP_TABELAS[tabelaVenda];
+                  const vendaGC = vendaB; // default ref for backwards compat
 
                   let calc: ReturnType<typeof calcPricing>;
                   if (hasNF) {
