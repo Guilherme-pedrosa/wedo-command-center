@@ -328,10 +328,10 @@ export default function PrecificacaoPage() {
     onProgress: (done: number, total: number) => void
   ) => {
     let uploaded = 0;
-    let duplicates = 0;
+    let repeatedKeys = 0;
     let errors = 0;
     const total = items.length;
-    const seenChaves = new Set<string>();
+    const keyOccurrences = new Map<string, number>();
 
     for (let i = 0; i < total; i += batchSize) {
       const batch = items.slice(i, i + batchSize);
@@ -339,11 +339,21 @@ export default function PrecificacaoPage() {
         batch.map(async (item) => {
           const chave = await extractChaveFromXml(item.blob);
 
-          // Mesmo arquivo fiscal em múltiplos XMLs (NFe/procNFe/eventos): mantém só 1 por chave
-          if (chave && seenChaves.has(chave)) return "duplicate" as const;
-          if (chave) seenChaves.add(chave);
+          let path = item.name.replace(/^.*[\\/]/, "");
+          if (chave) {
+            const count = (keyOccurrences.get(chave) || 0) + 1;
+            keyOccurrences.set(chave, count);
 
-          const path = chave ? `${chave}.xml` : item.name.replace(/^.*[\\/]/, "");
+            // 1º arquivo da chave fica no caminho canônico usado pelo sync
+            // Repetidos são armazenados sem sobrescrever (auditoria/validação)
+            if (count === 1) {
+              path = `${chave}.xml`;
+            } else {
+              repeatedKeys++;
+              path = `repetidos/${chave}-${count}.xml`;
+            }
+          }
+
           const { error } = await supabase.storage.from("nf-xmls").upload(path, item.blob, {
             contentType: "text/xml",
             upsert: true,
@@ -356,17 +366,16 @@ export default function PrecificacaoPage() {
       for (const r of results) {
         if (r.status === "fulfilled") {
           if (r.value === "uploaded") uploaded++;
-          else duplicates++;
         } else {
           errors++;
           console.error("Upload error:", r.reason);
         }
       }
 
-      onProgress(uploaded + duplicates + errors, total);
+      onProgress(uploaded + errors, total);
     }
 
-    return { uploaded, duplicates, errors };
+    return { uploaded, repeatedKeys, errors };
   };
 
   const handleUploadXmls = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -401,13 +410,13 @@ export default function PrecificacaoPage() {
 
       setUploadProgress(`0 / ${allItems.length} processados`);
       const BATCH_SIZE = 15;
-      const { uploaded, duplicates, errors } = await uploadBatch(allItems, BATCH_SIZE, (done, total) => {
+      const { uploaded, repeatedKeys, errors } = await uploadBatch(allItems, BATCH_SIZE, (done, total) => {
         setUploadProgress(`${done} / ${total} processados`);
       });
 
       toast.success(
-        `${uploaded} XML(s) únicos enviados` +
-          (duplicates > 0 ? `, ${duplicates} duplicado(s) de mesma chave NF` : "") +
+        `${uploaded} arquivo(s) enviados` +
+          (repeatedKeys > 0 ? `, ${repeatedKeys} com chave repetida (salvos em /repetidos)` : "") +
           (errors > 0 ? `, ${errors} erro(s)` : "")
       );
     } catch (err) {
