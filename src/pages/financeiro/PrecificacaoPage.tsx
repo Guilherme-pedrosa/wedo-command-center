@@ -256,11 +256,38 @@ export default function PrecificacaoPage() {
     staleTime: 5 * 60_000,
   });
 
+  // Índice de XMLs realmente enviados/processados
+  const { data: xmlIndexRows } = useQuery({
+    queryKey: ["nfe-xml-index-keys"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("fin_nfe_xml_index")
+        .select("chave");
+      return (data || []) as { chave: string | null }[];
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const indexedNfChaves = useMemo(() => {
+    return new Set(
+      (xmlIndexRows || [])
+        .map((r) => r.chave)
+        .filter((c): c is string => Boolean(c))
+    );
+  }, [xmlIndexRows]);
+
+  // Mantém apenas tributos com NF que existe no índice de XML de entrada
+  const tributosXml = useMemo(() => {
+    return (tributos || []).filter(
+      (t) => Boolean(t.nf_chave) && indexedNfChaves.has(t.nf_chave as string)
+    );
+  }, [tributos, indexedNfChaves]);
+
   const tributosMap = useMemo(() => {
     const map = new Map<string, ProdutoTributo>();
-    tributos?.forEach((t) => map.set(t.gc_produto_id, t));
+    tributosXml.forEach((t) => map.set(t.gc_produto_id, t));
     return map;
-  }, [tributos]);
+  }, [tributosXml]);
 
   // ── Fetch monthly fixed costs for auto-rateio ──
   const { data: custoFixoMensal } = useQuery({
