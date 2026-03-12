@@ -261,20 +261,23 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // ── Step 1: Count total compras with payload ──
+    // ── Step 1: Count total compras with payload AND NF-e linked ──
+    // Only process purchases that have a linked NF-e (numero_nfe not empty)
     const { count: totalCompras } = await supabase
       .from("gc_compras")
       .select("*", { count: "exact", head: true })
-      .not("gc_payload_raw", "is", null);
+      .not("gc_payload_raw", "is", null)
+      .neq("gc_payload_raw->Compra->>numero_nfe", "");
 
     const total = totalCompras || 0;
-    console.log(`[offline] Total compras no BD: ${total}, offset=${offset}, batch=${batchSize}`);
+    console.log(`[offline] Total compras COM NF-e no BD: ${total}, offset=${offset}, batch=${batchSize}`);
 
-    // ── Step 2: Fetch batch of compras from BD ──
+    // ── Step 2: Fetch batch of compras from BD (only with NF-e) ──
     const { data: comprasDb, error: compraErr } = await supabase
       .from("gc_compras")
       .select("gc_id, nome_fornecedor, fornecedor_id, valor_total, valor_produtos, valor_frete, gc_payload_raw")
       .not("gc_payload_raw", "is", null)
+      .neq("gc_payload_raw->Compra->>numero_nfe", "")
       .order("gc_id")
       .range(offset, offset + batchSize - 1);
 
