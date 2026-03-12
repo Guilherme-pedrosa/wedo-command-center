@@ -263,25 +263,29 @@ serve(async (req) => {
 
     // ── Step 1: Count total compras with payload AND NF-e linked ──
     // Only process purchases that have a linked NF-e AND are in approved statuses
+    // Filter: only compras from Jan 2025 onwards
     const ALLOWED_SITUACAO_IDS = ["1675070", "2072508", "2072509", "2072571"];
+    const DATA_INICIO = "2025-01-01";
     
     const { count: totalCompras } = await supabase
       .from("gc_compras")
       .select("*", { count: "exact", head: true })
       .not("gc_payload_raw", "is", null)
       .neq("gc_payload_raw->Compra->>numero_nfe", "")
-      .in("situacao_id", ALLOWED_SITUACAO_IDS);
+      .in("situacao_id", ALLOWED_SITUACAO_IDS)
+      .gte("data", DATA_INICIO);
 
     const total = totalCompras || 0;
-    console.log(`[offline] Total compras COM NF-e e situação válida: ${total}, offset=${offset}, batch=${batchSize}`);
+    console.log(`[offline] Total compras COM NF-e, situação válida e data >= ${DATA_INICIO}: ${total}, offset=${offset}, batch=${batchSize}`);
 
-    // ── Step 2: Fetch batch of compras from BD (only with NF-e + valid status) ──
+    // ── Step 2: Fetch batch of compras from BD (only with NF-e + valid status + date filter) ──
     const { data: comprasDb, error: compraErr } = await supabase
       .from("gc_compras")
       .select("gc_id, nome_fornecedor, fornecedor_id, valor_total, valor_produtos, valor_frete, gc_payload_raw")
       .not("gc_payload_raw", "is", null)
       .neq("gc_payload_raw->Compra->>numero_nfe", "")
       .in("situacao_id", ALLOWED_SITUACAO_IDS)
+      .gte("data", DATA_INICIO)
       .order("gc_id")
       .range(offset, offset + batchSize - 1);
 
