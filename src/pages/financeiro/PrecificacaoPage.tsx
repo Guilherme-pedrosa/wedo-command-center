@@ -1135,10 +1135,11 @@ export default function PrecificacaoPage() {
                 {filtered.map((p) => {
                   const custoBruto = parseFloat(p.valor_custo) || 0;
                   const estoque = Number(p.estoque) || 0;
-                  const tributoRaw = tributosMap.get(p.id);
-                  const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-                  const hasNF = !!tributo;
-                  const custoBase = hasNF ? tributo.valor_unitario_nf : custoBruto;
+                   const tributoRaw = tributosMap.get(p.id);
+                   const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
+                   const hasNF = !!tributo;
+                   const usarCustoNF = hasNF && isNfCustoRazoavel(p, tributo);
+                   const custoBase = usarCustoNF ? tributo.valor_unitario_nf : custoBruto;
                   const vendaA = custoBase * MARKUP_TABELAS.A;
                   const vendaB = custoBase * MARKUP_TABELAS.B;
                   const vendaP = custoBase * MARKUP_TABELAS.P;
