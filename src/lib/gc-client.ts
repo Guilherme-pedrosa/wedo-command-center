@@ -76,10 +76,24 @@ export async function fetchAllGCPages<T>(
   let totalPages = 1;
 
   while (page <= totalPages) {
-    const res = await callGC<GCApiResponse<T>>({
-      endpoint,
-      params: { limite: "100", pagina: String(page) },
-    });
+    let res: GCProxyResponse<GCApiResponse<T>>;
+    try {
+      res = await callGC<GCApiResponse<T>>({
+        endpoint,
+        params: { limite: "100", pagina: String(page) },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Limite diário: para a paginação sem quebrar a tela
+      if (
+        msg.includes("DAILY_LIMIT_EXCEEDED") ||
+        msg.includes("Limite diário") ||
+        msg.includes("Edge function returned 429")
+      ) {
+        break;
+      }
+      throw err;
+    }
 
     if (res.status === 401) throw new Error("GC_AUTH_ERROR");
     if (res.status === 429) {
