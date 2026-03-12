@@ -422,11 +422,16 @@ export default function PrecificacaoPage() {
           const estoqueB = Number(b.estoque) || 0;
           const custoA = Number(a.valor_custo) || 0;
           const custoB = Number(b.valor_custo) || 0;
-          // Score: estoque * custo (prioriza alto valor + alto estoque)
-          const scoreA = estoqueA * custoA;
-          const scoreB = estoqueB * custoB;
-          if (scoreB !== scoreA) return scoreB - scoreA;
-          // Desempate por custo
+          // Produtos com estoque vêm primeiro
+          if (estoqueA > 0 && estoqueB === 0) return -1;
+          if (estoqueA === 0 && estoqueB > 0) return 1;
+          // Entre produtos com estoque: maior valor em estoque primeiro
+          if (estoqueA > 0 && estoqueB > 0) {
+            const scoreA = estoqueA * custoA;
+            const scoreB = estoqueB * custoB;
+            if (scoreB !== scoreA) return scoreB - scoreA;
+          }
+          // Desempate (ou ambos sem estoque): maior custo primeiro
           return custoB - custoA;
         })
         .slice(0, 100);
