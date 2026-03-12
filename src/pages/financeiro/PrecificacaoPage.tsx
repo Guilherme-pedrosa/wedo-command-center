@@ -107,8 +107,8 @@ function calcPricing(
   tipo: TipoSaida,
   margemDesejada: number
 ) {
-  // Créditos de entrada
-  const creditoIcms = custoBruto * (entrada.icmsCredito / 100);
+  // Créditos de entrada — serviço não aproveita ICMS
+  const creditoIcms = tipo === "servico" ? 0 : custoBruto * (entrada.icmsCredito / 100);
   const creditoPis = custoBruto * (entrada.pisCredito / 100);
   const creditoCofins = custoBruto * (entrada.cofinsCredito / 100);
   const totalCreditosEntrada = creditoIcms + creditoPis + creditoCofins;
@@ -180,8 +180,8 @@ function calcPricingWithNF(
   const eff = getEffectiveRates(tributo);
   const valorUnit = tributo.valor_unitario_nf;
   
-  // Recalculate credits based on effective rates
-  const creditoIcms = valorUnit * (eff.icms / 100);
+  // Recalculate credits based on effective rates — serviço não aproveita ICMS
+  const creditoIcms = tipo === "servico" ? 0 : valorUnit * (eff.icms / 100);
   const creditoPis = valorUnit * (eff.pis / 100);
   const creditoCofins = valorUnit * (eff.cofins / 100);
   const ipiUnit = tributo.valor_ipi_unit;
