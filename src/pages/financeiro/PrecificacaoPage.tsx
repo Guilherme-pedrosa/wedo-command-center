@@ -97,7 +97,7 @@ const DEFAULT_SAIDA: TaxConfigSaida = {
   iss: 3,
   pisSaidaServico: 1.65,
   cofinsSaidaServico: 7.6,
-  irpjCsll: 24,
+  irpjCsll: 0, // Desconsiderado no custo da peça — incide sobre lucro da empresa, não do produto
 };
 
 // ── Helpers ──
