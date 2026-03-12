@@ -1289,7 +1289,7 @@ export default function PrecificacaoPage() {
                         <TableHead className="text-xs">Margem</TableHead>
                         <TableHead className="text-xs text-right">Preço Mín.</TableHead>
                         <TableHead className="text-xs text-right">Trib. Saída</TableHead>
-                        <TableHead className="text-xs text-right">IR s/ Lucro</TableHead>
+                        
                         <TableHead className="text-xs text-right">Lucro Líq.</TableHead>
                       </TableRow>
                     </TableHeader>
