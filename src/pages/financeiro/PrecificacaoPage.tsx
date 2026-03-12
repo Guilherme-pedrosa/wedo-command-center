@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAllGCPages } from "@/lib/gc-client";
 import { supabase } from "@/integrations/supabase/client";
@@ -236,26 +236,13 @@ export default function PrecificacaoPage() {
   const [calcTipoSaida, setCalcTipoSaida] = useState<TipoSaida>("venda");
   const [calcMargens] = useState([10, 15, 20, 25, 30]);
 
-  // ── Fetch products from GC (staleTime longo para não re-buscar durante reprocessamento) ──
-  const { data: produtos, isLoading: loadingProdutos, error: produtosError } = useQuery({
+  // ── Fetch products from GC ──
+  const { data: produtos, isLoading: loadingProdutos } = useQuery({
     queryKey: ["gc-produtos"],
     queryFn: () => fetchAllGCPages<GCProduto>("/api/produtos"),
     staleTime: 30 * 60_000,
     refetchOnWindowFocus: false,
-    retry: (failureCount, error) => {
-      // Don't retry on daily limit exceeded
-      if (error?.message?.includes("DAILY_LIMIT") || error?.message?.includes("429")) return false;
-      return failureCount < 2;
-    },
   });
-
-  // Show toast when GC API limit is hit
-  const isApiLimitHit = produtosError?.message?.includes("Limite diário");
-  useEffect(() => {
-    if (isApiLimitHit) {
-      toast.error("Limite diário da API GestãoClick atingido. A lista de produtos fica indisponível até o reset diário.");
-    }
-  }, [isApiLimitHit]);
 
 
   const { data: tributos, refetch: refetchTributos } = useQuery({

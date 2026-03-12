@@ -11,7 +11,6 @@ interface GCProxyResponse<T = unknown> {
   status: number;
   data: T;
   duration_ms: number;
-  _gc_calls_today?: number;
 }
 
 // GC API wraps responses in { code, data, meta, status }
@@ -51,33 +50,10 @@ export async function callGC<T = unknown>(request: GCProxyRequest): Promise<GCPr
   });
 
   if (error) {
-    // Check if it's a rate limit error from our proxy
-    if (error.message?.includes("DAILY_LIMIT_EXCEEDED") || error.message?.includes("Limite diário")) {
-      throw new Error("Limite diário de chamadas à API do GestãoClick atingido. Tente novamente amanhã.");
-    }
     throw new Error(error.message);
-  }
-  
-  // Check for 429 from our proxy (daily limit)
-  if (data?.code === "DAILY_LIMIT_EXCEEDED") {
-    throw new Error(data.error || "Limite diário de chamadas à API atingido.");
   }
 
   return data as GCProxyResponse<T>;
-}
-
-async function isDailyLimitReached(): Promise<boolean> {
-  const today = new Date().toISOString().split("T")[0];
-  const { data } = await supabase
-    .from("fin_configuracoes")
-    .select("valor, updated_at")
-    .eq("chave", "gc_api_daily_counter")
-    .maybeSingle();
-
-  if (!data?.updated_at) return false;
-  const rowDay = String(data.updated_at).split("T")[0];
-  const count = Number(data.valor || 0);
-  return rowDay === today && count >= 2000;
 }
 
 // Paginated fetch helper — fetches ALL pages from GC
@@ -89,36 +65,14 @@ export async function fetchAllGCPages<T>(
   let page = 1;
   let totalPages = 1;
 
-  if (await isDailyLimitReached()) {
-    return [];
-  }
-
   while (page <= totalPages) {
-    let res: GCProxyResponse<GCApiResponse<T>>;
-    try {
-      res = await callGC<GCApiResponse<T>>({
-        endpoint,
-        params: { limite: "100", pagina: String(page) },
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // Limite diário: para a paginação sem quebrar a tela
-      if (
-        msg.includes("DAILY_LIMIT_EXCEEDED") ||
-        msg.includes("Limite diário") ||
-        msg.includes("Edge function returned 429")
-      ) {
-        break;
-      }
-      throw err;
-    }
+    const res = await callGC<GCApiResponse<T>>({
+      endpoint,
+      params: { limite: "100", pagina: String(page) },
+    });
 
     if (res.status === 401) throw new Error("GC_AUTH_ERROR");
     if (res.status === 429) {
-      const resData = res.data as any;
-      if (resData?.code === "DAILY_LIMIT_EXCEEDED") {
-        break;
-      }
       await new Promise((r) => setTimeout(r, 2000));
       continue; // retry same page
     }
@@ -153,8 +107,7 @@ export async function testGCConnection(): Promise<{ ok: boolean; total: number; 
     }
 
     const total = res.data?.meta?.total_registros || 0;
-    const callsToday = (res as any)._gc_calls_today || "?";
-    return { ok: true, total, message: `Conectado — ${total} recebimentos (${res.duration_ms}ms) | Chamadas hoje: ${callsToday}/2000` };
+    return { ok: true, total, message: `Conectado — ${total} recebimentos (${res.duration_ms}ms)` };
   } catch (err: unknown) {
     return { ok: false, total: 0, message: `Erro: ${err instanceof Error ? err.message : String(err)}` };
   }
