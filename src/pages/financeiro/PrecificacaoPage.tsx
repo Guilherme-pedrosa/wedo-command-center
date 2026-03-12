@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAllGCPages } from "@/lib/gc-client";
 import { supabase } from "@/integrations/supabase/client";
@@ -231,10 +231,14 @@ export default function PrecificacaoPage() {
   const [taxSaida, setTaxSaida] = useState<TaxConfigSaida>(DEFAULT_SAIDA);
   const [tipoSaidaGlobal, setTipoSaidaGlobal] = useState<TipoSaida>("venda");
   const [margemAlvo, setMargemAlvo] = useState(30);
-  const [syncing, setSyncing] = useState(false);
+  const [activeSync, setActiveSync] = useState<"gc" | "offline" | null>(null);
   const [calcCusto, setCalcCusto] = useState<string>("");
   const [calcTipoSaida, setCalcTipoSaida] = useState<TipoSaida>("venda");
   const [calcMargens] = useState([10, 15, 20, 25, 30]);
+  const activeSyncRef = useRef<"gc" | "offline" | null>(null);
+  const isSyncing = activeSync !== null;
+  const syncingGC = activeSync === "gc";
+  const syncingOffline = activeSync === "offline";
 
   // ── Fetch products from GC ──
   const { data: produtos, isLoading: loadingProdutos } = useQuery({
@@ -242,6 +246,7 @@ export default function PrecificacaoPage() {
     queryFn: () => fetchAllGCPages<GCProduto>("/api/produtos"),
     staleTime: 30 * 60_000,
     refetchOnWindowFocus: false,
+    retry: false,
   });
 
 
@@ -664,17 +669,26 @@ export default function PrecificacaoPage() {
 
   // ── Sync NFs de entrada via API GC ──
   const handleSyncGC = async () => {
-    if (!window.confirm("⚠️ Isso consome chamadas da API do GestãoClick.\n\nDeseja continuar?")) return;
-    const { checkSyncCooldown, markSyncStarted } = await import("@/lib/gc-client");
-    const cooldown = checkSyncCooldown("sync-nfe-entrada-gc");
-    if (!cooldown.allowed) {
-      toast.error(`Aguarde ${Math.ceil(cooldown.remainingSeconds / 60)} minuto(s) antes de sincronizar novamente.`);
+    if (activeSyncRef.current) {
+      toast.error("Já existe uma sincronização em andamento.");
       return;
     }
-    markSyncStarted("sync-nfe-entrada-gc");
-    setSyncing(true);
-    setSyncProgress("Sincronizando com GC...");
+    if (!window.confirm("⚠️ Isso consome chamadas da API do GestãoClick.\n\nDeseja continuar?")) return;
+
+    activeSyncRef.current = "gc";
+    setActiveSync("gc");
+
     try {
+      const { checkSyncCooldown, markSyncStarted } = await import("@/lib/gc-client");
+      const cooldown = checkSyncCooldown("sync-nfe-entrada-gc");
+      if (!cooldown.allowed) {
+        toast.error(`Aguarde ${Math.ceil(cooldown.remainingSeconds / 60)} minuto(s) antes de sincronizar novamente.`);
+        return;
+      }
+
+      markSyncStarted("sync-nfe-entrada-gc");
+      setSyncProgress("Sincronizando com GC...");
+
       let offset = 0;
       const batchSize = 80;
       let totalProdutos = 0;
@@ -695,25 +709,33 @@ export default function PrecificacaoPage() {
       toast.error(`Erro: ${err instanceof Error ? err.message : String(err)}`);
       setSyncProgress("");
     } finally {
-      setSyncing(false);
+      activeSyncRef.current = null;
+      setActiveSync(null);
     }
   };
 
   // ── Sync NFs de entrada OFFLINE (usa BD local + XMLs, sem chamar API GC) ──
   const [syncProgress, setSyncProgress] = useState("");
   const handleSyncNFEntrada = async () => {
-    // Cooldown check
-    const { checkSyncCooldown, markSyncStarted } = await import("@/lib/gc-client");
-    const cooldown = checkSyncCooldown("sync-nfe-entrada");
-    if (!cooldown.allowed) {
-      toast.error(`Aguarde ${Math.ceil(cooldown.remainingSeconds / 60)} minuto(s) antes de sincronizar novamente.`);
+    if (activeSyncRef.current) {
+      toast.error("Já existe uma sincronização em andamento.");
       return;
     }
-    markSyncStarted("sync-nfe-entrada");
 
-    setSyncing(true);
-    setSyncProgress("Iniciando (modo offline)...");
+    activeSyncRef.current = "offline";
+    setActiveSync("offline");
+
     try {
+      // Cooldown check
+      const { checkSyncCooldown, markSyncStarted } = await import("@/lib/gc-client");
+      const cooldown = checkSyncCooldown("sync-nfe-entrada");
+      if (!cooldown.allowed) {
+        toast.error(`Aguarde ${Math.ceil(cooldown.remainingSeconds / 60)} minuto(s) antes de sincronizar novamente.`);
+        return;
+      }
+      markSyncStarted("sync-nfe-entrada");
+
+      setSyncProgress("Iniciando (modo offline)...");
       let offset = 0;
       const batchSize = 80;
       let totalProdutos = 0;
@@ -725,13 +747,13 @@ export default function PrecificacaoPage() {
           body: { offset, batch_size: batchSize },
         });
         if (error) throw error;
-        
+
         totalCompras = data.total_compras || 0;
         totalProdutos += data.produtos_processados || 0;
         totalXmls += data.xmls_usados || 0;
         const processed = offset + (data.processed || 0);
         setSyncProgress(`Processando compras ${processed}/${totalCompras}...`);
-        
+
         if (!data.has_more) break;
         offset = data.next_offset;
       }
@@ -743,7 +765,8 @@ export default function PrecificacaoPage() {
       toast.error(`Erro: ${err instanceof Error ? err.message : String(err)}`);
       setSyncProgress("");
     } finally {
-      setSyncing(false);
+      activeSyncRef.current = null;
+      setActiveSync(null);
     }
   };
 
@@ -794,15 +817,15 @@ export default function PrecificacaoPage() {
             {totalComTributoNF} produtos c/ tributo NF
           </Badge>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleSyncGC} disabled={syncing}>
-              {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+            <Button variant="outline" size="sm" onClick={handleSyncGC} disabled={isSyncing}>
+              {syncingGC ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
               Sync NFs Entrada (GC)
             </Button>
-            <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={syncing}>
-              {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+            <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={isSyncing}>
+              {syncingOffline ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
               Reprocessar Tributos
             </Button>
-            {syncing && syncProgress && (
+            {isSyncing && syncProgress && (
               <span className="text-xs text-muted-foreground font-mono animate-pulse">{syncProgress}</span>
             )}
           </div>
@@ -813,7 +836,7 @@ export default function PrecificacaoPage() {
               <input type="file" accept=".xml,.zip" multiple className="hidden" onChange={handleUploadXmls} />
             </label>
           </Button>
-          {syncing && syncProgress && (
+          {isSyncing && syncProgress && (
             <span className="text-xs text-muted-foreground animate-pulse">{syncProgress}</span>
           )}
         </div>
@@ -1302,8 +1325,8 @@ export default function PrecificacaoPage() {
                     Clique na alíquota para editar · Marque "SN" para Simples Nacional
                   </Badge>
                 </span>
-                <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={syncing}>
-                  {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={isSyncing}>
+                  {syncingOffline ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
                   Atualizar
                 </Button>
               </CardTitle>
