@@ -1375,7 +1375,9 @@ export type Database = {
       }
       fin_produto_tributos: {
         Row: {
+          cfop: string | null
           cofins_aliquota: number | null
+          compra_gc_id: string | null
           created_at: string | null
           custo_efetivo_unit: number | null
           fornecedor_nome: string | null
@@ -1386,6 +1388,7 @@ export type Database = {
           id: string
           ipi_aliquota: number | null
           ncm: string | null
+          nf_chave: string | null
           nf_data_emissao: string | null
           nf_gc_id: string | null
           nf_numero: string | null
@@ -1400,7 +1403,9 @@ export type Database = {
           valor_unitario_nf: number | null
         }
         Insert: {
+          cfop?: string | null
           cofins_aliquota?: number | null
+          compra_gc_id?: string | null
           created_at?: string | null
           custo_efetivo_unit?: number | null
           fornecedor_nome?: string | null
@@ -1411,6 +1416,7 @@ export type Database = {
           id?: string
           ipi_aliquota?: number | null
           ncm?: string | null
+          nf_chave?: string | null
           nf_data_emissao?: string | null
           nf_gc_id?: string | null
           nf_numero?: string | null
@@ -1425,7 +1431,9 @@ export type Database = {
           valor_unitario_nf?: number | null
         }
         Update: {
+          cfop?: string | null
           cofins_aliquota?: number | null
+          compra_gc_id?: string | null
           created_at?: string | null
           custo_efetivo_unit?: number | null
           fornecedor_nome?: string | null
@@ -1436,6 +1444,7 @@ export type Database = {
           id?: string
           ipi_aliquota?: number | null
           ncm?: string | null
+          nf_chave?: string | null
           nf_data_emissao?: string | null
           nf_gc_id?: string | null
           nf_numero?: string | null
