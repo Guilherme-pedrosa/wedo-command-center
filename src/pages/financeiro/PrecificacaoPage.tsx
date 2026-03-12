@@ -595,6 +595,42 @@ export default function PrecificacaoPage() {
     }
   };
 
+  // ── Sync NFs de entrada via API GC ──
+  const handleSyncGC = async () => {
+    const { checkSyncCooldown, markSyncStarted } = await import("@/lib/gc-client");
+    const cooldown = checkSyncCooldown("sync-nfe-entrada-gc");
+    if (!cooldown.allowed) {
+      toast.error(`Aguarde ${Math.ceil(cooldown.remainingSeconds / 60)} minuto(s) antes de sincronizar novamente.`);
+      return;
+    }
+    markSyncStarted("sync-nfe-entrada-gc");
+    setSyncing(true);
+    setSyncProgress("Sincronizando com GC...");
+    try {
+      let offset = 0;
+      const batchSize = 80;
+      let totalProdutos = 0;
+      while (true) {
+        const { data, error } = await supabase.functions.invoke("sync-nfe-entrada", {
+          body: { offset, batch_size: batchSize },
+        });
+        if (error) throw error;
+        totalProdutos += data.produtos_processados || 0;
+        setSyncProgress(`Processando lote ${offset}...`);
+        if (!data.has_more) break;
+        offset = data.next_offset;
+      }
+      toast.success(`Sincronizado (GC): ${totalProdutos} produtos processados`);
+      setSyncProgress("");
+      refetchTributos();
+    } catch (err: unknown) {
+      toast.error(`Erro: ${err instanceof Error ? err.message : String(err)}`);
+      setSyncProgress("");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // ── Sync NFs de entrada OFFLINE (usa BD local + XMLs, sem chamar API GC) ──
   const [syncProgress, setSyncProgress] = useState("");
   const handleSyncNFEntrada = async () => {
