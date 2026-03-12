@@ -171,6 +171,31 @@ function getEffectiveRates(t: ProdutoTributo) {
   };
 }
 
+function normalizeForMatch(value?: string | null) {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function isTributoCompativelComProduto(produto: GCProduto, tributo?: ProdutoTributo) {
+  if (!tributo) return false;
+  if (tributo.gc_produto_id !== produto.id) return false;
+
+  const nomeProduto = normalizeForMatch(produto.nome);
+  const nomeTributo = normalizeForMatch(tributo.nome_produto);
+  if (!nomeProduto || !nomeTributo) return false;
+  if (nomeProduto.includes(nomeTributo) || nomeTributo.includes(nomeProduto)) return true;
+
+  const tokensProduto = nomeProduto.split(" ").filter(Boolean);
+  const tokensTributo = new Set(nomeTributo.split(" ").filter(Boolean));
+  const comuns = tokensProduto.filter((token) => tokensTributo.has(token)).length;
+  const base = Math.max(1, Math.min(tokensProduto.length, tokensTributo.size));
+  return comuns / base >= 0.6;
+}
+
 function calcPricingWithNF(
   tributo: ProdutoTributo,
   saida: TaxConfigSaida,
@@ -424,9 +449,13 @@ export default function PrecificacaoPage() {
           const tributoA = tributosMap.get(a.id);
           const tributoB = tributosMap.get(b.id);
 
-          // Usa o mesmo custo-base exibido na tabela (NF quando existir)
-          const custoA = tributoA ? Number(tributoA.valor_unitario_nf) || 0 : Number(a.valor_custo) || 0;
-          const custoB = tributoB ? Number(tributoB.valor_unitario_nf) || 0 : Number(b.valor_custo) || 0;
+          // Usa custo de NF só quando o registro está compatível com o produto atual
+          const custoA = isTributoCompativelComProduto(a, tributoA)
+            ? Number(tributoA?.valor_unitario_nf) || 0
+            : Number(a.valor_custo) || 0;
+          const custoB = isTributoCompativelComProduto(b, tributoB)
+            ? Number(tributoB?.valor_unitario_nf) || 0
+            : Number(b.valor_custo) || 0;
 
           const valorEstoqueA = estoqueA * custoA;
           const valorEstoqueB = estoqueB * custoB;
@@ -1102,7 +1131,8 @@ export default function PrecificacaoPage() {
                 {filtered.map((p) => {
                   const custoBruto = parseFloat(p.valor_custo) || 0;
                   const estoque = Number(p.estoque) || 0;
-                  const tributo = tributosMap.get(p.id);
+                  const tributoRaw = tributosMap.get(p.id);
+                  const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
                   const hasNF = !!tributo;
                   const custoBase = hasNF ? tributo.valor_unitario_nf : custoBruto;
                   const vendaA = custoBase * MARKUP_TABELAS.A;
