@@ -1146,7 +1146,7 @@ export default function PrecificacaoPage() {
                   const vendaGC = vendaB; // default ref for backwards compat
 
                   let calc: ReturnType<typeof calcPricing>;
-                  if (hasNF) {
+                  if (usarCustoNF) {
                     const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, activeEntrada.custoFixoUnit, margemAlvo);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
@@ -1164,6 +1164,17 @@ export default function PrecificacaoPage() {
                       margemReal: nfCalc.precoMinimo > 0 ? (nfCalc.lucroLiquido / nfCalc.precoMinimo) * 100 : 0,
                       aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
                     };
+                  } else if (hasNF) {
+                    // Tributo existe mas custo NF não é razoável — usa alíquotas da NF com custo do ERP
+                    const eff = getEffectiveRates(tributo);
+                    const entradaComNF: TaxConfigEntrada = {
+                      icmsCredito: eff.icms,
+                      pisCredito: eff.pis,
+                      cofinsCredito: eff.cofins,
+                      frete: tributo.frete_percentual || activeEntrada.frete,
+                      custoFixoUnit: activeEntrada.custoFixoUnit,
+                    };
+                    calc = calcPricing(custoBruto, entradaComNF, taxSaida, tipoSaidaGlobal, margemAlvo);
                   } else {
                     calc = calcPricing(custoBruto, activeEntrada, taxSaida, tipoSaidaGlobal, margemAlvo);
                   }
