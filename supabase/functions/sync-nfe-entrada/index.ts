@@ -842,23 +842,27 @@ async function processNFs(
         let bestDiff = Infinity;
         let bestIdx = -1;
 
+        // Fix #2: Tolerância aumentada para 5% do valor, mínimo R$0.50
+        const matchTolerance = Math.max(compraProdValor * 0.05, 0.50);
+        const unitTolerance = Math.max(compraProdUnitario * 0.05, 0.10);
+
         for (let i = 0; i < xmlItems.length; i++) {
           if (usedXmlIndices.has(i)) continue;
           const xi = xmlItems[i];
           
           // Match 1: valor total do produto (mais confiável)
           const diffTotal = Math.abs(xi.vProd - compraProdValor);
-          if (diffTotal < 0.02 && diffTotal < bestDiff) {
+          if (diffTotal <= matchTolerance && diffTotal < bestDiff) {
             bestDiff = diffTotal;
             bestIdx = i;
             xmlItem = xi;
           }
           
           // Match 2: valor unitário + mesma quantidade
-          if (!xmlItem || diffTotal >= 0.02) {
+          if (!xmlItem || diffTotal > matchTolerance) {
             const diffUnit = Math.abs(xi.vUnCom - compraProdUnitario);
             const sameQtd = Math.abs(xi.qCom - compraProdQtd) < 0.01;
-            if (sameQtd && diffUnit < 0.02 && diffUnit < bestDiff) {
+            if (sameQtd && diffUnit <= unitTolerance && diffUnit < bestDiff) {
               bestDiff = diffUnit;
               bestIdx = i;
               xmlItem = xi;
@@ -866,7 +870,7 @@ async function processNFs(
           }
         }
 
-        // Match 3 (fallback): código do produto no GC = cProd no XML
+        // Match 3: código do produto no GC = cProd no XML
         if (!xmlItem && nfProd) {
           for (let i = 0; i < xmlItems.length; i++) {
             if (usedXmlIndices.has(i)) continue;
@@ -878,15 +882,32 @@ async function processNFs(
           }
         }
 
+        // Match 3b: NCM match (mesmo NCM + valor mais próximo)
+        if (!xmlItem && nfProd?.NCM) {
+          let ncmBestDiff = Infinity;
+          for (let i = 0; i < xmlItems.length; i++) {
+            if (usedXmlIndices.has(i)) continue;
+            if (xmlItems[i].NCM === nfProd.NCM) {
+              const diff = Math.abs(xmlItems[i].vProd - compraProdValor);
+              if (diff < ncmBestDiff) {
+                ncmBestDiff = diff;
+                xmlItem = xmlItems[i];
+                bestIdx = i;
+              }
+            }
+          }
+        }
+
         // Match 4 (último recurso): se compra tem 1 produto e XML tem 1 item
         if (!xmlItem && compraProdutos.length === 1 && xmlItems.length === 1 && usedXmlIndices.size === 0) {
           xmlItem = xmlItems[0];
           bestIdx = 0;
         }
 
+        // Fix #1: Se match falhou mas temos XML real → rateio proporcional pelos totais do XML
         if (!xmlItem || bestIdx < 0) {
-          console.log(`[sync-nfe-entrada] XML match falhou p/ GC ${gcProdId} "${compraProd.nome_produto}" (valor=${compraProdValor})`);
-          processItemProportional(gcProdId, compraProd, nfProd, nf, freteTotal, fornecedorNome, compra, productTaxMap);
+          console.log(`[sync-nfe-entrada] XML match falhou p/ GC ${gcProdId} "${compraProd.nome_produto}" (valor=${compraProdValor}) → usando rateio proporcional do XML`);
+          processItemXmlProportional(gcProdId, compraProd, nfProd, xmlItems, xmlFrete, isSN, nf, fornecedorNome, compra, productTaxMap);
           continue;
         }
 
