@@ -420,68 +420,72 @@ serve(async (req) => {
         const compraProdValor = parseFloat(compraProd.valor_total || "0") || 0;
         const compraProdQtd = parseFloat(compraProd.quantidade || "1") || 1;
         const compraProdUnitario = compraProdQtd > 0 ? compraProdValor / compraProdQtd : compraProdValor;
+        const compraProdNome = normalizeText(compraProd.nome_produto || "");
 
         let xmlItem: XmlItemTax | undefined;
-        let bestDiff = Infinity;
         let bestIdx = -1;
 
-        const matchTolerance = Math.max(compraProdValor * 0.05, 0.50);
-        const unitTolerance = Math.max(compraProdUnitario * 0.05, 0.10);
-
+        // ── PRIORIDADE 1: Match por código do produto (cProd === produto_id) ──
         for (let i = 0; i < xmlItems.length; i++) {
           if (usedXmlIndices.has(i)) continue;
-          const xi = xmlItems[i];
-          const diffTotal = Math.abs(xi.vProd - compraProdValor);
-          if (diffTotal <= matchTolerance && diffTotal < bestDiff) {
-            bestDiff = diffTotal;
+          if (xmlItems[i].cProd === gcProdId) {
+            xmlItem = xmlItems[i];
             bestIdx = i;
-            xmlItem = xi;
+            break;
           }
-          if (!xmlItem || diffTotal > matchTolerance) {
-            const diffUnit = Math.abs(xi.vUnCom - compraProdUnitario);
-            const sameQtd = Math.abs(xi.qCom - compraProdQtd) < 0.01;
-            if (sameQtd && diffUnit <= unitTolerance && diffUnit < bestDiff) {
-              bestDiff = diffUnit;
+        }
+
+        // ── PRIORIDADE 2: Match por nome (similaridade de tokens) ──
+        if (!xmlItem) {
+          const tokensCompra = compraProdNome.split(/\s+/).filter(t => t.length > 2);
+          let bestNameScore = 0;
+          let bestNameDiff = Infinity;
+
+          for (let i = 0; i < xmlItems.length; i++) {
+            if (usedXmlIndices.has(i)) continue;
+            const xmlNome = normalizeText(xmlItems[i].xProd);
+            const tokensXml = new Set(xmlNome.split(/\s+/).filter(t => t.length > 2));
+            const comuns = tokensCompra.filter(t => tokensXml.has(t)).length;
+            const base = Math.max(1, Math.min(tokensCompra.length, tokensXml.size));
+            const score = comuns / base;
+
+            if (score >= 0.5 && (score > bestNameScore || (score === bestNameScore && Math.abs(xmlItems[i].vProd - compraProdValor) < bestNameDiff))) {
+              bestNameScore = score;
+              bestNameDiff = Math.abs(xmlItems[i].vProd - compraProdValor);
+              xmlItem = xmlItems[i];
+              bestIdx = i;
+            }
+          }
+        }
+
+        // ── PRIORIDADE 3: Match por valor total ou unitário (tolerância 5%) ──
+        if (!xmlItem) {
+          const matchTolerance = Math.max(compraProdValor * 0.05, 0.50);
+          const unitTolerance = Math.max(compraProdUnitario * 0.05, 0.10);
+          let bestDiff = Infinity;
+
+          for (let i = 0; i < xmlItems.length; i++) {
+            if (usedXmlIndices.has(i)) continue;
+            const xi = xmlItems[i];
+            const diffTotal = Math.abs(xi.vProd - compraProdValor);
+            if (diffTotal <= matchTolerance && diffTotal < bestDiff) {
+              bestDiff = diffTotal;
               bestIdx = i;
               xmlItem = xi;
             }
-          }
-        }
-
-        // Match by cProd
-        if (!xmlItem) {
-          for (let i = 0; i < xmlItems.length; i++) {
-            if (usedXmlIndices.has(i)) continue;
-            // Try matching cProd with produto_id
-            if (xmlItems[i].cProd === gcProdId) {
-              xmlItem = xmlItems[i];
-              bestIdx = i;
-              break;
-            }
-          }
-        }
-
-        // Match by NCM + closest value
-        if (!xmlItem) {
-          // Check if we can get NCM from any source
-          const prodNCM = (compraProd as any).NCM || "";
-          if (prodNCM) {
-            let ncmBestDiff = Infinity;
-            for (let i = 0; i < xmlItems.length; i++) {
-              if (usedXmlIndices.has(i)) continue;
-              if (xmlItems[i].NCM === prodNCM) {
-                const diff = Math.abs(xmlItems[i].vProd - compraProdValor);
-                if (diff < ncmBestDiff) {
-                  ncmBestDiff = diff;
-                  xmlItem = xmlItems[i];
-                  bestIdx = i;
-                }
+            if (!xmlItem || diffTotal > matchTolerance) {
+              const diffUnit = Math.abs(xi.vUnCom - compraProdUnitario);
+              const sameQtd = Math.abs(xi.qCom - compraProdQtd) < 0.01;
+              if (sameQtd && diffUnit <= unitTolerance && diffUnit < bestDiff) {
+                bestDiff = diffUnit;
+                bestIdx = i;
+                xmlItem = xi;
               }
             }
           }
         }
 
-        // Single product / single XML item
+        // ── PRIORIDADE 4: Produto único na compra + item único no XML ──
         if (!xmlItem && compraProdutos.length === 1 && xmlItems.length === 1 && usedXmlIndices.size === 0) {
           xmlItem = xmlItems[0];
           bestIdx = 0;
