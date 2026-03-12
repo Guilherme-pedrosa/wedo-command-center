@@ -1150,6 +1150,45 @@ export type Database = {
         }
         Relationships: []
       }
+      fin_nfe_xml_index: {
+        Row: {
+          chave: string
+          cnpj_emitente: string | null
+          data_emissao: string | null
+          id: string
+          nome_emitente: string | null
+          parsed_at: string | null
+          qtd_itens: number | null
+          storage_path: string
+          valor_produtos: number | null
+          valor_total: number | null
+        }
+        Insert: {
+          chave: string
+          cnpj_emitente?: string | null
+          data_emissao?: string | null
+          id?: string
+          nome_emitente?: string | null
+          parsed_at?: string | null
+          qtd_itens?: number | null
+          storage_path: string
+          valor_produtos?: number | null
+          valor_total?: number | null
+        }
+        Update: {
+          chave?: string
+          cnpj_emitente?: string | null
+          data_emissao?: string | null
+          id?: string
+          nome_emitente?: string | null
+          parsed_at?: string | null
+          qtd_itens?: number | null
+          storage_path?: string
+          valor_produtos?: number | null
+          valor_total?: number | null
+        }
+        Relationships: []
+      }
       fin_pagamentos: {
         Row: {
           aguardando_nf: boolean | null
