@@ -236,11 +236,13 @@ export default function PrecificacaoPage() {
   const [calcTipoSaida, setCalcTipoSaida] = useState<TipoSaida>("venda");
   const [calcMargens] = useState([10, 15, 20, 25, 30]);
 
-  // ── Fetch products from GC ──
-  const { data: produtos, isLoading: loadingProdutos } = useQuery({
+  // ── Fetch products from GC (MANUAL only — não consome API automaticamente) ──
+  const [produtosEnabled, setProdutosEnabled] = useState(false);
+  const { data: produtos, isLoading: loadingProdutos, refetch: refetchProdutos } = useQuery({
     queryKey: ["gc-produtos"],
     queryFn: () => fetchAllGCPages<GCProduto>("/api/produtos"),
-    staleTime: 5 * 60_000,
+    staleTime: 30 * 60_000,
+    enabled: produtosEnabled,
   });
 
   // ── Fetch product tax profiles from NFs ──
