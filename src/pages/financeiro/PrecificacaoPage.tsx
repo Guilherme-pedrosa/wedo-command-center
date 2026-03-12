@@ -302,18 +302,46 @@ export default function PrecificacaoPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
   
-  const extractXmlsFromZip = async (file: File): Promise<{ name: string; blob: Blob }[]> => {
+  const extractXmlsFromZip = async (
+    file: File | Blob,
+    basePath = "",
+    depth = 0
+  ): Promise<{ xmlFiles: { name: string; blob: Blob }[]; totalEntries: number; nestedZips: number }> => {
     const JSZip = (await import("jszip")).default;
     const zip = await JSZip.loadAsync(file);
     const xmlFiles: { name: string; blob: Blob }[] = [];
-    const entries = Object.entries(zip.files).filter(
-      ([name, entry]) => !entry.dir && name.toLowerCase().endsWith(".xml")
-    );
+
+    let totalEntries = 0;
+    let nestedZips = 0;
+    const entries = Object.entries(zip.files).filter(([, entry]) => !entry.dir);
+
+    totalEntries += entries.length;
+
     for (const [name, entry] of entries) {
-      const blob = await entry.async("blob");
-      xmlFiles.push({ name, blob });
+      const lower = name.toLowerCase();
+
+      if (lower.endsWith(".xml")) {
+        const blob = await entry.async("blob");
+        xmlFiles.push({ name: `${basePath}${name}`, blob });
+        continue;
+      }
+
+      // Alguns lotes da SEFAZ vêm com ZIP dentro de ZIP
+      if (lower.endsWith(".zip") && depth < 4) {
+        nestedZips++;
+        const nestedBlob = await entry.async("blob");
+        const nested = await extractXmlsFromZip(
+          nestedBlob,
+          `${basePath}${name.replace(/\.zip$/i, "")}/`,
+          depth + 1
+        );
+        xmlFiles.push(...nested.xmlFiles);
+        totalEntries += nested.totalEntries;
+        nestedZips += nested.nestedZips;
+      }
     }
-    return xmlFiles;
+
+    return { xmlFiles, totalEntries, nestedZips };
   };
 
   const extractChaveFromXml = async (blob: Blob): Promise<string | null> => {
