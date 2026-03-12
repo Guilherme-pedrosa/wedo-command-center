@@ -283,12 +283,14 @@ export default function PrecificacaoPage() {
     const q = search.toLowerCase();
     return produtos
       .filter((p) => {
+        // Só exibe produtos que possuem tributo mapeado via XML de entrada
+        if (!tributosMap.has(p.id)) return false;
         const nome = (p.nome || "").toLowerCase();
         const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
         return nome.includes(q) || codigo.includes(q);
       })
       .slice(0, 100);
-  }, [produtos, search]);
+  }, [produtos, search, tributosMap]);
 
   const totalProdutosEstoque = useMemo(() => {
     if (!produtos) return 1;
