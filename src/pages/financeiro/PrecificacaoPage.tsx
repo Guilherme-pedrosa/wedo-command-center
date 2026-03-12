@@ -36,6 +36,7 @@ interface ProdutoTributo {
   ncm: string | null;
   cfop: string | null;
   nf_numero: string | null;
+  nf_chave: string | null;
   nf_data_emissao: string | null;
   fornecedor_nome: string | null;
   regime_fornecedor: string | null;
@@ -246,20 +247,79 @@ export default function PrecificacaoPage() {
   const { data: tributos, refetch: refetchTributos } = useQuery({
     queryKey: ["produto-tributos"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("fin_produto_tributos")
-        .select("*")
-        .order("nome_produto");
-      return (data || []) as ProdutoTributo[];
+      const pageSize = 1000;
+      let from = 0;
+      const allRows: ProdutoTributo[] = [];
+
+      while (true) {
+        const { data, error } = await supabase
+          .from("fin_produto_tributos")
+          .select("*")
+          .order("nome_produto")
+          .range(from, from + pageSize - 1);
+
+        if (error) throw error;
+
+        const batch = (data || []) as ProdutoTributo[];
+        allRows.push(...batch);
+
+        if (batch.length < pageSize) break;
+        from += pageSize;
+      }
+
+      return allRows;
     },
     staleTime: 5 * 60_000,
   });
 
+  // Índice de XMLs realmente enviados/processados
+  const { data: xmlIndexRows } = useQuery({
+    queryKey: ["nfe-xml-index-keys"],
+    queryFn: async () => {
+      const pageSize = 1000;
+      let from = 0;
+      const allRows: { chave: string | null }[] = [];
+
+      while (true) {
+        const { data, error } = await supabase
+          .from("fin_nfe_xml_index")
+          .select("chave")
+          .range(from, from + pageSize - 1);
+
+        if (error) throw error;
+
+        const batch = (data || []) as { chave: string | null }[];
+        allRows.push(...batch);
+
+        if (batch.length < pageSize) break;
+        from += pageSize;
+      }
+
+      return allRows;
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const indexedNfChaves = useMemo(() => {
+    return new Set(
+      (xmlIndexRows || [])
+        .map((r) => r.chave)
+        .filter((c): c is string => Boolean(c))
+    );
+  }, [xmlIndexRows]);
+
+  // Mantém apenas tributos com NF que existe no índice de XML de entrada
+  const tributosXml = useMemo(() => {
+    return (tributos || []).filter(
+      (t) => Boolean(t.nf_chave) && indexedNfChaves.has(t.nf_chave as string)
+    );
+  }, [tributos, indexedNfChaves]);
+
   const tributosMap = useMemo(() => {
     const map = new Map<string, ProdutoTributo>();
-    tributos?.forEach((t) => map.set(t.gc_produto_id, t));
+    tributosXml.forEach((t) => map.set(t.gc_produto_id, t));
     return map;
-  }, [tributos]);
+  }, [tributosXml]);
 
   // ── Fetch monthly fixed costs for auto-rateio ──
   const { data: custoFixoMensal } = useQuery({
@@ -584,7 +644,7 @@ export default function PrecificacaoPage() {
     }));
   }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida]);
 
-  const totalComTributoNF = tributos?.length || 0;
+  const totalComTributoNF = tributosXml.length;
 
   // Helper to get exit tax label
   const getTipoSaidaLabel = (tipo: TipoSaida) =>
@@ -1180,14 +1240,14 @@ export default function PrecificacaoPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(!tributos || tributos.length === 0) && (
+                {tributosXml.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
-                      Nenhum tributo de NF de entrada encontrado. Clique em "Sync NFs Entrada" para importar.
+                      Nenhum tributo com XML de entrada indexado encontrado. Clique em "Sync NFs Entrada" para importar.
                     </TableCell>
                   </TableRow>
                 )}
-                {tributos?.map((t) => {
+                {tributosXml.map((t) => {
                   const eff = getEffectiveRates(t);
                   // Recalculate effective cost
                   const effCreditoIcms = t.valor_unitario_nf * (eff.icms / 100);

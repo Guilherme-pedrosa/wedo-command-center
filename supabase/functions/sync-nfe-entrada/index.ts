@@ -443,12 +443,31 @@ serve(async (req) => {
         nfs = nfJson.data || [];
       }
 
-      if (nfs.length > 0) {
+      const compraNumeroNf = String((compra as any).numero_nfe || "").replace(/\D/g, "");
+      const linkedNfs = nfs.filter((raw) => {
+        const nf = (raw as any).Nota_Fiscal_Produto ?? raw;
+        const nfCompraId = String(nf.compra_id || "").trim();
+
+        if (nfCompraId && nfCompraId === compraId) return true;
+
+        if (compraNumeroNf) {
+          const nfNumero = String(nf.numero_nf || "").replace(/\D/g, "");
+          if (nfNumero && nfNumero === compraNumeroNf) return true;
+        }
+
+        return false;
+      });
+
+      if (linkedNfs.length > 0) {
         comprasWithNf++;
-        nfsProcessed += nfs.length;
-        const used = await processNFs(nfs, compra, compraProdutos, fornecedorNome, productTaxMap, supabase);
+        nfsProcessed += linkedNfs.length;
+        const used = await processNFs(linkedNfs, compra, compraProdutos, fornecedorNome, productTaxMap, supabase);
         xmlsUsed += used;
         continue;
+      }
+
+      if (nfs.length > 0) {
+        console.log(`[sync-nfe-entrada] Ignorando ${nfs.length} NF(s) sem vínculo com compra ${compraId}`);
       }
 
       // ── Fallback: match XML from index by CNPJ do fornecedor ──
