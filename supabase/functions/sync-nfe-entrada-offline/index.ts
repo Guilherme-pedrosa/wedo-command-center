@@ -262,22 +262,26 @@ serve(async (req) => {
     );
 
     // ── Step 1: Count total compras with payload AND NF-e linked ──
-    // Only process purchases that have a linked NF-e (numero_nfe not empty)
+    // Only process purchases that have a linked NF-e AND are in approved statuses
+    const ALLOWED_SITUACAO_IDS = ["1675070", "2072508", "2072509", "2072571"];
+    
     const { count: totalCompras } = await supabase
       .from("gc_compras")
       .select("*", { count: "exact", head: true })
       .not("gc_payload_raw", "is", null)
-      .neq("gc_payload_raw->Compra->>numero_nfe", "");
+      .neq("gc_payload_raw->Compra->>numero_nfe", "")
+      .in("situacao_id", ALLOWED_SITUACAO_IDS);
 
     const total = totalCompras || 0;
-    console.log(`[offline] Total compras COM NF-e no BD: ${total}, offset=${offset}, batch=${batchSize}`);
+    console.log(`[offline] Total compras COM NF-e e situação válida: ${total}, offset=${offset}, batch=${batchSize}`);
 
-    // ── Step 2: Fetch batch of compras from BD (only with NF-e) ──
+    // ── Step 2: Fetch batch of compras from BD (only with NF-e + valid status) ──
     const { data: comprasDb, error: compraErr } = await supabase
       .from("gc_compras")
       .select("gc_id, nome_fornecedor, fornecedor_id, valor_total, valor_produtos, valor_frete, gc_payload_raw")
       .not("gc_payload_raw", "is", null)
       .neq("gc_payload_raw->Compra->>numero_nfe", "")
+      .in("situacao_id", ALLOWED_SITUACAO_IDS)
       .order("gc_id")
       .range(offset, offset + batchSize - 1);
 
