@@ -350,32 +350,74 @@ serve(async (req) => {
       );
     }
 
-    // ── Step 4: For each compra in batch, fetch linked NFs de entrada ──
+    // ── Step 4: Build CNPJ → XMLs index from fin_nfe_xml_index ──
+    const { data: xmlIndex } = await supabase
+      .from("fin_nfe_xml_index")
+      .select("chave, cnpj_emitente, nome_emitente, data_emissao, valor_total, valor_produtos, qtd_itens, storage_path");
+    
+    // Map CNPJ → list of indexed XMLs
+    const cnpjToXmls = new Map<string, typeof xmlIndex>();
+    for (const xi of (xmlIndex || [])) {
+      if (!xi.cnpj_emitente) continue;
+      const list = cnpjToXmls.get(xi.cnpj_emitente) || [];
+      list.push(xi);
+      cnpjToXmls.set(xi.cnpj_emitente, list);
+    }
+    console.log(`[sync-nfe-entrada] XML index loaded: ${xmlIndex?.length || 0} entries, ${cnpjToXmls.size} CNPJs`);
+
+    // ── Step 5: Resolve fornecedor CNPJ from DB ──
     const productTaxMap = new Map<string, ProductTaxRecord>();
     let nfsProcessed = 0;
     let comprasWithNf = 0;
     let comprasWithoutNf = 0;
+    let comprasMatchedByIndex = 0;
     let xmlsUsed = 0;
 
     const compraIds = batchCompras.map((c) => String(c.id || "")).filter(Boolean);
     const compraFornecedorMap = new Map<string, string>();
+    const fornecedorIdToCnpj = new Map<string, string>();
+    
     if (compraIds.length > 0) {
       const { data: comprasDb } = await supabase
         .from("gc_compras")
-        .select("gc_id, nome_fornecedor")
+        .select("gc_id, nome_fornecedor, fornecedor_id")
         .in("gc_id", compraIds);
 
+      const fornecedorGcIds = new Set<string>();
       for (const compraDb of comprasDb || []) {
         const nome = normalizeText(compraDb.nome_fornecedor);
-        if (nome) {
-          compraFornecedorMap.set(String(compraDb.gc_id), nome);
+        if (nome) compraFornecedorMap.set(String(compraDb.gc_id), nome);
+        if (compraDb.fornecedor_id) fornecedorGcIds.add(String(compraDb.fornecedor_id));
+      }
+
+      // Fetch CNPJ for each fornecedor
+      if (fornecedorGcIds.size > 0) {
+        const fornIds = [...fornecedorGcIds];
+        for (let fi = 0; fi < fornIds.length; fi += 100) {
+          const chunk = fornIds.slice(fi, fi + 100);
+          const { data: forns } = await supabase
+            .from("fin_fornecedores")
+            .select("gc_id, cpf_cnpj")
+            .in("gc_id", chunk);
+          for (const f of (forns || [])) {
+            if (f.cpf_cnpj) {
+              // Normalize CNPJ: only digits
+              const cnpjDigits = f.cpf_cnpj.replace(/\D/g, "");
+              if (cnpjDigits.length >= 11) {
+                fornecedorIdToCnpj.set(f.gc_id, cnpjDigits);
+              }
+            }
+          }
         }
       }
     }
 
+    // ── Step 6: For each compra, fetch linked NFs OR match from XML index ──
     for (const compra of batchCompras) {
       const compraId = String(compra.id);
       const fornecedorNome = resolveCompraFornecedorNome(compra, compraFornecedorMap.get(compraId));
+      const fornecedorId = String(compra.fornecedor_id || "");
+      const fornecedorCnpj = fornecedorIdToCnpj.get(fornecedorId);
       
       const compraProdutos: CompraProduct[] = [];
       for (const p of (compra.produtos || [])) {
@@ -384,43 +426,101 @@ serve(async (req) => {
       }
       if (compraProdutos.length === 0) continue;
 
+      // Try GC NF API first
       const nfUrl = `${GC_BASE_URL}/api/notas_fiscais_produtos?compra_id=${compraId}&tipo_nf=0&limite=10`;
       const nfResp = await rateLimitedFetch(nfUrl, { headers: gcHeaders });
       
+      let nfs: any[] = [];
       if (nfResp.status === 429) {
         await new Promise((r) => setTimeout(r, 2000));
         const retry = await rateLimitedFetch(nfUrl, { headers: gcHeaders });
-        if (!retry.ok) continue;
-        const retryJson = await retry.json();
-        const nfs = retryJson.data || [];
+        if (retry.ok) {
+          const retryJson = await retry.json();
+          nfs = retryJson.data || [];
+        }
+      } else if (nfResp.ok) {
+        const nfJson = await nfResp.json();
+        nfs = nfJson.data || [];
+      }
+
+      if (nfs.length > 0) {
+        comprasWithNf++;
+        nfsProcessed += nfs.length;
         const used = await processNFs(nfs, compra, compraProdutos, fornecedorNome, productTaxMap, supabase);
         xmlsUsed += used;
-        nfsProcessed += nfs.length;
-        if (nfs.length > 0) comprasWithNf++;
-        else comprasWithoutNf++;
-        continue;
-      }
-      if (!nfResp.ok) {
-        console.error(`[sync-nfe-entrada] NF fetch error for compra ${compraId}: ${nfResp.status}`);
-        comprasWithoutNf++;
         continue;
       }
 
-      const nfJson = await nfResp.json();
-      const nfs = nfJson.data || [];
-      
-      if (nfs.length === 0) {
-        comprasWithoutNf++;
-        continue;
+      // ── Fallback: match XML from index by CNPJ do fornecedor ──
+      if (fornecedorCnpj && cnpjToXmls.has(fornecedorCnpj)) {
+        const candidateXmls = cnpjToXmls.get(fornecedorCnpj)!;
+        
+        // Try to find the best match by valor_total
+        const compraValor = parseFloat(compra.valor_total || "0");
+        let bestXml = candidateXmls[0];
+        let bestDiff = Infinity;
+        
+        for (const candidate of candidateXmls) {
+          const diff = Math.abs((candidate.valor_total || 0) - compraValor);
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            bestXml = candidate;
+          }
+        }
+
+        // Only match if value difference is reasonable (within 10% or R$5)
+        const tolerance = Math.max(compraValor * 0.1, 5);
+        if (bestDiff <= tolerance && bestXml) {
+          console.log(`[sync-nfe-entrada] Index match ✓ compra ${compraId} "${fornecedorNome}" → XML chave=${bestXml.chave} (diff=R$${bestDiff.toFixed(2)})`);
+          
+          // Download the XML and process it
+          const xmlContent = await tryDownloadXml(bestXml.chave, supabase);
+          if (xmlContent) {
+            xmlsUsed++;
+            comprasMatchedByIndex++;
+            
+            // Build a synthetic NF from the XML index data
+            const syntheticNf: NFData = {
+              id: bestXml.chave,
+              compra_id: compraId,
+              tipo_nf: "0",
+              numero_nf: "",
+              chave: bestXml.chave,
+              data_emissao: bestXml.data_emissao || "",
+              situacao_nf: "Autorizada",
+              cnpj_emitente: bestXml.cnpj_emitente || "",
+              nome_emitente: bestXml.nome_emitente || fornecedorNome,
+              fantasia_emitente: bestXml.nome_emitente || fornecedorNome,
+              valor_total_nf: String(bestXml.valor_total || 0),
+              valor_produtos: String(bestXml.valor_produtos || bestXml.valor_total || 0),
+              base_icms: "0",
+              valor_icms: "0",
+              valor_pis: "0",
+              valor_cofins: "0",
+              valor_ipi: "0",
+              valor_frete: "0",
+              valor_fcp: "0",
+              valor_icms_st: "0",
+              valor_seguro: "0",
+              valor_desconto: "0",
+              valor_outros: "0",
+              produtos: [],
+            };
+            
+            await processNFs([{ Nota_Fiscal_Produto: syntheticNf }], compra, compraProdutos, fornecedorNome, productTaxMap, supabase);
+            
+            // Remove used XML from candidates to avoid double-matching
+            const idx = candidateXmls.indexOf(bestXml);
+            if (idx >= 0) candidateXmls.splice(idx, 1);
+            continue;
+          }
+        }
       }
 
-      comprasWithNf++;
-      nfsProcessed += nfs.length;
-      const used = await processNFs(nfs, compra, compraProdutos, fornecedorNome, productTaxMap, supabase);
-      xmlsUsed += used;
+      comprasWithoutNf++;
     }
 
-    console.log(`[sync-nfe-entrada] Batch done: com NF=${comprasWithNf}, sem NF=${comprasWithoutNf}, NFs=${nfsProcessed}, XMLs=${xmlsUsed}`);
+    console.log(`[sync-nfe-entrada] Batch done: com NF=${comprasWithNf}, sem NF=${comprasWithoutNf}, index_match=${comprasMatchedByIndex}, NFs=${nfsProcessed}, XMLs=${xmlsUsed}`);
 
     // ── Step 5: Upsert product tax profiles ──
     const existingIds = [...productTaxMap.keys()];

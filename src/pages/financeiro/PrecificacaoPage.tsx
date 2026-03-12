@@ -344,10 +344,42 @@ export default function PrecificacaoPage() {
     return { xmlFiles, totalEntries, nestedZips };
   };
 
-  const extractChaveFromXml = async (blob: Blob): Promise<string | null> => {
+  const parseXmlMetadata = async (blob: Blob): Promise<{
+    chave: string | null;
+    cnpj_emitente: string | null;
+    nome_emitente: string | null;
+    data_emissao: string | null;
+    valor_total: number | null;
+    valor_produtos: number | null;
+    qtd_itens: number;
+  }> => {
     const text = await blob.text();
-    const match = text.match(/Id="NFe(\d{44})"/i) || text.match(/chNFe>(\d{44})</i);
-    return match?.[1] || null;
+    const chaveMatch = text.match(/Id="NFe(\d{44})"/i) || text.match(/chNFe>(\d{44})</i);
+    const chave = chaveMatch?.[1] || null;
+
+    // Extract emit block
+    const emitMatch = text.match(/<emit[^>]*>([\s\S]*?)<\/emit>/i);
+    const emitBlock = emitMatch?.[1] || "";
+    const cnpjMatch = emitBlock.match(/<CNPJ[^>]*>(\d+)<\/CNPJ>/i);
+    const cnpj_emitente = cnpjMatch?.[1] || null;
+    const nomeMatch = emitBlock.match(/<xNome[^>]*>([^<]+)<\/xNome>/i);
+    const nome_emitente = nomeMatch?.[1] || null;
+
+    // Extract data emissão
+    const dhEmiMatch = text.match(/<dhEmi[^>]*>([^<]+)<\/dhEmi>/i) || text.match(/<dEmi[^>]*>([^<]+)<\/dEmi>/i);
+    const data_emissao = dhEmiMatch?.[1]?.substring(0, 10) || null;
+
+    // Extract totals from ICMSTot
+    const vNFMatch = text.match(/<vNF[^>]*>([^<]+)<\/vNF>/i);
+    const valor_total = vNFMatch ? parseFloat(vNFMatch[1]) : null;
+    const vProdMatch = text.match(/<vProd[^>]*>([^<]+)<\/vProd>/i);
+    const valor_produtos = vProdMatch ? parseFloat(vProdMatch[1]) : null;
+
+    // Count det items
+    const detMatches = text.match(/<det /gi) || text.match(/<det>/gi) || [];
+    const qtd_itens = detMatches.length;
+
+    return { chave, cnpj_emitente, nome_emitente, data_emissao, valor_total, valor_produtos, qtd_itens };
   };
 
   const uploadBatch = async (
@@ -357,28 +389,28 @@ export default function PrecificacaoPage() {
   ) => {
     let uploaded = 0;
     let repeatedKeys = 0;
+    let indexed = 0;
     let errors = 0;
     const total = items.length;
     const keyOccurrences = new Map<string, number>();
+    const indexBatch: Record<string, unknown>[] = [];
 
     for (let i = 0; i < total; i += batchSize) {
       const batch = items.slice(i, i + batchSize);
       const results = await Promise.allSettled(
         batch.map(async (item) => {
-          const chave = await extractChaveFromXml(item.blob);
+          const meta = await parseXmlMetadata(item.blob);
 
           let path = item.name.replace(/^.*[\\/]/, "");
-          if (chave) {
-            const count = (keyOccurrences.get(chave) || 0) + 1;
-            keyOccurrences.set(chave, count);
+          if (meta.chave) {
+            const count = (keyOccurrences.get(meta.chave) || 0) + 1;
+            keyOccurrences.set(meta.chave, count);
 
-            // 1º arquivo da chave fica no caminho canônico usado pelo sync
-            // Repetidos são armazenados sem sobrescrever (auditoria/validação)
             if (count === 1) {
-              path = `${chave}.xml`;
+              path = `${meta.chave}.xml`;
             } else {
               repeatedKeys++;
-              path = `repetidos/${chave}-${count}.xml`;
+              path = `repetidos/${meta.chave}-${count}.xml`;
             }
           }
 
@@ -387,6 +419,21 @@ export default function PrecificacaoPage() {
             upsert: true,
           });
           if (error) throw error;
+
+          // Collect index data for first occurrence only
+          if (meta.chave && (keyOccurrences.get(meta.chave) || 0) <= 1) {
+            indexBatch.push({
+              chave: meta.chave,
+              cnpj_emitente: meta.cnpj_emitente,
+              nome_emitente: meta.nome_emitente,
+              data_emissao: meta.data_emissao,
+              valor_total: meta.valor_total,
+              valor_produtos: meta.valor_produtos,
+              qtd_itens: meta.qtd_itens,
+              storage_path: path,
+            });
+          }
+
           return "uploaded" as const;
         })
       );
@@ -400,10 +447,28 @@ export default function PrecificacaoPage() {
         }
       }
 
+      // Upsert index in batches of 50
+      if (indexBatch.length >= 50) {
+        const toUpsert = indexBatch.splice(0, 50);
+        const { error: idxErr, data: idxData } = await supabase
+          .from("fin_nfe_xml_index")
+          .upsert(toUpsert as any, { onConflict: "chave" });
+        if (!idxErr) indexed += toUpsert.length;
+        else console.error("Index upsert error:", idxErr.message);
+      }
+
       onProgress(uploaded + errors, total);
     }
 
-    return { uploaded, repeatedKeys, errors };
+    // Flush remaining index records
+    if (indexBatch.length > 0) {
+      const { error: idxErr } = await supabase
+        .from("fin_nfe_xml_index")
+        .upsert(indexBatch as any, { onConflict: "chave" });
+      if (!idxErr) indexed += indexBatch.length;
+    }
+
+    return { uploaded, repeatedKeys, errors, indexed };
   };
 
   const handleUploadXmls = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -450,13 +515,13 @@ export default function PrecificacaoPage() {
 
       setUploadProgress(`0 / ${allItems.length} processados`);
       const BATCH_SIZE = 15;
-      const { uploaded, repeatedKeys, errors } = await uploadBatch(allItems, BATCH_SIZE, (done, total) => {
+      const { uploaded, repeatedKeys, errors, indexed } = await uploadBatch(allItems, BATCH_SIZE, (done, total) => {
         setUploadProgress(`${done} / ${total} processados`);
       });
 
       toast.success(
-        `${uploaded} arquivo(s) enviados` +
-          (repeatedKeys > 0 ? `, ${repeatedKeys} com chave repetida (salvos em /repetidos)` : "") +
+        `${uploaded} arquivo(s) enviados, ${indexed} indexados` +
+          (repeatedKeys > 0 ? `, ${repeatedKeys} chave(s) repetida(s)` : "") +
           (errors > 0 ? `, ${errors} erro(s)` : "")
       );
     } catch (err) {
