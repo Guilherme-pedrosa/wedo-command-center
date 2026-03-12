@@ -397,7 +397,13 @@ serve(async (req) => {
 
         for (const raw of items) {
           const c = (raw as any).Compra ?? raw;
-          allCompras.push(c);
+          // Only include purchases with a linked NF-e
+          const numeroNfe = String(c.numero_nfe || "").trim();
+          if (numeroNfe) {
+            allCompras.push(c);
+          } else {
+            console.log(`[sync-nfe-entrada] Ignorando compra ${c.id || c.codigo} sem NF-e vinculada`);
+          }
         }
         console.log(`[sync-nfe-entrada] Compras sit=${sitId} page ${page}/${totalPages}, ${items.length} items`);
         page++;
