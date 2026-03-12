@@ -58,6 +58,7 @@ const finRelatorios = [
   { title: "📈 DRE", url: "/financeiro/dre", icon: BarChart3 },
   { title: "📉 Fluxo Caixa", url: "/financeiro/fluxo-caixa", icon: LineChart },
   { title: "🎯 Resultados Operação", url: "/financeiro/metas", icon: FileText },
+  { title: "🧮 Precificação", url: "/financeiro/precificacao", icon: BarChart3 },
 ];
 
 const finAdmin = [
