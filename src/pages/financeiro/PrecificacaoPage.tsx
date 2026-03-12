@@ -971,17 +971,6 @@ export default function PrecificacaoPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="space-y-1 flex-1">
-                <Label className="text-xs text-muted-foreground">IRPJ+CSLL s/ lucro (%)</Label>
-                <Input type="number" value={taxSaida.irpjCsll}
-                  onChange={(e) => setTaxSaida({ ...taxSaida, irpjCsll: parseFloat(e.target.value) || 0 })}
-                  className="h-8 bg-secondary text-sm" />
-              </div>
-              <p className="text-[10px] text-muted-foreground mt-4 flex-1">
-                IRPJ 15% + Adicional 10% (lucro &gt; 20k/mês) + CSLL 9% = ~24% sobre lucro líquido antes IR
-              </p>
-            </div>
           </CardContent>
         </Card>
       </div>
