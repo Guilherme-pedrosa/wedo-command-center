@@ -214,8 +214,25 @@ serve(async (req) => {
     let comprasWithNf = 0;
     let comprasWithoutNf = 0;
 
+    const compraIds = batchCompras.map((c) => String(c.id || "")).filter(Boolean);
+    const compraFornecedorMap = new Map<string, string>();
+    if (compraIds.length > 0) {
+      const { data: comprasDb } = await supabase
+        .from("gc_compras")
+        .select("gc_id, nome_fornecedor")
+        .in("gc_id", compraIds);
+
+      for (const compraDb of comprasDb || []) {
+        const nome = normalizeText(compraDb.nome_fornecedor);
+        if (nome) {
+          compraFornecedorMap.set(String(compraDb.gc_id), nome);
+        }
+      }
+    }
+
     for (const compra of batchCompras) {
       const compraId = String(compra.id);
+      const fornecedorNome = resolveCompraFornecedorNome(compra, compraFornecedorMap.get(compraId));
       
       const compraProdutos: CompraProduct[] = [];
       for (const p of (compra.produtos || [])) {
@@ -232,7 +249,7 @@ serve(async (req) => {
         const retry = await rateLimitedFetch(nfUrl, { headers: gcHeaders });
         if (!retry.ok) continue;
         const retryJson = await retry.json();
-        processNFs(retryJson.data || [], compra, compraProdutos, productTaxMap);
+        processNFs(retryJson.data || [], compra, compraProdutos, fornecedorNome, productTaxMap);
         nfsProcessed += (retryJson.data || []).length;
         if ((retryJson.data || []).length > 0) comprasWithNf++;
         else comprasWithoutNf++;
@@ -254,7 +271,7 @@ serve(async (req) => {
 
       comprasWithNf++;
       nfsProcessed += nfs.length;
-      processNFs(nfs, compra, compraProdutos, productTaxMap);
+      processNFs(nfs, compra, compraProdutos, fornecedorNome, productTaxMap);
     }
 
     console.log(`[sync-nfe-entrada] Batch done: com NF=${comprasWithNf}, sem NF=${comprasWithoutNf}, NFs=${nfsProcessed}`);
