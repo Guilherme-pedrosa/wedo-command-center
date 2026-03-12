@@ -1131,7 +1131,8 @@ export default function PrecificacaoPage() {
                 {filtered.map((p) => {
                   const custoBruto = parseFloat(p.valor_custo) || 0;
                   const estoque = Number(p.estoque) || 0;
-                  const tributo = tributosMap.get(p.id);
+                  const tributoRaw = tributosMap.get(p.id);
+                  const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
                   const hasNF = !!tributo;
                   const custoBase = hasNF ? tributo.valor_unitario_nf : custoBruto;
                   const vendaA = custoBase * MARKUP_TABELAS.A;
