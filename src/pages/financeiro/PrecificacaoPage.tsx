@@ -454,7 +454,7 @@ export default function PrecificacaoPage() {
   const totalProdutosEstoque = useMemo(() => {
     if (!produtos) return null; // sem dados de estoque carregados
     return produtos
-      .filter(p => !EXCLUDED_GROUPS.includes((p.nome_grupo || "").toLowerCase()))
+      .filter(p => !EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k)))
       .reduce((sum, p) => sum + (Number(p.estoque) || 0), 0) || 1;
   }, [produtos]);
 
