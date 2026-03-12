@@ -416,6 +416,7 @@ export default function PrecificacaoPage() {
     return tributosXml
       .filter((t) => {
         const nome = (t.nome_produto || "").toLowerCase();
+        if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
         const codigo = (t.gc_produto_id || "").toLowerCase();
         return nome.includes(q) || codigo.includes(q);
       })
