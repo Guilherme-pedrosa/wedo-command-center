@@ -363,6 +363,7 @@ function processNFs(
   nfs: any[],
   compra: any,
   compraProdutos: CompraProduct[],
+  fornecedorNome: string,
   productTaxMap: Map<string, ProductTaxRecord>
 ) {
   for (const nfRaw of nfs) {
