@@ -592,44 +592,74 @@ async function processNFs(
       const isSN = isXmlSimplesNacional(xmlContent);
       const totalVProd = xmlItems.reduce((s, i) => s + i.vProd, 0);
 
-      // Map GC produto_id -> XML item by matching cProd or nome
+      // Match GC produtos -> XML items por VALOR do produto
       const nfProdutos: NFProduct[] = (nf.produtos || []).map((p: any) => p.produto ?? p);
+      const usedXmlIndices = new Set<number>();
 
       for (const compraProd of compraProdutos) {
         const gcProdId = String(compraProd.produto_id);
-        
-        // Find GC NF product entry to get the link between GC produto_id and XML cProd
         const nfProd = nfProdutos.find(np => String(np.produto_id) === gcProdId);
         
-        // Match XML item: by codigo_produto (cProd), or by nome similarity
+        // ── Estratégia de matching por VALOR ──
+        // O valor total do produto na compra GC deve bater com vProd do XML
+        const compraProdValor = parseFloat(nfProd?.valor_venda || compraProd.valor_total || "0") || 0;
+        const compraProdQtd = parseFloat(nfProd?.quantidade || compraProd.quantidade || "1") || 1;
+        const compraProdUnitario = compraProdQtd > 0 ? compraProdValor / compraProdQtd : compraProdValor;
+
         let xmlItem: XmlItemTax | undefined;
-        if (nfProd) {
-          // Try match by codigo_produto = cProd
-          xmlItem = xmlItems.find(xi => xi.cProd === nfProd.codigo_produto);
-          // Try match by nome
-          if (!xmlItem) {
-            const nfNome = (nfProd.nome_produto || "").toLowerCase().trim();
-            xmlItem = xmlItems.find(xi => {
-              const xmlNome = xi.xProd.toLowerCase().trim();
-              return xmlNome === nfNome || xmlNome.includes(nfNome) || nfNome.includes(xmlNome);
-            });
+        let bestDiff = Infinity;
+        let bestIdx = -1;
+
+        for (let i = 0; i < xmlItems.length; i++) {
+          if (usedXmlIndices.has(i)) continue;
+          const xi = xmlItems[i];
+          
+          // Match 1: valor total do produto (mais confiável)
+          const diffTotal = Math.abs(xi.vProd - compraProdValor);
+          if (diffTotal < 0.02 && diffTotal < bestDiff) {
+            bestDiff = diffTotal;
+            bestIdx = i;
+            xmlItem = xi;
+          }
+          
+          // Match 2: valor unitário + mesma quantidade
+          if (!xmlItem || diffTotal >= 0.02) {
+            const diffUnit = Math.abs(xi.vUnCom - compraProdUnitario);
+            const sameQtd = Math.abs(xi.qCom - compraProdQtd) < 0.01;
+            if (sameQtd && diffUnit < 0.02 && diffUnit < bestDiff) {
+              bestDiff = diffUnit;
+              bestIdx = i;
+              xmlItem = xi;
+            }
           }
         }
-        // Fallback: match by compraProd nome
-        if (!xmlItem) {
-          const compNome = (compraProd.nome_produto || "").toLowerCase().trim();
-          xmlItem = xmlItems.find(xi => {
-            const xmlNome = xi.xProd.toLowerCase().trim();
-            return xmlNome.includes(compNome) || compNome.includes(xmlNome);
-          });
+
+        // Match 3 (fallback): código do produto no GC = cProd no XML
+        if (!xmlItem && nfProd) {
+          for (let i = 0; i < xmlItems.length; i++) {
+            if (usedXmlIndices.has(i)) continue;
+            if (xmlItems[i].cProd === nfProd.codigo_produto) {
+              xmlItem = xmlItems[i];
+              bestIdx = i;
+              break;
+            }
+          }
         }
 
-        if (!xmlItem) {
-          console.log(`[sync-nfe-entrada] XML item não encontrado para produto GC ${gcProdId} (${compraProd.nome_produto})`);
-          // Fallback to proportional method for this item
+        // Match 4 (último recurso): se compra tem 1 produto e XML tem 1 item
+        if (!xmlItem && compraProdutos.length === 1 && xmlItems.length === 1 && usedXmlIndices.size === 0) {
+          xmlItem = xmlItems[0];
+          bestIdx = 0;
+        }
+
+        if (!xmlItem || bestIdx < 0) {
+          console.log(`[sync-nfe-entrada] XML match falhou p/ GC ${gcProdId} "${compraProd.nome_produto}" (valor=${compraProdValor})`);
           processItemProportional(gcProdId, compraProd, nfProd, nf, freteTotal, fornecedorNome, compra, productTaxMap);
           continue;
         }
+
+        usedXmlIndices.add(bestIdx);
+        console.log(`[sync-nfe-entrada] XML match ✓ GC "${compraProd.nome_produto}" → XML "${xmlItem.xProd}" (diff=R$${bestDiff.toFixed(2)})`);
 
         const qtd = xmlItem.qCom || 1;
         const valorUnit = xmlItem.vProd / qtd;
