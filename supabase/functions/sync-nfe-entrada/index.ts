@@ -249,10 +249,35 @@ serve(async (req) => {
     console.log(`[sync-nfe-entrada] Compras com NF: ${comprasWithNf}, sem NF: ${comprasWithoutNf}, NFs processadas: ${nfsProcessed}`);
 
     // ── Step 4: Upsert all product tax profiles ──
-    const records = [...productTaxMap.values()].map((r) => ({
-      ...r,
-      ultima_atualizacao: new Date().toISOString(),
-    }));
+    // First, fetch existing records to preserve manual overrides
+    const existingIds = [...productTaxMap.keys()];
+    const existingManual = new Set<string>();
+    for (let i = 0; i < existingIds.length; i += 100) {
+      const batch = existingIds.slice(i, i + 100);
+      const { data } = await supabase
+        .from("fin_produto_tributos")
+        .select("gc_produto_id, icms_aliquota_manual, pis_aliquota_manual, cofins_aliquota_manual, sem_credito")
+        .in("gc_produto_id", batch);
+      for (const row of (data || [])) {
+        // If user has manually set sem_credito or any manual aliquota, preserve their regime choice
+        if (row.sem_credito || row.icms_aliquota_manual != null || row.pis_aliquota_manual != null || row.cofins_aliquota_manual != null) {
+          existingManual.add(row.gc_produto_id);
+        }
+      }
+    }
+
+    const records = [...productTaxMap.values()].map((r) => {
+      const rec: Record<string, unknown> = {
+        ...r,
+        ultima_atualizacao: new Date().toISOString(),
+      };
+      // Don't overwrite user's manual regime choice
+      if (existingManual.has(r.gc_produto_id)) {
+        delete rec.sem_credito;
+        delete rec.regime_fornecedor;
+      }
+      return rec;
+    });
 
     let upserted = 0;
     const batchSize = 50;
@@ -260,7 +285,7 @@ serve(async (req) => {
       const batch = records.slice(i, i + batchSize);
       const { error } = await supabase
         .from("fin_produto_tributos")
-        .upsert(batch, { onConflict: "gc_produto_id" });
+        .upsert(batch as any, { onConflict: "gc_produto_id" });
       if (error) {
         console.error(`[sync-nfe-entrada] Upsert error batch ${i}:`, error.message);
       } else {
