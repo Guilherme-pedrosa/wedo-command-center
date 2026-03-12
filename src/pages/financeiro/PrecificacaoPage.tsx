@@ -1059,16 +1059,27 @@ export default function PrecificacaoPage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="text-xs">Produto</TableHead>
-                  <TableHead className="text-xs text-right">Estoque</TableHead>
-                  <TableHead className="text-xs text-right">Custo</TableHead>
-                  <TableHead className="text-xs text-center">Fonte</TableHead>
-                  <TableHead className="text-xs text-right">Créd. Entrada</TableHead>
-                  <TableHead className="text-xs text-right">Custo Total</TableHead>
-                  <TableHead className="text-xs text-right font-semibold text-primary">Preço Mín.</TableHead>
-                  <TableHead className="text-xs text-right text-blue-400" colSpan={2}>Tab A (120%)</TableHead>
-                  <TableHead className="text-xs text-right text-yellow-400" colSpan={2}>Tab B (70%)</TableHead>
-                  <TableHead className="text-xs text-right text-purple-400" colSpan={2}>Tab P (50%)</TableHead>
+                  <TableHead className="text-xs" rowSpan={2}>Produto</TableHead>
+                  <TableHead className="text-xs text-right" rowSpan={2}>Estoque</TableHead>
+                  <TableHead className="text-xs text-right" rowSpan={2}>Custo</TableHead>
+                  <TableHead className="text-xs text-center" rowSpan={2}>Fonte</TableHead>
+                  <TableHead className="text-xs text-right" rowSpan={2}>Créd. Entrada</TableHead>
+                  <TableHead className="text-xs text-right" rowSpan={2}>Custo Total</TableHead>
+                  <TableHead className="text-xs text-right font-semibold text-primary" rowSpan={2}>Preço Mín.</TableHead>
+                  <TableHead className="text-xs text-center text-blue-400 border-l border-border" colSpan={3}>Tabela A (120%)</TableHead>
+                  <TableHead className="text-xs text-center text-yellow-400 border-l border-border" colSpan={3}>Tabela B (70%)</TableHead>
+                  <TableHead className="text-xs text-center text-purple-400 border-l border-border" colSpan={3}>Tabela P (50%)</TableHead>
+                </TableRow>
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="text-[10px] text-right border-l border-border">Venda</TableHead>
+                  <TableHead className="text-[10px] text-right">Tributo</TableHead>
+                  <TableHead className="text-[10px] text-center">Margem</TableHead>
+                  <TableHead className="text-[10px] text-right border-l border-border">Venda</TableHead>
+                  <TableHead className="text-[10px] text-right">Tributo</TableHead>
+                  <TableHead className="text-[10px] text-center">Margem</TableHead>
+                  <TableHead className="text-[10px] text-right border-l border-border">Venda</TableHead>
+                  <TableHead className="text-[10px] text-right">Tributo</TableHead>
+                  <TableHead className="text-[10px] text-center">Margem</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
