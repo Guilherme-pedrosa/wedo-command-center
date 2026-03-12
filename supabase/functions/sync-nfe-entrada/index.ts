@@ -233,10 +233,29 @@ function getXmlFrete(xml: string): number {
 }
 
 // Detect Simples Nacional from XML: CRT=1 or CRT=2 in <emit>
-function isXmlSimplesNacional(xml: string): boolean {
+// BUT override if the XML items actually carry ICMS/PIS/COFINS values
+// (some emitters set CRT=1 erroneously or use CSOSN with real tax values)
+function isXmlSimplesNacional(xml: string, xmlItems?: XmlItemTax[]): boolean {
   const emit = getBlock(xml, "emit");
   const crt = getTag(emit, "CRT");
-  return crt === "1" || crt === "2";
+  const crtIsSN = crt === "1" || crt === "2";
+  
+  // If CRT says normal (3), it's definitely not SN
+  if (!crtIsSN && crt) return false;
+  
+  // If we have parsed items, check if any item actually has tax values
+  // If they do, the emitter is NOT operating under SN for this NF
+  if (xmlItems && xmlItems.length > 0) {
+    const hasRealTaxes = xmlItems.some(item => 
+      item.icms_vICMS > 0 || item.pis_vPIS > 0 || item.cofins_vCOFINS > 0
+    );
+    if (hasRealTaxes) {
+      console.log(`[sync-nfe-entrada] CRT=${crt} mas itens têm impostos reais — NÃO é Simples Nacional`);
+      return false;
+    }
+  }
+  
+  return crtIsSN;
 }
 
 // ══════════════════════════════════════════════════════════════
