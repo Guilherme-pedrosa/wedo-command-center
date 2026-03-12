@@ -1180,28 +1180,39 @@ export default function PrecificacaoPage() {
                         -{formatCurrency(calc.totalCreditosEntrada)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(calc.custoTotal)}</TableCell>
-                      <TableCell className="text-right font-mono text-sm text-orange-400">
-                        {formatCurrency(vendaGC > 0 ? vendaGC * calc.aliquotaSaidaFaturamento : calc.tributosSaida)}
-                      </TableCell>
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
                         {formatCurrency(calc.precoMinimo)}
                       </TableCell>
-                      <TableCell className={`text-right font-mono text-sm ${vendaA < calc.precoMinimo ? "text-destructive" : "text-blue-400"}`}>{formatCurrency(vendaA)}</TableCell>
-                      <TableCell className={`text-right font-mono text-sm ${vendaB < calc.precoMinimo ? "text-destructive" : "text-yellow-400"}`}>{formatCurrency(vendaB)}</TableCell>
-                      <TableCell className={`text-right font-mono text-sm ${vendaP < calc.precoMinimo ? "text-destructive" : "text-purple-400"}`}>{formatCurrency(vendaP)}</TableCell>
-                      <TableCell className="text-center">
-                        {custoBruto === 0 && !hasNF ? (
-                          <Badge variant="outline" className="text-[10px] text-muted-foreground">Sem custo</Badge>
-                        ) : abaixoMinimo ? (
-                          <Badge className="bg-destructive/20 text-destructive text-[10px] gap-1">
-                            <AlertTriangle className="h-3 w-3" /> {margemAtualVendaGC.toFixed(1)}%
-                          </Badge>
-                        ) : (
-                          <Badge className="bg-green-500/20 text-green-400 text-[10px] gap-1">
-                            <TrendingUp className="h-3 w-3" /> {margemAtualVendaGC.toFixed(1)}%
-                          </Badge>
-                        )}
-                      </TableCell>
+                      {/* Tab A */}
+                      {(() => {
+                        const tribA = vendaA * calc.aliquotaSaidaFaturamento;
+                        const margemA = vendaA > 0 && calc.custoTotal > 0 ? ((vendaA - calc.custoTotal - tribA) / vendaA) * 100 : 0;
+                        const okA = vendaA >= calc.precoMinimo;
+                        return (<>
+                          <TableCell className="text-right font-mono text-xs text-blue-400">{formatCurrency(vendaA)}<br/><span className="text-orange-400 text-[10px]">-{formatCurrency(tribA)}</span></TableCell>
+                          <TableCell className="text-center"><Badge className={`text-[10px] gap-0.5 ${okA ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>{okA ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margemA.toFixed(1)}%</Badge></TableCell>
+                        </>);
+                      })()}
+                      {/* Tab B */}
+                      {(() => {
+                        const tribB = vendaB * calc.aliquotaSaidaFaturamento;
+                        const margemB = vendaB > 0 && calc.custoTotal > 0 ? ((vendaB - calc.custoTotal - tribB) / vendaB) * 100 : 0;
+                        const okB = vendaB >= calc.precoMinimo;
+                        return (<>
+                          <TableCell className="text-right font-mono text-xs text-yellow-400">{formatCurrency(vendaB)}<br/><span className="text-orange-400 text-[10px]">-{formatCurrency(tribB)}</span></TableCell>
+                          <TableCell className="text-center"><Badge className={`text-[10px] gap-0.5 ${okB ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>{okB ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margemB.toFixed(1)}%</Badge></TableCell>
+                        </>);
+                      })()}
+                      {/* Tab P */}
+                      {(() => {
+                        const tribP = vendaP * calc.aliquotaSaidaFaturamento;
+                        const margemP = vendaP > 0 && calc.custoTotal > 0 ? ((vendaP - calc.custoTotal - tribP) / vendaP) * 100 : 0;
+                        const okP = vendaP >= calc.precoMinimo;
+                        return (<>
+                          <TableCell className="text-right font-mono text-xs text-purple-400">{formatCurrency(vendaP)}<br/><span className="text-orange-400 text-[10px]">-{formatCurrency(tribP)}</span></TableCell>
+                          <TableCell className="text-center"><Badge className={`text-[10px] gap-0.5 ${okP ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>{okP ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margemP.toFixed(1)}%</Badge></TableCell>
+                        </>);
+                      })()}
                     </TableRow>
                   );
                 })}
