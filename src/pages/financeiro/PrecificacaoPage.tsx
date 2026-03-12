@@ -298,16 +298,38 @@ export default function PrecificacaoPage() {
   const custoFixoAutoUnit = custoFixoMensal ? custoFixoMensal / totalProdutosEstoque : 0;
   const activeEntrada = { ...taxEntrada, custoFixoUnit: taxEntrada.custoFixoUnit || custoFixoAutoUnit };
 
-  // ── Sync NFs de entrada ──
+  // ── Sync NFs de entrada (batched to avoid timeout) ──
+  const [syncProgress, setSyncProgress] = useState("");
   const handleSyncNFEntrada = async () => {
     setSyncing(true);
+    setSyncProgress("Iniciando...");
     try {
-      const { data, error } = await supabase.functions.invoke("sync-nfe-entrada");
-      if (error) throw error;
-      toast.success(`Sincronizado: ${data.produtos_processados} produtos de ${data.total_nfs} NFs`);
+      let offset = 0;
+      const batchSize = 80;
+      let totalProdutos = 0;
+      let totalCompras = 0;
+
+      while (true) {
+        const { data, error } = await supabase.functions.invoke("sync-nfe-entrada", {
+          body: { offset, batch_size: batchSize },
+        });
+        if (error) throw error;
+        
+        totalCompras = data.total_compras || 0;
+        totalProdutos += data.produtos_processados || 0;
+        const processed = offset + (data.processed || 0);
+        setSyncProgress(`Processando compras ${processed}/${totalCompras}...`);
+        
+        if (!data.has_more) break;
+        offset = data.next_offset;
+      }
+
+      toast.success(`Sincronizado: ${totalProdutos} produtos de ${totalCompras} compras`);
+      setSyncProgress("");
       refetchTributos();
     } catch (err: unknown) {
       toast.error(`Erro: ${err instanceof Error ? err.message : String(err)}`);
+      setSyncProgress("");
     } finally {
       setSyncing(false);
     }
@@ -361,7 +383,7 @@ export default function PrecificacaoPage() {
           </Badge>
           <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={syncing}>
             {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-            Sync NFs Entrada
+            {syncing && syncProgress ? syncProgress : "Sync NFs Entrada"}
           </Button>
         </div>
       </div>

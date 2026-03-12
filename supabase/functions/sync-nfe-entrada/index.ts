@@ -51,11 +51,9 @@ interface NFData {
   chave: string;
   data_emissao: string;
   situacao_nf: string;
-  // Emitente (fornecedor on entrada NFs)
   cnpj_emitente: string;
   nome_emitente: string;
   fantasia_emitente: string;
-  // Tax totals
   valor_total_nf: string;
   valor_produtos: string;
   base_icms: string;
@@ -69,7 +67,6 @@ interface NFData {
   valor_seguro: string;
   valor_desconto: string;
   valor_outros: string;
-  // Products inside the NF
   produtos: NFProduct[];
 }
 
@@ -86,14 +83,12 @@ interface ProductTaxRecord {
   fornecedor_nome: string;
   regime_fornecedor: string;
   sem_credito: boolean;
-  // NF-level rates (applied proportionally)
   icms_aliquota: number;
   icms_base: number;
   pis_aliquota: number;
   cofins_aliquota: number;
   ipi_aliquota: number;
   frete_percentual: number;
-  // Unit values
   valor_unitario_nf: number;
   valor_icms_unit: number;
   valor_pis_unit: number;
@@ -109,6 +104,11 @@ serve(async (req) => {
   }
 
   try {
+    // Accept batch params: offset (0-based index into compras list), batch_size (default 80)
+    const body = await req.json().catch(() => ({}));
+    const offset = Number(body.offset) || 0;
+    const batchSize = Math.min(Number(body.batch_size) || 80, 120); // cap at 120
+
     const gcAccessToken = Deno.env.get("GC_ACCESS_TOKEN");
     const gcSecretToken = Deno.env.get("GC_SECRET_TOKEN");
     if (!gcAccessToken || !gcSecretToken) {
@@ -151,7 +151,7 @@ serve(async (req) => {
       });
     }
 
-    // ── Step 2: Fetch all compras (paginated) ──
+    // ── Step 2: Fetch ALL compra IDs (paginated) — only IDs + fornecedor + produtos ──
     interface CompraRaw {
       id: string;
       codigo: string;
@@ -192,18 +192,31 @@ serve(async (req) => {
         page++;
       }
     }
-    console.log(`[sync-nfe-entrada] Total compras: ${allCompras.length}`);
+    
+    const totalCompras = allCompras.length;
+    console.log(`[sync-nfe-entrada] Total compras: ${totalCompras}, processing offset=${offset}, batch=${batchSize}`);
 
-    // ── Step 3: For each compra, fetch linked NFs de entrada ──
+    // ── Step 3: Slice the batch to process ──
+    const batchCompras = allCompras.slice(offset, offset + batchSize);
+    const hasMore = offset + batchSize < totalCompras;
+    const nextOffset = offset + batchSize;
+
+    if (batchCompras.length === 0) {
+      return new Response(
+        JSON.stringify({ ok: true, total_compras: totalCompras, processed: 0, has_more: false, next_offset: 0, produtos_processados: 0, upserted: 0 }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ── Step 4: For each compra in batch, fetch linked NFs de entrada ──
     const productTaxMap = new Map<string, ProductTaxRecord>();
     let nfsProcessed = 0;
     let comprasWithNf = 0;
     let comprasWithoutNf = 0;
 
-    for (const compra of allCompras) {
+    for (const compra of batchCompras) {
       const compraId = String(compra.id);
       
-      // Extract compra products (GC produto_id mapping)
       const compraProdutos: CompraProduct[] = [];
       for (const p of (compra.produtos || [])) {
         const prod = (p as any).produto ?? p;
@@ -211,17 +224,15 @@ serve(async (req) => {
       }
       if (compraProdutos.length === 0) continue;
 
-      // Fetch NFs linked to this compra (tipo_nf=0 = entrada)
       const nfUrl = `${GC_BASE_URL}/api/notas_fiscais_produtos?compra_id=${compraId}&tipo_nf=0&limite=10`;
       const nfResp = await rateLimitedFetch(nfUrl, { headers: gcHeaders });
       
       if (nfResp.status === 429) {
         await new Promise((r) => setTimeout(r, 2000));
-        // retry once
         const retry = await rateLimitedFetch(nfUrl, { headers: gcHeaders });
         if (!retry.ok) continue;
         const retryJson = await retry.json();
-        await processNFs(retryJson.data || [], compra, compraProdutos, productTaxMap);
+        processNFs(retryJson.data || [], compra, compraProdutos, productTaxMap);
         nfsProcessed += (retryJson.data || []).length;
         if ((retryJson.data || []).length > 0) comprasWithNf++;
         else comprasWithoutNf++;
@@ -243,13 +254,12 @@ serve(async (req) => {
 
       comprasWithNf++;
       nfsProcessed += nfs.length;
-      await processNFs(nfs, compra, compraProdutos, productTaxMap);
+      processNFs(nfs, compra, compraProdutos, productTaxMap);
     }
 
-    console.log(`[sync-nfe-entrada] Compras com NF: ${comprasWithNf}, sem NF: ${comprasWithoutNf}, NFs processadas: ${nfsProcessed}`);
+    console.log(`[sync-nfe-entrada] Batch done: com NF=${comprasWithNf}, sem NF=${comprasWithoutNf}, NFs=${nfsProcessed}`);
 
-    // ── Step 4: Upsert all product tax profiles ──
-    // First, fetch existing records to preserve manual overrides
+    // ── Step 5: Upsert product tax profiles ──
     const existingIds = [...productTaxMap.keys()];
     const existingManual = new Set<string>();
     for (let i = 0; i < existingIds.length; i += 100) {
@@ -259,7 +269,6 @@ serve(async (req) => {
         .select("gc_produto_id, icms_aliquota_manual, pis_aliquota_manual, cofins_aliquota_manual, sem_credito")
         .in("gc_produto_id", batch);
       for (const row of (data || [])) {
-        // If user has manually set sem_credito or any manual aliquota, preserve their regime choice
         if (row.sem_credito || row.icms_aliquota_manual != null || row.pis_aliquota_manual != null || row.cofins_aliquota_manual != null) {
           existingManual.add(row.gc_produto_id);
         }
@@ -271,7 +280,6 @@ serve(async (req) => {
         ...r,
         ultima_atualizacao: new Date().toISOString(),
       };
-      // Don't overwrite user's manual regime choice
       if (existingManual.has(r.gc_produto_id)) {
         delete rec.sem_credito;
         delete rec.regime_fornecedor;
@@ -280,9 +288,9 @@ serve(async (req) => {
     });
 
     let upserted = 0;
-    const batchSize = 50;
-    for (let i = 0; i < records.length; i += batchSize) {
-      const batch = records.slice(i, i + batchSize);
+    const upsertBatchSize = 50;
+    for (let i = 0; i < records.length; i += upsertBatchSize) {
+      const batch = records.slice(i, i + upsertBatchSize);
       const { error } = await supabase
         .from("fin_produto_tributos")
         .upsert(batch as any, { onConflict: "gc_produto_id" });
@@ -293,26 +301,31 @@ serve(async (req) => {
       }
     }
 
-    // Log
-    await supabase.from("fin_sync_log").insert({
-      tipo: "sync_nfe_entrada",
-      status: "ok",
-      payload: {
-        total_compras: allCompras.length,
-        compras_com_nf: comprasWithNf,
-        compras_sem_nf: comprasWithoutNf,
-        nfs_processadas: nfsProcessed,
-        total_produtos: records.length,
-      },
-      resposta: { upserted },
-    });
+    // Log only on last batch
+    if (!hasMore) {
+      await supabase.from("fin_sync_log").insert({
+        tipo: "sync_nfe_entrada",
+        status: "ok",
+        payload: {
+          total_compras: totalCompras,
+          compras_com_nf: comprasWithNf,
+          compras_sem_nf: comprasWithoutNf,
+          nfs_processadas: nfsProcessed,
+          total_produtos: records.length,
+        },
+        resposta: { upserted },
+      });
+    }
 
     return new Response(
       JSON.stringify({
         ok: true,
-        total_compras: allCompras.length,
+        total_compras: totalCompras,
+        processed: batchCompras.length,
+        offset,
+        has_more: hasMore,
+        next_offset: hasMore ? nextOffset : null,
         compras_com_nf: comprasWithNf,
-        compras_sem_nf: comprasWithoutNf,
         nfs_processadas: nfsProcessed,
         produtos_processados: records.length,
         upserted,
@@ -329,7 +342,7 @@ serve(async (req) => {
 });
 
 // ── Process NFs and extract per-product tax data ──
-async function processNFs(
+function processNFs(
   nfs: any[],
   compra: any,
   compraProdutos: CompraProduct[],
@@ -342,7 +355,6 @@ async function processNFs(
     const valorProdutos = parseFloat(nf.valor_produtos) || 0;
     if (valorProdutos <= 0) continue;
 
-    // NF-level tax totals
     const icmsTotal = parseFloat(nf.valor_icms) || 0;
     const baseIcms = parseFloat(nf.base_icms) || 0;
     const pisTotal = parseFloat(nf.valor_pis) || 0;
@@ -350,36 +362,26 @@ async function processNFs(
     const ipiTotal = parseFloat(nf.valor_ipi) || 0;
     const freteTotal = parseFloat(nf.valor_frete) || 0;
 
-    // Detect Simples Nacional: if NF has products but base_icms=0 and valor_icms=0,
-    // the supplier is likely Simples Nacional → no tax credits
     const isSimplesNacional = valorProdutos > 0 && baseIcms === 0 && icmsTotal === 0 && pisTotal === 0 && cofinsTotal === 0;
 
-    // Effective NF-level rates
     const icmsRate = baseIcms > 0 ? (icmsTotal / baseIcms) * 100 : 0;
     const pisRate = valorProdutos > 0 ? (pisTotal / valorProdutos) * 100 : 0;
     const cofinsRate = valorProdutos > 0 ? (cofinsTotal / valorProdutos) * 100 : 0;
     const ipiRate = valorProdutos > 0 ? (ipiTotal / valorProdutos) * 100 : 0;
     const freteRate = valorProdutos > 0 ? (freteTotal / valorProdutos) * 100 : 0;
 
-    // NF products
     const nfProdutos: NFProduct[] = (nf.produtos || []).map((p: any) => p.produto ?? p);
     if (nfProdutos.length === 0) continue;
 
-    // Build lookup: produto_id → NF product data
     const nfProdMap = new Map<string, NFProduct>();
     for (const np of nfProdutos) {
       if (np.produto_id) nfProdMap.set(String(np.produto_id), np);
     }
 
-    // Map compra products to NF products via produto_id
-    // The compra.produtos[].produto_id is the canonical GC product ID
     for (const compraProd of compraProdutos) {
       const gcProdId = String(compraProd.produto_id);
-      
-      // Try to find matching NF product
       const nfProd = nfProdMap.get(gcProdId);
       
-      // Use NF product data if available, otherwise fall back to compra product
       const nomeProduto = nfProd?.nome_produto || compraProd.nome_produto || "";
       const ncm = nfProd?.NCM || "";
       const cfop = nfProd?.cfop || "";
@@ -388,20 +390,17 @@ async function processNFs(
       const proporcao = valorProdutos > 0 ? valorProd / valorProdutos : 1 / nfProdutos.length;
       const valorUnit = qtd > 0 ? valorProd / qtd : valorProd;
 
-      // Proportional tax per this product
       const icmsUnit = isSimplesNacional ? 0 : (qtd > 0 ? (icmsTotal * proporcao) / qtd : 0);
       const pisUnit = isSimplesNacional ? 0 : (qtd > 0 ? (pisTotal * proporcao) / qtd : 0);
       const cofinsUnit = isSimplesNacional ? 0 : (qtd > 0 ? (cofinsTotal * proporcao) / qtd : 0);
       const ipiUnit = qtd > 0 ? (ipiTotal * proporcao) / qtd : 0;
       const freteUnit = qtd > 0 ? (freteTotal * proporcao) / qtd : 0;
 
-      // Custo efetivo = valor + IPI + frete - crédito ICMS - crédito PIS - crédito COFINS
       const custoEfetivo = valorUnit + ipiUnit + freteUnit - icmsUnit - pisUnit - cofinsUnit;
 
-      // Keep only the most recent NF per product (by date)
       const existing = productTaxMap.get(gcProdId);
       if (existing && existing.nf_data_emissao > (nf.data_emissao || "")) {
-        continue; // keep the newer one
+        continue;
       }
 
       const r = (v: number) => Math.round(v * 100) / 100;
