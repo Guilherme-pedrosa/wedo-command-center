@@ -298,6 +298,34 @@ export default function PrecificacaoPage() {
   const custoFixoAutoUnit = custoFixoMensal ? custoFixoMensal / totalProdutosEstoque : 0;
   const activeEntrada = { ...taxEntrada, custoFixoUnit: taxEntrada.custoFixoUnit || custoFixoAutoUnit };
 
+  // ── Upload XMLs de NF para o bucket ──
+  const [uploading, setUploading] = useState(false);
+  const handleUploadXmls = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    let uploaded = 0;
+    let errors = 0;
+    for (const file of Array.from(files)) {
+      try {
+        const text = await file.text();
+        // Extract chave from XML
+        const chaveMatch = text.match(/Id="NFe(\d{44})"/i) || text.match(/chNFe>(\d{44})</i);
+        const chave = chaveMatch?.[1];
+        const path = chave ? `${chave}.xml` : file.name;
+        const { error } = await supabase.storage.from("nf-xmls").upload(path, file, { 
+          contentType: "text/xml",
+          upsert: true,
+        });
+        if (error) { errors++; console.error("Upload error:", error.message); }
+        else uploaded++;
+      } catch { errors++; }
+    }
+    toast.success(`${uploaded} XML(s) enviados${errors > 0 ? `, ${errors} erro(s)` : ""}`);
+    setUploading(false);
+    e.target.value = "";
+  };
+
   // ── Sync NFs de entrada (batched to avoid timeout) ──
   const [syncProgress, setSyncProgress] = useState("");
   const handleSyncNFEntrada = async () => {
@@ -308,6 +336,7 @@ export default function PrecificacaoPage() {
       const batchSize = 80;
       let totalProdutos = 0;
       let totalCompras = 0;
+      let totalXmls = 0;
 
       while (true) {
         const { data, error } = await supabase.functions.invoke("sync-nfe-entrada", {
@@ -317,6 +346,7 @@ export default function PrecificacaoPage() {
         
         totalCompras = data.total_compras || 0;
         totalProdutos += data.produtos_processados || 0;
+        totalXmls += data.xmls_usados || 0;
         const processed = offset + (data.processed || 0);
         setSyncProgress(`Processando compras ${processed}/${totalCompras}...`);
         
@@ -324,7 +354,7 @@ export default function PrecificacaoPage() {
         offset = data.next_offset;
       }
 
-      toast.success(`Sincronizado: ${totalProdutos} produtos de ${totalCompras} compras`);
+      toast.success(`Sincronizado: ${totalProdutos} produtos de ${totalCompras} compras (${totalXmls} XMLs usados)`);
       setSyncProgress("");
       refetchTributos();
     } catch (err: unknown) {
