@@ -407,6 +407,10 @@ serve(async (req) => {
       const usedXmlIndices = new Set<number>();
       const r = (v: number) => Math.round(v * 100) / 100;
 
+      // Extract NF number from chave (positions 25-33) and data_emissao from XML
+      const nfNumeroFromChave = matchedChave.length === 44 ? String(parseInt(matchedChave.substring(25, 34))) : null;
+      const xmlDataEmissao = getTag(xmlContent, "dhEmi")?.substring(0, 10) || getTag(xmlContent, "dEmi") || null;
+
       for (const compraProd of compraProdutos) {
         const gcProdId = String(compraProd.produto_id);
         const compraProdValor = parseFloat(compraProd.valor_total || "0") || 0;
