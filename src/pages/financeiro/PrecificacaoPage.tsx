@@ -417,9 +417,25 @@ export default function PrecificacaoPage() {
         })
         .slice(0, 100);
     }
-    // Sem produtos GC carregados → lista vazia (não usar NF como fallback)
-    return [];
-  }, [produtos, search, tributosMap]);
+    // Sem produtos GC → usa tributos como fonte (modo offline)
+    return tributosXml
+      .filter((t) => {
+        const nome = (t.nome_produto || "").toLowerCase();
+        if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
+        return nome.includes(q) || (t.gc_produto_id || "").includes(q);
+      })
+      .map((t) => ({
+        id: t.gc_produto_id,
+        nome: t.nome_produto,
+        codigo: t.gc_produto_id,
+        estoque: 0,
+        valor_custo: String(t.valor_unitario_nf || "0"),
+        valor_venda: "0",
+      } as GCProduto))
+      // deduplicate by id
+      .filter((p, i, arr) => arr.findIndex((x) => x.id === p.id) === i)
+      .slice(0, 100);
+  }, [produtos, search, tributosMap, tributosXml]);
 
   const totalProdutosEstoque = useMemo(() => {
     if (!produtos) return null; // sem dados de estoque carregados
