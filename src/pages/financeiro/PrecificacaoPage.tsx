@@ -1057,8 +1057,8 @@ export default function PrecificacaoPage() {
 
           <Card className="border-border bg-card overflow-auto max-h-[70vh]">
             <Table>
-              <TableHeader className="sticky top-0 z-10 bg-card">
-                <TableRow className="border-border hover:bg-transparent bg-card">
+              <TableHeader>
+                <TableRow className="border-border hover:bg-transparent bg-card [&>th]:sticky [&>th]:top-0 [&>th]:z-20 [&>th]:bg-card">
                   <TableHead className="text-xs" rowSpan={2}>Produto</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Estoque</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo</TableHead>
@@ -1070,7 +1070,7 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs text-center text-yellow-400 border-l border-border" colSpan={3}>Tabela B (70%)</TableHead>
                   <TableHead className="text-xs text-center text-purple-400 border-l border-border" colSpan={3}>Tabela P (50%)</TableHead>
                 </TableRow>
-                <TableRow className="border-border hover:bg-transparent bg-card">
+                <TableRow className="border-border hover:bg-transparent bg-card [&>th]:sticky [&>th]:top-[48px] [&>th]:z-20 [&>th]:bg-card">
                   <TableHead className="text-[10px] text-right border-l border-border">Venda</TableHead>
                   <TableHead className="text-[10px] text-right">Tributo</TableHead>
                   <TableHead className="text-[10px] text-center">Margem</TableHead>
