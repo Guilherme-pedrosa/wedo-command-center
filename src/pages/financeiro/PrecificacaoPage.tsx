@@ -433,13 +433,14 @@ export default function PrecificacaoPage() {
   }, [produtos, search, tributosMap, tributosXml]);
 
   const totalProdutosEstoque = useMemo(() => {
-    if (!produtos) return 1;
+    if (!produtos) return null; // sem dados de estoque carregados
     return produtos
       .filter(p => !EXCLUDED_GROUPS.includes((p.nome_grupo || "").toLowerCase()))
       .reduce((sum, p) => sum + (Number(p.estoque) || 0), 0) || 1;
   }, [produtos]);
 
-  const custoFixoAutoUnit = custoFixoMensal ? custoFixoMensal / totalProdutosEstoque : 0;
+  // Custo fixo só é rateado se temos dados de estoque; caso contrário, só usa override manual
+  const custoFixoAutoUnit = (custoFixoMensal && totalProdutosEstoque) ? custoFixoMensal / totalProdutosEstoque : 0;
   const activeEntrada = { ...taxEntrada, custoFixoUnit: taxEntrada.custoFixoUnit || custoFixoAutoUnit };
 
   // ── Upload XMLs de NF para o bucket (suporta ZIP + lotes) ──
@@ -1028,7 +1029,7 @@ export default function PrecificacaoPage() {
             <Info className="h-3.5 w-3.5" />
             Saída como <strong className={tipoSaidaGlobal === "venda" ? "text-blue-400" : "text-amber-400"}>
               {getTipoSaidaLabel(tipoSaidaGlobal)}
-            </strong>: {getTipoSaidaAliquota(tipoSaidaGlobal)} + IRPJ/CSLL {taxSaida.irpjCsll}% s/ lucro
+            </strong>: {getTipoSaidaAliquota(tipoSaidaGlobal)}
           </div>
 
           <Card className="border-border bg-card overflow-hidden">
@@ -1042,7 +1043,6 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs text-right">Créd. Entrada</TableHead>
                   <TableHead className="text-xs text-right">Custo Total</TableHead>
                   <TableHead className="text-xs text-right">Trib. Saída</TableHead>
-                  <TableHead className="text-xs text-right">IR s/ Lucro</TableHead>
                   <TableHead className="text-xs text-right font-semibold text-primary">Preço Mín.</TableHead>
                   <TableHead className="text-xs text-right">Venda GC</TableHead>
                   <TableHead className="text-xs text-center">Status</TableHead>
@@ -1051,7 +1051,7 @@ export default function PrecificacaoPage() {
               <TableBody>
                 {filtered.length === 0 && !loadingProdutos && (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
                       {search ? "Nenhum produto encontrado" : "Busque produtos do estoque GestãoClick"}
                     </TableCell>
                   </TableRow>
@@ -1091,9 +1091,8 @@ export default function PrecificacaoPage() {
                   const margemAtualVendaGC = vendaGC > 0 && calc.custoTotal > 0
                     ? (() => {
                         const tribSaida = vendaGC * calc.aliquotaSaidaFaturamento;
-                        const lucroAI = vendaGC - calc.custoTotal - tribSaida;
-                        const ir = Math.max(0, lucroAI * (taxSaida.irpjCsll / 100));
-                        return ((lucroAI - ir) / vendaGC) * 100;
+                        const lucro = vendaGC - calc.custoTotal - tribSaida;
+                        return (lucro / vendaGC) * 100;
                       })()
                     : 0;
 
@@ -1156,9 +1155,6 @@ export default function PrecificacaoPage() {
                       <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(calc.custoTotal)}</TableCell>
                       <TableCell className="text-right font-mono text-sm text-orange-400">
                         {formatCurrency(calc.tributosSaida)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-sm text-red-400">
-                        {formatCurrency(calc.impostoRenda)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
                         {formatCurrency(calc.precoMinimo)}
@@ -1292,7 +1288,7 @@ export default function PrecificacaoPage() {
                         <TableHead className="text-xs">Margem</TableHead>
                         <TableHead className="text-xs text-right">Preço Mín.</TableHead>
                         <TableHead className="text-xs text-right">Trib. Saída</TableHead>
-                        <TableHead className="text-xs text-right">IR s/ Lucro</TableHead>
+                        
                         <TableHead className="text-xs text-right">Lucro Líq.</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1313,9 +1309,6 @@ export default function PrecificacaoPage() {
                           <TableCell className="text-right font-mono text-orange-400">
                             {formatCurrency(r.tributosSaida)}
                           </TableCell>
-                          <TableCell className="text-right font-mono text-red-400">
-                            {formatCurrency(r.impostoRenda)}
-                          </TableCell>
                           <TableCell className="text-right font-mono text-green-400">
                             {formatCurrency(r.lucroLiquido)}
                           </TableCell>
@@ -1335,7 +1328,7 @@ export default function PrecificacaoPage() {
                 Preço = Custo Total ÷ (1 − Tributos Saída − Margem).{" "}
                 <strong>Venda:</strong> ICMS + PIS + COFINS sobre faturamento.{" "}
                 <strong>Serviço:</strong> ISS + PIS + COFINS sobre faturamento.{" "}
-                Em ambos, IRPJ+CSLL ({taxSaida.irpjCsll}%) incide sobre o lucro.
+                
                 Créditos de entrada (ICMS {activeEntrada.icmsCredito}% + PIS {activeEntrada.pisCredito}% + COFINS {activeEntrada.cofinsCredito}%) reduzem o custo de aquisição.
               </p>
             </CardContent>
