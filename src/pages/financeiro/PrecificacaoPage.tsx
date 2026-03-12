@@ -434,7 +434,9 @@ export default function PrecificacaoPage() {
 
   const totalProdutosEstoque = useMemo(() => {
     if (!produtos) return 1;
-    return produtos.reduce((sum, p) => sum + (Number(p.estoque) || 0), 0) || 1;
+    return produtos
+      .filter(p => !EXCLUDED_GROUPS.includes((p.nome_grupo || "").toLowerCase()))
+      .reduce((sum, p) => sum + (Number(p.estoque) || 0), 0) || 1;
   }, [produtos]);
 
   const custoFixoAutoUnit = custoFixoMensal ? custoFixoMensal / totalProdutosEstoque : 0;
