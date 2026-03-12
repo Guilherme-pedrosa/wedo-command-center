@@ -181,10 +181,10 @@ function calcPricingWithNF(
   const eff = getEffectiveRates(tributo);
   const valorUnit = tributo.valor_unitario_nf;
   
-  // Recalculate credits based on effective rates — serviço não aproveita ICMS
+  // Recalculate credits based on effective rates — serviço não aproveita nenhum crédito fiscal
   const creditoIcms = tipo === "servico" ? 0 : valorUnit * (eff.icms / 100);
-  const creditoPis = valorUnit * (eff.pis / 100);
-  const creditoCofins = valorUnit * (eff.cofins / 100);
+  const creditoPis = tipo === "servico" ? 0 : valorUnit * (eff.pis / 100);
+  const creditoCofins = tipo === "servico" ? 0 : valorUnit * (eff.cofins / 100);
   const ipiUnit = tributo.valor_ipi_unit;
   const freteUnit = tributo.valor_frete_unit;
   
