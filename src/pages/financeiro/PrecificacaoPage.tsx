@@ -669,17 +669,26 @@ export default function PrecificacaoPage() {
 
   // ── Sync NFs de entrada via API GC ──
   const handleSyncGC = async () => {
-    if (!window.confirm("⚠️ Isso consome chamadas da API do GestãoClick.\n\nDeseja continuar?")) return;
-    const { checkSyncCooldown, markSyncStarted } = await import("@/lib/gc-client");
-    const cooldown = checkSyncCooldown("sync-nfe-entrada-gc");
-    if (!cooldown.allowed) {
-      toast.error(`Aguarde ${Math.ceil(cooldown.remainingSeconds / 60)} minuto(s) antes de sincronizar novamente.`);
+    if (activeSyncRef.current) {
+      toast.error("Já existe uma sincronização em andamento.");
       return;
     }
-    markSyncStarted("sync-nfe-entrada-gc");
-    setSyncing(true);
-    setSyncProgress("Sincronizando com GC...");
+    if (!window.confirm("⚠️ Isso consome chamadas da API do GestãoClick.\n\nDeseja continuar?")) return;
+
+    activeSyncRef.current = "gc";
+    setActiveSync("gc");
+
     try {
+      const { checkSyncCooldown, markSyncStarted } = await import("@/lib/gc-client");
+      const cooldown = checkSyncCooldown("sync-nfe-entrada-gc");
+      if (!cooldown.allowed) {
+        toast.error(`Aguarde ${Math.ceil(cooldown.remainingSeconds / 60)} minuto(s) antes de sincronizar novamente.`);
+        return;
+      }
+
+      markSyncStarted("sync-nfe-entrada-gc");
+      setSyncProgress("Sincronizando com GC...");
+
       let offset = 0;
       const batchSize = 80;
       let totalProdutos = 0;
@@ -700,7 +709,8 @@ export default function PrecificacaoPage() {
       toast.error(`Erro: ${err instanceof Error ? err.message : String(err)}`);
       setSyncProgress("");
     } finally {
-      setSyncing(false);
+      activeSyncRef.current = null;
+      setActiveSync(null);
     }
   };
 
