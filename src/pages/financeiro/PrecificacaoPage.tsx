@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAllGCPages } from "@/lib/gc-client";
 import { supabase } from "@/integrations/supabase/client";
@@ -237,14 +237,27 @@ export default function PrecificacaoPage() {
   const [calcMargens] = useState([10, 15, 20, 25, 30]);
 
   // ── Fetch products from GC (staleTime longo para não re-buscar durante reprocessamento) ──
-  const { data: produtos, isLoading: loadingProdutos } = useQuery({
+  const { data: produtos, isLoading: loadingProdutos, error: produtosError } = useQuery({
     queryKey: ["gc-produtos"],
     queryFn: () => fetchAllGCPages<GCProduto>("/api/produtos"),
     staleTime: 30 * 60_000,
     refetchOnWindowFocus: false,
+    retry: (failureCount, error) => {
+      // Don't retry on daily limit exceeded
+      if (error?.message?.includes("DAILY_LIMIT") || error?.message?.includes("429")) return false;
+      return failureCount < 2;
+    },
   });
 
-  // ── Fetch product tax profiles from NFs ──
+  // Show toast when GC API limit is hit
+  const isApiLimitHit = produtosError?.message?.includes("Limite diário");
+  useEffect(() => {
+    if (isApiLimitHit) {
+      toast.error("Limite diário da API GestãoClick atingido. Exibindo dados offline (tributos das NFs).");
+    }
+  }, [isApiLimitHit]);
+
+
   const { data: tributos, refetch: refetchTributos } = useQuery({
     queryKey: ["produto-tributos"],
     queryFn: async () => {
