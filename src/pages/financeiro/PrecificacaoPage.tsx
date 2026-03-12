@@ -1057,8 +1057,8 @@ export default function PrecificacaoPage() {
 
           <Card className="border-border bg-card overflow-hidden">
             <Table>
-              <TableHeader>
-                <TableRow className="border-border hover:bg-transparent">
+              <TableHeader className="sticky top-0 z-10 bg-card">
+                <TableRow className="border-border hover:bg-transparent bg-card">
                   <TableHead className="text-xs" rowSpan={2}>Produto</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Estoque</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo</TableHead>
