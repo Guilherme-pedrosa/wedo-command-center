@@ -383,7 +383,7 @@ export default function PrecificacaoPage() {
           </Badge>
           <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={syncing}>
             {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-            Sync NFs Entrada
+            {syncing && syncProgress ? syncProgress : "Sync NFs Entrada"}
           </Button>
         </div>
       </div>
