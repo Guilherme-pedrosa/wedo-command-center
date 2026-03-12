@@ -595,7 +595,7 @@ export default function PrecificacaoPage() {
     }
   };
 
-  // ── Sync NFs de entrada (batched to avoid timeout) ──
+  // ── Sync NFs de entrada OFFLINE (usa BD local + XMLs, sem chamar API GC) ──
   const [syncProgress, setSyncProgress] = useState("");
   const handleSyncNFEntrada = async () => {
     // Cooldown check
@@ -608,7 +608,7 @@ export default function PrecificacaoPage() {
     markSyncStarted("sync-nfe-entrada");
 
     setSyncing(true);
-    setSyncProgress("Iniciando...");
+    setSyncProgress("Iniciando (modo offline)...");
     try {
       let offset = 0;
       const batchSize = 80;
@@ -617,7 +617,7 @@ export default function PrecificacaoPage() {
       let totalXmls = 0;
 
       while (true) {
-        const { data, error } = await supabase.functions.invoke("sync-nfe-entrada", {
+        const { data, error } = await supabase.functions.invoke("sync-nfe-entrada-offline", {
           body: { offset, batch_size: batchSize },
         });
         if (error) throw error;
@@ -632,7 +632,7 @@ export default function PrecificacaoPage() {
         offset = data.next_offset;
       }
 
-      toast.success(`Sincronizado: ${totalProdutos} produtos de ${totalCompras} compras (${totalXmls} XMLs usados)`);
+      toast.success(`Sincronizado (offline): ${totalProdutos} produtos de ${totalCompras} compras (${totalXmls} XMLs usados)`);
       setSyncProgress("");
       refetchTributos();
     } catch (err: unknown) {
@@ -692,7 +692,7 @@ export default function PrecificacaoPage() {
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={syncing}>
               {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-              Sync NFs Entrada
+              Reprocessar Tributos
             </Button>
             {syncing && syncProgress && (
               <span className="text-xs text-muted-foreground font-mono animate-pulse">{syncProgress}</span>
