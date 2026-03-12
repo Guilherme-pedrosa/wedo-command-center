@@ -231,6 +231,8 @@ export default function PrecificacaoPage() {
   const [taxSaida, setTaxSaida] = useState<TaxConfigSaida>(DEFAULT_SAIDA);
   const [tipoSaidaGlobal, setTipoSaidaGlobal] = useState<TipoSaida>("venda");
   const [margemAlvo, setMargemAlvo] = useState(30);
+  const [tabelaVenda, setTabelaVenda] = useState<"A" | "B" | "P">("B");
+  const MARKUP_TABELAS = { A: 2.2, B: 1.7, P: 1.5 }; // A=120%, B=70%, P=50%
   const [activeSync, setActiveSync] = useState<"gc" | "offline" | null>(null);
   const [calcCusto, setCalcCusto] = useState<string>("");
   const [calcTipoSaida, setCalcTipoSaida] = useState<TipoSaida>("venda");
@@ -1022,6 +1024,21 @@ export default function PrecificacaoPage() {
               </Select>
             </div>
             <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Tabela ref.:</Label>
+              <div className="flex gap-1">
+                {(["A", "B", "P"] as const).map((t) => (
+                  <Badge
+                    key={t}
+                    variant={tabelaVenda === t ? "default" : "outline"}
+                    className={`cursor-pointer text-xs px-2 py-0.5 ${tabelaVenda === t ? "" : "opacity-60 hover:opacity-100"}`}
+                    onClick={() => setTabelaVenda(t)}
+                  >
+                    {t}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Margem alvo:</Label>
               <div className="w-32">
                 <Slider value={[margemAlvo]} onValueChange={([v]) => setMargemAlvo(v)} min={5} max={50} step={1} />
@@ -1050,14 +1067,16 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs text-right">Custo Total</TableHead>
                   <TableHead className="text-xs text-right">Trib. Saída</TableHead>
                   <TableHead className="text-xs text-right font-semibold text-primary">Preço Mín.</TableHead>
-                  <TableHead className="text-xs text-right">Venda GC</TableHead>
+                  <TableHead className="text-xs text-right text-blue-400">Tab A (120%)</TableHead>
+                  <TableHead className="text-xs text-right text-yellow-400">Tab B (70%)</TableHead>
+                  <TableHead className="text-xs text-right text-purple-400">Tab P (50%)</TableHead>
                   <TableHead className="text-xs text-center">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 && !loadingProdutos && (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
                       {search ? "Nenhum produto encontrado" : "Busque produtos do estoque GestãoClick"}
                     </TableCell>
                   </TableRow>
@@ -1067,9 +1086,11 @@ export default function PrecificacaoPage() {
                   const estoque = Number(p.estoque) || 0;
                   const tributo = tributosMap.get(p.id);
                   const hasNF = !!tributo;
-                  // Venda GC = markup médio de 80% sobre custo real (média das 3 tabelas)
                   const custoBase = hasNF ? tributo.valor_unitario_nf : custoBruto;
-                  const vendaGC = custoBase > 0 ? custoBase * 1.8 : 0;
+                  const vendaA = custoBase * MARKUP_TABELAS.A;
+                  const vendaB = custoBase * MARKUP_TABELAS.B;
+                  const vendaP = custoBase * MARKUP_TABELAS.P;
+                  const vendaGC = custoBase * MARKUP_TABELAS[tabelaVenda];
 
                   let calc: ReturnType<typeof calcPricing>;
                   if (hasNF) {
@@ -1167,7 +1188,9 @@ export default function PrecificacaoPage() {
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
                         {formatCurrency(calc.precoMinimo)}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-sm">{formatCurrency(vendaGC)}</TableCell>
+                      <TableCell className={`text-right font-mono text-sm ${vendaA < calc.precoMinimo ? "text-destructive" : "text-blue-400"}`}>{formatCurrency(vendaA)}</TableCell>
+                      <TableCell className={`text-right font-mono text-sm ${vendaB < calc.precoMinimo ? "text-destructive" : "text-yellow-400"}`}>{formatCurrency(vendaB)}</TableCell>
+                      <TableCell className={`text-right font-mono text-sm ${vendaP < calc.precoMinimo ? "text-destructive" : "text-purple-400"}`}>{formatCurrency(vendaP)}</TableCell>
                       <TableCell className="text-center">
                         {custoBruto === 0 && !hasNF ? (
                           <Badge variant="outline" className="text-[10px] text-muted-foreground">Sem custo</Badge>
