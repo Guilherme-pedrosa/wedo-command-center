@@ -1064,10 +1064,12 @@ export default function PrecificacaoPage() {
                 )}
                 {filtered.map((p) => {
                   const custoBruto = parseFloat(p.valor_custo) || 0;
-                  const vendaGC = parseFloat(p.valor_venda) || 0;
                   const estoque = Number(p.estoque) || 0;
                   const tributo = tributosMap.get(p.id);
                   const hasNF = !!tributo;
+                  // Venda GC = markup médio de 80% sobre custo real (média das 3 tabelas)
+                  const custoBase = hasNF ? tributo.valor_unitario_nf : custoBruto;
+                  const vendaGC = custoBase > 0 ? custoBase * 1.8 : 0;
 
                   let calc: ReturnType<typeof calcPricing>;
                   if (hasNF) {
