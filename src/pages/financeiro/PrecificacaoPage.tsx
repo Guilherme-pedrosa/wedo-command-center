@@ -1091,9 +1091,8 @@ export default function PrecificacaoPage() {
                   const margemAtualVendaGC = vendaGC > 0 && calc.custoTotal > 0
                     ? (() => {
                         const tribSaida = vendaGC * calc.aliquotaSaidaFaturamento;
-                        const lucroAI = vendaGC - calc.custoTotal - tribSaida;
-                        const ir = Math.max(0, lucroAI * (taxSaida.irpjCsll / 100));
-                        return ((lucroAI - ir) / vendaGC) * 100;
+                        const lucro = vendaGC - calc.custoTotal - tribSaida;
+                        return (lucro / vendaGC) * 100;
                       })()
                     : 0;
 
