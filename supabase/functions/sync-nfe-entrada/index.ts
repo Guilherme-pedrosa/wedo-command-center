@@ -362,9 +362,9 @@ async function processNFs(
       const valorUnit = qtd > 0 ? valorProd / qtd : valorProd;
 
       // Proportional tax per this product
-      const icmsUnit = qtd > 0 ? (icmsTotal * proporcao) / qtd : 0;
-      const pisUnit = qtd > 0 ? (pisTotal * proporcao) / qtd : 0;
-      const cofinsUnit = qtd > 0 ? (cofinsTotal * proporcao) / qtd : 0;
+      const icmsUnit = isSimplesNacional ? 0 : (qtd > 0 ? (icmsTotal * proporcao) / qtd : 0);
+      const pisUnit = isSimplesNacional ? 0 : (qtd > 0 ? (pisTotal * proporcao) / qtd : 0);
+      const cofinsUnit = isSimplesNacional ? 0 : (qtd > 0 ? (cofinsTotal * proporcao) / qtd : 0);
       const ipiUnit = qtd > 0 ? (ipiTotal * proporcao) / qtd : 0;
       const freteUnit = qtd > 0 ? (freteTotal * proporcao) / qtd : 0;
 
@@ -390,10 +390,12 @@ async function processNFs(
         nf_data_emissao: nf.data_emissao || "",
         compra_gc_id: String(compra.id || ""),
         fornecedor_nome: nf.nome_emitente || compra.nome_fornecedor || "",
-        icms_aliquota: r(icmsRate),
-        icms_base: baseIcms > 0 ? r((baseIcms / valorProdutos) * 100) : 100,
-        pis_aliquota: r(pisRate),
-        cofins_aliquota: r(cofinsRate),
+        regime_fornecedor: isSimplesNacional ? "simples_nacional" : "normal",
+        sem_credito: isSimplesNacional,
+        icms_aliquota: isSimplesNacional ? 0 : r(icmsRate),
+        icms_base: isSimplesNacional ? 0 : (baseIcms > 0 ? r((baseIcms / valorProdutos) * 100) : 100),
+        pis_aliquota: isSimplesNacional ? 0 : r(pisRate),
+        cofins_aliquota: isSimplesNacional ? 0 : r(cofinsRate),
         ipi_aliquota: r(ipiRate),
         frete_percentual: r(freteRate),
         valor_unitario_nf: r(valorUnit),
