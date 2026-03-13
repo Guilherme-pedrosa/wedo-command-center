@@ -476,6 +476,7 @@ serve(async (req) => {
               bestDiff = diffTotal;
               bestIdx = i;
               xmlItem = xi;
+              matchRule = "valor_total";
             }
             if (!xmlItem || diffTotal > matchTolerance) {
               const diffUnit = Math.abs(xi.vUnCom - compraProdUnitario);
@@ -484,6 +485,7 @@ serve(async (req) => {
                 bestDiff = diffUnit;
                 bestIdx = i;
                 xmlItem = xi;
+                matchRule = "valor_unit_qtd";
               }
             }
           }
