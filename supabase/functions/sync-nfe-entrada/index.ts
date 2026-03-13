@@ -885,6 +885,7 @@ async function processNFs(
                 ncmBestDiff = diff;
                 xmlItem = xmlItems[i];
                 bestIdx = i;
+                matchRule = "ncm_valor";
               }
             }
           }
@@ -894,6 +895,7 @@ async function processNFs(
         if (!xmlItem && compraProdutos.length === 1 && xmlItems.length === 1 && usedXmlIndices.size === 0) {
           xmlItem = xmlItems[0];
           bestIdx = 0;
+          matchRule = "unico_1x1";
         }
 
         // Fix #1: Se match falhou mas temos XML real → rateio proporcional pelos totais do XML
