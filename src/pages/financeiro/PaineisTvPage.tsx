@@ -66,6 +66,70 @@ export default function PaineisTvPage() {
     },
   });
 
+  // Retornos query
+  const { data: retornos = [] } = useQuery({
+    queryKey: ['fin_os_retornos_admin', retornoDate.year, retornoDate.month],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('fin_os_retornos')
+        .select('*')
+        .eq('ano', retornoDate.year)
+        .eq('mes', retornoDate.month)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data as any[];
+    },
+  });
+
+  const invalidateRetornos = () => queryClient.invalidateQueries({ queryKey: ['fin_os_retornos_admin', retornoDate.year, retornoDate.month] });
+
+  const addRetorno = useMutation({
+    mutationFn: async (params: { os_codigo: string; tecnico_original: string; tecnico_retorno: string; valor: number }) => {
+      const { error } = await supabase.from('fin_os_retornos').insert({
+        os_codigo: params.os_codigo,
+        tecnico_original: params.tecnico_original.toUpperCase(),
+        tecnico_retorno: params.tecnico_retorno.toUpperCase(),
+        valor: params.valor,
+        ano: retornoDate.year,
+        mes: retornoDate.month,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidateRetornos();
+      queryClient.invalidateQueries({ queryKey: ['fin_os_retornos'] });
+      setShowRetorno(false);
+      setRetornoValues({ os_codigo: '', tecnico_original: '', tecnico_retorno: '', valor: '' });
+      toast.success('Retorno registrado');
+    },
+    onError: (e: any) => toast.error(e.message || 'Erro ao registrar retorno'),
+  });
+
+  const deleteRetorno = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('fin_os_retornos').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidateRetornos();
+      queryClient.invalidateQueries({ queryKey: ['fin_os_retornos'] });
+      toast.success('Retorno removido');
+    },
+    onError: () => toast.error('Erro ao remover'),
+  });
+
+  const tecnicosAtivos = metas.filter(m => m.ativo).map(m => m.nome_tecnico);
+
+  const navigateRetornoMonth = (dir: number) => {
+    setRetornoDate(prev => {
+      let m = prev.month + dir;
+      let y = prev.year;
+      if (m < 1) { m = 12; y--; }
+      if (m > 12) { m = 1; y++; }
+      return { year: y, month: m };
+    });
+  };
+
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['fin_metas_tecnicos_admin'] });
 
   const toggleAtivo = useMutation({
