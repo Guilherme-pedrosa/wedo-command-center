@@ -54,6 +54,36 @@ export default function PaineisTvPage() {
   const now = new Date();
   const [retornoDate, setRetornoDate] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 });
 
+  // OS data for retorno selection
+  const retornoStart = `${retornoDate.year}-${String(retornoDate.month).padStart(2, '0')}-01`;
+  const retornoLastDay = new Date(retornoDate.year, retornoDate.month, 0).getDate();
+  const retornoEnd = `${retornoDate.year}-${String(retornoDate.month).padStart(2, '0')}-${retornoLastDay}`;
+
+  const { data: osDoMes = [] } = useQuery({
+    queryKey: ['os_index_retorno_admin', retornoDate.year, retornoDate.month],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('os_index')
+        .select('os_codigo, nome_vendedor, valor_total')
+        .gte('data_saida', retornoStart)
+        .lte('data_saida', retornoEnd)
+        .order('os_codigo', { ascending: false });
+      if (error) throw error;
+      return (data || []) as { os_codigo: string; nome_vendedor: string | null; valor_total: number | null }[];
+    },
+    staleTime: 2 * 60 * 1000,
+  });
+
+  const [osSearch, setOsSearch] = useState('');
+  const filteredOs = useMemo(() => {
+    if (!osSearch.trim()) return osDoMes.slice(0, 50);
+    const q = osSearch.toLowerCase();
+    return osDoMes.filter(o =>
+      o.os_codigo.toLowerCase().includes(q) ||
+      (o.nome_vendedor || '').toLowerCase().includes(q)
+    ).slice(0, 50);
+  }, [osDoMes, osSearch]);
+
   const { data: metas = [], isLoading } = useQuery({
     queryKey: ['fin_metas_tecnicos_admin'],
     queryFn: async () => {
