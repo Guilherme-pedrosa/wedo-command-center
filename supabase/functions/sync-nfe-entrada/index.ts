@@ -147,6 +147,7 @@ interface ProductTaxRecord {
   valor_ipi_unit: number;
   valor_frete_unit: number;
   custo_efetivo_unit: number;
+  match_rule: string;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -828,6 +829,7 @@ async function processNFs(
         let xmlItem: XmlItemTax | undefined;
         let bestDiff = Infinity;
         let bestIdx = -1;
+        let matchRule = "sem_match";
 
         // Fix #2: Tolerância aumentada para 5% do valor, mínimo R$0.50
         const matchTolerance = Math.max(compraProdValor * 0.05, 0.50);
@@ -843,6 +845,7 @@ async function processNFs(
             bestDiff = diffTotal;
             bestIdx = i;
             xmlItem = xi;
+            matchRule = "valor_total";
           }
           
           // Match 2: valor unitário + mesma quantidade
@@ -853,6 +856,7 @@ async function processNFs(
               bestDiff = diffUnit;
               bestIdx = i;
               xmlItem = xi;
+              matchRule = "valor_unit_qtd";
             }
           }
         }
@@ -864,6 +868,7 @@ async function processNFs(
             if (xmlItems[i].cProd === nfProd.codigo_produto) {
               xmlItem = xmlItems[i];
               bestIdx = i;
+              matchRule = "codigo_produto";
               break;
             }
           }
@@ -880,6 +885,7 @@ async function processNFs(
                 ncmBestDiff = diff;
                 xmlItem = xmlItems[i];
                 bestIdx = i;
+                matchRule = "ncm_valor";
               }
             }
           }
@@ -889,6 +895,7 @@ async function processNFs(
         if (!xmlItem && compraProdutos.length === 1 && xmlItems.length === 1 && usedXmlIndices.size === 0) {
           xmlItem = xmlItems[0];
           bestIdx = 0;
+          matchRule = "unico_1x1";
         }
 
         // Fix #1: Se match falhou mas temos XML real → rateio proporcional pelos totais do XML
@@ -939,7 +946,7 @@ async function processNFs(
           nf_chave: nf.chave || "",
           nf_data_emissao: nf.data_emissao || "",
           compra_gc_id: String(compra.id || ""),
-          fornecedor_nome: fornecedorNome || "",  // Fix #3: NUNCA usar nf.emit (pode ser WD)
+          fornecedor_nome: fornecedorNome || "",
           regime_fornecedor: isSN ? "simples_nacional" : "normal",
           sem_credito: isSN,
           icms_aliquota: isSN ? 0 : r(icmsAliqReal),
@@ -955,6 +962,7 @@ async function processNFs(
           valor_ipi_unit: r(ipiUnit),
           valor_frete_unit: r(freteUnit),
           custo_efetivo_unit: r(custoEfetivo),
+          match_rule: matchRule,
         });
 
         console.log(`[sync-nfe-entrada] XML ✓ ${gcProdId} "${xmlItem.xProd}" → ICMS=${r(icmsAliqReal)}% PIS=${r(pisAliqReal)}% COFINS=${r(cofinsAliqReal)}% IPI=${r(ipiAliqReal)}%`);
@@ -1052,6 +1060,7 @@ function processItemXmlProportional(
     valor_ipi_unit: r(ipiUnit),
     valor_frete_unit: r(freteUnit),
     custo_efetivo_unit: r(custoEfetivo),
+    match_rule: "xml_rateio",
   });
   
   console.log(`[sync-nfe-entrada] XML rateio ✓ ${gcProdId} "${compraProd.nome_produto}" → ICMS=${r(avgIcmsAliq)}% PIS=${r(avgPisAliq)}% COFINS=${r(avgCofinsAliq)}%`);
@@ -1109,7 +1118,7 @@ function processItemProportional(
     nf_chave: nf.chave || "",
     nf_data_emissao: nf.data_emissao || "",
     compra_gc_id: String(compra.id || ""),
-    fornecedor_nome: fornecedorNome || "",  // Fix #3: NUNCA usar nf.emit
+    fornecedor_nome: fornecedorNome || "",
     regime_fornecedor: isSimplesNacional ? "simples_nacional" : "normal",
     sem_credito: isSimplesNacional,
     icms_aliquota: isSimplesNacional ? 0 : r(icmsRate),
@@ -1125,5 +1134,6 @@ function processItemProportional(
     valor_ipi_unit: r(ipiUnit),
     valor_frete_unit: r(freteUnit),
     custo_efetivo_unit: r(custoEfetivo),
+    match_rule: "sem_xml_proporcional",
   });
 }

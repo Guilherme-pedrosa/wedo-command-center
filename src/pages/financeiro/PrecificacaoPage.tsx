@@ -41,6 +41,7 @@ interface ProdutoTributo {
   fornecedor_nome: string | null;
   regime_fornecedor: string | null;
   sem_credito: boolean | null;
+  match_rule: string | null;
   icms_aliquota: number;
   icms_aliquota_manual: number | null;
   pis_aliquota: number;
@@ -1186,21 +1187,69 @@ export default function PrecificacaoPage() {
                               {(() => {
                                 const nfNum = tributo.nf_numero || (tributo.nf_chave?.length === 44 ? String(parseInt(tributo.nf_chave.substring(25, 34))) : "");
                                 return (
-                                  <Badge className={`text-[10px] gap-1 ${
-                                    tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito
-                                      ? "bg-amber-500/20 text-amber-400"
-                                      : "bg-primary/20 text-primary"
-                                  }`}>
-                                    <FileText className="h-3 w-3" />
-                                    {tributo.fornecedor_nome || "NF"}
-                                    {nfNum ? ` #${nfNum}` : ""}
-                                    {(tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito) ? " ·SN" : ""}
-                                  </Badge>
+                                  <div className="flex flex-col items-center gap-0.5">
+                                    <Badge className={`text-[10px] gap-1 ${
+                                      tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito
+                                        ? "bg-amber-500/20 text-amber-400"
+                                        : "bg-primary/20 text-primary"
+                                    }`}>
+                                      <FileText className="h-3 w-3" />
+                                      {tributo.fornecedor_nome || "NF"}
+                                      {nfNum ? ` #${nfNum}` : ""}
+                                      {(tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito) ? " ·SN" : ""}
+                                    </Badge>
+                                    {tributo.match_rule && (
+                                      <Badge variant="outline" className={`text-[9px] ${
+                                        ["codigo_produto", "unico_1x1"].includes(tributo.match_rule) ? "border-green-500/40 text-green-400" :
+                                        ["valor_total", "valor_unit_qtd"].includes(tributo.match_rule) ? "border-blue-500/40 text-blue-400" :
+                                        ["xml_rateio", "sem_xml_proporcional"].includes(tributo.match_rule) ? "border-orange-500/40 text-orange-400" :
+                                        "border-muted-foreground/40 text-muted-foreground"
+                                      }`}>
+                                        {({
+                                          codigo_produto: "✓ Código",
+                                          unico_1x1: "✓ 1:1",
+                                          valor_total: "≈ Valor",
+                                          valor_unit_qtd: "≈ Unit",
+                                          nome_similar: "≈ Nome",
+                                          ncm_valor: "~ NCM",
+                                          xml_rateio: "⚠ Rateio",
+                                          sem_xml_proporcional: "⚠ s/XML",
+                                        } as Record<string, string>)[tributo.match_rule] || tributo.match_rule}
+                                      </Badge>
+                                    )}
+                                  </div>
                                 );
                               })()}
                             </TooltipTrigger>
                             <TooltipContent className="text-xs max-w-sm">
                               <p className="font-semibold">NF #{tributo.nf_numero} — {tributo.fornecedor_nome}</p>
+                              {tributo.match_rule && (
+                                <p className="mt-1">
+                                  <span className="font-semibold">Match: </span>
+                                  <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                                    tributo.match_rule === "codigo_produto" ? "bg-green-500/20 text-green-400" :
+                                    tributo.match_rule === "unico_1x1" ? "bg-green-500/20 text-green-400" :
+                                    tributo.match_rule === "valor_total" ? "bg-blue-500/20 text-blue-400" :
+                                    tributo.match_rule === "valor_unit_qtd" ? "bg-blue-500/20 text-blue-400" :
+                                    tributo.match_rule === "nome_similar" ? "bg-cyan-500/20 text-cyan-400" :
+                                    tributo.match_rule === "ncm_valor" ? "bg-yellow-500/20 text-yellow-400" :
+                                    tributo.match_rule === "xml_rateio" ? "bg-orange-500/20 text-orange-400" :
+                                    tributo.match_rule === "sem_xml_proporcional" ? "bg-red-500/20 text-red-400" :
+                                    "bg-muted text-muted-foreground"
+                                  }`}>
+                                    {({
+                                      codigo_produto: "✓ Código exato",
+                                      unico_1x1: "✓ Único 1:1",
+                                      valor_total: "≈ Valor total",
+                                      valor_unit_qtd: "≈ Valor unit+qtd",
+                                      nome_similar: "≈ Nome similar",
+                                      ncm_valor: "~ NCM+valor",
+                                      xml_rateio: "⚠ Rateio XML",
+                                      sem_xml_proporcional: "⚠ Sem XML",
+                                    } as Record<string, string>)[tributo.match_rule] || tributo.match_rule}
+                                  </span>
+                                </p>
+                              )}
                               {(tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito) && (
                                 <p className="text-amber-400 font-semibold">⚠ Simples Nacional — Sem créditos de entrada</p>
                               )}

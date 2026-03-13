@@ -1,0 +1,1 @@
+ALTER TABLE public.fin_produto_tributos ADD COLUMN IF NOT EXISTS match_rule text DEFAULT NULL;

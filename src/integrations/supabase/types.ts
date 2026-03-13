@@ -1429,6 +1429,7 @@ export type Database = {
           id: string
           ipi_aliquota: number | null
           ipi_aliquota_manual: number | null
+          match_rule: string | null
           ncm: string | null
           nf_chave: string | null
           nf_data_emissao: string | null
@@ -1463,6 +1464,7 @@ export type Database = {
           id?: string
           ipi_aliquota?: number | null
           ipi_aliquota_manual?: number | null
+          match_rule?: string | null
           ncm?: string | null
           nf_chave?: string | null
           nf_data_emissao?: string | null
@@ -1497,6 +1499,7 @@ export type Database = {
           id?: string
           ipi_aliquota?: number | null
           ipi_aliquota_manual?: number | null
+          match_rule?: string | null
           ncm?: string | null
           nf_chave?: string | null
           nf_data_emissao?: string | null

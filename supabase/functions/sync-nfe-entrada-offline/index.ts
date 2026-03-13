@@ -82,6 +82,7 @@ interface ProductTaxRecord {
   valor_ipi_unit: number;
   valor_frete_unit: number;
   custo_efetivo_unit: number;
+  match_rule: string;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -424,6 +425,7 @@ serve(async (req) => {
 
         let xmlItem: XmlItemTax | undefined;
         let bestIdx = -1;
+        let matchRule = "sem_match";
 
         // ── PRIORIDADE 1: Match por código do produto (cProd === produto_id) ──
         for (let i = 0; i < xmlItems.length; i++) {
@@ -431,6 +433,7 @@ serve(async (req) => {
           if (xmlItems[i].cProd === gcProdId) {
             xmlItem = xmlItems[i];
             bestIdx = i;
+            matchRule = "codigo_produto";
             break;
           }
         }
@@ -454,6 +457,7 @@ serve(async (req) => {
               bestNameDiff = Math.abs(xmlItems[i].vProd - compraProdValor);
               xmlItem = xmlItems[i];
               bestIdx = i;
+              matchRule = "nome_similar";
             }
           }
         }
@@ -472,6 +476,7 @@ serve(async (req) => {
               bestDiff = diffTotal;
               bestIdx = i;
               xmlItem = xi;
+              matchRule = "valor_total";
             }
             if (!xmlItem || diffTotal > matchTolerance) {
               const diffUnit = Math.abs(xi.vUnCom - compraProdUnitario);
@@ -480,6 +485,7 @@ serve(async (req) => {
                 bestDiff = diffUnit;
                 bestIdx = i;
                 xmlItem = xi;
+                matchRule = "valor_unit_qtd";
               }
             }
           }
@@ -489,6 +495,7 @@ serve(async (req) => {
         if (!xmlItem && compraProdutos.length === 1 && xmlItems.length === 1 && usedXmlIndices.size === 0) {
           xmlItem = xmlItems[0];
           bestIdx = 0;
+          matchRule = "unico_1x1";
         }
 
         if (xmlItem && bestIdx >= 0) {
@@ -541,6 +548,7 @@ serve(async (req) => {
             valor_ipi_unit: r(ipiUnit),
             valor_frete_unit: r(freteUnit),
             custo_efetivo_unit: r(custoEfetivo),
+            match_rule: matchRule,
           });
 
           console.log(`[offline] ✓ ${gcProdId} "${xmlItem.xProd}" ICMS=${r(icmsAliqReal)}% PIS=${r(pisAliqReal)}% COFINS=${r(cofinsAliqReal)}%`);
@@ -604,6 +612,7 @@ serve(async (req) => {
             valor_ipi_unit: r(ipiUnit),
             valor_frete_unit: r(freteUnit),
             custo_efetivo_unit: r(custoEfetivo),
+            match_rule: "xml_rateio",
           });
 
           console.log(`[offline] rateio ✓ ${gcProdId} "${compraProd.nome_produto}" ICMS=${r(avgIcmsAliq)}% PIS=${r(avgPisAliq)}% COFINS=${r(avgCofinsAliq)}%`);
