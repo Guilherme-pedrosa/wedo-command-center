@@ -1189,6 +1189,42 @@ export type Database = {
         }
         Relationships: []
       }
+      fin_os_retornos: {
+        Row: {
+          ano: number
+          created_at: string | null
+          created_by: string | null
+          id: string
+          mes: number
+          os_codigo: string
+          tecnico_original: string
+          tecnico_retorno: string
+          valor: number
+        }
+        Insert: {
+          ano: number
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          mes: number
+          os_codigo: string
+          tecnico_original: string
+          tecnico_retorno: string
+          valor?: number
+        }
+        Update: {
+          ano?: number
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          mes?: number
+          os_codigo?: string
+          tecnico_original?: string
+          tecnico_retorno?: string
+          valor?: number
+        }
+        Relationships: []
+      }
       fin_pagamentos: {
         Row: {
           aguardando_nf: boolean | null
