@@ -495,6 +495,7 @@ serve(async (req) => {
         if (!xmlItem && compraProdutos.length === 1 && xmlItems.length === 1 && usedXmlIndices.size === 0) {
           xmlItem = xmlItems[0];
           bestIdx = 0;
+          matchRule = "unico_1x1";
         }
 
         if (xmlItem && bestIdx >= 0) {
