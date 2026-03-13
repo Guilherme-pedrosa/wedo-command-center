@@ -87,11 +87,23 @@ export default function RecebimentosPage() {
   const { data: recebimentos, isLoading } = useQuery({
     queryKey: ["fin-recebimentos"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("fin_recebimentos")
-        .select("*")
-        .order("data_vencimento", { ascending: true })
-        .limit(1000);
+      // Fetch all records (paginated to bypass 1000-row default limit)
+      const allData: any[] = [];
+      let from = 0;
+      const batchSize = 1000;
+      while (true) {
+        const { data: batch, error } = await supabase
+          .from("fin_recebimentos")
+          .select("*")
+          .order("data_vencimento", { ascending: true })
+          .range(from, from + batchSize - 1);
+        if (error) throw error;
+        if (!batch || batch.length === 0) break;
+        allData.push(...batch);
+        if (batch.length < batchSize) break;
+        from += batchSize;
+      }
+      const data = allData;
       return data || [];
     },
   });
