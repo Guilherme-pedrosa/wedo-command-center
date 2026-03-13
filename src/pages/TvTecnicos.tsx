@@ -33,6 +33,7 @@ export default function TvTecnicos() {
 
   // Retorno dialog state
   const [retornoTarget, setRetornoTarget] = useState<{ codigo: string; tecnico: string; valor: number } | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const navigateMonth = (dir: number) => {
     setSelectedDate(prev => {
@@ -68,7 +69,7 @@ export default function TvTecnicos() {
   });
 
   // Fetch OS do mês
-  const { data: osData = [], isLoading: loadingOs, refetch: refetchOs } = useQuery({
+  const { data: osData = [], isLoading: loadingOs, refetch: refetchOs, dataUpdatedAt } = useQuery({
     queryKey: ['os_index_tecnicos', year, month],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -230,8 +231,15 @@ export default function TvTecnicos() {
             </div>
           </div>
         </div>
-        <div className="text-sm text-white/30">
-          {isLoggedIn ? '🔓 Logado — clique em uma OS para marcar retorno' : 'Atualiza a cada 5 min'}
+        <div className="text-right">
+          <div className="text-sm text-white/30">
+            {isLoggedIn ? '🔓 Logado — clique em uma OS para marcar retorno' : 'Atualiza a cada 5 min'}
+          </div>
+          {dataUpdatedAt > 0 && (
+            <div className="text-xs text-white/20 mt-0.5">
+              Última atualização: {new Date(dataUpdatedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </div>
+          )}
         </div>
       </div>
 
