@@ -42,6 +42,7 @@ const FinFaturaCartao = lazy(() => import("@/pages/financeiro/FaturaCartaoPage")
 const FinNegociacaoOS = lazy(() => import("@/pages/financeiro/NegociacaoOSPage"));
 const FinNegociacoes = lazy(() => import("@/pages/financeiro/NegociacoesPage"));
 const FinPrecificacao = lazy(() => import("@/pages/financeiro/PrecificacaoPage"));
+const FinArgusAgent = lazy(() => import("@/pages/financeiro/ArgusAgentPage"));
 const queryClient = new QueryClient();
 
 function LazyFallback() {

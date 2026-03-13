@@ -62,6 +62,7 @@ const finRelatorios = [
 ];
 
 const finAdmin = [
+  { title: "🤖 ARGUS Agent", url: "/financeiro/argus-agent", icon: Search },
   { title: "\uD83D\uDCCB Plano Contas", url: "/financeiro/plano-contas", icon: BookOpen },
   { title: "\uD83C\uDFE2 Centros de Custo", url: "/financeiro/centros-custo", icon: BookOpen },
   { title: "📺 Painéis TV", url: "/financeiro/paineis-tv", icon: Tv },
