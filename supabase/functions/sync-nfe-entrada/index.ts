@@ -845,6 +845,7 @@ async function processNFs(
             bestDiff = diffTotal;
             bestIdx = i;
             xmlItem = xi;
+            matchRule = "valor_total";
           }
           
           // Match 2: valor unitário + mesma quantidade
@@ -855,6 +856,7 @@ async function processNFs(
               bestDiff = diffUnit;
               bestIdx = i;
               xmlItem = xi;
+              matchRule = "valor_unit_qtd";
             }
           }
         }
