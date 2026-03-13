@@ -191,6 +191,211 @@ export type Database = {
           },
         ]
       }
+      fin_agent_runs: {
+        Row: {
+          acoes_executadas: number | null
+          alertas_criados: number | null
+          created_at: string | null
+          duracao_ms: number | null
+          erros: Json | null
+          fim: string | null
+          id: string
+          inicio: string | null
+          resumo: string | null
+          status: string
+          tarefas_criadas: number | null
+          tipo: string
+        }
+        Insert: {
+          acoes_executadas?: number | null
+          alertas_criados?: number | null
+          created_at?: string | null
+          duracao_ms?: number | null
+          erros?: Json | null
+          fim?: string | null
+          id?: string
+          inicio?: string | null
+          resumo?: string | null
+          status?: string
+          tarefas_criadas?: number | null
+          tipo: string
+        }
+        Update: {
+          acoes_executadas?: number | null
+          alertas_criados?: number | null
+          created_at?: string | null
+          duracao_ms?: number | null
+          erros?: Json | null
+          fim?: string | null
+          id?: string
+          inicio?: string | null
+          resumo?: string | null
+          status?: string
+          tarefas_criadas?: number | null
+          tipo?: string
+        }
+        Relationships: []
+      }
+      fin_alertas: {
+        Row: {
+          created_at: string | null
+          descricao: string | null
+          entidade_id: string | null
+          entidade_tipo: string | null
+          evidencias: Json | null
+          id: string
+          resolvido_em: string | null
+          resolvido_por: string | null
+          severidade: string
+          status: string
+          tarefa_id: string | null
+          tipo: string
+          titulo: string
+          updated_at: string | null
+          valor_impacto: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          descricao?: string | null
+          entidade_id?: string | null
+          entidade_tipo?: string | null
+          evidencias?: Json | null
+          id?: string
+          resolvido_em?: string | null
+          resolvido_por?: string | null
+          severidade?: string
+          status?: string
+          tarefa_id?: string | null
+          tipo: string
+          titulo: string
+          updated_at?: string | null
+          valor_impacto?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          descricao?: string | null
+          entidade_id?: string | null
+          entidade_tipo?: string | null
+          evidencias?: Json | null
+          id?: string
+          resolvido_em?: string | null
+          resolvido_por?: string | null
+          severidade?: string
+          status?: string
+          tarefa_id?: string | null
+          tipo?: string
+          titulo?: string
+          updated_at?: string | null
+          valor_impacto?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_alertas_tarefa_id_fkey"
+            columns: ["tarefa_id"]
+            isOneToOne: false
+            referencedRelation: "fin_tarefas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fin_aprovacoes: {
+        Row: {
+          aprovado_por: string | null
+          created_at: string | null
+          decidido_em: string | null
+          estado_anterior: Json | null
+          id: string
+          justificativa: string | null
+          payload_proposto: Json | null
+          solicitado_por: string | null
+          status: string
+          tarefa_id: string | null
+          tipo_acao: string
+          valor: number | null
+        }
+        Insert: {
+          aprovado_por?: string | null
+          created_at?: string | null
+          decidido_em?: string | null
+          estado_anterior?: Json | null
+          id?: string
+          justificativa?: string | null
+          payload_proposto?: Json | null
+          solicitado_por?: string | null
+          status?: string
+          tarefa_id?: string | null
+          tipo_acao: string
+          valor?: number | null
+        }
+        Update: {
+          aprovado_por?: string | null
+          created_at?: string | null
+          decidido_em?: string | null
+          estado_anterior?: Json | null
+          id?: string
+          justificativa?: string | null
+          payload_proposto?: Json | null
+          solicitado_por?: string | null
+          status?: string
+          tarefa_id?: string | null
+          tipo_acao?: string
+          valor?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_aprovacoes_tarefa_id_fkey"
+            columns: ["tarefa_id"]
+            isOneToOne: false
+            referencedRelation: "fin_tarefas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fin_audit_log: {
+        Row: {
+          acao: string
+          antes: Json | null
+          aprovacao_id: string | null
+          ator: string
+          created_at: string | null
+          depois: Json | null
+          entidade_id: string | null
+          entidade_tipo: string | null
+          evidencias: Json | null
+          id: string
+          justificativa: string | null
+          tarefa_id: string | null
+        }
+        Insert: {
+          acao: string
+          antes?: Json | null
+          aprovacao_id?: string | null
+          ator?: string
+          created_at?: string | null
+          depois?: Json | null
+          entidade_id?: string | null
+          entidade_tipo?: string | null
+          evidencias?: Json | null
+          id?: string
+          justificativa?: string | null
+          tarefa_id?: string | null
+        }
+        Update: {
+          acao?: string
+          antes?: Json | null
+          aprovacao_id?: string | null
+          ator?: string
+          created_at?: string | null
+          depois?: Json | null
+          entidade_id?: string | null
+          entidade_tipo?: string | null
+          evidencias?: Json | null
+          id?: string
+          justificativa?: string | null
+          tarefa_id?: string | null
+        }
+        Relationships: []
+      }
       fin_cartoes: {
         Row: {
           ativo: boolean | null
@@ -1150,6 +1355,42 @@ export type Database = {
         }
         Relationships: []
       }
+      fin_model_signals: {
+        Row: {
+          confianca: number | null
+          created_at: string | null
+          entidade_id: string | null
+          entidade_tipo: string | null
+          id: string
+          metadata: Json | null
+          periodo: string | null
+          tipo: string
+          valor: number | null
+        }
+        Insert: {
+          confianca?: number | null
+          created_at?: string | null
+          entidade_id?: string | null
+          entidade_tipo?: string | null
+          id?: string
+          metadata?: Json | null
+          periodo?: string | null
+          tipo: string
+          valor?: number | null
+        }
+        Update: {
+          confianca?: number | null
+          created_at?: string | null
+          entidade_id?: string | null
+          entidade_tipo?: string | null
+          id?: string
+          metadata?: Json | null
+          periodo?: string | null
+          tipo?: string
+          valor?: number | null
+        }
+        Relationships: []
+      }
       fin_nfe_xml_index: {
         Row: {
           chave: string
@@ -1757,6 +1998,80 @@ export type Database = {
           tipo?: string
         }
         Relationships: []
+      }
+      fin_tarefas: {
+        Row: {
+          alerta_id: string | null
+          atribuido_a: string | null
+          centro_custo_id: string | null
+          coluna: string
+          created_at: string | null
+          created_by: string | null
+          descricao: string | null
+          entidade_id: string | null
+          entidade_tipo: string | null
+          evidencias: Json | null
+          id: string
+          os_codigo: string | null
+          plano_acao: Json | null
+          posicao: number | null
+          severidade: string | null
+          tipo: string
+          titulo: string
+          updated_at: string | null
+          valor_impacto: number | null
+        }
+        Insert: {
+          alerta_id?: string | null
+          atribuido_a?: string | null
+          centro_custo_id?: string | null
+          coluna?: string
+          created_at?: string | null
+          created_by?: string | null
+          descricao?: string | null
+          entidade_id?: string | null
+          entidade_tipo?: string | null
+          evidencias?: Json | null
+          id?: string
+          os_codigo?: string | null
+          plano_acao?: Json | null
+          posicao?: number | null
+          severidade?: string | null
+          tipo?: string
+          titulo: string
+          updated_at?: string | null
+          valor_impacto?: number | null
+        }
+        Update: {
+          alerta_id?: string | null
+          atribuido_a?: string | null
+          centro_custo_id?: string | null
+          coluna?: string
+          created_at?: string | null
+          created_by?: string | null
+          descricao?: string | null
+          entidade_id?: string | null
+          entidade_tipo?: string | null
+          evidencias?: Json | null
+          id?: string
+          os_codigo?: string | null
+          plano_acao?: Json | null
+          posicao?: number | null
+          severidade?: string | null
+          tipo?: string
+          titulo?: string
+          updated_at?: string | null
+          valor_impacto?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_tarefas_alerta_id_fkey"
+            columns: ["alerta_id"]
+            isOneToOne: false
+            referencedRelation: "fin_alertas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       gc_compras: {
         Row: {
