@@ -1118,7 +1118,7 @@ function processItemProportional(
     nf_chave: nf.chave || "",
     nf_data_emissao: nf.data_emissao || "",
     compra_gc_id: String(compra.id || ""),
-    fornecedor_nome: fornecedorNome || "",  // Fix #3: NUNCA usar nf.emit
+    fornecedor_nome: fornecedorNome || "",
     regime_fornecedor: isSimplesNacional ? "simples_nacional" : "normal",
     sem_credito: isSimplesNacional,
     icms_aliquota: isSimplesNacional ? 0 : r(icmsRate),
@@ -1134,5 +1134,6 @@ function processItemProportional(
     valor_ipi_unit: r(ipiUnit),
     valor_frete_unit: r(freteUnit),
     custo_efetivo_unit: r(custoEfetivo),
+    match_rule: "sem_xml_proporcional",
   });
 }
