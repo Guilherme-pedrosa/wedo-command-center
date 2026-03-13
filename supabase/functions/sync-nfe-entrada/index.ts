@@ -946,7 +946,7 @@ async function processNFs(
           nf_chave: nf.chave || "",
           nf_data_emissao: nf.data_emissao || "",
           compra_gc_id: String(compra.id || ""),
-          fornecedor_nome: fornecedorNome || "",  // Fix #3: NUNCA usar nf.emit (pode ser WD)
+          fornecedor_nome: fornecedorNome || "",
           regime_fornecedor: isSN ? "simples_nacional" : "normal",
           sem_credito: isSN,
           icms_aliquota: isSN ? 0 : r(icmsAliqReal),
@@ -962,6 +962,7 @@ async function processNFs(
           valor_ipi_unit: r(ipiUnit),
           valor_frete_unit: r(freteUnit),
           custo_efetivo_unit: r(custoEfetivo),
+          match_rule: matchRule,
         });
 
         console.log(`[sync-nfe-entrada] XML ✓ ${gcProdId} "${xmlItem.xProd}" → ICMS=${r(icmsAliqReal)}% PIS=${r(pisAliqReal)}% COFINS=${r(cofinsAliqReal)}% IPI=${r(ipiAliqReal)}%`);
