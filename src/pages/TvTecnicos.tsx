@@ -69,7 +69,7 @@ export default function TvTecnicos() {
   });
 
   // Fetch OS do mês
-  const { data: osData = [], isLoading: loadingOs, refetch: refetchOs } = useQuery({
+  const { data: osData = [], isLoading: loadingOs, refetch: refetchOs, dataUpdatedAt } = useQuery({
     queryKey: ['os_index_tecnicos', year, month],
     queryFn: async () => {
       const { data, error } = await supabase
