@@ -433,6 +433,7 @@ serve(async (req) => {
           if (xmlItems[i].cProd === gcProdId) {
             xmlItem = xmlItems[i];
             bestIdx = i;
+            matchRule = "codigo_produto";
             break;
           }
         }
