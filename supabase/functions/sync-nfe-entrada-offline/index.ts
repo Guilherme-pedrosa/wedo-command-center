@@ -425,6 +425,7 @@ serve(async (req) => {
 
         let xmlItem: XmlItemTax | undefined;
         let bestIdx = -1;
+        let matchRule = "sem_match";
 
         // ── PRIORIDADE 1: Match por código do produto (cProd === produto_id) ──
         for (let i = 0; i < xmlItems.length; i++) {
