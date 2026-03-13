@@ -1,38 +1,38 @@
 // src/pages/TvTecnicos.tsx — TV: Metas de Faturamento por Técnico
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Loader2, Trophy, ChevronLeft, ChevronRight } from 'lucide-react';
+import { TecnicoCard } from '@/components/tv-tecnicos/TecnicoCard';
+import { RetornoDialog } from '@/components/tv-tecnicos/RetornoDialog';
+import toast from 'react-hot-toast';
 
 const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
 const formatBRL = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
-interface TecnicoMeta {
-  nome_tecnico: string;
-  meta_faturamento: number;
-}
-
-interface OsRow {
-  nome_vendedor: string | null;
-  valor_total: number | null;
-  os_codigo: string;
-}
-
-interface TecnicoResult {
-  nome: string;
-  meta: number;
-  realizado: number;
-  pct: number;
-  osList: { codigo: string; valor: number }[];
-}
+interface TecnicoMeta { nome_tecnico: string; meta_faturamento: number; }
+interface OsRow { nome_vendedor: string | null; valor_total: number | null; os_codigo: string; }
+interface RetornoRow { os_codigo: string; tecnico_original: string; tecnico_retorno: string; valor: number; }
 
 export default function TvTecnicos() {
   const now = new Date();
+  const qc = useQueryClient();
   const [selectedDate, setSelectedDate] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 });
   const { year, month } = selectedDate;
   const mesLabel = `${meses[month - 1]} ${year}`;
+
+  // Auth state
+  const [userId, setUserId] = useState<string | null>(null);
+  useEffect(() => {
+    supabase.auth.onAuthStateChange((_ev, session) => setUserId(session?.user?.id ?? null));
+    supabase.auth.getSession().then(({ data }) => setUserId(data.session?.user?.id ?? null));
+  }, []);
+  const isLoggedIn = !!userId;
+
+  // Retorno dialog state
+  const [retornoTarget, setRetornoTarget] = useState<{ codigo: string; tecnico: string; valor: number } | null>(null);
 
   const navigateMonth = (dir: number) => {
     setSelectedDate(prev => {
@@ -48,12 +48,11 @@ export default function TvTecnicos() {
   };
 
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
-
   const start = `${year}-${String(month).padStart(2, '0')}-01`;
   const lastDay = new Date(year, month, 0).getDate();
   const end = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
 
-  // Fetch metas dos técnicos
+  // Fetch metas
   const { data: metas = [], refetch: refetchMetas } = useQuery({
     queryKey: ['fin_metas_tecnicos'],
     queryFn: async () => {
@@ -68,8 +67,8 @@ export default function TvTecnicos() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Fetch OS do mês (executadas)
-  const { data: osData = [], isLoading, refetch: refetchOs } = useQuery({
+  // Fetch OS do mês
+  const { data: osData = [], isLoading: loadingOs, refetch: refetchOs } = useQuery({
     queryKey: ['os_index_tecnicos', year, month],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -83,26 +82,100 @@ export default function TvTecnicos() {
     staleTime: 2 * 60 * 1000,
   });
 
-  // Auto-refresh a cada 5 min
+  // Fetch retornos do mês
+  const { data: retornos = [], refetch: refetchRetornos } = useQuery({
+    queryKey: ['fin_os_retornos', year, month],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('fin_os_retornos')
+        .select('os_codigo, tecnico_original, tecnico_retorno, valor')
+        .eq('ano', year)
+        .eq('mes', month);
+      if (error) throw error;
+      return (data || []) as RetornoRow[];
+    },
+    staleTime: 2 * 60 * 1000,
+  });
+
+  // Auto-refresh
   useEffect(() => {
     const interval = setInterval(() => {
       refetchMetas();
       refetchOs();
+      refetchRetornos();
     }, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [refetchMetas, refetchOs]);
+  }, [refetchMetas, refetchOs, refetchRetornos]);
 
-  // Agregar faturamento por técnico
-  const resultados: TecnicoResult[] = useMemo(() => {
-    const vendedorMap: Record<string, { total: number; osList: { codigo: string; valor: number }[] }> = {};
+  // Mutations
+  const addRetorno = useMutation({
+    mutationFn: async (params: { os_codigo: string; tecnico_original: string; tecnico_retorno: string; valor: number }) => {
+      const { error } = await supabase.from('fin_os_retornos').insert({
+        os_codigo: params.os_codigo,
+        tecnico_original: params.tecnico_original,
+        tecnico_retorno: params.tecnico_retorno,
+        valor: params.valor,
+        ano: year,
+        mes: month,
+        created_by: userId,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] });
+      toast.success('OS marcada como retorno');
+    },
+    onError: (e: any) => toast.error(e.message || 'Erro ao marcar retorno'),
+  });
+
+  const removeRetorno = useMutation({
+    mutationFn: async (os_codigo: string) => {
+      const { error } = await supabase
+        .from('fin_os_retornos')
+        .delete()
+        .eq('os_codigo', os_codigo)
+        .eq('ano', year)
+        .eq('mes', month);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] });
+      toast.success('Retorno desfeito');
+    },
+    onError: (e: any) => toast.error(e.message || 'Erro ao desfazer'),
+  });
+
+  // Build retorno maps
+  const retornoMap = useMemo(() => {
+    const map: Record<string, RetornoRow> = {};
+    for (const r of retornos) map[r.os_codigo] = r;
+    return map;
+  }, [retornos]);
+
+  // Aggregate results with retorno logic
+  const resultados = useMemo(() => {
+    const vendedorMap: Record<string, { total: number; osList: { codigo: string; valor: number; isRetorno?: boolean; retornoFrom?: string }[] }> = {};
+
     for (const os of osData) {
       const nomeCompleto = os.nome_vendedor?.trim().toUpperCase();
       if (!nomeCompleto) continue;
       const primeiroNome = nomeCompleto.split(' ')[0];
       if (!vendedorMap[primeiroNome]) vendedorMap[primeiroNome] = { total: 0, osList: [] };
       const valor = os.valor_total ?? 0;
-      vendedorMap[primeiroNome].total += valor;
-      vendedorMap[primeiroNome].osList.push({ codigo: os.os_codigo, valor });
+      const retorno = retornoMap[os.os_codigo];
+
+      if (retorno) {
+        // This OS is marked as retorno — show strikethrough, don't count value
+        vendedorMap[primeiroNome].osList.push({ codigo: os.os_codigo, valor, isRetorno: true });
+        // Add value to the retorno technician
+        const tecRetorno = retorno.tecnico_retorno.trim().toUpperCase();
+        if (!vendedorMap[tecRetorno]) vendedorMap[tecRetorno] = { total: 0, osList: [] };
+        vendedorMap[tecRetorno].total += valor;
+        vendedorMap[tecRetorno].osList.push({ codigo: os.os_codigo, valor, retornoFrom: primeiroNome });
+      } else {
+        vendedorMap[primeiroNome].total += valor;
+        vendedorMap[primeiroNome].osList.push({ codigo: os.os_codigo, valor });
+      }
     }
 
     return metas.map(m => {
@@ -115,33 +188,18 @@ export default function TvTecnicos() {
         meta,
         realizado: info.total,
         pct,
-        osList: info.osList.sort((a, b) => b.valor - a.valor),
+        osList: info.osList.sort((a, b) => {
+          if (a.isRetorno && !b.isRetorno) return 1;
+          if (!a.isRetorno && b.isRetorno) return -1;
+          return b.valor - a.valor;
+        }),
       };
     }).sort((a, b) => b.pct - a.pct);
-  }, [metas, osData]);
+  }, [metas, osData, retornoMap]);
 
-  const getEmoji = (pct: number) => {
-    if (pct >= 1) return '🏆';
-    if (pct >= 0.8) return '😄';
-    if (pct >= 0.5) return '😐';
-    return '😟';
-  };
+  const tecnicoNames = metas.map(m => m.nome_tecnico);
 
-  const getBarColor = (pct: number) => {
-    if (pct >= 1) return 'bg-emerald-500';
-    if (pct >= 0.8) return 'bg-yellow-400';
-    if (pct >= 0.5) return 'bg-orange-400';
-    return 'bg-red-500';
-  };
-
-  const getTextColor = (pct: number) => {
-    if (pct >= 1) return 'text-emerald-400';
-    if (pct >= 0.8) return 'text-yellow-400';
-    if (pct >= 0.5) return 'text-orange-400';
-    return 'text-red-400';
-  };
-
-  if (isLoading) {
+  if (loadingOs) {
     return (
       <div className="min-h-screen bg-[#0a0e1a] flex items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-muted-foreground" />
@@ -173,77 +231,50 @@ export default function TvTecnicos() {
           </div>
         </div>
         <div className="text-sm text-white/30">
-          Atualiza a cada 5 min
+          {isLoggedIn ? '🔓 Logado — clique em uma OS para marcar retorno' : 'Atualiza a cada 5 min'}
         </div>
       </div>
 
-      {/* Grid de técnicos */}
+      {/* Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 flex-1">
-        {resultados.map((t, i) => {
-          const pctClamped = Math.min(t.pct, 1);
-          return (
-            <div
-              key={t.nome}
-              className={`relative rounded-2xl border p-5 flex flex-col justify-between transition-all ${
-                t.pct >= 1
-                  ? 'border-emerald-500/50 bg-emerald-500/10'
-                  : t.pct >= 0.8
-                  ? 'border-yellow-500/40 bg-yellow-500/5'
-                  : t.pct >= 0.5
-                  ? 'border-orange-500/30 bg-orange-500/5'
-                  : 'border-red-500/30 bg-red-500/5'
-              }`}
-            >
-              {/* Posição + Emoji */}
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-4xl">{getEmoji(t.pct)}</span>
-                {i < 3 && t.pct > 0 && (
-                  <span className="text-xs font-bold bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded-full">
-                    TOP {i + 1}
-                  </span>
-                )}
-              </div>
-
-              {/* Nome */}
-              <h2 className="text-xl font-bold tracking-tight mb-1">{t.nome}</h2>
-
-              {/* Percentual */}
-              <p className={`text-4xl font-black ${getTextColor(t.pct)}`}>
-                {(t.pct * 100).toFixed(0)}%
-              </p>
-
-              {/* Barra de progresso */}
-              <div className="mt-3 h-3 bg-white/10 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-700 ${getBarColor(t.pct)}`}
-                  style={{ width: `${pctClamped * 100}%` }}
-                />
-              </div>
-
-              {/* OS list */}
-              <div className="mt-2 max-h-28 overflow-y-auto space-y-0.5 scrollbar-thin">
-                {t.osList.map((os, idx) => (
-                  <div key={idx} className="flex justify-between text-xs text-white/50">
-                    <span>OS {os.codigo}</span>
-                    <span>{formatBRL(os.valor)}</span>
-                  </div>
-                ))}
-                {t.osList.length === 0 && (
-                  <p className="text-xs text-white/30 italic">Sem OS no período</p>
-                )}
-              </div>
-
-              {/* Meta */}
-              <p className="text-sm font-semibold text-white/70 mt-2">
-                {formatBRL(t.realizado)}
-              </p>
-              <p className="text-xs text-white/40">
-                Meta: {formatBRL(t.meta)} • {t.osList.length} OS
-              </p>
-            </div>
-          );
-        })}
+        {resultados.map((t, i) => (
+          <TecnicoCard
+            key={t.nome}
+            nome={t.nome}
+            meta={t.meta}
+            realizado={t.realizado}
+            pct={t.pct}
+            osList={t.osList}
+            rank={i}
+            isLoggedIn={isLoggedIn}
+            onMarkRetorno={(codigo, valor) =>
+              setRetornoTarget({ codigo, tecnico: t.nome, valor })
+            }
+            onUndoRetorno={(codigo) => removeRetorno.mutate(codigo)}
+          />
+        ))}
       </div>
+
+      {/* Retorno Dialog */}
+      {retornoTarget && (
+        <RetornoDialog
+          open
+          onClose={() => setRetornoTarget(null)}
+          osCodigo={retornoTarget.codigo}
+          tecnicoOriginal={retornoTarget.tecnico}
+          valor={retornoTarget.valor}
+          tecnicos={tecnicoNames}
+          onConfirm={(tecnicoRetorno) => {
+            addRetorno.mutate({
+              os_codigo: retornoTarget.codigo,
+              tecnico_original: retornoTarget.tecnico.toUpperCase(),
+              tecnico_retorno: tecnicoRetorno.toUpperCase(),
+              valor: retornoTarget.valor,
+            });
+            setRetornoTarget(null);
+          }}
+        />
+      )}
     </div>
   );
 }
