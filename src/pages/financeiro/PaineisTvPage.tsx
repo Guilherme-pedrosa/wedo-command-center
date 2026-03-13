@@ -47,6 +47,12 @@ export default function PaineisTvPage() {
   const [editValues, setEditValues] = useState({ nome_tecnico: '', meta_faturamento: '' });
   const [showAdd, setShowAdd] = useState(false);
   const [addValues, setAddValues] = useState({ nome_tecnico: '', meta_faturamento: '' });
+  const [showRetorno, setShowRetorno] = useState(false);
+  const [retornoValues, setRetornoValues] = useState({ os_codigo: '', tecnico_original: '', tecnico_retorno: '', valor: '' });
+
+  // Month navigation for retornos
+  const now = new Date();
+  const [retornoDate, setRetornoDate] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 });
 
   const { data: metas = [], isLoading } = useQuery({
     queryKey: ['fin_metas_tecnicos_admin'],
