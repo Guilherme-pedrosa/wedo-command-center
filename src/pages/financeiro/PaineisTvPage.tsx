@@ -342,6 +342,162 @@ export default function PaineisTvPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Retornos de OS */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-4">
+          <div className="flex items-center gap-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <RotateCcw className="h-5 w-5 text-orange-500" />
+              Retornos de OS
+            </CardTitle>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => navigateRetornoMonth(-1)}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm text-muted-foreground min-w-[130px] text-center">
+                {meses[retornoDate.month - 1]} {retornoDate.year}
+              </span>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => navigateRetornoMonth(1)}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setShowRetorno(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Lançar Retorno
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>OS</TableHead>
+                <TableHead>Técnico Original</TableHead>
+                <TableHead>Técnico Retorno</TableHead>
+                <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="text-right w-[80px]">Ações</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {retornos.map((r: any) => (
+                <TableRow key={r.id}>
+                  <TableCell className="font-mono font-medium">{r.os_codigo}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="text-muted-foreground">{r.tecnico_original}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge className="bg-orange-500/10 text-orange-600 border-orange-500/20">{r.tecnico_retorno}</Badge>
+                  </TableCell>
+                  <TableCell className="text-right">{formatBRL(r.valor)}</TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={() => { if (confirm(`Remover retorno da OS ${r.os_codigo}?`)) deleteRetorno.mutate(r.id); }}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {retornos.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                    Nenhum retorno registrado neste mês
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Dialog Lançar Retorno */}
+      <Dialog open={showRetorno} onOpenChange={setShowRetorno}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-5 w-5 text-orange-500" />
+              Lançar Retorno
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>Código da OS</Label>
+              <Input
+                value={retornoValues.os_codigo}
+                onChange={e => setRetornoValues(v => ({ ...v, os_codigo: e.target.value }))}
+                placeholder="Ex: 12345"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Valor (R$)</Label>
+              <Input
+                type="number"
+                value={retornoValues.valor}
+                onChange={e => setRetornoValues(v => ({ ...v, valor: e.target.value }))}
+                placeholder="Ex: 1500"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Técnico Original (quem fez a OS)</Label>
+              <Select
+                value={retornoValues.tecnico_original}
+                onValueChange={v => setRetornoValues(prev => ({ ...prev, tecnico_original: v }))}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {tecnicosAtivos.map(t => (
+                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Técnico que atendeu o retorno</Label>
+              <Select
+                value={retornoValues.tecnico_retorno}
+                onValueChange={v => setRetornoValues(prev => ({ ...prev, tecnico_retorno: v }))}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {tecnicosAtivos
+                    .filter(t => t !== retornoValues.tecnico_original)
+                    .map(t => (
+                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRetorno(false)}>Cancelar</Button>
+            <Button
+              className="bg-orange-500 hover:bg-orange-600"
+              onClick={() => {
+                if (!retornoValues.os_codigo.trim()) return toast.error('Informe o código da OS');
+                if (!retornoValues.tecnico_original) return toast.error('Selecione o técnico original');
+                if (!retornoValues.tecnico_retorno) return toast.error('Selecione o técnico do retorno');
+                addRetorno.mutate({
+                  os_codigo: retornoValues.os_codigo.trim(),
+                  tecnico_original: retornoValues.tecnico_original,
+                  tecnico_retorno: retornoValues.tecnico_retorno,
+                  valor: Number(retornoValues.valor) || 0,
+                });
+              }}
+            >
+              Confirmar Retorno
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
