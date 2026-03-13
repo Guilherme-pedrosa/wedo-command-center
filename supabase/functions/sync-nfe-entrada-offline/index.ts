@@ -457,6 +457,7 @@ serve(async (req) => {
               bestNameDiff = Math.abs(xmlItems[i].vProd - compraProdValor);
               xmlItem = xmlItems[i];
               bestIdx = i;
+              matchRule = "nome_similar";
             }
           }
         }
