@@ -1197,6 +1197,25 @@ export default function PrecificacaoPage() {
                                     {nfNum ? ` #${nfNum}` : ""}
                                     {(tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito) ? " ·SN" : ""}
                                   </Badge>
+                                  {tributo.match_rule && (
+                                    <Badge variant="outline" className={`text-[9px] mt-0.5 ${
+                                      ["codigo_produto", "unico_1x1"].includes(tributo.match_rule) ? "border-green-500/40 text-green-400" :
+                                      ["valor_total", "valor_unit_qtd"].includes(tributo.match_rule) ? "border-blue-500/40 text-blue-400" :
+                                      ["xml_rateio", "sem_xml_proporcional"].includes(tributo.match_rule) ? "border-orange-500/40 text-orange-400" :
+                                      "border-muted-foreground/40 text-muted-foreground"
+                                    }`}>
+                                      {({
+                                        codigo_produto: "✓ Código",
+                                        unico_1x1: "✓ 1:1",
+                                        valor_total: "≈ Valor",
+                                        valor_unit_qtd: "≈ Unit",
+                                        nome_similar: "≈ Nome",
+                                        ncm_valor: "~ NCM",
+                                        xml_rateio: "⚠ Rateio",
+                                        sem_xml_proporcional: "⚠ s/XML",
+                                      } as Record<string, string>)[tributo.match_rule] || tributo.match_rule}
+                                    </Badge>
+                                  )
                                 );
                               })()}
                             </TooltipTrigger>
