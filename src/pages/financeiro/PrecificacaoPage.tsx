@@ -41,6 +41,7 @@ interface ProdutoTributo {
   fornecedor_nome: string | null;
   regime_fornecedor: string | null;
   sem_credito: boolean | null;
+  match_rule: string | null;
   icms_aliquota: number;
   icms_aliquota_manual: number | null;
   pis_aliquota: number;
