@@ -829,6 +829,7 @@ async function processNFs(
         let xmlItem: XmlItemTax | undefined;
         let bestDiff = Infinity;
         let bestIdx = -1;
+        let matchRule = "sem_match";
 
         // Fix #2: Tolerância aumentada para 5% do valor, mínimo R$0.50
         const matchTolerance = Math.max(compraProdValor * 0.05, 0.50);
