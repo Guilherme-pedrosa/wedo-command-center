@@ -393,7 +393,7 @@ export default function PaineisTvPage() {
               </Button>
             </div>
           </div>
-          <Button size="sm" variant="outline" onClick={() => setShowRetorno(true)}>
+          <Button size="sm" variant="outline" onClick={() => { setOsSearch(''); setRetornoValues({ os_codigo: '', tecnico_original: '', tecnico_retorno: '', valor: '' }); setShowRetorno(true); }}>
             <Plus className="h-4 w-4 mr-1" /> Lançar Retorno
           </Button>
         </CardHeader>
