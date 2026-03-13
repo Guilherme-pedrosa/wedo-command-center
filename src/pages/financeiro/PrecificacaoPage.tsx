@@ -1187,35 +1187,37 @@ export default function PrecificacaoPage() {
                               {(() => {
                                 const nfNum = tributo.nf_numero || (tributo.nf_chave?.length === 44 ? String(parseInt(tributo.nf_chave.substring(25, 34))) : "");
                                 return (
-                                  <Badge className={`text-[10px] gap-1 ${
-                                    tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito
-                                      ? "bg-amber-500/20 text-amber-400"
-                                      : "bg-primary/20 text-primary"
-                                  }`}>
-                                    <FileText className="h-3 w-3" />
-                                    {tributo.fornecedor_nome || "NF"}
-                                    {nfNum ? ` #${nfNum}` : ""}
-                                    {(tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito) ? " ·SN" : ""}
-                                  </Badge>
-                                  {tributo.match_rule && (
-                                    <Badge variant="outline" className={`text-[9px] mt-0.5 ${
-                                      ["codigo_produto", "unico_1x1"].includes(tributo.match_rule) ? "border-green-500/40 text-green-400" :
-                                      ["valor_total", "valor_unit_qtd"].includes(tributo.match_rule) ? "border-blue-500/40 text-blue-400" :
-                                      ["xml_rateio", "sem_xml_proporcional"].includes(tributo.match_rule) ? "border-orange-500/40 text-orange-400" :
-                                      "border-muted-foreground/40 text-muted-foreground"
+                                  <div className="flex flex-col items-center gap-0.5">
+                                    <Badge className={`text-[10px] gap-1 ${
+                                      tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito
+                                        ? "bg-amber-500/20 text-amber-400"
+                                        : "bg-primary/20 text-primary"
                                     }`}>
-                                      {({
-                                        codigo_produto: "✓ Código",
-                                        unico_1x1: "✓ 1:1",
-                                        valor_total: "≈ Valor",
-                                        valor_unit_qtd: "≈ Unit",
-                                        nome_similar: "≈ Nome",
-                                        ncm_valor: "~ NCM",
-                                        xml_rateio: "⚠ Rateio",
-                                        sem_xml_proporcional: "⚠ s/XML",
-                                      } as Record<string, string>)[tributo.match_rule] || tributo.match_rule}
+                                      <FileText className="h-3 w-3" />
+                                      {tributo.fornecedor_nome || "NF"}
+                                      {nfNum ? ` #${nfNum}` : ""}
+                                      {(tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito) ? " ·SN" : ""}
                                     </Badge>
-                                  )
+                                    {tributo.match_rule && (
+                                      <Badge variant="outline" className={`text-[9px] ${
+                                        ["codigo_produto", "unico_1x1"].includes(tributo.match_rule) ? "border-green-500/40 text-green-400" :
+                                        ["valor_total", "valor_unit_qtd"].includes(tributo.match_rule) ? "border-blue-500/40 text-blue-400" :
+                                        ["xml_rateio", "sem_xml_proporcional"].includes(tributo.match_rule) ? "border-orange-500/40 text-orange-400" :
+                                        "border-muted-foreground/40 text-muted-foreground"
+                                      }`}>
+                                        {({
+                                          codigo_produto: "✓ Código",
+                                          unico_1x1: "✓ 1:1",
+                                          valor_total: "≈ Valor",
+                                          valor_unit_qtd: "≈ Unit",
+                                          nome_similar: "≈ Nome",
+                                          ncm_valor: "~ NCM",
+                                          xml_rateio: "⚠ Rateio",
+                                          sem_xml_proporcional: "⚠ s/XML",
+                                        } as Record<string, string>)[tributo.match_rule] || tributo.match_rule}
+                                      </Badge>
+                                    )}
+                                  </div>
                                 );
                               })()}
                             </TooltipTrigger>
