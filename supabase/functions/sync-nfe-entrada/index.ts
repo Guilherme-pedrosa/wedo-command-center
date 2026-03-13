@@ -147,6 +147,7 @@ interface ProductTaxRecord {
   valor_ipi_unit: number;
   valor_frete_unit: number;
   custo_efetivo_unit: number;
+  match_rule: string;
 }
 
 // ══════════════════════════════════════════════════════════════
