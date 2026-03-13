@@ -33,6 +33,7 @@ export default function TvTecnicos() {
 
   // Retorno dialog state
   const [retornoTarget, setRetornoTarget] = useState<{ codigo: string; tecnico: string; valor: number } | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const navigateMonth = (dir: number) => {
     setSelectedDate(prev => {
