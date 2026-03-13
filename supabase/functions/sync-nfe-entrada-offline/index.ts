@@ -548,6 +548,7 @@ serve(async (req) => {
             valor_ipi_unit: r(ipiUnit),
             valor_frete_unit: r(freteUnit),
             custo_efetivo_unit: r(custoEfetivo),
+            match_rule: matchRule,
           });
 
           console.log(`[offline] ✓ ${gcProdId} "${xmlItem.xProd}" ICMS=${r(icmsAliqReal)}% PIS=${r(pisAliqReal)}% COFINS=${r(cofinsAliqReal)}%`);
