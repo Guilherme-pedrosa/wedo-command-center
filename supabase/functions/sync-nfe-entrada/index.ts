@@ -868,6 +868,7 @@ async function processNFs(
             if (xmlItems[i].cProd === nfProd.codigo_produto) {
               xmlItem = xmlItems[i];
               bestIdx = i;
+              matchRule = "codigo_produto";
               break;
             }
           }
