@@ -121,7 +121,12 @@ export default function ExtratoBancoPage() {
   const handleMesChange = (val: string) => {
     setMesExtrato(val);
     if (val === "all") { setDateFrom(new Date("2024-10-01")); setDateTo(endOfMonth(new Date())); }
-    else if (val !== "custom") { const base = new Date(val + "-01"); setDateFrom(startOfMonth(base)); setDateTo(endOfMonth(base)); }
+    else if (val !== "custom") {
+      // Use BRT offset to avoid UTC conversion issues
+      const base = new Date(val + "-01T00:00:00-03:00");
+      setDateFrom(startOfMonth(base));
+      setDateTo(endOfMonth(base));
+    }
   };
 
   // ALL extrato (reconciled + unreconciled)
