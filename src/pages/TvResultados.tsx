@@ -46,7 +46,7 @@ export default function TvResultados() {
 
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
 
-  const { metasComResultado, execTotal, isLoading, refetch, osExecutadas } = useMetasResultados(year, month);
+  const { metasComResultado, execTotal, isLoading, refetch, osExecutadas, dataUpdatedAt } = useMetasResultados(year, month);
 
   // Top 3 vendedores by faturamento (only chamados + executados)
   const top3Vendedores = useMemo(() => {
