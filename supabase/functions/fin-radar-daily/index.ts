@@ -131,11 +131,15 @@ Deno.serve(async (req) => {
 
     // ═══════════════════════════════════════════
     // 2) AR VENCIDAS (contas a receber vencidas)
+    //    Exclui itens já baixados no GC, liquidados ou pagos pelo sistema
     // ═══════════════════════════════════════════
     const { data: arVencidas } = await supabase
       .from("fin_recebimentos")
       .select("id, descricao, valor, data_vencimento, nome_cliente, os_codigo")
       .eq("status", "pendente")
+      .eq("liquidado", false)
+      .eq("gc_baixado", false)
+      .eq("pago_sistema", false)
       .lt("data_vencimento", today)
       .limit(200);
 
