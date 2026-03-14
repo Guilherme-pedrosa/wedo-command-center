@@ -1,9 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, CheckCircle, Clock, DollarSign } from "lucide-react";
+import { AlertTriangle, CheckCircle, Clock, DollarSign, RefreshCw, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import toast from "react-hot-toast";
 
 const SEV_ORDER = ["critica", "alta", "media", "baixa", "info"];
 const SEV_ICON_COLOR: Record<string, string> = {
@@ -15,7 +18,10 @@ const SEV_ICON_COLOR: Record<string, string> = {
 };
 
 export function RadarPanel() {
-  const { data: alertas = [] } = useQuery({
+  const qc = useQueryClient();
+  const [running, setRunning] = useState(false);
+
+  const { data: alertas = [], refetch } = useQuery({
     queryKey: ["fin_alertas"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -35,8 +41,36 @@ export function RadarPanel() {
 
   const totalImpacto = alertas.reduce((s, a) => s + (a.valor_impacto || 0), 0);
 
+  const runRadar = async () => {
+    setRunning(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("fin-radar-daily", {
+        body: { source: "manual" },
+      });
+      if (error) throw error;
+      toast.success(
+        `Radar concluído: ${data.alertas_criados} alertas, ${data.tarefas_criadas} tarefas`
+      );
+      refetch();
+      qc.invalidateQueries({ queryKey: ["fin_tarefas"] });
+      qc.invalidateQueries({ queryKey: ["fin_agent_runs"] });
+    } catch (e: any) {
+      toast.error(`Erro no radar: ${e.message}`);
+    } finally {
+      setRunning(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-muted-foreground">Visão geral de riscos</h3>
+        <Button size="sm" variant="outline" onClick={runRadar} disabled={running} className="gap-1.5">
+          {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          {running ? "Varrendo…" : "Executar Radar"}
+        </Button>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Card>
           <CardContent className="pt-4 flex items-center gap-3">
@@ -73,9 +107,10 @@ export function RadarPanel() {
         </CardHeader>
         <CardContent className="space-y-2 max-h-[60vh] overflow-y-auto">
           {sorted.length === 0 && (
-            <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
+            <div className="flex flex-col items-center gap-2 text-muted-foreground py-8">
               <CheckCircle className="h-5 w-5" />
               <span>Nenhum alerta ativo — tudo em ordem!</span>
+              <span className="text-xs">Clique em "Executar Radar" para iniciar a varredura.</span>
             </div>
           )}
           {sorted.map((a) => (
