@@ -4,7 +4,8 @@ import { KanbanBoard } from "@/components/argus/KanbanBoard";
 import { RadarPanel } from "@/components/argus/RadarPanel";
 import { RunsPanel } from "@/components/argus/RunsPanel";
 import { AprovacaoPanel } from "@/components/argus/AprovacaoPanel";
-import { LayoutDashboard, Radar, Play, ShieldCheck } from "lucide-react";
+import { ForecastPanel } from "@/components/argus/ForecastPanel";
+import { LayoutDashboard, Radar, Play, ShieldCheck, TrendingUp } from "lucide-react";
 
 export default function ArgusAgentPage() {
   const [tab, setTab] = useState("kanban");
@@ -22,12 +23,15 @@ export default function ArgusAgentPage() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab} className="w-full">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="kanban" className="gap-1.5">
             <LayoutDashboard className="h-4 w-4" /> Kanban
           </TabsTrigger>
           <TabsTrigger value="radar" className="gap-1.5">
             <Radar className="h-4 w-4" /> Radar
+          </TabsTrigger>
+          <TabsTrigger value="forecast" className="gap-1.5">
+            <TrendingUp className="h-4 w-4" /> Caixa 13s
           </TabsTrigger>
           <TabsTrigger value="runs" className="gap-1.5">
             <Play className="h-4 w-4" /> Execuções
@@ -42,6 +46,9 @@ export default function ArgusAgentPage() {
         </TabsContent>
         <TabsContent value="radar" className="mt-4">
           <RadarPanel />
+        </TabsContent>
+        <TabsContent value="forecast" className="mt-4">
+          <ForecastPanel />
         </TabsContent>
         <TabsContent value="runs" className="mt-4">
           <RunsPanel />
