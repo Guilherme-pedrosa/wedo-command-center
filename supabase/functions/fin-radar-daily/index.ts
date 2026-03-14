@@ -285,11 +285,19 @@ Deno.serve(async (req) => {
         const tabela = alerta.entidade_tipo === "fin_pagamentos" ? "fin_pagamentos" : "fin_recebimentos";
         const { data: lancamento } = await supabase
           .from(tabela)
-          .select("status")
+          .select("status, liquidado, gc_baixado, pago_sistema")
           .eq("id", alerta.entidade_id)
           .single();
 
-        if (lancamento && lancamento.status !== "pendente") {
+        // Resolve if status changed OR if it was paid/settled by any means
+        const isPago = lancamento && (
+          lancamento.status !== "pendente" ||
+          lancamento.liquidado === true ||
+          lancamento.gc_baixado === true ||
+          lancamento.pago_sistema === true
+        );
+
+        if (isPago) {
           await supabase
             .from("fin_alertas")
             .update({ status: "resolvido", resolvido_em: new Date().toISOString(), resolvido_por: "argus-auto" })
