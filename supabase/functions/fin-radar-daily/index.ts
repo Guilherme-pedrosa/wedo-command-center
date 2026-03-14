@@ -97,11 +97,15 @@ Deno.serve(async (req) => {
   try {
     // ═══════════════════════════════════════════
     // 1) AP VENCIDAS (contas a pagar vencidas)
+    //    Exclui itens já baixados no GC, liquidados ou pagos pelo sistema
     // ═══════════════════════════════════════════
     const { data: apVencidas } = await supabase
       .from("fin_pagamentos")
       .select("id, descricao, valor, data_vencimento, nome_fornecedor, os_codigo")
       .eq("status", "pendente")
+      .eq("liquidado", false)
+      .eq("gc_baixado", false)
+      .eq("pago_sistema", false)
       .lt("data_vencimento", today)
       .limit(200);
 
@@ -127,11 +131,15 @@ Deno.serve(async (req) => {
 
     // ═══════════════════════════════════════════
     // 2) AR VENCIDAS (contas a receber vencidas)
+    //    Exclui itens já baixados no GC, liquidados ou pagos pelo sistema
     // ═══════════════════════════════════════════
     const { data: arVencidas } = await supabase
       .from("fin_recebimentos")
       .select("id, descricao, valor, data_vencimento, nome_cliente, os_codigo")
       .eq("status", "pendente")
+      .eq("liquidado", false)
+      .eq("gc_baixado", false)
+      .eq("pago_sistema", false)
       .lt("data_vencimento", today)
       .limit(200);
 
@@ -163,6 +171,9 @@ Deno.serve(async (req) => {
       .from("fin_pagamentos")
       .select("id, descricao, valor, data_vencimento, nome_fornecedor")
       .eq("status", "pendente")
+      .eq("liquidado", false)
+      .eq("gc_baixado", false)
+      .eq("pago_sistema", false)
       .gte("data_vencimento", today)
       .lte("data_vencimento", in7days)
       .limit(200);
@@ -274,11 +285,19 @@ Deno.serve(async (req) => {
         const tabela = alerta.entidade_tipo === "fin_pagamentos" ? "fin_pagamentos" : "fin_recebimentos";
         const { data: lancamento } = await supabase
           .from(tabela)
-          .select("status")
+          .select("status, liquidado, gc_baixado, pago_sistema")
           .eq("id", alerta.entidade_id)
           .single();
 
-        if (lancamento && lancamento.status !== "pendente") {
+        // Resolve if status changed OR if it was paid/settled by any means
+        const isPago = lancamento && (
+          lancamento.status !== "pendente" ||
+          lancamento.liquidado === true ||
+          lancamento.gc_baixado === true ||
+          lancamento.pago_sistema === true
+        );
+
+        if (isPago) {
           await supabase
             .from("fin_alertas")
             .update({ status: "resolvido", resolvido_em: new Date().toISOString(), resolvido_por: "argus-auto" })

@@ -121,12 +121,34 @@ export default function ExtratoBancoPage() {
   const handleMesChange = (val: string) => {
     setMesExtrato(val);
     if (val === "all") { setDateFrom(new Date("2024-10-01")); setDateTo(endOfMonth(new Date())); }
-    else if (val !== "custom") { const base = new Date(val + "-01"); setDateFrom(startOfMonth(base)); setDateTo(endOfMonth(base)); }
+    else if (val !== "custom") {
+      // Use BRT offset to avoid UTC conversion issues
+      const base = new Date(val + "-01T00:00:00-03:00");
+      setDateFrom(startOfMonth(base));
+      setDateTo(endOfMonth(base));
+    }
   };
 
   // ALL extrato (reconciled + unreconciled)
+  // Use explicit BRT offset strings to avoid UTC drift
+  const queryDateFrom = useMemo(() => {
+    const d = new Date(dateFrom);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}T00:00:00-03:00`;
+  }, [dateFrom]);
+
+  const queryDateTo = useMemo(() => {
+    const d = new Date(dateTo);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}T23:59:59-03:00`;
+  }, [dateTo]);
+
   const { data: extrato, isLoading } = useQuery({
-    queryKey: ["extrato-unified", dateFrom.toISOString(), dateTo.toISOString()],
+    queryKey: ["extrato-unified", queryDateFrom, queryDateTo],
     queryFn: async () => {
       const PAGE_SIZE = 500;
       let allData: any[] = [];
@@ -136,8 +158,8 @@ export default function ExtratoBancoPage() {
         const { data, error } = await supabase
           .from("fin_extrato_inter")
           .select("*")
-          .gte("data_hora", dateFrom.toISOString())
-          .lte("data_hora", dateTo.toISOString())
+          .gte("data_hora", queryDateFrom)
+          .lte("data_hora", queryDateTo)
           .order("data_hora", { ascending: false })
           .range(offset, offset + PAGE_SIZE - 1);
         if (error) throw error;
