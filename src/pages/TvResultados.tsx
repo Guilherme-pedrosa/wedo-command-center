@@ -46,7 +46,7 @@ export default function TvResultados() {
 
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
 
-  const { metasComResultado, execTotal, isLoading, refetch, osExecutadas } = useMetasResultados(year, month);
+  const { metasComResultado, execTotal, isLoading, refetch, osExecutadas, dataUpdatedAt } = useMetasResultados(year, month);
 
   // Top 3 vendedores by faturamento (only chamados + executados)
   const top3Vendedores = useMemo(() => {
@@ -131,17 +131,25 @@ export default function TvResultados() {
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-8">
-          <div className="flex items-center gap-3">
-            <CheckCircle className="h-8 w-8 text-emerald-400" />
-            <span className="text-3xl font-bold text-emerald-400">{totalOk}</span>
-            <span className="text-lg text-muted-foreground">OK</span>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-8">
+            <div className="flex items-center gap-3">
+              <CheckCircle className="h-8 w-8 text-emerald-400" />
+              <span className="text-3xl font-bold text-emerald-400">{totalOk}</span>
+              <span className="text-lg text-muted-foreground">OK</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <XCircle className="h-8 w-8 text-red-400" />
+              <span className="text-3xl font-bold text-red-400">{totalAlerta}</span>
+              <span className="text-lg text-muted-foreground">Alertas</span>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            <XCircle className="h-8 w-8 text-red-400" />
-            <span className="text-3xl font-bold text-red-400">{totalAlerta}</span>
-            <span className="text-lg text-muted-foreground">Alertas</span>
-          </div>
+          <div className="text-sm text-muted-foreground">Atualiza a cada 5 min</div>
+          {dataUpdatedAt > 0 && (
+            <div className="text-xs text-muted-foreground/50">
+              Última atualização: {new Date(dataUpdatedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </div>
+          )}
         </div>
       </div>
 
