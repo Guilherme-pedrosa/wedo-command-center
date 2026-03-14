@@ -171,6 +171,9 @@ Deno.serve(async (req) => {
       .from("fin_pagamentos")
       .select("id, descricao, valor, data_vencimento, nome_fornecedor")
       .eq("status", "pendente")
+      .eq("liquidado", false)
+      .eq("gc_baixado", false)
+      .eq("pago_sistema", false)
       .gte("data_vencimento", today)
       .lte("data_vencimento", in7days)
       .limit(200);
