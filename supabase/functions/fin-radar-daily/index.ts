@@ -97,11 +97,15 @@ Deno.serve(async (req) => {
   try {
     // ═══════════════════════════════════════════
     // 1) AP VENCIDAS (contas a pagar vencidas)
+    //    Exclui itens já baixados no GC, liquidados ou pagos pelo sistema
     // ═══════════════════════════════════════════
     const { data: apVencidas } = await supabase
       .from("fin_pagamentos")
       .select("id, descricao, valor, data_vencimento, nome_fornecedor, os_codigo")
       .eq("status", "pendente")
+      .eq("liquidado", false)
+      .eq("gc_baixado", false)
+      .eq("pago_sistema", false)
       .lt("data_vencimento", today)
       .limit(200);
 
