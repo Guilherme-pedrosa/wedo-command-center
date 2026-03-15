@@ -83,6 +83,23 @@ export default function TvTecnicos() {
     staleTime: 2 * 60 * 1000,
   });
 
+  // Fetch last sync timestamp
+  const { data: lastSync } = useQuery({
+    queryKey: ['last_sync_os'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('sync_log')
+        .select('created_at')
+        .eq('tipo', 'sync-os')
+        .eq('status', 'ok')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      return data?.created_at ?? null;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   // Fetch retornos do mês
   const { data: retornos = [], refetch: refetchRetornos } = useQuery({
     queryKey: ['fin_os_retornos', year, month],
