@@ -83,6 +83,23 @@ export default function TvTecnicos() {
     staleTime: 2 * 60 * 1000,
   });
 
+  // Fetch last sync timestamp
+  const { data: lastSync } = useQuery({
+    queryKey: ['last_sync_os'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('sync_log')
+        .select('created_at')
+        .eq('tipo', 'sync-os')
+        .eq('status', 'ok')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      return data?.created_at ?? null;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   // Fetch retornos do mês
   const { data: retornos = [], refetch: refetchRetornos } = useQuery({
     queryKey: ['fin_os_retornos', year, month],
@@ -235,9 +252,14 @@ export default function TvTecnicos() {
           <div className="text-sm text-white/30">
             {isLoggedIn ? '🔓 Logado — clique em uma OS para marcar retorno' : 'Atualiza a cada 5 min'}
           </div>
+          {lastSync && (
+            <div className="text-xs text-white/20 mt-0.5">
+              Última sinc. API: {new Date(lastSync).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </div>
+          )}
           {dataUpdatedAt > 0 && (
             <div className="text-xs text-white/20 mt-0.5">
-              Última atualização: {new Date(dataUpdatedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              Cache atualizado: {new Date(dataUpdatedAt).toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </div>
           )}
         </div>
