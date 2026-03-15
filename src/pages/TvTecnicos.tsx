@@ -83,19 +83,31 @@ export default function TvTecnicos() {
     staleTime: 2 * 60 * 1000,
   });
 
-  // Fetch last sync timestamp
+  // Fetch last API sync timestamp (new log table + fallback)
   const { data: lastSync } = useQuery({
     queryKey: ['last_sync_os'],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('sync_log')
+      const { data: finLog } = await supabase
+        .from('fin_sync_log')
         .select('created_at')
-        .eq('tipo', 'sync-os')
-        .eq('status', 'ok')
+        .in('tipo', ['sync-all', 'sync-os'])
+        .in('status', ['success', 'ok'])
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
-      return data?.created_at ?? null;
+        .maybeSingle();
+
+      if (finLog?.created_at) return finLog.created_at;
+
+      const { data: legacyLog } = await supabase
+        .from('sync_log')
+        .select('created_at')
+        .in('tipo', ['sync-all', 'sync-os'])
+        .in('status', ['success', 'ok'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      return legacyLog?.created_at ?? null;
     },
     staleTime: 5 * 60 * 1000,
   });
