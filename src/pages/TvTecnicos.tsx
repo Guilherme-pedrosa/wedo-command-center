@@ -306,12 +306,13 @@ export default function TvTecnicos() {
           tecnicoOriginal={retornoTarget.tecnico}
           valor={retornoTarget.valor}
           tecnicos={tecnicoNames}
-          onConfirm={(tecnicoRetorno) => {
+          onConfirm={(tecnicoRetorno, observacao) => {
             addRetorno.mutate({
               os_codigo: retornoTarget.codigo,
               tecnico_original: retornoTarget.tecnico.toUpperCase(),
               tecnico_retorno: tecnicoRetorno.toUpperCase(),
               valor: retornoTarget.valor,
+              observacao: observacao || null,
             });
             setRetornoTarget(null);
           }}
