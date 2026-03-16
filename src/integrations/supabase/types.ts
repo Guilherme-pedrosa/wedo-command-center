@@ -1437,6 +1437,7 @@ export type Database = {
           created_by: string | null
           id: string
           mes: number
+          observacao: string | null
           os_codigo: string
           tecnico_original: string
           tecnico_retorno: string
@@ -1448,6 +1449,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           mes: number
+          observacao?: string | null
           os_codigo: string
           tecnico_original: string
           tecnico_retorno: string
@@ -1459,6 +1461,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           mes?: number
+          observacao?: string | null
           os_codigo?: string
           tecnico_original?: string
           tecnico_retorno?: string

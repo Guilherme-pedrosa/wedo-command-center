@@ -1,0 +1,1 @@
+ALTER TABLE public.fin_os_retornos ADD COLUMN observacao text;

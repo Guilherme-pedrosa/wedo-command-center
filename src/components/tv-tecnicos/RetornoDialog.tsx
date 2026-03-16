@@ -14,12 +14,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { RotateCcw } from 'lucide-react';
 
 interface RetornoDialogProps {
   open: boolean;
   onClose: () => void;
-  onConfirm: (tecnicoRetorno: string) => void;
+  onConfirm: (tecnicoRetorno: string, observacao: string) => void;
   osCodigo: string;
   tecnicoOriginal: string;
   valor: number;
@@ -39,14 +40,16 @@ export function RetornoDialog({
   tecnicos,
 }: RetornoDialogProps) {
   const [selected, setSelected] = useState('');
+  const [observacao, setObservacao] = useState('');
   const outrosTecnicos = tecnicos.filter(
     (t) => t.toUpperCase() !== tecnicoOriginal.toUpperCase()
   );
 
   const handleConfirm = () => {
     if (selected) {
-      onConfirm(selected);
+      onConfirm(selected, observacao);
       setSelected('');
+      setObservacao('');
     }
   };
 
@@ -88,6 +91,18 @@ export function RetornoDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-white/80">
+              Observação
+            </label>
+            <Textarea
+              value={observacao}
+              onChange={(e) => setObservacao(e.target.value)}
+              placeholder="Ex: Cliente reclamou do serviço anterior..."
+              className="bg-white/5 border-white/10 text-white placeholder:text-white/30 min-h-[80px]"
+            />
           </div>
         </div>
 
