@@ -12,6 +12,7 @@ const corsHeaders = {
 const GC_BASE_URL = "https://api.gestaoclick.com";
 const AUVO_BASE = "https://api.auvo.com.br/v2";
 const MIN_DELAY_MS = 350;
+const DEFAULT_SYNC_WINDOW_DAYS = 90;
 let lastCallTime = 0;
 
 // ── Shared rate limiter (single instance for all GC calls) ──
