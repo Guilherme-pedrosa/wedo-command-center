@@ -12,6 +12,7 @@ const corsHeaders = {
 const GC_BASE_URL = "https://api.gestaoclick.com";
 const AUVO_BASE = "https://api.auvo.com.br/v2";
 const MIN_DELAY_MS = 350;
+const DEFAULT_SYNC_WINDOW_DAYS = 90;
 let lastCallTime = 0;
 
 // ── Shared rate limiter (single instance for all GC calls) ──
@@ -82,16 +83,41 @@ function inferirOrigem(descricao?: string | null): string {
   return "outro";
 }
 
-function normalizeLancamentoStatus(item: Record<string, any>): "pendente" | "pago" | "vencido" | "cancelado" {
-  const rawStatus = String(item.status || item.situacao || item.nome_situacao || "").toLowerCase().trim();
-  const liquidado = item.liquidado === "1" || item.liquidado === 1 || item.liquidado === true;
+type FinLancamentoStatus = "pendente" | "pago" | "vencido" | "cancelado";
 
-  if (liquidado || ["liquidado", "pago", "paga", "baixado", "recebido", "quitado"].includes(rawStatus)) {
+function coerceLancamentoStatus(value: unknown, fallback: FinLancamentoStatus = "pendente"): FinLancamentoStatus {
+  const normalized = String(value ?? "").toLowerCase().trim();
+
+  if (["liquidado", "pago", "paga", "baixado", "recebido", "quitado"].includes(normalized)) {
     return "pago";
   }
 
-  if (["cancelado", "cancelada", "cancelar"].includes(rawStatus)) {
+  if (["cancelado", "cancelada", "cancelar"].includes(normalized)) {
     return "cancelado";
+  }
+
+  if (normalized === "vencido") {
+    return "vencido";
+  }
+
+  if (normalized === "pendente") {
+    return "pendente";
+  }
+
+  return fallback;
+}
+
+function normalizeLancamentoStatus(item: Record<string, any>): FinLancamentoStatus {
+  const rawStatus = String(item.status || item.situacao || item.nome_situacao || item.status_pagamento || "").toLowerCase().trim();
+  const liquidado = item.liquidado === "1" || item.liquidado === 1 || item.liquidado === true;
+
+  if (liquidado) {
+    return "pago";
+  }
+
+  const coerced = coerceLancamentoStatus(rawStatus);
+  if (coerced !== "pendente" || rawStatus === "pendente") {
+    return coerced;
   }
 
   const dataVencimento = item.data_vencimento ? new Date(item.data_vencimento) : null;
@@ -637,31 +663,23 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Infer date range if not provided
+    // Default to an incremental window to keep the sync under the platform timeout.
     let dataInicio = bodyDataInicio;
     let dataFim = bodyDataFim;
     let dateSource = "request";
 
-    if (!dataInicio || !dataFim) {
-      const [recFinMin, pagFinMin, recGcMin, pagGcMin] = await Promise.all([
-        supabase.from("fin_recebimentos").select("data_vencimento").not("data_vencimento", "is", null).order("data_vencimento", { ascending: true }).limit(1).maybeSingle(),
-        supabase.from("fin_pagamentos").select("data_vencimento").not("data_vencimento", "is", null).order("data_vencimento", { ascending: true }).limit(1).maybeSingle(),
-        supabase.from("gc_recebimentos").select("data_vencimento").not("data_vencimento", "is", null).order("data_vencimento", { ascending: true }).limit(1).maybeSingle(),
-        supabase.from("gc_pagamentos").select("data_vencimento").not("data_vencimento", "is", null).order("data_vencimento", { ascending: true }).limit(1).maybeSingle(),
-      ]);
-
-      const candidates = [
-        recFinMin.data?.data_vencimento,
-        pagFinMin.data?.data_vencimento,
-        recGcMin.data?.data_vencimento,
-        pagGcMin.data?.data_vencimento,
-      ].filter((v): v is string => Boolean(v));
-
-      if (candidates.length > 0) {
-        dataInicio = [...candidates].sort()[0];
-        dataFim = new Date().toISOString().split("T")[0];
-        dateSource = "inferred_from_synced_data";
+    if (!dataFim) {
+      dataFim = new Date().toISOString().split("T")[0];
+      if (bodyDataInicio) {
+        dateSource = "request_completed_with_today";
       }
+    }
+
+    if (!dataInicio) {
+      const endDate = new Date(`${dataFim}T00:00:00Z`);
+      endDate.setUTCDate(endDate.getUTCDate() - (DEFAULT_SYNC_WINDOW_DAYS - 1));
+      dataInicio = endDate.toISOString().split("T")[0];
+      dateSource = bodyDataFim ? "request_completed_with_default_window" : "default_90d_window";
     }
 
     if (!dataInicio || !dataFim) {
@@ -750,6 +768,7 @@ serve(async (req) => {
       let gcRecUpserted = 0;
       let finRecUpserted = 0;
       let recErrors = 0;
+      const recErrorMessages = new Set<string>();
 
       for (let i = 0; i < recRecords.length; i += 50) {
         const rawBatch = recRecords.slice(i, i + 50);
@@ -784,6 +803,7 @@ serve(async (req) => {
           .upsert(gcBatch, { onConflict: "gc_id" });
         if (gcErr) {
           console.error(`[sync-all] gc_recebimentos upsert error: ${gcErr.message}`);
+          recErrorMessages.add(`gc_recebimentos: ${gcErr.message}`);
           recErrors += gcBatch.length;
         } else {
           gcRecUpserted += gcBatch.length;
@@ -819,6 +839,8 @@ serve(async (req) => {
             .upsert(finBatch, { onConflict: "gc_id" });
           if (finErr) {
             console.error(`[sync-all] fin_recebimentos upsert error: ${finErr.message}`);
+            recErrorMessages.add(`fin_recebimentos: ${finErr.message}`);
+            recErrors += finBatch.length;
           } else {
             finRecUpserted += finBatch.length;
           }
@@ -831,6 +853,7 @@ serve(async (req) => {
         gc_upserted: gcRecUpserted,
         fin_upserted: finRecUpserted,
         errors: recErrors,
+        error_messages: [...recErrorMessages],
         duration_ms: Date.now() - recStart,
       };
       console.log(`[sync-all] Recebimentos done: ${recRecords.length} fetched, gc=${gcRecUpserted}, fin=${finRecUpserted} (${Date.now() - recStart}ms)`);
@@ -847,6 +870,7 @@ serve(async (req) => {
       let gcPagUpserted = 0;
       let finPagUpserted = 0;
       let pagErrors = 0;
+      const pagErrorMessages = new Set<string>();
 
       for (let i = 0; i < pagRecords.length; i += 50) {
         const rawBatch = pagRecords.slice(i, i + 50);
@@ -879,6 +903,7 @@ serve(async (req) => {
           .upsert(gcBatch, { onConflict: "gc_id" });
         if (gcErr) {
           console.error(`[sync-all] gc_pagamentos upsert error: ${gcErr.message}`);
+          pagErrorMessages.add(`gc_pagamentos: ${gcErr.message}`);
           pagErrors += gcBatch.length;
         } else {
           gcPagUpserted += gcBatch.length;
@@ -915,6 +940,8 @@ serve(async (req) => {
             .upsert(finBatch, { onConflict: "gc_id" });
           if (finErr) {
             console.error(`[sync-all] fin_pagamentos upsert error: ${finErr.message}`);
+            pagErrorMessages.add(`fin_pagamentos: ${finErr.message}`);
+            pagErrors += finBatch.length;
           } else {
             finPagUpserted += finBatch.length;
           }
@@ -953,6 +980,7 @@ serve(async (req) => {
         gc_upserted: gcPagUpserted,
         fin_upserted: finPagUpserted,
         errors: pagErrors,
+        error_messages: [...pagErrorMessages],
         duration_ms: Date.now() - pagStart,
       };
       console.log(`[sync-all] Pagamentos done: ${pagRecords.length} fetched, gc=${gcPagUpserted}, fin=${finPagUpserted} (${Date.now() - pagStart}ms)`);
@@ -963,11 +991,17 @@ serve(async (req) => {
 
     // ── Log final ──
     const totalDuration = Date.now() - startTime;
-    const hasErrors = Object.values(results).some((r: any) => r.status === "error");
+    const issueEntries = Object.entries(results).filter(([, result]: any) => result?.status === "error" || result?.status === "partial");
+    const hasIssues = issueEntries.length > 0;
+    const issueSummary = issueEntries
+      .map(([moduleName, result]: any) => `${moduleName}: ${result?.error ?? result?.error_messages?.[0] ?? result?.status}`)
+      .join(" | ");
 
     await supabase.from("fin_sync_log").insert({
       tipo: "sync-all",
-      status: hasErrors ? "partial" : "success",
+      status: hasIssues ? "partial" : "success",
+      erro: hasIssues ? issueSummary : null,
+      resposta: results,
       payload: results,
       duracao_ms: totalDuration,
     });
