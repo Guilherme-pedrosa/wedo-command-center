@@ -5,8 +5,9 @@ import { Outlet, Link, useLocation } from "react-router-dom";
 import {
   Bell, DollarSign, ChevronDown, LayoutDashboard, Receipt, CreditCard,
   Layers, CalendarClock, Building2, ArrowLeftRight, BarChart3, LineChart,
-  BookOpen, Landmark, Search, Settings,
+  BookOpen, Landmark, Search, Settings, LogOut, User,
 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
