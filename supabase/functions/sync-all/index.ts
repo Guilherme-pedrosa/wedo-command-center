@@ -83,16 +83,41 @@ function inferirOrigem(descricao?: string | null): string {
   return "outro";
 }
 
-function normalizeLancamentoStatus(item: Record<string, any>): "pendente" | "pago" | "vencido" | "cancelado" {
-  const rawStatus = String(item.status || item.situacao || item.nome_situacao || "").toLowerCase().trim();
-  const liquidado = item.liquidado === "1" || item.liquidado === 1 || item.liquidado === true;
+type FinLancamentoStatus = "pendente" | "pago" | "vencido" | "cancelado";
 
-  if (liquidado || ["liquidado", "pago", "paga", "baixado", "recebido", "quitado"].includes(rawStatus)) {
+function coerceLancamentoStatus(value: unknown, fallback: FinLancamentoStatus = "pendente"): FinLancamentoStatus {
+  const normalized = String(value ?? "").toLowerCase().trim();
+
+  if (["liquidado", "pago", "paga", "baixado", "recebido", "quitado"].includes(normalized)) {
     return "pago";
   }
 
-  if (["cancelado", "cancelada", "cancelar"].includes(rawStatus)) {
+  if (["cancelado", "cancelada", "cancelar"].includes(normalized)) {
     return "cancelado";
+  }
+
+  if (normalized === "vencido") {
+    return "vencido";
+  }
+
+  if (normalized === "pendente") {
+    return "pendente";
+  }
+
+  return fallback;
+}
+
+function normalizeLancamentoStatus(item: Record<string, any>): FinLancamentoStatus {
+  const rawStatus = String(item.status || item.situacao || item.nome_situacao || item.status_pagamento || "").toLowerCase().trim();
+  const liquidado = item.liquidado === "1" || item.liquidado === 1 || item.liquidado === true;
+
+  if (liquidado) {
+    return "pago";
+  }
+
+  const coerced = coerceLancamentoStatus(rawStatus);
+  if (coerced !== "pendente" || rawStatus === "pendente") {
+    return coerced;
   }
 
   const dataVencimento = item.data_vencimento ? new Date(item.data_vencimento) : null;
