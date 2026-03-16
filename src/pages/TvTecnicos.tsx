@@ -88,7 +88,8 @@ export default function TvTecnicos() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('os_index')
-        .select('nome_vendedor, valor_total, os_codigo')
+        .select('nome_vendedor, valor_total, os_codigo, nome_situacao')
+        .in('nome_situacao', OS_EXECUTADOS_STATUS)
         .gte('data_saida', start)
         .lte('data_saida', end);
       if (error) throw error;
