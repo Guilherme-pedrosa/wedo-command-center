@@ -980,6 +980,7 @@ serve(async (req) => {
         gc_upserted: gcPagUpserted,
         fin_upserted: finPagUpserted,
         errors: pagErrors,
+        error_messages: [...pagErrorMessages],
         duration_ms: Date.now() - pagStart,
       };
       console.log(`[sync-all] Pagamentos done: ${pagRecords.length} fetched, gc=${gcPagUpserted}, fin=${finPagUpserted} (${Date.now() - pagStart}ms)`);
