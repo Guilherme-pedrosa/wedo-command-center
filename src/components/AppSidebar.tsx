@@ -71,6 +71,7 @@ const finAdmin = [
 ];
 
 const bottomItems = [
+  { title: "Usuários", url: "/admin/usuarios", icon: Users },
   { title: "Log", url: "/log", icon: ScrollText },
   { title: "Configurações", url: "/configuracoes", icon: Settings },
 ];
