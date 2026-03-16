@@ -2766,6 +2766,36 @@ export type Database = {
         }
         Relationships: []
       }
+      profiles: {
+        Row: {
+          auvo_codigo: string | null
+          created_at: string | null
+          email: string
+          gc_codigo: string | null
+          id: string
+          nome: string
+          updated_at: string | null
+        }
+        Insert: {
+          auvo_codigo?: string | null
+          created_at?: string | null
+          email: string
+          gc_codigo?: string | null
+          id: string
+          nome: string
+          updated_at?: string | null
+        }
+        Update: {
+          auvo_codigo?: string | null
+          created_at?: string | null
+          email?: string
+          gc_codigo?: string | null
+          id?: string
+          nome?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       sync_log: {
         Row: {
           created_at: string | null
@@ -2802,6 +2832,24 @@ export type Database = {
           resposta?: Json | null
           status?: string | null
           tipo?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
         }
         Relationships: []
       }
@@ -2957,9 +3005,17 @@ export type Database = {
       }
     }
     Functions: {
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
       next_negociacao_number: { Args: never; Returns: number }
     }
     Enums: {
+      app_role: "admin" | "user"
       fin_origem:
         | "gc_os"
         | "gc_venda"
@@ -3112,6 +3168,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      app_role: ["admin", "user"],
       fin_origem: [
         "gc_os",
         "gc_venda",
