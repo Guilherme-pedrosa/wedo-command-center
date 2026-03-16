@@ -62,9 +62,9 @@ export default function TvResultados() {
       .slice(0, 3);
   }, [osExecutadas]);
 
-  // Auto-refresh every hour
+  // Auto-refresh every 5 minutes
   useEffect(() => {
-    const interval = setInterval(() => refetch(), 60 * 60 * 1000);
+    const interval = setInterval(() => refetch(), 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [refetch]);
 
