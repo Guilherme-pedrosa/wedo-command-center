@@ -809,7 +809,7 @@ serve(async (req) => {
             data_competencia: item.data_competencia || null,
             data_liquidacao: item.data_liquidacao || null,
             liquidado: item.liquidado === "1",
-            status: item.liquidado === "1" ? "pago" : "pendente",
+            status: normalizeLancamentoStatus(item),
             last_synced_at: new Date().toISOString(),
           }));
 
