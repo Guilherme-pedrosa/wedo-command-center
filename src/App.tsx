@@ -118,8 +118,10 @@ const App = () => (
 
             {/* Standalone pages (no sidebar) - also protected */}
             <Route path="/relatorio/resultados" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><RelatorioResultados /></Suspense></ProtectedRoute>} />
-            <Route path="/tv/resultados" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><TvResultados /></Suspense></ProtectedRoute>} />
-            <Route path="/tv/tecnicos" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><TvTecnicos /></Suspense></ProtectedRoute>} />
+
+            {/* TV pages - public, no auth required */}
+            <Route path="/tv/resultados" element={<Suspense fallback={<LazyFallback />}><TvResultados /></Suspense>} />
+            <Route path="/tv/tecnicos" element={<Suspense fallback={<LazyFallback />}><TvTecnicos /></Suspense>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>
