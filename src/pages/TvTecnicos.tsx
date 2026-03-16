@@ -13,7 +13,20 @@ const formatBRL = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
 interface TecnicoMeta { nome_tecnico: string; meta_faturamento: number; }
-interface OsRow { nome_vendedor: string | null; valor_total: number | null; os_codigo: string; }
+interface OsRow { nome_vendedor: string | null; valor_total: number | null; os_codigo: string; nome_situacao: string | null; }
+
+const OS_EXECUTADOS_STATUS = [
+  'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
+  'EXECUTADO - AGUARDANDO PAGAMENTO',
+  'EXECUTADO COM NOTA EMITIDA',
+  'EXECUTADO - FINANCEIRO SEPARADO',
+  'EXECUTADO - CIGAM',
+  'EXECUTADO POR CONTRATO',
+  'EXECUTADO - FECHADO CHAMADO',
+  'EXECUTADO EM GARANTIA',
+  'EXECUTADO -PATRIMÔNIO',
+  'EXECUTADO - LIBERADO P/ FATURAMENTO (CIGAM SEM BAIXA ESTOQ)',
+];
 interface RetornoRow { os_codigo: string; tecnico_original: string; tecnico_retorno: string; valor: number; }
 
 export default function TvTecnicos() {
@@ -75,7 +88,8 @@ export default function TvTecnicos() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('os_index')
-        .select('nome_vendedor, valor_total, os_codigo')
+        .select('nome_vendedor, valor_total, os_codigo, nome_situacao')
+        .in('nome_situacao', OS_EXECUTADOS_STATUS)
         .gte('data_saida', start)
         .lte('data_saida', end);
       if (error) throw error;
