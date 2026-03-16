@@ -133,7 +133,7 @@ export default function TvTecnicos() {
       refetchMetas();
       refetchOs();
       refetchRetornos();
-    }, 5 * 60 * 1000);
+    }, 60 * 60 * 1000);
     return () => clearInterval(interval);
   }, [refetchMetas, refetchOs, refetchRetornos]);
 
