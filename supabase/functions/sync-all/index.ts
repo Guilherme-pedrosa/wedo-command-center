@@ -853,6 +853,7 @@ serve(async (req) => {
         gc_upserted: gcRecUpserted,
         fin_upserted: finRecUpserted,
         errors: recErrors,
+        error_messages: [...recErrorMessages],
         duration_ms: Date.now() - recStart,
       };
       console.log(`[sync-all] Recebimentos done: ${recRecords.length} fetched, gc=${gcRecUpserted}, fin=${finRecUpserted} (${Date.now() - recStart}ms)`);
