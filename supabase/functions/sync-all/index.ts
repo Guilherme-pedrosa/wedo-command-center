@@ -940,6 +940,8 @@ serve(async (req) => {
             .upsert(finBatch, { onConflict: "gc_id" });
           if (finErr) {
             console.error(`[sync-all] fin_pagamentos upsert error: ${finErr.message}`);
+            pagErrorMessages.add(`fin_pagamentos: ${finErr.message}`);
+            pagErrors += finBatch.length;
           } else {
             finPagUpserted += finBatch.length;
           }
