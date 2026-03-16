@@ -991,11 +991,17 @@ serve(async (req) => {
 
     // ── Log final ──
     const totalDuration = Date.now() - startTime;
-    const hasErrors = Object.values(results).some((r: any) => r.status === "error");
+    const issueEntries = Object.entries(results).filter(([, result]: any) => result?.status === "error" || result?.status === "partial");
+    const hasIssues = issueEntries.length > 0;
+    const issueSummary = issueEntries
+      .map(([moduleName, result]: any) => `${moduleName}: ${result?.error ?? result?.error_messages?.[0] ?? result?.status}`)
+      .join(" | ");
 
     await supabase.from("fin_sync_log").insert({
       tipo: "sync-all",
-      status: hasErrors ? "partial" : "success",
+      status: hasIssues ? "partial" : "success",
+      erro: hasIssues ? issueSummary : null,
+      resposta: results,
       payload: results,
       duracao_ms: totalDuration,
     });
