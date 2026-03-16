@@ -839,6 +839,8 @@ serve(async (req) => {
             .upsert(finBatch, { onConflict: "gc_id" });
           if (finErr) {
             console.error(`[sync-all] fin_recebimentos upsert error: ${finErr.message}`);
+            recErrorMessages.add(`fin_recebimentos: ${finErr.message}`);
+            recErrors += finBatch.length;
           } else {
             finRecUpserted += finBatch.length;
           }
