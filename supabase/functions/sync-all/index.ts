@@ -803,6 +803,7 @@ serve(async (req) => {
           .upsert(gcBatch, { onConflict: "gc_id" });
         if (gcErr) {
           console.error(`[sync-all] gc_recebimentos upsert error: ${gcErr.message}`);
+          recErrorMessages.add(`gc_recebimentos: ${gcErr.message}`);
           recErrors += gcBatch.length;
         } else {
           gcRecUpserted += gcBatch.length;
