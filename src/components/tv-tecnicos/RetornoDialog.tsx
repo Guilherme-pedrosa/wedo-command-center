@@ -40,14 +40,16 @@ export function RetornoDialog({
   tecnicos,
 }: RetornoDialogProps) {
   const [selected, setSelected] = useState('');
+  const [observacao, setObservacao] = useState('');
   const outrosTecnicos = tecnicos.filter(
     (t) => t.toUpperCase() !== tecnicoOriginal.toUpperCase()
   );
 
   const handleConfirm = () => {
     if (selected) {
-      onConfirm(selected);
+      onConfirm(selected, observacao);
       setSelected('');
+      setObservacao('');
     }
   };
 
