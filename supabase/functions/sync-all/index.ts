@@ -870,6 +870,7 @@ serve(async (req) => {
       let gcPagUpserted = 0;
       let finPagUpserted = 0;
       let pagErrors = 0;
+      const pagErrorMessages = new Set<string>();
 
       for (let i = 0; i < pagRecords.length; i += 50) {
         const rawBatch = pagRecords.slice(i, i + 50);
