@@ -663,6 +663,37 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // ── Dedup guard: skip if last successful sync was < 45 min ago ──
+    // This allows scheduling every 30min to catch pg_net misses while
+    // avoiding redundant full syncs.
+    const skipIfManual = bodyDataInicio || bodyDataFim; // manual calls bypass guard
+    if (!skipIfManual) {
+      const { data: lastSync } = await supabase
+        .from("fin_sync_log")
+        .select("created_at")
+        .eq("tipo", "sync-all")
+        .eq("status", "success")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (lastSync?.created_at) {
+        const lastSyncAge = Date.now() - new Date(lastSync.created_at).getTime();
+        const MIN_INTERVAL_MS = 45 * 60 * 1000; // 45 minutes
+        if (lastSyncAge < MIN_INTERVAL_MS) {
+          console.log(`[sync-all] Skipping — last success was ${Math.round(lastSyncAge / 60000)}min ago (< 45min threshold)`);
+          return new Response(JSON.stringify({
+            skipped: true,
+            reason: `Last successful sync was ${Math.round(lastSyncAge / 60000)} minutes ago`,
+            last_sync: lastSync.created_at,
+          }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+    }
+
     // Default to an incremental window to keep the sync under the platform timeout.
     let dataInicio = bodyDataInicio;
     let dataFim = bodyDataFim;
