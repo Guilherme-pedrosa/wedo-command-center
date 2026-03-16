@@ -92,6 +92,18 @@ export function RetornoDialog({
               </SelectContent>
             </Select>
           </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-white/80">
+              Observação
+            </label>
+            <Textarea
+              value={observacao}
+              onChange={(e) => setObservacao(e.target.value)}
+              placeholder="Ex: Cliente reclamou do serviço anterior..."
+              className="bg-white/5 border-white/10 text-white placeholder:text-white/30 min-h-[80px]"
+            />
+          </div>
         </div>
 
         <DialogFooter className="gap-2">
