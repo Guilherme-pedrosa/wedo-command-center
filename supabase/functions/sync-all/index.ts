@@ -82,6 +82,30 @@ function inferirOrigem(descricao?: string | null): string {
   return "outro";
 }
 
+function normalizeLancamentoStatus(item: Record<string, any>): "pendente" | "pago" | "vencido" | "cancelado" {
+  const rawStatus = String(item.status || item.situacao || item.nome_situacao || "").toLowerCase().trim();
+  const liquidado = item.liquidado === "1" || item.liquidado === 1 || item.liquidado === true;
+
+  if (liquidado || ["liquidado", "pago", "paga", "baixado", "recebido", "quitado"].includes(rawStatus)) {
+    return "pago";
+  }
+
+  if (["cancelado", "cancelada", "cancelar"].includes(rawStatus)) {
+    return "cancelado";
+  }
+
+  const dataVencimento = item.data_vencimento ? new Date(item.data_vencimento) : null;
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  if (dataVencimento && !Number.isNaN(dataVencimento.getTime())) {
+    dataVencimento.setHours(0, 0, 0, 0);
+    if (dataVencimento < hoje) return "vencido";
+  }
+
+  return "pendente";
+}
+
 // ── Hardcoded situação IDs (static, never change) ──
 // OS: all EXECUTADO statuses
 const OS_SITUACAO_IDS = [
