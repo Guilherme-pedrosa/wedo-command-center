@@ -903,6 +903,7 @@ serve(async (req) => {
           .upsert(gcBatch, { onConflict: "gc_id" });
         if (gcErr) {
           console.error(`[sync-all] gc_pagamentos upsert error: ${gcErr.message}`);
+          pagErrorMessages.add(`gc_pagamentos: ${gcErr.message}`);
           pagErrors += gcBatch.length;
         } else {
           gcPagUpserted += gcBatch.length;
