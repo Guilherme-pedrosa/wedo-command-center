@@ -4,7 +4,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
+import { AuthProvider } from "@/hooks/useAuth";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Loader2 } from "lucide-react";
+import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Picking from "@/pages/Picking";
 import Recebimentos from "@/pages/Recebimentos";
@@ -23,7 +26,6 @@ const FinGrpReceber = lazy(() => import("@/pages/financeiro/GruposReceberPage"))
 const FinGrpPagar = lazy(() => import("@/pages/financeiro/GruposPagarPage"));
 const FinAgenda = lazy(() => import("@/pages/financeiro/AgendaPage"));
 const FinExtrato = lazy(() => import("@/pages/financeiro/ExtratoBancoPage"));
-const FinConciliacao = lazy(() => import("@/pages/financeiro/ConciliacaoPage"));
 const FinConciliacaoHist = lazy(() => import("@/pages/financeiro/ConciliacaoHistoricoPage"));
 const FinDRE = lazy(() => import("@/pages/financeiro/DREPage"));
 const FinFluxo = lazy(() => import("@/pages/financeiro/FluxoCaixaPage"));
@@ -43,6 +45,8 @@ const FinNegociacaoOS = lazy(() => import("@/pages/financeiro/NegociacaoOSPage")
 const FinNegociacoes = lazy(() => import("@/pages/financeiro/NegociacoesPage"));
 const FinPrecificacao = lazy(() => import("@/pages/financeiro/PrecificacaoPage"));
 const FinArgusAgent = lazy(() => import("@/pages/financeiro/ArgusAgentPage"));
+const AdminUsuarios = lazy(() => import("@/pages/AdminUsuarios"));
+
 const queryClient = new QueryClient();
 
 function LazyFallback() {
@@ -66,54 +70,61 @@ const App = () => (
           },
         }}
       />
-      <BrowserRouter>
-        <Routes>
-          <Route element={<AppLayout />}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/picking" element={<Picking />} />
-            <Route path="/recebimentos" element={<Recebimentos />} />
-            <Route path="/grupos" element={<Grupos />} />
-            <Route path="/pagamentos" element={<Pagamentos />} />
-            <Route path="/agendamentos" element={<Agendamentos />} />
-            <Route path="/log" element={<SyncLog />} />
-            <Route path="/configuracoes" element={<Configuracoes />} />
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* Public */}
+            <Route path="/login" element={<Login />} />
 
-            {/* Financeiro Hub */}
-            <Route path="/financeiro" element={<Navigate to="/financeiro/dashboard" replace />} />
-            <Route path="/financeiro/dashboard" element={<Suspense fallback={<LazyFallback />}><FinDashboard /></Suspense>} />
-            <Route path="/financeiro/recebimentos" element={<Suspense fallback={<LazyFallback />}><FinReceber /></Suspense>} />
-            <Route path="/financeiro/pagamentos" element={<Suspense fallback={<LazyFallback />}><FinPagar /></Suspense>} />
-            <Route path="/financeiro/grupos-receber" element={<Suspense fallback={<LazyFallback />}><FinGrpReceber /></Suspense>} />
-            <Route path="/financeiro/grupos-pagar" element={<Suspense fallback={<LazyFallback />}><FinGrpPagar /></Suspense>} />
-            <Route path="/financeiro/agenda" element={<Suspense fallback={<LazyFallback />}><FinAgenda /></Suspense>} />
-            <Route path="/financeiro/extrato" element={<Suspense fallback={<LazyFallback />}><FinExtrato /></Suspense>} />
-            <Route path="/financeiro/conciliacao" element={<Navigate to="/financeiro/extrato" replace />} />
-            <Route path="/financeiro/conciliacao-historico" element={<Suspense fallback={<LazyFallback />}><FinConciliacaoHist /></Suspense>} />
-            <Route path="/financeiro/dre" element={<Suspense fallback={<LazyFallback />}><FinDRE /></Suspense>} />
-            <Route path="/financeiro/fluxo-caixa" element={<Suspense fallback={<LazyFallback />}><FinFluxo /></Suspense>} />
-            <Route path="/financeiro/plano-contas" element={<Suspense fallback={<LazyFallback />}><FinPlanoContas /></Suspense>} />
-            <Route path="/financeiro/config-banco" element={<Suspense fallback={<LazyFallback />}><FinConfigBanco /></Suspense>} />
-            <Route path="/financeiro/log" element={<Suspense fallback={<LazyFallback />}><FinLog /></Suspense>} />
-            <Route path="/financeiro/metas" element={<Suspense fallback={<LazyFallback />}><FinMetas /></Suspense>} />
-            <Route path="/financeiro/centros-custo" element={<Suspense fallback={<LazyFallback />}><FinCentrosCusto /></Suspense>} />
-            <Route path="/financeiro/clientes" element={<Suspense fallback={<LazyFallback />}><FinClientes /></Suspense>} />
-          <Route path="/financeiro/fornecedores" element={<Suspense fallback={<LazyFallback />}><FinFornecedores /></Suspense>} />
-          <Route path="/financeiro/paineis-tv" element={<Suspense fallback={<LazyFallback />}><FinPaineisTv /></Suspense>} />
-          <Route path="/financeiro/fatura-cartao" element={<Suspense fallback={<LazyFallback />}><FinFaturaCartao /></Suspense>} />
-          <Route path="/financeiro/negociacao-os" element={<Suspense fallback={<LazyFallback />}><FinNegociacaoOS /></Suspense>} />
-          <Route path="/financeiro/negociacoes" element={<Suspense fallback={<LazyFallback />}><FinNegociacoes /></Suspense>} />
-          <Route path="/financeiro/precificacao" element={<Suspense fallback={<LazyFallback />}><FinPrecificacao /></Suspense>} />
-          <Route path="/financeiro/argus-agent" element={<Suspense fallback={<LazyFallback />}><FinArgusAgent /></Suspense>} />
-          </Route>
+            {/* Protected routes */}
+            <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/picking" element={<Picking />} />
+              <Route path="/recebimentos" element={<Recebimentos />} />
+              <Route path="/grupos" element={<Grupos />} />
+              <Route path="/pagamentos" element={<Pagamentos />} />
+              <Route path="/agendamentos" element={<Agendamentos />} />
+              <Route path="/log" element={<SyncLog />} />
+              <Route path="/configuracoes" element={<Configuracoes />} />
+              <Route path="/admin/usuarios" element={<Suspense fallback={<LazyFallback />}><AdminUsuarios /></Suspense>} />
 
-          {/* Standalone pages (no sidebar) */}
-          <Route path="/relatorio/resultados" element={<Suspense fallback={<LazyFallback />}><RelatorioResultados /></Suspense>} />
-          <Route path="/tv/resultados" element={<Suspense fallback={<LazyFallback />}><TvResultados /></Suspense>} />
-          <Route path="/tv/tecnicos" element={<Suspense fallback={<LazyFallback />}><TvTecnicos /></Suspense>} />
+              {/* Financeiro Hub */}
+              <Route path="/financeiro" element={<Navigate to="/financeiro/dashboard" replace />} />
+              <Route path="/financeiro/dashboard" element={<Suspense fallback={<LazyFallback />}><FinDashboard /></Suspense>} />
+              <Route path="/financeiro/recebimentos" element={<Suspense fallback={<LazyFallback />}><FinReceber /></Suspense>} />
+              <Route path="/financeiro/pagamentos" element={<Suspense fallback={<LazyFallback />}><FinPagar /></Suspense>} />
+              <Route path="/financeiro/grupos-receber" element={<Suspense fallback={<LazyFallback />}><FinGrpReceber /></Suspense>} />
+              <Route path="/financeiro/grupos-pagar" element={<Suspense fallback={<LazyFallback />}><FinGrpPagar /></Suspense>} />
+              <Route path="/financeiro/agenda" element={<Suspense fallback={<LazyFallback />}><FinAgenda /></Suspense>} />
+              <Route path="/financeiro/extrato" element={<Suspense fallback={<LazyFallback />}><FinExtrato /></Suspense>} />
+              <Route path="/financeiro/conciliacao" element={<Navigate to="/financeiro/extrato" replace />} />
+              <Route path="/financeiro/conciliacao-historico" element={<Suspense fallback={<LazyFallback />}><FinConciliacaoHist /></Suspense>} />
+              <Route path="/financeiro/dre" element={<Suspense fallback={<LazyFallback />}><FinDRE /></Suspense>} />
+              <Route path="/financeiro/fluxo-caixa" element={<Suspense fallback={<LazyFallback />}><FinFluxo /></Suspense>} />
+              <Route path="/financeiro/plano-contas" element={<Suspense fallback={<LazyFallback />}><FinPlanoContas /></Suspense>} />
+              <Route path="/financeiro/config-banco" element={<Suspense fallback={<LazyFallback />}><FinConfigBanco /></Suspense>} />
+              <Route path="/financeiro/log" element={<Suspense fallback={<LazyFallback />}><FinLog /></Suspense>} />
+              <Route path="/financeiro/metas" element={<Suspense fallback={<LazyFallback />}><FinMetas /></Suspense>} />
+              <Route path="/financeiro/centros-custo" element={<Suspense fallback={<LazyFallback />}><FinCentrosCusto /></Suspense>} />
+              <Route path="/financeiro/clientes" element={<Suspense fallback={<LazyFallback />}><FinClientes /></Suspense>} />
+              <Route path="/financeiro/fornecedores" element={<Suspense fallback={<LazyFallback />}><FinFornecedores /></Suspense>} />
+              <Route path="/financeiro/paineis-tv" element={<Suspense fallback={<LazyFallback />}><FinPaineisTv /></Suspense>} />
+              <Route path="/financeiro/fatura-cartao" element={<Suspense fallback={<LazyFallback />}><FinFaturaCartao /></Suspense>} />
+              <Route path="/financeiro/negociacao-os" element={<Suspense fallback={<LazyFallback />}><FinNegociacaoOS /></Suspense>} />
+              <Route path="/financeiro/negociacoes" element={<Suspense fallback={<LazyFallback />}><FinNegociacoes /></Suspense>} />
+              <Route path="/financeiro/precificacao" element={<Suspense fallback={<LazyFallback />}><FinPrecificacao /></Suspense>} />
+              <Route path="/financeiro/argus-agent" element={<Suspense fallback={<LazyFallback />}><FinArgusAgent /></Suspense>} />
+            </Route>
 
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
+            {/* Standalone pages (no sidebar) - also protected */}
+            <Route path="/relatorio/resultados" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><RelatorioResultados /></Suspense></ProtectedRoute>} />
+            <Route path="/tv/resultados" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><TvResultados /></Suspense></ProtectedRoute>} />
+            <Route path="/tv/tecnicos" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><TvTecnicos /></Suspense></ProtectedRoute>} />
+
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );
