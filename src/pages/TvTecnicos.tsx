@@ -139,12 +139,13 @@ export default function TvTecnicos() {
 
   // Mutations
   const addRetorno = useMutation({
-    mutationFn: async (params: { os_codigo: string; tecnico_original: string; tecnico_retorno: string; valor: number }) => {
+    mutationFn: async (params: { os_codigo: string; tecnico_original: string; tecnico_retorno: string; valor: number; observacao?: string | null }) => {
       const { error } = await supabase.from('fin_os_retornos').insert({
         os_codigo: params.os_codigo,
         tecnico_original: params.tecnico_original,
         tecnico_retorno: params.tecnico_retorno,
         valor: params.valor,
+        observacao: params.observacao ?? null,
         ano: year,
         mes: month,
         created_by: userId,
