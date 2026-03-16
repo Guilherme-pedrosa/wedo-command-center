@@ -263,7 +263,7 @@ export default function TvTecnicos() {
         </div>
         <div className="text-right">
           <div className="text-sm text-white/30">
-            {isLoggedIn ? '🔓 Logado — clique em uma OS para marcar retorno' : 'Atualiza a cada 1 hora'}
+            {isLoggedIn ? '🔓 Logado — clique em uma OS para marcar retorno' : 'Atualiza a cada 5 min'}
           </div>
           {lastSync && (
             <div className="text-xs text-white/20 mt-0.5">
