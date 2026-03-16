@@ -14,12 +14,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { RotateCcw } from 'lucide-react';
 
 interface RetornoDialogProps {
   open: boolean;
   onClose: () => void;
-  onConfirm: (tecnicoRetorno: string) => void;
+  onConfirm: (tecnicoRetorno: string, observacao: string) => void;
   osCodigo: string;
   tecnicoOriginal: string;
   valor: number;
