@@ -332,7 +332,7 @@ export default function TvResultados() {
 
       {/* Footer */}
       <p className="text-center text-sm text-muted-foreground">
-        ARGUS • Atualiza automaticamente a cada 5 min • {new Date().toLocaleString('pt-BR')}
+        ARGUS • Atualiza automaticamente a cada 1 hora • {new Date().toLocaleString('pt-BR')}
       </p>
     </div>
   );
