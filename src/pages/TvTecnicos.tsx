@@ -33,7 +33,6 @@ export default function TvTecnicos() {
 
   // Retorno dialog state
   const [retornoTarget, setRetornoTarget] = useState<{ codigo: string; tecnico: string; valor: number } | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const navigateMonth = (dir: number) => {
     setSelectedDate(prev => {
@@ -54,7 +53,7 @@ export default function TvTecnicos() {
   const end = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
 
   // Fetch metas
-  const { data: metas = [], refetch: refetchMetas } = useQuery({
+  const { data: metas = [] } = useQuery({
     queryKey: ['fin_metas_tecnicos'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -66,10 +65,12 @@ export default function TvTecnicos() {
       return (data || []) as TecnicoMeta[];
     },
     staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+    refetchIntervalInBackground: true,
   });
 
   // Fetch OS do mês
-  const { data: osData = [], isLoading: loadingOs, refetch: refetchOs, dataUpdatedAt } = useQuery({
+  const { data: osData = [], isLoading: loadingOs, dataUpdatedAt } = useQuery({
     queryKey: ['os_index_tecnicos', year, month],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -81,6 +82,8 @@ export default function TvTecnicos() {
       return (data || []) as OsRow[];
     },
     staleTime: 2 * 60 * 1000,
+    refetchInterval: 60 * 1000,
+    refetchIntervalInBackground: true,
   });
 
   // Fetch last API sync timestamp (new log table + fallback)
@@ -109,11 +112,13 @@ export default function TvTecnicos() {
 
       return legacyLog?.created_at ?? null;
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    refetchIntervalInBackground: true,
   });
 
   // Fetch retornos do mês
-  const { data: retornos = [], refetch: refetchRetornos } = useQuery({
+  const { data: retornos = [] } = useQuery({
     queryKey: ['fin_os_retornos', year, month],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -125,17 +130,46 @@ export default function TvTecnicos() {
       return (data || []) as RetornoRow[];
     },
     staleTime: 2 * 60 * 1000,
+    refetchInterval: 60 * 1000,
+    refetchIntervalInBackground: true,
   });
 
-  // Auto-refresh
+
+  // Realtime refresh to keep the TV panel in sync without waiting for polling.
   useEffect(() => {
-    const interval = setInterval(() => {
-      refetchMetas();
-      refetchOs();
-      refetchRetornos();
-    }, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [refetchMetas, refetchOs, refetchRetornos]);
+    const channel = supabase
+      .channel(`tv-tecnicos-refresh-${year}-${month}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'os_index' },
+        () => qc.invalidateQueries({ queryKey: ['os_index_tecnicos', year, month] })
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'fin_os_retornos' },
+        () => qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] })
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'fin_metas_tecnicos' },
+        () => qc.invalidateQueries({ queryKey: ['fin_metas_tecnicos'] })
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'fin_sync_log' },
+        () => qc.invalidateQueries({ queryKey: ['last_sync_os'] })
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sync_log' },
+        () => qc.invalidateQueries({ queryKey: ['last_sync_os'] })
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [month, qc, year]);
 
   // Mutations
   const addRetorno = useMutation({
