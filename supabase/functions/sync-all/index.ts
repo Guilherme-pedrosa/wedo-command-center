@@ -768,6 +768,7 @@ serve(async (req) => {
       let gcRecUpserted = 0;
       let finRecUpserted = 0;
       let recErrors = 0;
+      const recErrorMessages = new Set<string>();
 
       for (let i = 0; i < recRecords.length; i += 50) {
         const rawBatch = recRecords.slice(i, i + 50);
