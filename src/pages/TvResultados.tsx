@@ -144,7 +144,7 @@ export default function TvResultados() {
               <span className="text-lg text-muted-foreground">Alertas</span>
             </div>
           </div>
-          <div className="text-sm text-muted-foreground">Atualiza a cada 5 min</div>
+          <div className="text-sm text-muted-foreground">Atualiza a cada 1 hora</div>
           {dataUpdatedAt > 0 && (
             <div className="text-xs text-muted-foreground/50">
               Última atualização: {new Date(dataUpdatedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
