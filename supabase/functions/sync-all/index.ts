@@ -663,31 +663,23 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Infer date range if not provided
+    // Default to an incremental window to keep the sync under the platform timeout.
     let dataInicio = bodyDataInicio;
     let dataFim = bodyDataFim;
     let dateSource = "request";
 
-    if (!dataInicio || !dataFim) {
-      const [recFinMin, pagFinMin, recGcMin, pagGcMin] = await Promise.all([
-        supabase.from("fin_recebimentos").select("data_vencimento").not("data_vencimento", "is", null).order("data_vencimento", { ascending: true }).limit(1).maybeSingle(),
-        supabase.from("fin_pagamentos").select("data_vencimento").not("data_vencimento", "is", null).order("data_vencimento", { ascending: true }).limit(1).maybeSingle(),
-        supabase.from("gc_recebimentos").select("data_vencimento").not("data_vencimento", "is", null).order("data_vencimento", { ascending: true }).limit(1).maybeSingle(),
-        supabase.from("gc_pagamentos").select("data_vencimento").not("data_vencimento", "is", null).order("data_vencimento", { ascending: true }).limit(1).maybeSingle(),
-      ]);
-
-      const candidates = [
-        recFinMin.data?.data_vencimento,
-        pagFinMin.data?.data_vencimento,
-        recGcMin.data?.data_vencimento,
-        pagGcMin.data?.data_vencimento,
-      ].filter((v): v is string => Boolean(v));
-
-      if (candidates.length > 0) {
-        dataInicio = [...candidates].sort()[0];
-        dataFim = new Date().toISOString().split("T")[0];
-        dateSource = "inferred_from_synced_data";
+    if (!dataFim) {
+      dataFim = new Date().toISOString().split("T")[0];
+      if (bodyDataInicio) {
+        dateSource = "request_completed_with_today";
       }
+    }
+
+    if (!dataInicio) {
+      const endDate = new Date(`${dataFim}T00:00:00Z`);
+      endDate.setUTCDate(endDate.getUTCDate() - (DEFAULT_SYNC_WINDOW_DAYS - 1));
+      dataInicio = endDate.toISOString().split("T")[0];
+      dateSource = bodyDataFim ? "request_completed_with_default_window" : "default_90d_window";
     }
 
     if (!dataInicio || !dataFim) {
