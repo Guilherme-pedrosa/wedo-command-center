@@ -33,7 +33,6 @@ export default function TvTecnicos() {
 
   // Retorno dialog state
   const [retornoTarget, setRetornoTarget] = useState<{ codigo: string; tecnico: string; valor: number } | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const navigateMonth = (dir: number) => {
     setSelectedDate(prev => {
@@ -136,6 +135,42 @@ export default function TvTecnicos() {
     }, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [refetchMetas, refetchOs, refetchRetornos]);
+
+  // Realtime refresh to keep the TV panel in sync without waiting for polling.
+  useEffect(() => {
+    const channel = supabase
+      .channel(`tv-tecnicos-refresh-${year}-${month}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'os_index' },
+        () => qc.invalidateQueries({ queryKey: ['os_index_tecnicos', year, month] })
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'fin_os_retornos' },
+        () => qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] })
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'fin_metas_tecnicos' },
+        () => qc.invalidateQueries({ queryKey: ['fin_metas_tecnicos'] })
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'fin_sync_log' },
+        () => qc.invalidateQueries({ queryKey: ['last_sync_os'] })
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sync_log' },
+        () => qc.invalidateQueries({ queryKey: ['last_sync_os'] })
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [month, qc, year]);
 
   // Mutations
   const addRetorno = useMutation({
