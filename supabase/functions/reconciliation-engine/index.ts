@@ -1082,7 +1082,7 @@ serve(async (req) => {
                   const lookup = isDebitoApprox ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
                   const finDoc = cleanDoc(fin.recipient_document) || lookup?.cpf_cnpj || "";
                   const finNome = (isDebitoApprox ? fin.nome_fornecedor : fin.nome_cliente) ?? lookup?.nome ?? "";
-                  const finDate = fin.data_vencimento ?? fin.data_emissao ?? "";
+                  const finDate = getFinMatchDate(fin);
                   const docMatch = Boolean(extDocApprox && finDoc && docMatches(extDocApprox, finDoc));
                   const nomeMatch = Boolean(extNomeApprox && finNome && nomeForteMatch(extNomeApprox, finNome));
                   if (!docMatch && !nomeMatch) return null;
