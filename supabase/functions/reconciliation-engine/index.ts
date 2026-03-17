@@ -547,7 +547,7 @@ function tentarSomaParcelas(
       const lkp = isDebito ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
       const finDoc = cleanDoc(fin.recipient_document) || lkp?.cpf_cnpj || "";
       const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? lkp?.nome ?? "";
-      const finDate = fin.data_vencimento ?? fin.data_emissao ?? fin.data_liquidacao ?? "";
+      const finDate = getFinMatchDate(fin);
       const docOk = Boolean(extDoc && finDoc && docMatches(extDoc, finDoc));
       const nomeScore = extNome && finNome ? nomeSimilarScore(extNome, finNome) : 0;
       const nomeOk = extNome && finNome ? nomeForteMatch(extNome, finNome) : false;
