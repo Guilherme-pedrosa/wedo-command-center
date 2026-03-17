@@ -676,14 +676,16 @@ serve(async (req) => {
         .limit(1000),
     ]);
 
-    // IDs já vinculados para evitar reutilização em conciliações N:N e 1:1
-    const { data: linkedLancs } = await supabase
-      .from("fin_extrato_lancamentos")
-      .select("lancamento_id");
+    // IDs já vinculados — from N:N table AND from legacy 1:1 lancamento_id on fin_extrato_inter
+    const [{ data: linkedLancs }, { data: linkedExtrato }] = await Promise.all([
+      supabase.from("fin_extrato_lancamentos").select("lancamento_id"),
+      supabase.from("fin_extrato_inter").select("lancamento_id").eq("reconciliado", true).not("lancamento_id", "is", null),
+    ]);
 
-    const alreadyLinked = new Set(
-      (linkedLancs ?? []).map((l: any) => l.lancamento_id).filter(Boolean)
-    );
+    const alreadyLinked = new Set([
+      ...(linkedLancs ?? []).map((l: any) => l.lancamento_id).filter(Boolean),
+      ...(linkedExtrato ?? []).map((l: any) => l.lancamento_id).filter(Boolean),
+    ]);
 
     // Index fornecedor/cliente por gc_id
     const fornMap: Record<string, { cpf_cnpj: string; chave_pix: string; nome: string }> = {};
