@@ -266,11 +266,18 @@ function aplicarRegras(
         ? Math.abs(new Date(sorted[1].fin.data_vencimento ?? sorted[1].fin.data_emissao).getTime() - new Date(extDate).getTime())
           - Math.abs(new Date(sorted[0].fin.data_vencimento ?? sorted[0].fin.data_emissao).getTime() - new Date(extDate).getTime())
         : 0;
-      // Only auto-link if there's a clear date gap (>= 1 day difference between best and second)
+      // Only auto-link if there's a clear date gap AND name confirms
       if (gap >= 86400000) {
-        return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: true };
+        const bestNome = sorted[0].nome;
+        const bestDoc = sorted[0].doc;
+        const hasIdentity = (extDoc && bestDoc && docMatches(extDoc, bestDoc))
+          || (extPix && sorted[0].chavePix && sorted[0].chavePix.toLowerCase() === extPix)
+          || (extNome && bestNome && nomeSimilarScore(extNome, bestNome) >= 0.15);
+        if (hasIdentity) {
+          return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: true };
+        }
       }
-      // BLOCKED: ambiguity unresolved → send to review
+      // BLOCKED: ambiguity unresolved or no identity → send to review
       return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: false };
     }
   }
