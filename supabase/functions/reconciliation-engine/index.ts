@@ -266,22 +266,39 @@ function aplicarRegras(
         ? Math.abs(new Date(sorted[1].fin.data_vencimento ?? sorted[1].fin.data_emissao).getTime() - new Date(extDate).getTime())
           - Math.abs(new Date(sorted[0].fin.data_vencimento ?? sorted[0].fin.data_emissao).getTime() - new Date(extDate).getTime())
         : 0;
-      // Only auto-link if there's a clear date gap (>= 1 day difference between best and second)
+      // Only auto-link if there's a clear date gap AND name confirms
       if (gap >= 86400000) {
-        return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: true };
+        const bestNome = sorted[0].nome;
+        const bestDoc = sorted[0].doc;
+        const hasIdentity = (extDoc && bestDoc && docMatches(extDoc, bestDoc))
+          || (extPix && sorted[0].chavePix && sorted[0].chavePix.toLowerCase() === extPix)
+          || (extNome && bestNome && nomeSimilarScore(extNome, bestNome) >= 0.15);
+        if (hasIdentity) {
+          return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: true };
+        }
       }
-      // BLOCKED: ambiguity unresolved → send to review
+      // BLOCKED: ambiguity unresolved or no identity → send to review
       return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: false };
     }
   }
 
-  // Regra 6: Valor exato + data ±7 dias → fallback ampliado
+  // Regra 6: Valor exato + data ±7 dias → REQUER identidade (nome/CNPJ/PIX)
   if (extDate) {
     const fallback7 = candidatos.filter(c => {
       const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
       return valorExato(extValor, Number(c.fin.valor)) && finDate && dataProxima(extDate, finDate, 7);
     });
-    if (fallback7.length === 1) return { rule: "VALOR_DATA_7DIAS", candidato: fallback7[0], auto: true };
+    if (fallback7.length === 1) {
+      const c = fallback7[0];
+      const hasIdentity = (extDoc && c.doc && docMatches(extDoc, c.doc))
+        || (extPix && c.chavePix && c.chavePix.toLowerCase() === extPix)
+        || (extNome && c.nome && nomeSimilarScore(extNome, c.nome) >= 0.15);
+      if (hasIdentity) {
+        return { rule: "VALOR_DATA_7DIAS", candidato: c, auto: true };
+      }
+      // No identity — suggest only, don't auto
+      return { rule: "VALOR_DATA_7DIAS", candidato: c, auto: false };
+    }
     if (fallback7.length > 1) {
       // Desempate por nome
       if (extNome) {
