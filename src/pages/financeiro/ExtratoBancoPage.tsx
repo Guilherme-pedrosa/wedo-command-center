@@ -259,11 +259,11 @@ export default function ExtratoBancoPage() {
       
       // Store suggestions for user review
       const review = data.review || [];
-      const unmatched = (data.unmatched || []).filter((u: any) => u.sugestoes?.length > 0);
+      const unmatchedWithSug = (data.unmatched || []).filter((u: any) => u.sugestoes?.length > 0 || u.sugestao_nn);
       setAutoReview(review);
-      setAutoSuggestions(unmatched);
+      setAutoSuggestions(unmatchedWithSug);
       setSugVinculados(new Set());
-      if (review.length > 0 || unmatched.length > 0) setAutoSugOpen(true);
+      if (review.length > 0 || unmatchedWithSug.length > 0) setAutoSugOpen(true);
       
       toast.success(`Conciliação: ${data.stats.auto} auto, ${review.length} revisão, ${unmatched.length} sugestões`);
       invalidateAll();
