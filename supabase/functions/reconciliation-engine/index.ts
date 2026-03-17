@@ -935,17 +935,10 @@ serve(async (req) => {
               const isDebitoApprox = ext.tipo === "DEBITO";
               const extDateApprox = ext.data_hora?.substring(0, 10) ?? "";
               
-              // Combine all pools (pending + already paid), dedup
-              const rawPoolApprox = [
-                ...(isDebitoApprox ? (pagamentos ?? []) : (recebimentos ?? [])),
-                ...(isDebitoApprox ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? [])),
-              ];
-              const seenApprox = new Set<string>();
-              const poolApprox = rawPoolApprox.filter((fin: any) => {
-                if (seenApprox.has(fin.id) || alreadyLinked.has(fin.id) || usedIds.has(fin.id)) return false;
-                seenApprox.add(fin.id);
-                return true;
-              });
+              // Pool is already unified — just filter out used/linked
+              const poolApprox = pool.filter((fin: any) =>
+                !alreadyLinked.has(fin.id) && !usedIds.has(fin.id)
+              );
 
               // ── N:N SUGGESTION ──
               // If we have CNPJ-matching candidates whose individual values are smaller than extrato,
