@@ -46,7 +46,7 @@ const ruleLabels: Record<string, string> = {
   MATCH_GRUPO_RECEBER: "Grupo Receber", MATCH_GRUPO_PAGAR: "Grupo Pagar", MATCH_AGENDA: "Agenda",
   NOME_VALOR_EXATO: "Nome+Valor", CNPJ_VALOR_EXATO: "CNPJ+Valor", CNPJ_VALOR_TOLERANCIA: "CNPJ~Valor",
   PIX_KEY_VALOR: "PIX+Valor", REGRA_0_MAX_CONFIANCA: "Máx. Confiança", SOMA_PARCELAS: "Soma Parcelas",
-  MANUAL: "Manual", MANUAL_VINCULO: "Vínculo Manual", AI_GPT5: "IA GPT-5",
+  MANUAL: "Manual", MANUAL_VINCULO: "Vínculo Manual", MANUAL_SOMA: "Soma Manual N:N", MANUAL_SOMA_JUROS: "Juros Adiantamento", AI_GPT5: "IA GPT-5",
 };
 
 function buildMonthOptions() {
