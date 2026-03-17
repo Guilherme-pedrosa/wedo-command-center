@@ -795,12 +795,12 @@ serve(async (req) => {
         const extNomeCheck = ext.nome_contraparte ?? ext.contrapartida ?? "";
         const mesmoValor = candidatos.filter(c => valorExato(extValor, Number(c.fin.valor)));
 
-        // When extract has a name, filter out candidates with no name similarity
+        // When extract has a name, narrow collisions only with identidade forte de nome
         let candidatosEfetivos = mesmoValor;
         if (extNomeCheck && mesmoValor.length > 1) {
-          const comNome = mesmoValor.filter(c => nomeSimilar(extNomeCheck, c.nome, 0.3));
-          if (comNome.length < mesmoValor.length) {
-            candidatosEfetivos = comNome;
+          const comNomeForte = mesmoValor.filter(c => nomeForteMatch(extNomeCheck, c.nome));
+          if (comNomeForte.length > 0 && comNomeForte.length < mesmoValor.length) {
+            candidatosEfetivos = comNomeForte;
           }
         }
 
@@ -829,9 +829,9 @@ serve(async (req) => {
             }
           }
 
-          // Try to resolve collision by nome similar (stricter threshold)
+          // Try to resolve collision by nome forte
           if (extNomeCheck) {
-            const withNome = candidatosEfetivos.filter(c => nomeSimilar(extNomeCheck, c.nome));
+            const withNome = candidatosEfetivos.filter(c => nomeForteMatch(extNomeCheck, c.nome));
             if (withNome.length === 1) {
               try {
                 if (withNome[0].jaPago) {
@@ -855,7 +855,7 @@ serve(async (req) => {
             valor: ext.valor,
             tipo: ext.tipo,
             data_hora: ext.data_hora,
-            motivo: `Colisão real: ${candidatosEfetivos.length} lançamentos com mesmo valor e nome similar`,
+            motivo: `Colisão real: ${candidatosEfetivos.length} lançamentos com mesmo valor e identidade ambígua`,
             candidatos: candidatosEfetivos.map(c => ({
               id: c.fin.id,
               valor: c.fin.valor,
@@ -870,15 +870,25 @@ serve(async (req) => {
           const candidatoUnico = candidatosEfetivos[0];
           const finDate = candidatoUnico.fin.data_vencimento ?? candidatoUnico.fin.data_emissao;
           const extDate = ext.data_hora?.substring(0, 10) ?? "";
-          const nomeMatch = extNomeCheck && nomeSimilar(extNomeCheck, candidatoUnico.nome);
+          const extDoc = cleanDoc(ext.cpf_cnpj);
+          const extPix = (ext.chave_pix ?? "").trim().toLowerCase();
+          const pixClean = extPix.replace(/\D/g, "");
+          const nomeMatch = Boolean(extNomeCheck && nomeForteMatch(extNomeCheck, candidatoUnico.nome));
+          const docMatch = Boolean(extDoc && candidatoUnico.doc && docMatches(extDoc, candidatoUnico.doc));
+          const pixMatch = Boolean(
+            extPix && (
+              (candidatoUnico.chavePix && candidatoUnico.chavePix.toLowerCase() === extPix)
+              || (pixClean.length >= 8 && candidatoUnico.doc && docMatches(pixClean, candidatoUnico.doc))
+            )
+          );
+          const identidadeForte = docMatch || pixMatch || nomeMatch;
           const dateWindow = nomeMatch ? 10 : 5;
+          const ruleLabel = docMatch ? "CNPJ_VALOR_EXATO" : pixMatch ? "PIX_CHAVE_VALOR" : nomeMatch ? "NOME_VALOR_EXATO" : "VALOR_UNICO";
 
-          // If extract has a name and it doesn't match the candidate at all, skip to já-pagos
-          if (extNomeCheck && !nomeSimilar(extNomeCheck, candidatoUnico.nome, 0.2)) {
-            // Name mismatch — don't link to this candidate, fall through to já-pagos
+          if (!identidadeForte) {
+            // Mesmo valor sozinho não basta: sem documento, PIX ou nome forte não sugerimos.
           } else if (finDate && extDate && dataProxima(extDate, finDate, dateWindow)) {
             try {
-              const ruleLabel = nomeMatch ? "NOME_VALOR_EXATO" : "VALOR_UNICO";
               if (candidatoUnico.jaPago) {
                 await vincularRastreabilidade(supabase, ext, candidatoUnico.fin.id, ruleLabel + "_JA_PAGO");
               } else {
@@ -900,13 +910,13 @@ serve(async (req) => {
               valor: ext.valor,
               tipo: ext.tipo,
               data_hora: ext.data_hora,
-              motivo: "Valor exato, aguardando confirmação de data",
+              motivo: "Identidade confirmada, aguardando confirmação de data",
               melhor: {
                 id: candidatoUnico.fin.id,
                 valor: candidatoUnico.fin.valor,
                 descricao: candidatoUnico.fin.descricao,
                 nome: candidatoUnico.fin.nome_fornecedor ?? candidatoUnico.fin.nome_cliente ?? "—",
-                rule: "VALOR_UNICO",
+                rule: ruleLabel,
               },
             });
             stats.review++;
