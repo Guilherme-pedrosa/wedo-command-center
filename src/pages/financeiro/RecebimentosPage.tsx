@@ -124,7 +124,7 @@ export default function RecebimentosPage() {
       const { data } = await supabase
         .from("fin_extrato_lancamentos")
         .select("lancamento_id")
-        .eq("tabela", "fin_recebimentos");
+        .in("tabela", ["fin_recebimentos", "recebimentos"]);
       return new Set((data || []).map((d: any) => d.lancamento_id));
     },
   });
