@@ -98,6 +98,13 @@ export default function ExtratoBancoPage() {
   const [taxaAdiantamento, setTaxaAdiantamento] = useState<string>("");
   const [batchLinking, setBatchLinking] = useState(false);
 
+  // Auto-reconcile suggestions
+  const [autoSuggestions, setAutoSuggestions] = useState<any[]>([]);
+  const [autoReview, setAutoReview] = useState<any[]>([]);
+  const [autoSugOpen, setAutoSugOpen] = useState(false);
+  const [sugVinculando, setSugVinculando] = useState<string | null>(null);
+  const [sugVinculados, setSugVinculados] = useState<Set<string>>(new Set());
+
   // Confirm dialog
   const [showConfirm, setShowConfirm] = useState(false);
   const [selectedExtrato, setSelectedExtrato] = useState<any>(null);
