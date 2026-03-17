@@ -277,6 +277,52 @@ export default function ExtratoBancoPage() {
     return { recebimentos: [], pagamentos: (pagamentosNL || []).filter(filterFn).slice(0, 50) };
   }, [expandedId, expandedItem, searchLanc, recebimentosNL, pagamentosNL]);
 
+  // Multi-select: computed sum and diff
+  const multiSelectedItems = useMemo(() => {
+    if (!multiMode || selectedIds.size === 0 || !expandedItem) return [];
+    const isCredito = expandedItem.tipo === "CREDITO";
+    const pool = isCredito ? (recebimentosNL || []) : (pagamentosNL || []);
+    return pool.filter((l: any) => selectedIds.has(l.id));
+  }, [multiMode, selectedIds, expandedItem, recebimentosNL, pagamentosNL]);
+
+  const multiSoma = multiSelectedItems.reduce((s: number, l: any) => s + Math.abs(Number(l.valor)), 0);
+  const multiExtValor = expandedItem ? Math.abs(Number(expandedItem.valor)) : 0;
+  const multiDiff = multiExtValor - multiSoma;
+  const multiExato = Math.abs(multiDiff) <= 0.01;
+  const multiTemTaxa = !multiExato && multiDiff < 0; // extrato < soma = taxa deducted
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBatchReconcile = async () => {
+    if (!expandedItem || selectedIds.size === 0) return;
+    setBatchLinking(true);
+    try {
+      const taxa = taxaAdiantamento ? parseFloat(taxaAdiantamento.replace(",", ".")) : undefined;
+      const { data, error } = await supabase.functions.invoke("manual-reconcile-batch", {
+        body: {
+          extrato_id: expandedItem.id,
+          lancamento_ids: Array.from(selectedIds),
+          taxa_adiantamento_pct: taxa && taxa > 0 ? taxa : undefined,
+        },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error ?? "Erro");
+      const msg = data.juros
+        ? `Conciliado ${data.conciliados} títulos + juros R$ ${data.juros.valor.toFixed(2)}`
+        : `Conciliado ${data.conciliados} títulos (soma exata)`;
+      toast.success(msg);
+      setExpandedId(null); setMultiMode(false); setSelectedIds(new Set()); setTaxaAdiantamento("");
+      invalidateAll();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+    finally { setBatchLinking(false); }
+  };
+
   const handleVincular = async () => {
     if (!selectedExtrato || !selectedLanc) return;
     setLinking(true);
