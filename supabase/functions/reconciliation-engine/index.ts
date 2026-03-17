@@ -757,7 +757,11 @@ serve(async (req) => {
 
       if (candidato && auto) {
         try {
-          await vincular(supabase, ext, candidato, rule!);
+          if (candidato.jaPago) {
+            await vincularRastreabilidade(supabase, ext, candidato.fin.id, rule! + "_JA_PAGO");
+          } else {
+            await vincular(supabase, ext, candidato, rule!);
+          }
           usedIds.add(candidato.fin.id);
           stats.auto++;
         } catch (e) {
