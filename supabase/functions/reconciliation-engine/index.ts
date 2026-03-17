@@ -795,13 +795,19 @@ serve(async (req) => {
         const extNomeCheck = ext.nome_contraparte ?? ext.contrapartida ?? "";
         const mesmoValor = candidatos.filter(c => valorExato(extValor, Number(c.fin.valor)));
 
-        // When extract has a name, narrow collisions only with identidade forte de nome
+        // When extract has a name, REQUIRE identidade forte — never show unrelated names
         let candidatosEfetivos = mesmoValor;
-        if (extNomeCheck && mesmoValor.length > 1) {
-          const comNomeForte = mesmoValor.filter(c => nomeForteMatch(extNomeCheck, c.nome));
-          if (comNomeForte.length > 0 && comNomeForte.length < mesmoValor.length) {
-            candidatosEfetivos = comNomeForte;
-          }
+        if (extNomeCheck) {
+          const extDoc = cleanDoc(ext.cpf_cnpj);
+          const extPix = (ext.chave_pix ?? "").trim().toLowerCase();
+          // Keep only candidates with strong identity (doc, PIX, or nome forte)
+          const comIdentidade = mesmoValor.filter(c => {
+            if (extDoc && c.doc && docMatches(extDoc, c.doc)) return true;
+            if (extPix && c.chavePix && c.chavePix.toLowerCase() === extPix) return true;
+            if (nomeForteMatch(extNomeCheck, c.nome)) return true;
+            return false;
+          });
+          candidatosEfetivos = comIdentidade; // may be empty → will go to unmatched
         }
 
         let handledByPendentes = false;
