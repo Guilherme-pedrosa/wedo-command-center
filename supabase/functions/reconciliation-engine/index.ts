@@ -660,12 +660,10 @@ serve(async (req) => {
         .limit(1000),
     ]);
 
-    // IDs já vinculados para evitar duplicatas
+    // IDs já vinculados para evitar reutilização em conciliações N:N e 1:1
     const { data: linkedLancs } = await supabase
-      .from("fin_extrato_inter")
-      .select("lancamento_id")
-      .eq("reconciliado", true)
-      .not("lancamento_id", "is", null);
+      .from("fin_extrato_lancamentos")
+      .select("lancamento_id");
 
     const alreadyLinked = new Set(
       (linkedLancs ?? []).map((l: any) => l.lancamento_id).filter(Boolean)
