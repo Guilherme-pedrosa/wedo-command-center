@@ -704,6 +704,135 @@ export default function ExtratoBancoPage() {
         </div>
       )}
 
+      {/* Auto-reconcile Suggestions Panel */}
+      {autoSugOpen && (autoReview.length > 0 || autoSuggestions.length > 0) && (
+        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-yellow-600" />
+              <span className="font-semibold text-sm text-yellow-700">Sugestões de Conciliação</span>
+              <Badge variant="outline" className="text-[10px] text-yellow-600 border-yellow-500/30">
+                {autoReview.length + autoSuggestions.length} itens
+              </Badge>
+            </div>
+            <Button size="sm" variant="ghost" className="h-6 text-[10px]" onClick={() => { setAutoSugOpen(false); setAutoReview([]); setAutoSuggestions([]); }}>
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+
+          <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+            {/* Review items (engine found a candidate but needs confirmation) */}
+            {autoReview.map((r: any, idx: number) => {
+              const isVinculado = sugVinculados.has(r.extrato_id);
+              return (
+                <div key={`rev-${idx}`} className={cn("rounded-md border p-3 space-y-2 text-xs", isVinculado ? "opacity-40 border-green-500/30" : "border-yellow-500/20 bg-card")}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant="outline" className="text-[9px] text-yellow-600 bg-yellow-500/10">Revisão</Badge>
+                        <span className="font-medium">{r.contrapartida || r.descricao_extrato}</span>
+                        <span className="font-bold text-primary">{formatCurrency(Math.abs(Number(r.valor)))}</span>
+                        <span className="text-muted-foreground">{r.data_hora ? format(new Date(r.data_hora), "dd/MM") : ""}</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{r.motivo}</p>
+                    </div>
+                  </div>
+                  {r.melhor && !isVinculado && (
+                    <div className="rounded bg-muted/50 p-2 flex items-center justify-between gap-2">
+                      <div>
+                        <span className="font-medium">{r.melhor.descricao}</span>
+                        <span className="ml-2 font-bold text-primary">{formatCurrency(Number(r.melhor.valor))}</span>
+                        <span className="ml-2 text-muted-foreground">{r.melhor.nome}</span>
+                        {r.melhor.rule && <Badge variant="outline" className="text-[8px] ml-2">{ruleLabels[r.melhor.rule] || r.melhor.rule}</Badge>}
+                      </div>
+                      <Button size="sm" className="h-6 text-[10px] gap-1 shrink-0"
+                        disabled={sugVinculando === r.extrato_id + r.melhor.id}
+                        onClick={() => handleAcceptSuggestion(r.extrato_id, {
+                          lancamento_id: r.melhor.id,
+                          lancamento_tipo: r.tipo === "DEBITO" ? "pagamento" : "recebimento",
+                          valor: r.melhor.valor,
+                        })}>
+                        {sugVinculando === r.extrato_id + r.melhor.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+                        Aceitar
+                      </Button>
+                    </div>
+                  )}
+                  {r.candidatos?.length > 0 && !isVinculado && (
+                    <div className="space-y-1">
+                      {r.candidatos.map((c: any, ci: number) => (
+                        <div key={ci} className="rounded bg-muted/50 p-2 flex items-center justify-between gap-2">
+                          <div>
+                            <span className="font-medium">{c.descricao}</span>
+                            <span className="ml-2 font-bold text-primary">{formatCurrency(Number(c.valor))}</span>
+                            <span className="ml-2 text-muted-foreground">{c.nome}</span>
+                          </div>
+                          <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 shrink-0"
+                            disabled={sugVinculando === r.extrato_id + c.id}
+                            onClick={() => handleAcceptSuggestion(r.extrato_id, {
+                              lancamento_id: c.id,
+                              lancamento_tipo: r.tipo === "DEBITO" ? "pagamento" : "recebimento",
+                              valor: c.valor,
+                            })}>
+                            {sugVinculando === r.extrato_id + c.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+                            Aceitar
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {isVinculado && <Badge className="text-[9px] bg-green-600">✓ Vinculado</Badge>}
+                </div>
+              );
+            })}
+
+            {/* Unmatched items with approximate suggestions */}
+            {autoSuggestions.map((u: any, idx: number) => {
+              const isVinculado = sugVinculados.has(u.extrato_id);
+              return (
+                <div key={`sug-${idx}`} className={cn("rounded-md border p-3 space-y-2 text-xs", isVinculado ? "opacity-40 border-green-500/30" : "border-border bg-card")}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="outline" className="text-[9px] text-muted-foreground">Sugestão</Badge>
+                    <span className="font-medium">{u.contrapartida || u.descricao_extrato}</span>
+                    <span className="font-bold text-primary">{formatCurrency(Math.abs(Number(u.valor)))}</span>
+                    {u.cpf_cnpj && <span className="text-[10px] text-muted-foreground">{u.cpf_cnpj}</span>}
+                    <span className="text-muted-foreground">{u.data_hora ? format(new Date(u.data_hora), "dd/MM") : ""}</span>
+                  </div>
+                  {!isVinculado && u.sugestoes?.map((s: any, si: number) => (
+                    <div key={si} className="rounded bg-muted/50 p-2 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{s.descricao}</span>
+                            <span className="font-bold text-primary">{formatCurrency(s.valor)}</span>
+                            {s.nome && <span className="text-muted-foreground">{s.nome}</span>}
+                            {s.gc_codigo && <span className="text-muted-foreground">GC {s.gc_codigo}</span>}
+                            {s.os_codigo && <span className="text-muted-foreground">OS {s.os_codigo}</span>}
+                            {s.diferenca > 0.01 && <span className="text-yellow-600">Δ {formatCurrency(s.diferenca)}</span>}
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {s.evidencias?.map((ev: string, ei: number) => (
+                              <span key={ei} className="text-[9px] bg-primary/10 text-primary rounded px-1.5 py-0.5">{ev}</span>
+                            ))}
+                            <span className="text-[9px] text-muted-foreground">Score: {s.score}</span>
+                          </div>
+                        </div>
+                        <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 shrink-0"
+                          disabled={sugVinculando === u.extrato_id + s.lancamento_id}
+                          onClick={() => handleAcceptSuggestion(u.extrato_id, s)}>
+                          {sugVinculando === u.extrato_id + s.lancamento_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+                          Aceitar
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {isVinculado && <Badge className="text-[9px] bg-green-600">✓ Vinculado</Badge>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Stats + Filters */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="rounded-md bg-accent/30 px-3 py-1.5 text-xs"><span className="text-muted-foreground">Créditos:</span> <span className="font-semibold text-green-500">{formatCurrency(totalCredito)}</span></div>
