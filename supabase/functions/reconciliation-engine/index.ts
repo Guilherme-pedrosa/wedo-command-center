@@ -594,10 +594,10 @@ function tentarSomaParcelas(
 
   const candidatosDoc = candidatos.filter((c: any) => c.docOk);
   const attemptPools = [
-    buildAttemptPool(candidatosDoc.length >= 2 ? candidatosDoc : candidatos, sortByRelevancia, 15),
-    buildAttemptPool(candidatos, sortByRelevancia, 15),
-    buildAttemptPool(candidatosDoc.length >= 2 ? candidatosDoc : candidatos, sortByValor, 15),
-    buildAttemptPool(candidatos, sortByValor, 15),
+    buildAttemptPool(candidatosDoc.length >= 2 ? candidatosDoc : candidatos, sortByRelevancia, 24),
+    buildAttemptPool(candidatos, sortByRelevancia, 24),
+    buildAttemptPool(candidatosDoc.length >= 2 ? candidatosDoc : candidatos, sortByValor, 24),
+    buildAttemptPool(candidatos, sortByValor, 24),
   ];
 
   for (const attempt of attemptPools) {
