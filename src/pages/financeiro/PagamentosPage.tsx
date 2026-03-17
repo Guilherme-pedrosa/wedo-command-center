@@ -122,7 +122,7 @@ export default function PagamentosPage() {
       const { data } = await supabase
         .from("fin_extrato_lancamentos")
         .select("lancamento_id")
-        .eq("tabela", "fin_pagamentos");
+        .in("tabela", ["fin_pagamentos", "pagamentos"]);
       return new Set((data || []).map((d: any) => d.lancamento_id));
     },
   });
