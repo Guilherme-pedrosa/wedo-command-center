@@ -171,7 +171,7 @@ function aplicarRegras(
   // Regra 0: CNPJ/CPF + valor exato + data ±3 dias → auto-baixa máxima confiança
   if (extDoc && extDate) {
     const matches0 = candidatos.filter(c => {
-      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      const finDate = getFinMatchDate(c.fin);
       return (
         docMatches(extDoc, c.doc) &&
         valorExato(extValor, Number(c.fin.valor)) &&
@@ -188,8 +188,8 @@ function aplicarRegras(
           return { rule: "CNPJ_VALOR_DATA_EXATO", candidato: byNome[0], auto: true };
       }
       const sorted = [...matches0].sort((a, b) => {
-        const da = Math.abs(new Date(a.fin.data_vencimento ?? a.fin.data_emissao).getTime() - new Date(extDate).getTime());
-        const db = Math.abs(new Date(b.fin.data_vencimento ?? b.fin.data_emissao).getTime() - new Date(extDate).getTime());
+        const da = Math.abs(new Date(getFinMatchDate(a.fin)).getTime() - new Date(extDate).getTime());
+        const db = Math.abs(new Date(getFinMatchDate(b.fin)).getTime() - new Date(extDate).getTime());
         return da - db;
       });
       return { rule: "CNPJ_VALOR_DATA_EXATO", candidato: sorted[0], auto: true };
@@ -201,14 +201,14 @@ function aplicarRegras(
   if (extDoc && extDate) {
     const janelaBase = isClientePrazoEstendido(extDoc) ? 90 : 30;
     const matches = candidatos.filter(c => {
-      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      const finDate = getFinMatchDate(c.fin);
       return docMatches(extDoc, c.doc) && valorExato(extValor, Number(c.fin.valor))
         && finDate && dataProxima(extDate, finDate, janelaBase);
     });
     if (matches.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: matches[0], auto: true };
     if (matches.length > 1) {
       const byDate = matches.filter(c => {
-        const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
+        const finDate = getFinMatchDate(c.fin);
         return finDate && dataProxima(extDate, finDate, 5);
       });
       if (byDate.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: byDate[0], auto: true };
@@ -222,7 +222,7 @@ function aplicarRegras(
   // Regra 2: Chave PIX exata + valor exato + data ±30d → auto-baixa
   if (extPix && extDate) {
     const matches = candidatos.filter(c => {
-      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      const finDate = getFinMatchDate(c.fin);
       if (!finDate || !dataProxima(extDate, finDate, 30)) return false;
       if (c.chavePix && c.chavePix.toLowerCase() === extPix)
         return valorExato(extValor, Number(c.fin.valor));
@@ -237,7 +237,7 @@ function aplicarRegras(
   // Regra 3: CNPJ/CPF match + valor com tolerância ±2% + data ±15d
   if (extDoc && extDate) {
     const matches = candidatos.filter(c => {
-      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      const finDate = getFinMatchDate(c.fin);
       return docMatches(extDoc, c.doc) && valorTolerancia(extValor, Number(c.fin.valor), 2)
         && finDate && dataProxima(extDate, finDate, 15);
     });
@@ -247,7 +247,7 @@ function aplicarRegras(
   // Regra 4: Nome forte + valor exato + data ±30d → auto-baixa
   if (extNome && extDate) {
     const matches = candidatos.filter(c => {
-      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      const finDate = getFinMatchDate(c.fin);
       return nomeForteMatch(extNome, c.nome) && valorExato(extValor, Number(c.fin.valor))
         && finDate && dataProxima(extDate, finDate, 30);
     });
@@ -257,7 +257,7 @@ function aplicarRegras(
   // Regra 5: Valor exato + data ±3 dias → auto ONLY if name confirms (CNPJ, PIX or nome similar)
   if (extDate) {
     const matches = candidatos.filter(c => {
-      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
+      const finDate = getFinMatchDate(c.fin);
       return valorExato(extValor, Number(c.fin.valor)) && finDate && dataProxima(extDate, finDate, 3);
     });
     if (matches.length === 1) {
@@ -299,13 +299,13 @@ function aplicarRegras(
       }
       // TIEBREAKER 4: Closest date
       const sorted = [...matches].sort((a, b) => {
-        const da = Math.abs(new Date(a.fin.data_vencimento ?? a.fin.data_emissao).getTime() - new Date(extDate).getTime());
-        const db = Math.abs(new Date(b.fin.data_vencimento ?? b.fin.data_emissao).getTime() - new Date(extDate).getTime());
+        const da = Math.abs(new Date(getFinMatchDate(a.fin)).getTime() - new Date(extDate).getTime());
+        const db = Math.abs(new Date(getFinMatchDate(b.fin)).getTime() - new Date(extDate).getTime());
         return da - db;
       });
       const gap = sorted.length >= 2
-        ? Math.abs(new Date(sorted[1].fin.data_vencimento ?? sorted[1].fin.data_emissao).getTime() - new Date(extDate).getTime())
-          - Math.abs(new Date(sorted[0].fin.data_vencimento ?? sorted[0].fin.data_emissao).getTime() - new Date(extDate).getTime())
+        ? Math.abs(new Date(getFinMatchDate(sorted[1].fin)).getTime() - new Date(extDate).getTime())
+          - Math.abs(new Date(getFinMatchDate(sorted[0].fin)).getTime() - new Date(extDate).getTime())
         : 0;
       const bestNome = sorted[0].nome;
       const bestDoc = sorted[0].doc;
@@ -324,7 +324,7 @@ function aplicarRegras(
   // Regra 6: Valor exato + data ±7 dias → REQUER identidade forte
   if (extDate) {
     const fallback7 = candidatos.filter(c => {
-      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
+      const finDate = getFinMatchDate(c.fin);
       return valorExato(extValor, Number(c.fin.valor)) && finDate && dataProxima(extDate, finDate, 7);
     });
     if (fallback7.length === 1) {
