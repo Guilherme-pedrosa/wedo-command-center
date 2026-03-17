@@ -947,11 +947,11 @@ serve(async (req) => {
               }
             } else {
               stats.unmatched++;
-              // Find approximate suggestions for the user
               const extValorApprox = Math.abs(Number(ext.valor));
               const extDocApprox = cleanDoc(ext.cpf_cnpj);
               const extNomeApprox = ext.nome_contraparte ?? ext.contrapartida ?? "";
               const isDebitoApprox = ext.tipo === "DEBITO";
+              const extDateApprox = ext.data_hora?.substring(0, 10) ?? "";
               
               // Combine all pools (pending + already paid), dedup
               const rawPoolApprox = [
@@ -965,73 +965,127 @@ serve(async (req) => {
                 return true;
               });
 
-              // Score each candidate
-              const scored = poolApprox.map((fin: any) => {
-                const gcId = isDebitoApprox ? fin.fornecedor_gc_id : fin.cliente_gc_id;
-                const lookup = isDebitoApprox ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
-                const finDoc = cleanDoc(fin.recipient_document) || lookup?.cpf_cnpj || "";
-                const finNome = (isDebitoApprox ? fin.nome_fornecedor : fin.nome_cliente) ?? lookup?.nome ?? "";
-                const finDate = fin.data_vencimento ?? fin.data_emissao ?? "";
-                const extDate = ext.data_hora?.substring(0, 10) ?? "";
+              // ── N:N SUGGESTION ──
+              // If we have CNPJ-matching candidates whose individual values are smaller than extrato,
+              // suggest them as a group for manual N:N reconciliation
+              const janelaNn = isClientePrazoEstendido(extDocApprox) ? 120 : 90;
+              const candidatosNn = poolApprox
+                .map((fin: any) => {
+                  const gcId = isDebitoApprox ? fin.fornecedor_gc_id : fin.cliente_gc_id;
+                  const lookup = isDebitoApprox ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
+                  const finDoc = cleanDoc(fin.recipient_document) || lookup?.cpf_cnpj || "";
+                  const finNome = (isDebitoApprox ? fin.nome_fornecedor : fin.nome_cliente) ?? lookup?.nome ?? "";
+                  const finDate = fin.data_vencimento ?? fin.data_emissao ?? "";
+                  const finValor = Math.abs(Number(fin.valor));
+                  const docOk = Boolean(extDocApprox && finDoc && docMatches(extDocApprox, finDoc));
+                  const nScore = extNomeApprox ? nomeSimilarScore(extNomeApprox, finNome) : 0;
+                  const nomeOk = nScore >= 0.35;
+                  if (!docOk && !nomeOk) return null;
+                  if (finDate && extDateApprox && !dataProxima(extDateApprox, finDate, janelaNn)) return null;
+                  if (finValor <= 0) return null;
+                  return { fin, finValor, finNome, finDate, finDoc, docOk, nomeOk, nScore, status: fin.status };
+                })
+                .filter(Boolean) as any[];
 
-                let score = 0;
-                const evidencias: string[] = [];
-                const finValor = Math.abs(Number(fin.valor));
-                
-                // Value match
-                if (valorExato(extValorApprox, finValor)) { score += 40; evidencias.push("Valor exato"); }
-                else if (valorTolerancia(extValorApprox, finValor, 5)) { score += 20; evidencias.push(`Valor ~${((1 - Math.abs(extValorApprox - finValor) / Math.max(extValorApprox, finValor)) * 100).toFixed(0)}%`); }
-                else if (valorTolerancia(extValorApprox, finValor, 15)) { score += 10; evidencias.push(`Valor aprox.`); }
-                else return null; // Too far in value — skip
-                
-                // Document match
-                if (extDocApprox && finDoc && docMatches(extDocApprox, finDoc)) { score += 30; evidencias.push("CNPJ match"); }
-                
-                // Name match
-                const nScore = nomeSimilarScore(extNomeApprox, finNome);
-                if (nScore >= 0.5) { score += 20; evidencias.push(`Nome ${(nScore * 100).toFixed(0)}%`); }
-                else if (nScore >= 0.25) { score += 10; evidencias.push(`Nome parcial`); }
-                
-                // Date proximity
-                if (finDate && extDate) {
-                  const daysDiff = Math.abs(new Date(extDate).getTime() - new Date(finDate).getTime()) / 86400000;
-                  if (daysDiff <= 5) { score += 10; evidencias.push(`Data ±${Math.round(daysDiff)}d`); }
-                  else if (daysDiff <= 30) { score += 5; evidencias.push(`Data ±${Math.round(daysDiff)}d`); }
-                }
-                
-                // Status info
-                if (fin.status === "pago" || fin.pago_sistema) evidencias.push("Já pago");
-                
-                return { fin, score, evidencias, finValor, finNome, finDate, finDoc, status: fin.status };
-              }).filter(Boolean) as any[];
-              
-              // Sort by score DESC, take top 3
-              scored.sort((a: any, b: any) => b.score - a.score);
-              const topSugestoes = scored.slice(0, 3).filter((s: any) => s.score >= 20);
+              if (candidatosNn.length >= 2) {
+                // Sort: CNPJ match first, then by date proximity, then value desc
+                candidatosNn.sort((a: any, b: any) => {
+                  if (a.docOk !== b.docOk) return Number(b.docOk) - Number(a.docOk);
+                  const da = a.finDate ? Math.abs(new Date(a.finDate).getTime() - new Date(extDateApprox).getTime()) : 999e9;
+                  const db = b.finDate ? Math.abs(new Date(b.finDate).getTime() - new Date(extDateApprox).getTime()) : 999e9;
+                  if (da !== db) return da - db;
+                  return b.finValor - a.finValor;
+                });
 
-              unmatchedItems.push({
-                extrato_id: ext.id,
-                descricao_extrato: ext.descricao ?? "—",
-                contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
-                cpf_cnpj: ext.cpf_cnpj ?? "",
-                valor: ext.valor,
-                tipo: ext.tipo,
-                data_hora: ext.data_hora,
-                sugestoes: topSugestoes.map((s: any) => ({
-                  lancamento_id: s.fin.id,
-                  lancamento_tipo: isDebitoApprox ? "pagamento" : "recebimento",
-                  descricao: s.fin.descricao,
-                  nome: s.finNome,
-                  valor: s.finValor,
-                  data_vencimento: s.finDate,
-                  status: s.status,
-                  gc_codigo: s.fin.gc_codigo,
-                  os_codigo: s.fin.os_codigo,
-                  score: s.score,
-                  evidencias: s.evidencias,
-                  diferenca: Math.abs(extValorApprox - s.finValor),
-                })),
-              });
+                const somaTotal = candidatosNn.reduce((s: number, c: any) => s + c.finValor, 0);
+
+                unmatchedItems.push({
+                  extrato_id: ext.id,
+                  descricao_extrato: ext.descricao ?? "—",
+                  contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
+                  cpf_cnpj: ext.cpf_cnpj ?? "",
+                  valor: ext.valor,
+                  tipo: ext.tipo,
+                  data_hora: ext.data_hora,
+                  sugestao_nn: true,
+                  soma_candidatos: somaTotal,
+                  diferenca_nn: Math.abs(extValorApprox - somaTotal),
+                  candidatos_nn: candidatosNn.slice(0, 30).map((c: any) => ({
+                    lancamento_id: c.fin.id,
+                    lancamento_tipo: isDebitoApprox ? "pagamento" : "recebimento",
+                    descricao: c.fin.descricao,
+                    nome: c.finNome,
+                    valor: c.finValor,
+                    data_vencimento: c.finDate,
+                    status: c.status,
+                    gc_codigo: c.fin.gc_codigo,
+                    os_codigo: c.fin.os_codigo,
+                    doc_match: c.docOk,
+                    nome_match: c.nomeOk,
+                  })),
+                });
+              } else {
+                // Fallback: 1:1 approximate suggestions
+                const scored = poolApprox.map((fin: any) => {
+                  const gcId = isDebitoApprox ? fin.fornecedor_gc_id : fin.cliente_gc_id;
+                  const lookup = isDebitoApprox ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
+                  const finDoc = cleanDoc(fin.recipient_document) || lookup?.cpf_cnpj || "";
+                  const finNome = (isDebitoApprox ? fin.nome_fornecedor : fin.nome_cliente) ?? lookup?.nome ?? "";
+                  const finDate = fin.data_vencimento ?? fin.data_emissao ?? "";
+
+                  let score = 0;
+                  const evidencias: string[] = [];
+                  const finValor = Math.abs(Number(fin.valor));
+                  
+                  if (valorExato(extValorApprox, finValor)) { score += 40; evidencias.push("Valor exato"); }
+                  else if (valorTolerancia(extValorApprox, finValor, 5)) { score += 20; evidencias.push(`Valor ~${((1 - Math.abs(extValorApprox - finValor) / Math.max(extValorApprox, finValor)) * 100).toFixed(0)}%`); }
+                  else if (valorTolerancia(extValorApprox, finValor, 15)) { score += 10; evidencias.push(`Valor aprox.`); }
+                  else return null;
+                  
+                  if (extDocApprox && finDoc && docMatches(extDocApprox, finDoc)) { score += 30; evidencias.push("CNPJ match"); }
+                  
+                  const nScore = nomeSimilarScore(extNomeApprox, finNome);
+                  if (nScore >= 0.5) { score += 20; evidencias.push(`Nome ${(nScore * 100).toFixed(0)}%`); }
+                  else if (nScore >= 0.25) { score += 10; evidencias.push(`Nome parcial`); }
+                  
+                  if (finDate && extDateApprox) {
+                    const daysDiff = Math.abs(new Date(extDateApprox).getTime() - new Date(finDate).getTime()) / 86400000;
+                    if (daysDiff <= 5) { score += 10; evidencias.push(`Data ±${Math.round(daysDiff)}d`); }
+                    else if (daysDiff <= 30) { score += 5; evidencias.push(`Data ±${Math.round(daysDiff)}d`); }
+                  }
+                  
+                  if (fin.status === "pago" || fin.pago_sistema) evidencias.push("Já pago");
+                  
+                  return { fin, score, evidencias, finValor, finNome, finDate, finDoc, status: fin.status };
+                }).filter(Boolean) as any[];
+                
+                scored.sort((a: any, b: any) => b.score - a.score);
+                const topSugestoes = scored.slice(0, 3).filter((s: any) => s.score >= 20);
+
+                unmatchedItems.push({
+                  extrato_id: ext.id,
+                  descricao_extrato: ext.descricao ?? "—",
+                  contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
+                  cpf_cnpj: ext.cpf_cnpj ?? "",
+                  valor: ext.valor,
+                  tipo: ext.tipo,
+                  data_hora: ext.data_hora,
+                  sugestoes: topSugestoes.map((s: any) => ({
+                    lancamento_id: s.fin.id,
+                    lancamento_tipo: isDebitoApprox ? "pagamento" : "recebimento",
+                    descricao: s.fin.descricao,
+                    nome: s.finNome,
+                    valor: s.finValor,
+                    data_vencimento: s.finDate,
+                    status: s.status,
+                    gc_codigo: s.fin.gc_codigo,
+                    os_codigo: s.fin.os_codigo,
+                    score: s.score,
+                    evidencias: s.evidencias,
+                    diferenca: Math.abs(extValorApprox - s.finValor),
+                  })),
+                });
+              }
             }
           }
         }
