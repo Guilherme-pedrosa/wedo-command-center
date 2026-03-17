@@ -265,7 +265,7 @@ export default function ExtratoBancoPage() {
       setSugVinculados(new Set());
       if (review.length > 0 || unmatchedWithSug.length > 0) setAutoSugOpen(true);
       
-      toast.success(`Conciliação: ${data.stats.auto} auto, ${review.length} revisão, ${unmatched.length} sugestões`);
+      toast.success(`Conciliação: ${data.stats.auto} auto, ${review.length} revisão, ${unmatchedWithSug.length} sugestões`);
       invalidateAll();
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro na conciliação"); }
     finally { setAutoRunning(false); }
