@@ -127,6 +127,15 @@ export function AppLayout() {
               </DropdownMenu>
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn("h-8 gap-1.5 text-xs font-medium", argusOpen && "bg-accent")}
+                onClick={() => setArgusOpen(!argusOpen)}
+              >
+                <Brain className="h-3.5 w-3.5 text-primary" />
+                ARGUS IA
+              </Button>
               <Button variant="ghost" size="icon" className="h-8 w-8 relative">
                 <Bell className="h-4 w-4" />
               </Button>
