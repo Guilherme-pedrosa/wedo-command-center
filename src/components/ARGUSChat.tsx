@@ -140,7 +140,7 @@ export function ARGUSChat({ open, onOpenChange }: ARGUSChatProps) {
           <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setMinimized(!minimized)}>
             <ChevronDown className={cn("h-3 w-3 transition-transform", minimized && "rotate-180")} />
           </Button>
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setOpen(false)}>
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onOpenChange(false)}>
             <X className="h-3 w-3" />
           </Button>
         </div>

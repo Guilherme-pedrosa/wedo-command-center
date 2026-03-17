@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { ARGUSChat } from "@/components/ARGUSChat";
@@ -5,7 +6,7 @@ import { Outlet, Link, useLocation } from "react-router-dom";
 import {
   Bell, DollarSign, ChevronDown, LayoutDashboard, Receipt, CreditCard,
   Layers, CalendarClock, Building2, ArrowLeftRight, BarChart3, LineChart,
-  BookOpen, Landmark, Search, Settings, LogOut, User,
+  BookOpen, Landmark, Search, Settings, LogOut, User, Brain,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ export function AppLayout() {
   const location = useLocation();
   const isFinActive = location.pathname.startsWith("/financeiro");
   const { profile, signOut } = useAuth();
+  const [argusOpen, setArgusOpen] = useState(false);
 
   return (
     <SidebarProvider>
