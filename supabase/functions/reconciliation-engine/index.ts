@@ -1014,7 +1014,9 @@ serve(async (req) => {
                   const finValor = Math.abs(Number(fin.valor));
                   const docOk = Boolean(extDocApprox && finDoc && docMatches(extDocApprox, finDoc));
                   const nScore = extNomeApprox ? nomeSimilarScore(extNomeApprox, finNome) : 0;
-                  const nomeOk = nScore >= 0.35;
+                  // N:N requires CNPJ match OR high name similarity (>=0.5) to avoid false positives
+                  // like "GELOPAR REFRIGERACAO" matching "MULTIPECAS REFRIGERACAO" on shared generic words
+                  const nomeOk = nScore >= 0.5;
                   if (!docOk && !nomeOk) return null;
                   if (finDate && extDateApprox && !dataProxima(extDateApprox, finDate, janelaNn)) return null;
                   if (finValor <= 0) return null;
