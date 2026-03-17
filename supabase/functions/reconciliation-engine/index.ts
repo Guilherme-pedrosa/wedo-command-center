@@ -46,17 +46,25 @@ const GENERIC_NAME_TOKENS = new Set([
   "refrigeracao", "engenharia", "logistica", "transportes",
 ]);
 
+const NAME_CONNECTOR_TOKENS = new Set(["da", "de", "do", "das", "dos", "e"]);
+
+const COMMON_PERSON_NAME_TOKENS = new Set([
+  "silva", "santos", "souza", "oliveira", "pereira", "almeida", "costa", "rodrigues",
+  "ferreira", "lima", "gomes", "ribeiro", "carvalho", "alves", "araujo", "martins",
+  "melo", "moreira", "barbosa", "rocha", "dias", "teixeira", "fernandes", "freitas",
+]);
+
 function nomeTokens(a: string | null): string[] {
   if (!a) return [];
   return a.toLowerCase()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter(w => w.length > 2 && !/^\d+$/.test(w));
+    .filter(w => w.length > 1 && !/^\d+$/.test(w));
 }
 
 function nomeTokensSignificativos(a: string | null): string[] {
-  return nomeTokens(a).filter((w) => !GENERIC_NAME_TOKENS.has(w));
+  return nomeTokens(a).filter((w) => !GENERIC_NAME_TOKENS.has(w) && !NAME_CONNECTOR_TOKENS.has(w));
 }
 
 function nomeSimilarScore(a: string | null, b: string | null): number {
@@ -76,9 +84,16 @@ function nomeForteMatch(a: string | null, b: string | null): boolean {
   const wa = nomeTokensSignificativos(a);
   const wb = nomeTokensSignificativos(b);
   if (!wa.length || !wb.length) return false;
+
   const shared = [...new Set(wa.filter((w) => wb.includes(w)))];
   if (shared.length >= 2) return true;
-  return shared.some((w) => w.length >= 6);
+  if (shared.length === 0) return false;
+
+  const [token] = shared;
+  const singleSide = wa.length === 1 || wb.length === 1;
+  if (!singleSide) return false;
+
+  return token.length >= 6 && !COMMON_PERSON_NAME_TOKENS.has(token);
 }
 
 function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): boolean {
