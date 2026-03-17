@@ -694,14 +694,14 @@ serve(async (req) => {
     // Pool secundário: lançamentos já pagos (para rastreabilidade retroativa)
     const cutoff90 = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     const [{ data: pagamentosJaPagos }, { data: recebimentosJaPagos }] = await Promise.all([
-      supabase.from("fin_pagamentos").select("id, valor, recipient_document, fornecedor_gc_id, nome_fornecedor, descricao, data_vencimento, data_liquidacao, gc_codigo")
+      supabase.from("fin_pagamentos").select(finSelectPag)
         .eq("status", "pago")
         .gte("data_vencimento", cutoff90)
-        .limit(1000),
-      supabase.from("fin_recebimentos").select("id, valor, recipient_document, cliente_gc_id, nome_cliente, descricao, data_vencimento, data_liquidacao, gc_codigo")
+        .limit(2000),
+      supabase.from("fin_recebimentos").select(finSelectRec)
         .eq("status", "pago")
         .gte("data_vencimento", cutoff90)
-        .limit(1000),
+        .limit(2000),
     ]);
 
     // IDs já vinculados — from N:N table AND from legacy 1:1 lancamento_id on fin_extrato_inter
