@@ -160,7 +160,7 @@ export function AppLayout() {
           </main>
         </div>
       </div>
-      <ARGUSChat />
+      <ARGUSChat open={argusOpen} onOpenChange={setArgusOpen} />
     </SidebarProvider>
   );
 }
