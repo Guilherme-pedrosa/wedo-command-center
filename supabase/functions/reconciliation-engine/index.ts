@@ -39,25 +39,46 @@ function dataProxima(a: string, b: string, dias = 3): boolean {
 }
 
 // Similaridade de nome por palavras em comum (Jaccard simplificado + containment fallback)
+const GENERIC_NAME_TOKENS = new Set([
+  "ltda", "eireli", "me", "epp", "sa",
+  "comercio", "comercial", "servicos", "servico", "industria", "industrial",
+  "empresa", "grupo", "sistemas", "solucoes", "equipamentos", "tecnologia",
+  "refrigeracao", "engenharia", "logistica", "transportes",
+]);
+
+function nomeTokens(a: string | null): string[] {
+  if (!a) return [];
+  return a.toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, "")
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !/^\d+$/.test(w));
+}
+
+function nomeTokensSignificativos(a: string | null): string[] {
+  return nomeTokens(a).filter((w) => !GENERIC_NAME_TOKENS.has(w));
+}
+
 function nomeSimilarScore(a: string | null, b: string | null): number {
-  if (!a || !b) return 0;
-  const normalize = (s: string) =>
-    s.toLowerCase()
-     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-     .replace(/[^a-z0-9\s]/g, "")
-     .split(/\s+/).filter(w => w.length > 2 && !/^\d+$/.test(w)); // exclude pure numeric tokens like CNPJ fragments
-  const wa = normalize(a);
-  const wb = normalize(b);
+  const wa = nomeTokens(a);
+  const wb = nomeTokens(b);
   if (!wa.length || !wb.length) return 0;
   const inter = wa.filter(w => wb.includes(w)).length;
   const union = new Set([...wa, ...wb]).size;
   const jaccard = inter / union;
-  // Containment: if the smaller set is fully contained in the larger, boost score
   const smaller = wa.length <= wb.length ? wa : wb;
   const larger = wa.length > wb.length ? wa : wb;
   const containment = smaller.filter(w => larger.includes(w)).length / smaller.length;
-  // Return the best of jaccard and containment (containment handles "Filipe" ⊂ "Filipe Farias de Carvalho")
   return Math.max(jaccard, containment);
+}
+
+function nomeForteMatch(a: string | null, b: string | null): boolean {
+  const wa = nomeTokensSignificativos(a);
+  const wb = nomeTokensSignificativos(b);
+  if (!wa.length || !wb.length) return false;
+  const shared = [...new Set(wa.filter((w) => wb.includes(w)))];
+  if (shared.length >= 2) return true;
+  return shared.some((w) => w.length >= 6);
 }
 
 function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): boolean {
@@ -208,27 +229,13 @@ function aplicarRegras(
     if (matches.length === 1) {
       const candNome = matches[0].nome;
       const candDoc = matches[0].doc;
-      // Require at least ONE identity confirmation: CNPJ, PIX key, or name similarity
       const hasDocMatch = extDoc && candDoc && docMatches(extDoc, candDoc);
       const hasPixMatch = extPix && matches[0].chavePix && matches[0].chavePix.toLowerCase() === extPix;
-      const hasNameMatch = extNome && candNome && nomeSimilarScore(extNome, candNome) >= 0.25;
+      const hasNameMatch = extNome && candNome && nomeForteMatch(extNome, candNome);
       if (hasDocMatch || hasPixMatch || hasNameMatch) {
         return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: true };
       }
-      // No identity confirmation → check if names actively CONTRADICT
-      // If both have names but similarity is very low, block the suggestion entirely
-      if (extNome && candNome) {
-        const nameScore = nomeSimilarScore(extNome, candNome);
-        if (nameScore < 0.15) {
-          // Names are clearly different people — skip, don't even suggest
-          // (e.g., "Pedro Henrique" vs "Maria Eduarda Godoi")
-        } else {
-          return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: false };
-        }
-      } else {
-        // One or both names missing — suggest for review
-        return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: false };
-      }
+      // Sem identidade forte (texto/documento) → não sugerir
     }
     if (matches.length > 1) {
       // TIEBREAKER 1: CNPJ/CPF match
@@ -245,11 +252,11 @@ function aplicarRegras(
         });
         if (byPix.length === 1) return { rule: "PIX_CHAVE_VALOR", candidato: byPix[0], auto: true };
       }
-      // TIEBREAKER 3: Name similarity (pick best score)
+      // TIEBREAKER 3: Strong name match only
       if (extNome) {
         const scored = matches
-          .map(c => ({ c, score: nomeSimilarScore(extNome, c.nome) }))
-          .filter(x => x.score >= 0.35)
+          .map(c => ({ c, score: nomeSimilarScore(extNome, c.nome), strong: nomeForteMatch(extNome, c.nome) }))
+          .filter(x => x.strong)
           .sort((a, b) => b.score - a.score);
         if (scored.length === 1) return { rule: "NOME_VALOR_EXATO", candidato: scored[0].c, auto: true };
         if (scored.length > 1 && scored[0].score - scored[1].score >= 0.2) {
@@ -266,23 +273,21 @@ function aplicarRegras(
         ? Math.abs(new Date(sorted[1].fin.data_vencimento ?? sorted[1].fin.data_emissao).getTime() - new Date(extDate).getTime())
           - Math.abs(new Date(sorted[0].fin.data_vencimento ?? sorted[0].fin.data_emissao).getTime() - new Date(extDate).getTime())
         : 0;
-      // Only auto-link if there's a clear date gap AND name confirms
-      if (gap >= 86400000) {
-        const bestNome = sorted[0].nome;
-        const bestDoc = sorted[0].doc;
-        const hasIdentity = (extDoc && bestDoc && docMatches(extDoc, bestDoc))
-          || (extPix && sorted[0].chavePix && sorted[0].chavePix.toLowerCase() === extPix)
-          || (extNome && bestNome && nomeSimilarScore(extNome, bestNome) >= 0.15);
-        if (hasIdentity) {
-          return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: true };
-        }
+      const bestNome = sorted[0].nome;
+      const bestDoc = sorted[0].doc;
+      const hasIdentity = (extDoc && bestDoc && docMatches(extDoc, bestDoc))
+        || (extPix && sorted[0].chavePix && sorted[0].chavePix.toLowerCase() === extPix)
+        || (extNome && bestNome && nomeForteMatch(extNome, bestNome));
+      if (gap >= 86400000 && hasIdentity) {
+        return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: true };
       }
-      // BLOCKED: ambiguity unresolved or no identity → send to review
-      return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: false };
+      if (hasIdentity) {
+        return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: false };
+      }
     }
   }
 
-  // Regra 6: Valor exato + data ±7 dias → REQUER identidade (nome/CNPJ/PIX)
+  // Regra 6: Valor exato + data ±7 dias → REQUER identidade forte
   if (extDate) {
     const fallback7 = candidatos.filter(c => {
       const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
@@ -292,21 +297,26 @@ function aplicarRegras(
       const c = fallback7[0];
       const hasIdentity = (extDoc && c.doc && docMatches(extDoc, c.doc))
         || (extPix && c.chavePix && c.chavePix.toLowerCase() === extPix)
-        || (extNome && c.nome && nomeSimilarScore(extNome, c.nome) >= 0.15);
+        || (extNome && c.nome && nomeForteMatch(extNome, c.nome));
       if (hasIdentity) {
         return { rule: "VALOR_DATA_7DIAS", candidato: c, auto: true };
       }
-      // No identity — suggest only, don't auto
-      return { rule: "VALOR_DATA_7DIAS", candidato: c, auto: false };
     }
     if (fallback7.length > 1) {
-      // Desempate por nome
       if (extNome) {
-        const comNome = fallback7.filter(c => nomeSimilar(extNome, c.nome, 0.6));
+        const comNome = fallback7.filter(c => nomeForteMatch(extNome, c.nome));
         if (comNome.length === 1)
           return { rule: "VALOR_DATA_7DIAS_NOME", candidato: comNome[0], auto: true };
+        if (comNome.length > 1)
+          return { rule: "VALOR_DATA_7DIAS" as MatchRule, candidato: comNome[0], auto: false };
       }
-      return { rule: "VALOR_DATA_7DIAS" as MatchRule, candidato: fallback7[0], auto: false };
+      if (extDoc) {
+        const comDoc = fallback7.filter(c => docMatches(extDoc, c.doc));
+        if (comDoc.length === 1)
+          return { rule: "VALOR_DATA_7DIAS", candidato: comDoc[0], auto: true };
+        if (comDoc.length > 1)
+          return { rule: "VALOR_DATA_7DIAS" as MatchRule, candidato: comDoc[0], auto: false };
+      }
     }
   }
 
@@ -506,7 +516,7 @@ function tentarSomaParcelas(
       const finDate = fin.data_vencimento ?? fin.data_emissao ?? fin.data_liquidacao ?? "";
       const docOk = Boolean(extDoc && finDoc && docMatches(extDoc, finDoc));
       const nomeScore = extNome && finNome ? nomeSimilarScore(extNome, finNome) : 0;
-      const nomeOk = nomeScore >= 0.5;
+      const nomeOk = extNome && finNome ? nomeForteMatch(extNome, finNome) : false;
       const dateDiff = finDate && extDate
         ? Math.abs(new Date(finDate).getTime() - new Date(extDate).getTime())
         : 0;
@@ -1014,9 +1024,7 @@ serve(async (req) => {
                   const finValor = Math.abs(Number(fin.valor));
                   const docOk = Boolean(extDocApprox && finDoc && docMatches(extDocApprox, finDoc));
                   const nScore = extNomeApprox ? nomeSimilarScore(extNomeApprox, finNome) : 0;
-                  // N:N requires CNPJ match OR high name similarity (>=0.5) to avoid false positives
-                  // like "GELOPAR REFRIGERACAO" matching "MULTIPECAS REFRIGERACAO" on shared generic words
-                  const nomeOk = nScore >= 0.5;
+                  const nomeOk = extNomeApprox ? nomeForteMatch(extNomeApprox, finNome) : false;
                   if (!docOk && !nomeOk) return null;
                   if (finDate && extDateApprox && !dataProxima(extDateApprox, finDate, janelaNn)) return null;
                   if (finValor <= 0) return null;
@@ -1096,6 +1104,9 @@ serve(async (req) => {
                   const finDoc = cleanDoc(fin.recipient_document) || lookup?.cpf_cnpj || "";
                   const finNome = (isDebitoApprox ? fin.nome_fornecedor : fin.nome_cliente) ?? lookup?.nome ?? "";
                   const finDate = fin.data_vencimento ?? fin.data_emissao ?? "";
+                  const docMatch = Boolean(extDocApprox && finDoc && docMatches(extDocApprox, finDoc));
+                  const nomeMatch = Boolean(extNomeApprox && finNome && nomeForteMatch(extNomeApprox, finNome));
+                  if (!docMatch && !nomeMatch) return null;
 
                   let score = 0;
                   const evidencias: string[] = [];
@@ -1106,11 +1117,8 @@ serve(async (req) => {
                   else if (valorTolerancia(extValorApprox, finValor, 15)) { score += 10; evidencias.push(`Valor aprox.`); }
                   else return null;
                   
-                  if (extDocApprox && finDoc && docMatches(extDocApprox, finDoc)) { score += 30; evidencias.push("CNPJ match"); }
-                  
-                  const nScore = nomeSimilarScore(extNomeApprox, finNome);
-                  if (nScore >= 0.5) { score += 20; evidencias.push(`Nome ${(nScore * 100).toFixed(0)}%`); }
-                  else if (nScore >= 0.25) { score += 10; evidencias.push(`Nome parcial`); }
+                  if (docMatch) { score += 30; evidencias.push("CNPJ match"); }
+                  if (nomeMatch) { score += 20; evidencias.push("Nome forte"); }
                   
                   if (finDate && extDateApprox) {
                     const daysDiff = Math.abs(new Date(extDateApprox).getTime() - new Date(finDate).getTime()) / 86400000;
