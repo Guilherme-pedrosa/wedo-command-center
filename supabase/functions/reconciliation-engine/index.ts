@@ -165,7 +165,7 @@ function aplicarRegras(
       return { rule: "CNPJ_VALOR_DATA_EXATO", candidato: matches0[0], auto: true };
     if (matches0.length > 1) {
       if (extNome) {
-        const byNome = matches0.filter(c => nomeSimilar(extNome, c.nome));
+        const byNome = matches0.filter(c => nomeForteMatch(extNome, c.nome));
         if (byNome.length === 1)
           return { rule: "CNPJ_VALOR_DATA_EXATO", candidato: byNome[0], auto: true };
       }
@@ -195,7 +195,7 @@ function aplicarRegras(
       });
       if (byDate.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: byDate[0], auto: true };
       if (extNome) {
-        const byNome = matches.filter(c => nomeSimilar(extNome, c.nome));
+        const byNome = matches.filter(c => nomeForteMatch(extNome, c.nome));
         if (byNome.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: byNome[0], auto: true };
       }
     }
@@ -226,11 +226,11 @@ function aplicarRegras(
     if (matches.length === 1) return { rule: "CNPJ_VALOR_TOLERANCIA", candidato: matches[0], auto: false };
   }
 
-  // Regra 4: Nome similar + valor exato + data ±30d → auto-baixa
+  // Regra 4: Nome forte + valor exato + data ±30d → auto-baixa
   if (extNome && extDate) {
     const matches = candidatos.filter(c => {
       const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
-      return nomeSimilar(extNome, c.nome) && valorExato(extValor, Number(c.fin.valor))
+      return nomeForteMatch(extNome, c.nome) && valorExato(extValor, Number(c.fin.valor))
         && finDate && dataProxima(extDate, finDate, 30);
     });
     if (matches.length === 1) return { rule: "NOME_VALOR_EXATO", candidato: matches[0], auto: true };
