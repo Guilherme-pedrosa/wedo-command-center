@@ -259,13 +259,13 @@ export default function ExtratoBancoPage() {
       
       // Store suggestions for user review
       const review = data.review || [];
-      const unmatched = (data.unmatched || []).filter((u: any) => u.sugestoes?.length > 0);
+      const unmatchedWithSug = (data.unmatched || []).filter((u: any) => u.sugestoes?.length > 0 || u.sugestao_nn);
       setAutoReview(review);
-      setAutoSuggestions(unmatched);
+      setAutoSuggestions(unmatchedWithSug);
       setSugVinculados(new Set());
-      if (review.length > 0 || unmatched.length > 0) setAutoSugOpen(true);
+      if (review.length > 0 || unmatchedWithSug.length > 0) setAutoSugOpen(true);
       
-      toast.success(`Conciliação: ${data.stats.auto} auto, ${review.length} revisão, ${unmatched.length} sugestões`);
+      toast.success(`Conciliação: ${data.stats.auto} auto, ${review.length} revisão, ${unmatchedWithSug.length} sugestões`);
       invalidateAll();
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro na conciliação"); }
     finally { setAutoRunning(false); }
@@ -788,16 +788,57 @@ export default function ExtratoBancoPage() {
             {/* Unmatched items with approximate suggestions */}
             {autoSuggestions.map((u: any, idx: number) => {
               const isVinculado = sugVinculados.has(u.extrato_id);
+              const isNn = u.sugestao_nn && u.candidatos_nn?.length > 0;
               return (
                 <div key={`sug-${idx}`} className={cn("rounded-md border p-3 space-y-2 text-xs", isVinculado ? "opacity-40 border-green-500/30" : "border-border bg-card")}>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant="outline" className="text-[9px] text-muted-foreground">Sugestão</Badge>
+                    <Badge variant="outline" className={cn("text-[9px]", isNn ? "text-orange-400 border-orange-400/40" : "text-muted-foreground")}>
+                      {isNn ? `N:N (${u.candidatos_nn.length} títulos)` : "Sugestão"}
+                    </Badge>
                     <span className="font-medium">{u.contrapartida || u.descricao_extrato}</span>
                     <span className="font-bold text-primary">{formatCurrency(Math.abs(Number(u.valor)))}</span>
                     {u.cpf_cnpj && <span className="text-[10px] text-muted-foreground">{u.cpf_cnpj}</span>}
                     <span className="text-muted-foreground">{u.data_hora ? format(new Date(u.data_hora), "dd/MM") : ""}</span>
                   </div>
-                  {!isVinculado && u.sugestoes?.map((s: any, si: number) => (
+
+                  {/* N:N suggestion — show candidate summary and button to open N:N mode */}
+                  {!isVinculado && isNn && (
+                    <div className="rounded bg-orange-500/10 p-2 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[10px] text-muted-foreground">
+                          <span className="font-medium text-foreground">Soma candidatos:</span> {formatCurrency(u.soma_candidatos)}
+                          {u.diferenca_nn > 0.01 && <span className="ml-2 text-yellow-600">Δ {formatCurrency(u.diferenca_nn)}</span>}
+                        </div>
+                        <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 shrink-0 border-orange-400/40 text-orange-400 hover:bg-orange-400/10"
+                          onClick={() => {
+                            // Find the extrato in list and expand it in N:N mode
+                            setExpandedId(u.extrato_id);
+                            setExpandedItem({ id: u.extrato_id, tipo: u.tipo, valor: u.valor, nome_contraparte: u.contrapartida, cpf_cnpj: u.cpf_cnpj, data_hora: u.data_hora });
+                            setSearchLanc(u.contrapartida?.split(" ")[0] || "");
+                            setMultiMode(true);
+                            setSelectedIds(new Set());
+                            setTaxaAdiantamento("");
+                            setAutoSugOpen(false);
+                          }}>
+                          <ArrowLeftRight className="h-3 w-3" /> Abrir N:N
+                        </Button>
+                      </div>
+                      <div className="max-h-28 overflow-y-auto space-y-1">
+                        {u.candidatos_nn.slice(0, 8).map((c: any, ci: number) => (
+                          <div key={ci} className="flex items-center gap-2 text-[10px]">
+                            {c.doc_match && <span className="text-green-500">CNPJ✓</span>}
+                            <span className="truncate max-w-[200px]">{c.descricao}</span>
+                            <span className="font-bold text-primary">{formatCurrency(c.valor)}</span>
+                            <span className="text-muted-foreground">{c.nome?.substring(0, 25)}</span>
+                          </div>
+                        ))}
+                        {u.candidatos_nn.length > 8 && <span className="text-[9px] text-muted-foreground">+{u.candidatos_nn.length - 8} mais</span>}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 1:1 suggestions */}
+                  {!isVinculado && !isNn && u.sugestoes?.map((s: any, si: number) => (
                     <div key={si} className="rounded bg-muted/50 p-2 space-y-1">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
