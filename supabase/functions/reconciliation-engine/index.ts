@@ -39,25 +39,46 @@ function dataProxima(a: string, b: string, dias = 3): boolean {
 }
 
 // Similaridade de nome por palavras em comum (Jaccard simplificado + containment fallback)
+const GENERIC_NAME_TOKENS = new Set([
+  "ltda", "eireli", "me", "epp", "sa",
+  "comercio", "comercial", "servicos", "servico", "industria", "industrial",
+  "empresa", "grupo", "sistemas", "solucoes", "equipamentos", "tecnologia",
+  "refrigeracao", "engenharia", "logistica", "transportes",
+]);
+
+function nomeTokens(a: string | null): string[] {
+  if (!a) return [];
+  return a.toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, "")
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !/^\d+$/.test(w));
+}
+
+function nomeTokensSignificativos(a: string | null): string[] {
+  return nomeTokens(a).filter((w) => !GENERIC_NAME_TOKENS.has(w));
+}
+
 function nomeSimilarScore(a: string | null, b: string | null): number {
-  if (!a || !b) return 0;
-  const normalize = (s: string) =>
-    s.toLowerCase()
-     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-     .replace(/[^a-z0-9\s]/g, "")
-     .split(/\s+/).filter(w => w.length > 2 && !/^\d+$/.test(w)); // exclude pure numeric tokens like CNPJ fragments
-  const wa = normalize(a);
-  const wb = normalize(b);
+  const wa = nomeTokens(a);
+  const wb = nomeTokens(b);
   if (!wa.length || !wb.length) return 0;
   const inter = wa.filter(w => wb.includes(w)).length;
   const union = new Set([...wa, ...wb]).size;
   const jaccard = inter / union;
-  // Containment: if the smaller set is fully contained in the larger, boost score
   const smaller = wa.length <= wb.length ? wa : wb;
   const larger = wa.length > wb.length ? wa : wb;
   const containment = smaller.filter(w => larger.includes(w)).length / smaller.length;
-  // Return the best of jaccard and containment (containment handles "Filipe" ⊂ "Filipe Farias de Carvalho")
   return Math.max(jaccard, containment);
+}
+
+function nomeForteMatch(a: string | null, b: string | null): boolean {
+  const wa = nomeTokensSignificativos(a);
+  const wb = nomeTokensSignificativos(b);
+  if (!wa.length || !wb.length) return false;
+  const shared = [...new Set(wa.filter((w) => wb.includes(w)))];
+  if (shared.length >= 2) return true;
+  return shared.some((w) => w.length >= 6);
 }
 
 function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): boolean {
