@@ -947,6 +947,68 @@ serve(async (req) => {
               }
             } else {
               stats.unmatched++;
+              // Find approximate suggestions for the user
+              const extValorApprox = Math.abs(Number(ext.valor));
+              const extDocApprox = cleanDoc(ext.cpf_cnpj);
+              const extNomeApprox = ext.nome_contraparte ?? ext.contrapartida ?? "";
+              const isDebitoApprox = ext.tipo === "DEBITO";
+              
+              // Combine all pools (pending + already paid), dedup
+              const rawPoolApprox = [
+                ...(isDebitoApprox ? (pagamentos ?? []) : (recebimentos ?? [])),
+                ...(isDebitoApprox ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? [])),
+              ];
+              const seenApprox = new Set<string>();
+              const poolApprox = rawPoolApprox.filter((fin: any) => {
+                if (seenApprox.has(fin.id) || alreadyLinked.has(fin.id) || usedIds.has(fin.id)) return false;
+                seenApprox.add(fin.id);
+                return true;
+              });
+
+              // Score each candidate
+              const scored = poolApprox.map((fin: any) => {
+                const gcId = isDebitoApprox ? fin.fornecedor_gc_id : fin.cliente_gc_id;
+                const lookup = isDebitoApprox ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
+                const finDoc = cleanDoc(fin.recipient_document) || lookup?.cpf_cnpj || "";
+                const finNome = (isDebitoApprox ? fin.nome_fornecedor : fin.nome_cliente) ?? lookup?.nome ?? "";
+                const finDate = fin.data_vencimento ?? fin.data_emissao ?? "";
+                const extDate = ext.data_hora?.substring(0, 10) ?? "";
+
+                let score = 0;
+                const evidencias: string[] = [];
+                const finValor = Math.abs(Number(fin.valor));
+                
+                // Value match
+                if (valorExato(extValorApprox, finValor)) { score += 40; evidencias.push("Valor exato"); }
+                else if (valorTolerancia(extValorApprox, finValor, 5)) { score += 20; evidencias.push(`Valor ~${((1 - Math.abs(extValorApprox - finValor) / Math.max(extValorApprox, finValor)) * 100).toFixed(0)}%`); }
+                else if (valorTolerancia(extValorApprox, finValor, 15)) { score += 10; evidencias.push(`Valor aprox.`); }
+                else return null; // Too far in value — skip
+                
+                // Document match
+                if (extDocApprox && finDoc && docMatches(extDocApprox, finDoc)) { score += 30; evidencias.push("CNPJ match"); }
+                
+                // Name match
+                const nScore = nomeSimilarScore(extNomeApprox, finNome);
+                if (nScore >= 0.5) { score += 20; evidencias.push(`Nome ${(nScore * 100).toFixed(0)}%`); }
+                else if (nScore >= 0.25) { score += 10; evidencias.push(`Nome parcial`); }
+                
+                // Date proximity
+                if (finDate && extDate) {
+                  const daysDiff = Math.abs(new Date(extDate).getTime() - new Date(finDate).getTime()) / 86400000;
+                  if (daysDiff <= 5) { score += 10; evidencias.push(`Data ±${Math.round(daysDiff)}d`); }
+                  else if (daysDiff <= 30) { score += 5; evidencias.push(`Data ±${Math.round(daysDiff)}d`); }
+                }
+                
+                // Status info
+                if (fin.status === "pago" || fin.pago_sistema) evidencias.push("Já pago");
+                
+                return { fin, score, evidencias, finValor, finNome, finDate, finDoc, status: fin.status };
+              }).filter(Boolean) as any[];
+              
+              // Sort by score DESC, take top 3
+              scored.sort((a: any, b: any) => b.score - a.score);
+              const topSugestoes = scored.slice(0, 3).filter((s: any) => s.score >= 20);
+
               unmatchedItems.push({
                 extrato_id: ext.id,
                 descricao_extrato: ext.descricao ?? "—",
@@ -955,6 +1017,20 @@ serve(async (req) => {
                 valor: ext.valor,
                 tipo: ext.tipo,
                 data_hora: ext.data_hora,
+                sugestoes: topSugestoes.map((s: any) => ({
+                  lancamento_id: s.fin.id,
+                  lancamento_tipo: isDebitoApprox ? "pagamento" : "recebimento",
+                  descricao: s.fin.descricao,
+                  nome: s.finNome,
+                  valor: s.finValor,
+                  data_vencimento: s.finDate,
+                  status: s.status,
+                  gc_codigo: s.fin.gc_codigo,
+                  os_codigo: s.fin.os_codigo,
+                  score: s.score,
+                  evidencias: s.evidencias,
+                  diferenca: Math.abs(extValorApprox - s.finValor),
+                })),
               });
             }
           }
