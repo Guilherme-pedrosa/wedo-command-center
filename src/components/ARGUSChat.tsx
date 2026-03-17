@@ -24,9 +24,13 @@ const QUICK_COMMANDS = [
   "Qual o resultado do mês?",
 ];
 
-export function ARGUSChat() {
+interface ARGUSChatProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function ARGUSChat({ open, onOpenChange }: ARGUSChatProps) {
   const location = useLocation();
-  const [open, setOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
