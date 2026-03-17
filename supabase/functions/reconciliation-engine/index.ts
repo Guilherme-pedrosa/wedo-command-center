@@ -46,17 +46,25 @@ const GENERIC_NAME_TOKENS = new Set([
   "refrigeracao", "engenharia", "logistica", "transportes",
 ]);
 
+const NAME_CONNECTOR_TOKENS = new Set(["da", "de", "do", "das", "dos", "e"]);
+
+const COMMON_PERSON_NAME_TOKENS = new Set([
+  "silva", "santos", "souza", "oliveira", "pereira", "almeida", "costa", "rodrigues",
+  "ferreira", "lima", "gomes", "ribeiro", "carvalho", "alves", "araujo", "martins",
+  "melo", "moreira", "barbosa", "rocha", "dias", "teixeira", "fernandes", "freitas",
+]);
+
 function nomeTokens(a: string | null): string[] {
   if (!a) return [];
   return a.toLowerCase()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter(w => w.length > 2 && !/^\d+$/.test(w));
+    .filter(w => w.length > 1 && !/^\d+$/.test(w));
 }
 
 function nomeTokensSignificativos(a: string | null): string[] {
-  return nomeTokens(a).filter((w) => !GENERIC_NAME_TOKENS.has(w));
+  return nomeTokens(a).filter((w) => !GENERIC_NAME_TOKENS.has(w) && !NAME_CONNECTOR_TOKENS.has(w));
 }
 
 function nomeSimilarScore(a: string | null, b: string | null): number {
@@ -76,9 +84,16 @@ function nomeForteMatch(a: string | null, b: string | null): boolean {
   const wa = nomeTokensSignificativos(a);
   const wb = nomeTokensSignificativos(b);
   if (!wa.length || !wb.length) return false;
+
   const shared = [...new Set(wa.filter((w) => wb.includes(w)))];
   if (shared.length >= 2) return true;
-  return shared.some((w) => w.length >= 6);
+  if (shared.length === 0) return false;
+
+  const [token] = shared;
+  const singleSide = wa.length === 1 || wb.length === 1;
+  if (!singleSide) return false;
+
+  return token.length >= 6 && !COMMON_PERSON_NAME_TOKENS.has(token);
 }
 
 function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): boolean {
@@ -150,7 +165,7 @@ function aplicarRegras(
       return { rule: "CNPJ_VALOR_DATA_EXATO", candidato: matches0[0], auto: true };
     if (matches0.length > 1) {
       if (extNome) {
-        const byNome = matches0.filter(c => nomeSimilar(extNome, c.nome));
+        const byNome = matches0.filter(c => nomeForteMatch(extNome, c.nome));
         if (byNome.length === 1)
           return { rule: "CNPJ_VALOR_DATA_EXATO", candidato: byNome[0], auto: true };
       }
@@ -180,7 +195,7 @@ function aplicarRegras(
       });
       if (byDate.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: byDate[0], auto: true };
       if (extNome) {
-        const byNome = matches.filter(c => nomeSimilar(extNome, c.nome));
+        const byNome = matches.filter(c => nomeForteMatch(extNome, c.nome));
         if (byNome.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: byNome[0], auto: true };
       }
     }
@@ -211,11 +226,11 @@ function aplicarRegras(
     if (matches.length === 1) return { rule: "CNPJ_VALOR_TOLERANCIA", candidato: matches[0], auto: false };
   }
 
-  // Regra 4: Nome similar + valor exato + data ±30d → auto-baixa
+  // Regra 4: Nome forte + valor exato + data ±30d → auto-baixa
   if (extNome && extDate) {
     const matches = candidatos.filter(c => {
       const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
-      return nomeSimilar(extNome, c.nome) && valorExato(extValor, Number(c.fin.valor))
+      return nomeForteMatch(extNome, c.nome) && valorExato(extValor, Number(c.fin.valor))
         && finDate && dataProxima(extDate, finDate, 30);
     });
     if (matches.length === 1) return { rule: "NOME_VALOR_EXATO", candidato: matches[0], auto: true };
@@ -780,12 +795,12 @@ serve(async (req) => {
         const extNomeCheck = ext.nome_contraparte ?? ext.contrapartida ?? "";
         const mesmoValor = candidatos.filter(c => valorExato(extValor, Number(c.fin.valor)));
 
-        // When extract has a name, filter out candidates with no name similarity
+        // When extract has a name, narrow collisions only with identidade forte de nome
         let candidatosEfetivos = mesmoValor;
         if (extNomeCheck && mesmoValor.length > 1) {
-          const comNome = mesmoValor.filter(c => nomeSimilar(extNomeCheck, c.nome, 0.3));
-          if (comNome.length < mesmoValor.length) {
-            candidatosEfetivos = comNome;
+          const comNomeForte = mesmoValor.filter(c => nomeForteMatch(extNomeCheck, c.nome));
+          if (comNomeForte.length > 0 && comNomeForte.length < mesmoValor.length) {
+            candidatosEfetivos = comNomeForte;
           }
         }
 
@@ -814,9 +829,9 @@ serve(async (req) => {
             }
           }
 
-          // Try to resolve collision by nome similar (stricter threshold)
+          // Try to resolve collision by nome forte
           if (extNomeCheck) {
-            const withNome = candidatosEfetivos.filter(c => nomeSimilar(extNomeCheck, c.nome));
+            const withNome = candidatosEfetivos.filter(c => nomeForteMatch(extNomeCheck, c.nome));
             if (withNome.length === 1) {
               try {
                 if (withNome[0].jaPago) {
@@ -840,7 +855,7 @@ serve(async (req) => {
             valor: ext.valor,
             tipo: ext.tipo,
             data_hora: ext.data_hora,
-            motivo: `Colisão real: ${candidatosEfetivos.length} lançamentos com mesmo valor e nome similar`,
+            motivo: `Colisão real: ${candidatosEfetivos.length} lançamentos com mesmo valor e identidade ambígua`,
             candidatos: candidatosEfetivos.map(c => ({
               id: c.fin.id,
               valor: c.fin.valor,
@@ -855,15 +870,25 @@ serve(async (req) => {
           const candidatoUnico = candidatosEfetivos[0];
           const finDate = candidatoUnico.fin.data_vencimento ?? candidatoUnico.fin.data_emissao;
           const extDate = ext.data_hora?.substring(0, 10) ?? "";
-          const nomeMatch = extNomeCheck && nomeSimilar(extNomeCheck, candidatoUnico.nome);
+          const extDoc = cleanDoc(ext.cpf_cnpj);
+          const extPix = (ext.chave_pix ?? "").trim().toLowerCase();
+          const pixClean = extPix.replace(/\D/g, "");
+          const nomeMatch = Boolean(extNomeCheck && nomeForteMatch(extNomeCheck, candidatoUnico.nome));
+          const docMatch = Boolean(extDoc && candidatoUnico.doc && docMatches(extDoc, candidatoUnico.doc));
+          const pixMatch = Boolean(
+            extPix && (
+              (candidatoUnico.chavePix && candidatoUnico.chavePix.toLowerCase() === extPix)
+              || (pixClean.length >= 8 && candidatoUnico.doc && docMatches(pixClean, candidatoUnico.doc))
+            )
+          );
+          const identidadeForte = docMatch || pixMatch || nomeMatch;
           const dateWindow = nomeMatch ? 10 : 5;
+          const ruleLabel = docMatch ? "CNPJ_VALOR_EXATO" : pixMatch ? "PIX_CHAVE_VALOR" : nomeMatch ? "NOME_VALOR_EXATO" : "VALOR_UNICO";
 
-          // If extract has a name and it doesn't match the candidate at all, skip to já-pagos
-          if (extNomeCheck && !nomeSimilar(extNomeCheck, candidatoUnico.nome, 0.2)) {
-            // Name mismatch — don't link to this candidate, fall through to já-pagos
+          if (!identidadeForte) {
+            // Mesmo valor sozinho não basta: sem documento, PIX ou nome forte não sugerimos.
           } else if (finDate && extDate && dataProxima(extDate, finDate, dateWindow)) {
             try {
-              const ruleLabel = nomeMatch ? "NOME_VALOR_EXATO" : "VALOR_UNICO";
               if (candidatoUnico.jaPago) {
                 await vincularRastreabilidade(supabase, ext, candidatoUnico.fin.id, ruleLabel + "_JA_PAGO");
               } else {
@@ -885,13 +910,13 @@ serve(async (req) => {
               valor: ext.valor,
               tipo: ext.tipo,
               data_hora: ext.data_hora,
-              motivo: "Valor exato, aguardando confirmação de data",
+              motivo: "Identidade confirmada, aguardando confirmação de data",
               melhor: {
                 id: candidatoUnico.fin.id,
                 valor: candidatoUnico.fin.valor,
                 descricao: candidatoUnico.fin.descricao,
                 nome: candidatoUnico.fin.nome_fornecedor ?? candidatoUnico.fin.nome_cliente ?? "—",
-                rule: "VALOR_UNICO",
+                rule: ruleLabel,
               },
             });
             stats.review++;
