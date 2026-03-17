@@ -1104,6 +1104,9 @@ serve(async (req) => {
                   const finDoc = cleanDoc(fin.recipient_document) || lookup?.cpf_cnpj || "";
                   const finNome = (isDebitoApprox ? fin.nome_fornecedor : fin.nome_cliente) ?? lookup?.nome ?? "";
                   const finDate = fin.data_vencimento ?? fin.data_emissao ?? "";
+                  const docMatch = Boolean(extDocApprox && finDoc && docMatches(extDocApprox, finDoc));
+                  const nomeMatch = Boolean(extNomeApprox && finNome && nomeForteMatch(extNomeApprox, finNome));
+                  if (!docMatch && !nomeMatch) return null;
 
                   let score = 0;
                   const evidencias: string[] = [];
@@ -1114,11 +1117,8 @@ serve(async (req) => {
                   else if (valorTolerancia(extValorApprox, finValor, 15)) { score += 10; evidencias.push(`Valor aprox.`); }
                   else return null;
                   
-                  if (extDocApprox && finDoc && docMatches(extDocApprox, finDoc)) { score += 30; evidencias.push("CNPJ match"); }
-                  
-                  const nScore = nomeSimilarScore(extNomeApprox, finNome);
-                  if (nScore >= 0.5) { score += 20; evidencias.push(`Nome ${(nScore * 100).toFixed(0)}%`); }
-                  else if (nScore >= 0.25) { score += 10; evidencias.push(`Nome parcial`); }
+                  if (docMatch) { score += 30; evidencias.push("CNPJ match"); }
+                  if (nomeMatch) { score += 20; evidencias.push("Nome forte"); }
                   
                   if (finDate && extDateApprox) {
                     const daysDiff = Math.abs(new Date(extDateApprox).getTime() - new Date(finDate).getTime()) / 86400000;
