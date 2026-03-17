@@ -420,6 +420,24 @@ export default function ExtratoBancoPage() {
     finally { setAiVinculando(null); }
   };
 
+  // Accept a suggestion from auto-reconcile
+  const handleAcceptSuggestion = async (extratoId: string, sug: any) => {
+    const key = extratoId + sug.lancamento_id;
+    setSugVinculando(key);
+    try {
+      const now = new Date().toISOString();
+      const table = sug.lancamento_tipo === "recebimento" ? "fin_recebimentos" : "fin_pagamentos";
+      const tabela = sug.lancamento_tipo === "recebimento" ? "recebimentos" : "pagamentos";
+      await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: sug.lancamento_id, reconciliado_em: now, reconciliation_rule: "SUGESTAO_ACEITA" }).eq("id", extratoId);
+      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", sug.lancamento_id);
+      await supabase.from("fin_extrato_lancamentos").upsert({ extrato_id: extratoId, lancamento_id: sug.lancamento_id, tabela, valor_alocado: sug.valor, reconciliation_rule: "SUGESTAO_ACEITA" }, { onConflict: "extrato_id,lancamento_id,tabela" });
+      setSugVinculados(prev => new Set([...prev, extratoId]));
+      toast.success("Sugestão aceita e vinculada!");
+      invalidateAll();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao vincular"); }
+    finally { setSugVinculando(null); }
+  };
+
   // Open detail for reconciled items — full fields like history page
   const openReconciledDetail = async (item: any) => {
     setDetailItem(item);
