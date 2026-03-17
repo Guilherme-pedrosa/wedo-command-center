@@ -229,27 +229,13 @@ function aplicarRegras(
     if (matches.length === 1) {
       const candNome = matches[0].nome;
       const candDoc = matches[0].doc;
-      // Require at least ONE identity confirmation: CNPJ, PIX key, or name similarity
       const hasDocMatch = extDoc && candDoc && docMatches(extDoc, candDoc);
       const hasPixMatch = extPix && matches[0].chavePix && matches[0].chavePix.toLowerCase() === extPix;
-      const hasNameMatch = extNome && candNome && nomeSimilarScore(extNome, candNome) >= 0.25;
+      const hasNameMatch = extNome && candNome && nomeForteMatch(extNome, candNome);
       if (hasDocMatch || hasPixMatch || hasNameMatch) {
         return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: true };
       }
-      // No identity confirmation → check if names actively CONTRADICT
-      // If both have names but similarity is very low, block the suggestion entirely
-      if (extNome && candNome) {
-        const nameScore = nomeSimilarScore(extNome, candNome);
-        if (nameScore < 0.15) {
-          // Names are clearly different people — skip, don't even suggest
-          // (e.g., "Pedro Henrique" vs "Maria Eduarda Godoi")
-        } else {
-          return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: false };
-        }
-      } else {
-        // One or both names missing — suggest for review
-        return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: false };
-      }
+      // Sem identidade forte (texto/documento) → não sugerir
     }
     if (matches.length > 1) {
       // TIEBREAKER 1: CNPJ/CPF match
