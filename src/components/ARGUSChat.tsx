@@ -108,16 +108,16 @@ export function ARGUSChat() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-20 right-6 z-50 flex items-center gap-2 bg-primary text-primary-foreground px-4 py-3 rounded-full shadow-lg hover:bg-primary/90 transition-all hover:scale-105"
+        className="fixed top-3 left-16 z-50 flex items-center gap-1.5 bg-primary/10 text-primary px-3 py-1.5 rounded-md text-xs font-medium hover:bg-primary/20 transition-all border border-primary/20"
       >
-        <Brain className="h-5 w-5" />
+        <Brain className="h-3.5 w-3.5" />
         ARGUS
       </button>
     );
   }
 
   return (
-    <div className="fixed bottom-20 right-6 z-50 w-[380px] bg-card border border-border rounded-xl shadow-2xl flex flex-col max-h-[520px] overflow-hidden">
+    <div className="fixed top-12 left-4 z-50 w-[380px] bg-card border border-border rounded-xl shadow-2xl flex flex-col max-h-[520px] overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border bg-muted/30">
         <div className="flex items-center gap-2 min-w-0">
