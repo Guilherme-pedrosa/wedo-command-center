@@ -892,7 +892,7 @@ serve(async (req) => {
           handledByPendentes = true;
         } else if (candidatosEfetivos.length === 1) {
           const candidatoUnico = candidatosEfetivos[0];
-          const finDate = candidatoUnico.fin.data_vencimento ?? candidatoUnico.fin.data_emissao;
+          const finDate = getFinMatchDate(candidatoUnico.fin);
           const extDate = ext.data_hora?.substring(0, 10) ?? "";
           const extDoc = cleanDoc(ext.cpf_cnpj);
           const extPix = (ext.chave_pix ?? "").trim().toLowerCase();
