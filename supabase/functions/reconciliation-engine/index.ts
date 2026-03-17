@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-11-v13-prazo-estendido-clientes
+// redeploy: 2026-03-17-v14-ja-pagos-no-pool-principal
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -117,6 +117,7 @@ interface Candidato {
   doc: string;
   chavePix: string;
   nome: string;
+  jaPago: boolean; // true = already paid in GC, use rastreabilidade
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -693,14 +694,14 @@ serve(async (req) => {
     // Pool secundário: lançamentos já pagos (para rastreabilidade retroativa)
     const cutoff90 = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     const [{ data: pagamentosJaPagos }, { data: recebimentosJaPagos }] = await Promise.all([
-      supabase.from("fin_pagamentos").select("id, valor, recipient_document, fornecedor_gc_id, nome_fornecedor, descricao, data_vencimento, data_liquidacao, gc_codigo")
+      supabase.from("fin_pagamentos").select(finSelectPag)
         .eq("status", "pago")
         .gte("data_vencimento", cutoff90)
-        .limit(1000),
-      supabase.from("fin_recebimentos").select("id, valor, recipient_document, cliente_gc_id, nome_cliente, descricao, data_vencimento, data_liquidacao, gc_codigo")
+        .limit(2000),
+      supabase.from("fin_recebimentos").select(finSelectRec)
         .eq("status", "pago")
         .gte("data_vencimento", cutoff90)
-        .limit(1000),
+        .limit(2000),
     ]);
 
     // IDs já vinculados — from N:N table AND from legacy 1:1 lancamento_id on fin_extrato_inter
@@ -735,10 +736,22 @@ serve(async (req) => {
 
     for (const ext of (extratos ?? [])) {
       const isDebito = ext.tipo === "DEBITO";
-      const pool = isDebito ? (pagamentos ?? []) : (recebimentos ?? []);
+      const poolPendente = isDebito ? (pagamentos ?? []) : (recebimentos ?? []);
+      const poolJaPago = isDebito ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? []);
+
+      // Merge both pools, deduplicating by ID
+      const seenIds = new Set<string>();
+      const jaPagoIds = new Set<string>((poolJaPago ?? []).map((f: any) => f.id));
+      const mergedPool: any[] = [];
+      for (const fin of [...poolPendente, ...poolJaPago]) {
+        if (!seenIds.has(fin.id)) {
+          seenIds.add(fin.id);
+          mergedPool.push(fin);
+        }
+      }
 
       // Build candidate list with enriched doc/pix from lookup tables
-      const candidatos: Candidato[] = pool
+      const candidatos: Candidato[] = mergedPool
         .filter((fin: any) => !usedIds.has(fin.id) && !alreadyLinked.has(fin.id))
         .map((fin: any) => {
           const gcId = isDebito ? fin.fornecedor_gc_id : fin.cliente_gc_id;
@@ -749,14 +762,19 @@ serve(async (req) => {
           const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? "";
           const lookupNome = lookup?.nome ?? "";
           const nome = (finNome.split(/\s+/).filter((w: string) => w.length > 2).length >= 2) ? finNome : (lookupNome || finNome);
-          return { fin, tipo: (isDebito ? "pagar" : "receber") as "pagar" | "receber", doc, chavePix, nome };
+          const jaPago = jaPagoIds.has(fin.id) || fin.liquidado === true || fin.status === "pago";
+          return { fin, tipo: (isDebito ? "pagar" : "receber") as "pagar" | "receber", doc, chavePix, nome, jaPago };
         });
 
       const { rule, candidato, auto } = aplicarRegras(ext, candidatos);
 
       if (candidato && auto) {
         try {
-          await vincular(supabase, ext, candidato, rule!);
+          if (candidato.jaPago) {
+            await vincularRastreabilidade(supabase, ext, candidato.fin.id, rule! + "_JA_PAGO");
+          } else {
+            await vincular(supabase, ext, candidato, rule!);
+          }
           usedIds.add(candidato.fin.id);
           stats.auto++;
         } catch (e) {
@@ -810,7 +828,11 @@ serve(async (req) => {
             });
             if (withDoc.length === 1) {
               try {
-                await vincular(supabase, ext, withDoc[0], "CNPJ_VALOR_EXATO");
+                if (withDoc[0].jaPago) {
+                  await vincularRastreabilidade(supabase, ext, withDoc[0].fin.id, "CNPJ_VALOR_EXATO_JA_PAGO");
+                } else {
+                  await vincular(supabase, ext, withDoc[0], "CNPJ_VALOR_EXATO");
+                }
                 usedIds.add(withDoc[0].fin.id);
                 stats.auto++;
                 continue;
@@ -823,7 +845,11 @@ serve(async (req) => {
             const withNome = candidatosEfetivos.filter(c => nomeSimilar(extNomeCheck, c.nome));
             if (withNome.length === 1) {
               try {
-                await vincular(supabase, ext, withNome[0], "NOME_VALOR_EXATO");
+                if (withNome[0].jaPago) {
+                  await vincularRastreabilidade(supabase, ext, withNome[0].fin.id, "NOME_VALOR_EXATO_JA_PAGO");
+                } else {
+                  await vincular(supabase, ext, withNome[0], "NOME_VALOR_EXATO");
+                }
                 usedIds.add(withNome[0].fin.id);
                 stats.auto++;
                 continue;
@@ -863,7 +889,12 @@ serve(async (req) => {
             // Name mismatch — don't link to this candidate, fall through to já-pagos
           } else if (finDate && extDate && dataProxima(extDate, finDate, dateWindow)) {
             try {
-              await vincular(supabase, ext, candidatoUnico, nomeMatch ? "NOME_VALOR_EXATO" : "VALOR_UNICO");
+              const ruleLabel = nomeMatch ? "NOME_VALOR_EXATO" : "VALOR_UNICO";
+              if (candidatoUnico.jaPago) {
+                await vincularRastreabilidade(supabase, ext, candidatoUnico.fin.id, ruleLabel + "_JA_PAGO");
+              } else {
+                await vincular(supabase, ext, candidatoUnico, ruleLabel);
+              }
               usedIds.add(candidatoUnico.fin.id);
               stats.auto++;
             } catch (e) {
