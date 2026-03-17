@@ -215,8 +215,20 @@ function aplicarRegras(
       if (hasDocMatch || hasPixMatch || hasNameMatch) {
         return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: true };
       }
-      // No identity confirmation → review only
-      return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: false };
+      // No identity confirmation → check if names actively CONTRADICT
+      // If both have names but similarity is very low, block the suggestion entirely
+      if (extNome && candNome) {
+        const nameScore = nomeSimilarScore(extNome, candNome);
+        if (nameScore < 0.15) {
+          // Names are clearly different people — skip, don't even suggest
+          // (e.g., "Pedro Henrique" vs "Maria Eduarda Godoi")
+        } else {
+          return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: false };
+        }
+      } else {
+        // One or both names missing — suggest for review
+        return { rule: "VALOR_DATA_EXATO", candidato: matches[0], auto: false };
+      }
     }
     if (matches.length > 1) {
       // TIEBREAKER 1: CNPJ/CPF match
