@@ -93,6 +93,10 @@ export default function ExtratoBancoPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedItem, setExpandedItem] = useState<any>(null);
   const [searchLanc, setSearchLanc] = useState("");
+  const [multiMode, setMultiMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [taxaAdiantamento, setTaxaAdiantamento] = useState<string>("");
+  const [batchLinking, setBatchLinking] = useState(false);
 
   // Confirm dialog
   const [showConfirm, setShowConfirm] = useState(false);
