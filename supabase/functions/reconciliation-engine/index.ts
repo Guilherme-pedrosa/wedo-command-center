@@ -38,6 +38,24 @@ function dataProxima(a: string, b: string, dias = 3): boolean {
   return Math.abs(new Date(a).getTime() - new Date(b).getTime()) <= dias * 86400000;
 }
 
+function isFinSettled(fin: any): boolean {
+  return fin?.liquidado === true
+    || fin?.pago_sistema === true
+    || fin?.status === "pago"
+    || fin?.status === "liquidado"
+    || fin?.status === "baixado";
+}
+
+function getFinMatchDate(fin: any): string {
+  if (!fin) return "";
+
+  if (isFinSettled(fin)) {
+    return fin.data_liquidacao ?? fin.data_vencimento ?? fin.data_emissao ?? fin.data_competencia ?? "";
+  }
+
+  return fin.data_vencimento ?? fin.data_emissao ?? fin.data_competencia ?? fin.data_liquidacao ?? "";
+}
+
 // Similaridade de nome por palavras em comum (Jaccard simplificado + containment fallback)
 const GENERIC_NAME_TOKENS = new Set([
   "ltda", "eireli", "me", "epp", "sa",
