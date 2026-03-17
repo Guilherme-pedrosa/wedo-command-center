@@ -625,7 +625,7 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
   const values = sorted.map((item) => Math.round(Number(item.valor) * 100));
   const targetCents = Math.round(target * 100);
   const toleranceCents = Math.max(1, Math.round(tolerance * 100));
-  const maxSize = Math.min(n, 15);
+  const maxSize = Math.min(n, 8);
   const suffixSum = new Array(n + 1).fill(0);
   const memo = new Set<string>();
 
