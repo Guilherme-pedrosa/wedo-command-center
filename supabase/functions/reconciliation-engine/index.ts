@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-17-v16-strict-identity-collision
+// redeploy: 2026-03-17-v17-liquidacao-priority-nn-search
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,6 +36,24 @@ function valorTolerancia(a: number, b: number, pct = 2): boolean {
 function dataProxima(a: string, b: string, dias = 3): boolean {
   if (!a || !b) return false;
   return Math.abs(new Date(a).getTime() - new Date(b).getTime()) <= dias * 86400000;
+}
+
+function isFinSettled(fin: any): boolean {
+  return fin?.liquidado === true
+    || fin?.pago_sistema === true
+    || fin?.status === "pago"
+    || fin?.status === "liquidado"
+    || fin?.status === "baixado";
+}
+
+function getFinMatchDate(fin: any): string {
+  if (!fin) return "";
+
+  if (isFinSettled(fin)) {
+    return fin.data_liquidacao ?? fin.data_vencimento ?? fin.data_emissao ?? fin.data_competencia ?? "";
+  }
+
+  return fin.data_vencimento ?? fin.data_emissao ?? fin.data_competencia ?? fin.data_liquidacao ?? "";
 }
 
 // Similaridade de nome por palavras em comum (Jaccard simplificado + containment fallback)
@@ -153,7 +171,7 @@ function aplicarRegras(
   // Regra 0: CNPJ/CPF + valor exato + data ±3 dias → auto-baixa máxima confiança
   if (extDoc && extDate) {
     const matches0 = candidatos.filter(c => {
-      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      const finDate = getFinMatchDate(c.fin);
       return (
         docMatches(extDoc, c.doc) &&
         valorExato(extValor, Number(c.fin.valor)) &&
@@ -170,8 +188,8 @@ function aplicarRegras(
           return { rule: "CNPJ_VALOR_DATA_EXATO", candidato: byNome[0], auto: true };
       }
       const sorted = [...matches0].sort((a, b) => {
-        const da = Math.abs(new Date(a.fin.data_vencimento ?? a.fin.data_emissao).getTime() - new Date(extDate).getTime());
-        const db = Math.abs(new Date(b.fin.data_vencimento ?? b.fin.data_emissao).getTime() - new Date(extDate).getTime());
+        const da = Math.abs(new Date(getFinMatchDate(a.fin)).getTime() - new Date(extDate).getTime());
+        const db = Math.abs(new Date(getFinMatchDate(b.fin)).getTime() - new Date(extDate).getTime());
         return da - db;
       });
       return { rule: "CNPJ_VALOR_DATA_EXATO", candidato: sorted[0], auto: true };
@@ -183,14 +201,14 @@ function aplicarRegras(
   if (extDoc && extDate) {
     const janelaBase = isClientePrazoEstendido(extDoc) ? 90 : 30;
     const matches = candidatos.filter(c => {
-      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      const finDate = getFinMatchDate(c.fin);
       return docMatches(extDoc, c.doc) && valorExato(extValor, Number(c.fin.valor))
         && finDate && dataProxima(extDate, finDate, janelaBase);
     });
     if (matches.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: matches[0], auto: true };
     if (matches.length > 1) {
       const byDate = matches.filter(c => {
-        const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
+        const finDate = getFinMatchDate(c.fin);
         return finDate && dataProxima(extDate, finDate, 5);
       });
       if (byDate.length === 1) return { rule: "CNPJ_VALOR_EXATO", candidato: byDate[0], auto: true };
@@ -204,7 +222,7 @@ function aplicarRegras(
   // Regra 2: Chave PIX exata + valor exato + data ±30d → auto-baixa
   if (extPix && extDate) {
     const matches = candidatos.filter(c => {
-      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      const finDate = getFinMatchDate(c.fin);
       if (!finDate || !dataProxima(extDate, finDate, 30)) return false;
       if (c.chavePix && c.chavePix.toLowerCase() === extPix)
         return valorExato(extValor, Number(c.fin.valor));
@@ -219,7 +237,7 @@ function aplicarRegras(
   // Regra 3: CNPJ/CPF match + valor com tolerância ±2% + data ±15d
   if (extDoc && extDate) {
     const matches = candidatos.filter(c => {
-      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      const finDate = getFinMatchDate(c.fin);
       return docMatches(extDoc, c.doc) && valorTolerancia(extValor, Number(c.fin.valor), 2)
         && finDate && dataProxima(extDate, finDate, 15);
     });
@@ -229,7 +247,7 @@ function aplicarRegras(
   // Regra 4: Nome forte + valor exato + data ±30d → auto-baixa
   if (extNome && extDate) {
     const matches = candidatos.filter(c => {
-      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao ?? "";
+      const finDate = getFinMatchDate(c.fin);
       return nomeForteMatch(extNome, c.nome) && valorExato(extValor, Number(c.fin.valor))
         && finDate && dataProxima(extDate, finDate, 30);
     });
@@ -239,7 +257,7 @@ function aplicarRegras(
   // Regra 5: Valor exato + data ±3 dias → auto ONLY if name confirms (CNPJ, PIX or nome similar)
   if (extDate) {
     const matches = candidatos.filter(c => {
-      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
+      const finDate = getFinMatchDate(c.fin);
       return valorExato(extValor, Number(c.fin.valor)) && finDate && dataProxima(extDate, finDate, 3);
     });
     if (matches.length === 1) {
@@ -281,13 +299,13 @@ function aplicarRegras(
       }
       // TIEBREAKER 4: Closest date
       const sorted = [...matches].sort((a, b) => {
-        const da = Math.abs(new Date(a.fin.data_vencimento ?? a.fin.data_emissao).getTime() - new Date(extDate).getTime());
-        const db = Math.abs(new Date(b.fin.data_vencimento ?? b.fin.data_emissao).getTime() - new Date(extDate).getTime());
+        const da = Math.abs(new Date(getFinMatchDate(a.fin)).getTime() - new Date(extDate).getTime());
+        const db = Math.abs(new Date(getFinMatchDate(b.fin)).getTime() - new Date(extDate).getTime());
         return da - db;
       });
       const gap = sorted.length >= 2
-        ? Math.abs(new Date(sorted[1].fin.data_vencimento ?? sorted[1].fin.data_emissao).getTime() - new Date(extDate).getTime())
-          - Math.abs(new Date(sorted[0].fin.data_vencimento ?? sorted[0].fin.data_emissao).getTime() - new Date(extDate).getTime())
+        ? Math.abs(new Date(getFinMatchDate(sorted[1].fin)).getTime() - new Date(extDate).getTime())
+          - Math.abs(new Date(getFinMatchDate(sorted[0].fin)).getTime() - new Date(extDate).getTime())
         : 0;
       const bestNome = sorted[0].nome;
       const bestDoc = sorted[0].doc;
@@ -306,7 +324,7 @@ function aplicarRegras(
   // Regra 6: Valor exato + data ±7 dias → REQUER identidade forte
   if (extDate) {
     const fallback7 = candidatos.filter(c => {
-      const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
+      const finDate = getFinMatchDate(c.fin);
       return valorExato(extValor, Number(c.fin.valor)) && finDate && dataProxima(extDate, finDate, 7);
     });
     if (fallback7.length === 1) {
@@ -529,7 +547,7 @@ function tentarSomaParcelas(
       const lkp = isDebito ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
       const finDoc = cleanDoc(fin.recipient_document) || lkp?.cpf_cnpj || "";
       const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? lkp?.nome ?? "";
-      const finDate = fin.data_vencimento ?? fin.data_emissao ?? fin.data_liquidacao ?? "";
+      const finDate = getFinMatchDate(fin);
       const docOk = Boolean(extDoc && finDoc && docMatches(extDoc, finDoc));
       const nomeScore = extNome && finNome ? nomeSimilarScore(extNome, finNome) : 0;
       const nomeOk = extNome && finNome ? nomeForteMatch(extNome, finNome) : false;
@@ -560,7 +578,7 @@ function tentarSomaParcelas(
     return a.dateDiff - b.dateDiff;
   };
 
-  const buildAttemptPool = (items: any[], sorter: (a: any, b: any) => number, limit = 15) => {
+  const buildAttemptPool = (items: any[], sorter: (a: any, b: any) => number, limit = 24) => {
     const seen = new Set<string>();
     return items
       .slice()
@@ -576,10 +594,10 @@ function tentarSomaParcelas(
 
   const candidatosDoc = candidatos.filter((c: any) => c.docOk);
   const attemptPools = [
-    buildAttemptPool(candidatosDoc.length >= 2 ? candidatosDoc : candidatos, sortByRelevancia, 15),
-    buildAttemptPool(candidatos, sortByRelevancia, 15),
-    buildAttemptPool(candidatosDoc.length >= 2 ? candidatosDoc : candidatos, sortByValor, 15),
-    buildAttemptPool(candidatos, sortByValor, 15),
+    buildAttemptPool(candidatosDoc.length >= 2 ? candidatosDoc : candidatos, sortByRelevancia, 24),
+    buildAttemptPool(candidatos, sortByRelevancia, 24),
+    buildAttemptPool(candidatosDoc.length >= 2 ? candidatosDoc : candidatos, sortByValor, 24),
+    buildAttemptPool(candidatos, sortByValor, 24),
   ];
 
   for (const attempt of attemptPools) {
@@ -607,7 +625,7 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
   const values = sorted.map((item) => Math.round(Number(item.valor) * 100));
   const targetCents = Math.round(target * 100);
   const toleranceCents = Math.max(1, Math.round(tolerance * 100));
-  const maxSize = Math.min(n, 15);
+  const maxSize = Math.min(n, 8);
   const suffixSum = new Array(n + 1).fill(0);
   const memo = new Set<string>();
 
@@ -751,7 +769,7 @@ serve(async (req) => {
           const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? "";
           const lookupNome = lookup?.nome ?? "";
           const nome = (finNome.split(/\s+/).filter((w: string) => w.length > 2).length >= 2) ? finNome : (lookupNome || finNome);
-          const jaPago = fin.liquidado === true || fin.status === "pago";
+          const jaPago = isFinSettled(fin);
           return { fin, tipo: (isDebito ? "pagar" : "receber") as "pagar" | "receber", doc, chavePix, nome, jaPago };
         });
 
@@ -874,7 +892,7 @@ serve(async (req) => {
           handledByPendentes = true;
         } else if (candidatosEfetivos.length === 1) {
           const candidatoUnico = candidatosEfetivos[0];
-          const finDate = candidatoUnico.fin.data_vencimento ?? candidatoUnico.fin.data_emissao;
+          const finDate = getFinMatchDate(candidatoUnico.fin);
           const extDate = ext.data_hora?.substring(0, 10) ?? "";
           const extDoc = cleanDoc(ext.cpf_cnpj);
           const extPix = (ext.chave_pix ?? "").trim().toLowerCase();
@@ -981,7 +999,7 @@ serve(async (req) => {
                   const lookup = isDebitoApprox ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
                   const finDoc = cleanDoc(fin.recipient_document) || lookup?.cpf_cnpj || "";
                   const finNome = (isDebitoApprox ? fin.nome_fornecedor : fin.nome_cliente) ?? lookup?.nome ?? "";
-                  const finDate = fin.data_vencimento ?? fin.data_emissao ?? "";
+                  const finDate = getFinMatchDate(fin);
                   const finValor = Math.abs(Number(fin.valor));
                   const docOk = Boolean(extDocApprox && finDoc && docMatches(extDocApprox, finDoc));
                   const nScore = extNomeApprox ? nomeSimilarScore(extNomeApprox, finNome) : 0;
@@ -1064,7 +1082,7 @@ serve(async (req) => {
                   const lookup = isDebitoApprox ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
                   const finDoc = cleanDoc(fin.recipient_document) || lookup?.cpf_cnpj || "";
                   const finNome = (isDebitoApprox ? fin.nome_fornecedor : fin.nome_cliente) ?? lookup?.nome ?? "";
-                  const finDate = fin.data_vencimento ?? fin.data_emissao ?? "";
+                  const finDate = getFinMatchDate(fin);
                   const docMatch = Boolean(extDocApprox && finDoc && docMatches(extDocApprox, finDoc));
                   const nomeMatch = Boolean(extNomeApprox && finNome && nomeForteMatch(extNomeApprox, finNome));
                   if (!docMatch && !nomeMatch) return null;
