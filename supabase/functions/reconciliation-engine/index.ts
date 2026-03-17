@@ -645,14 +645,18 @@ serve(async (req) => {
     const finSelectPag = "id, valor, descricao, data_vencimento, data_emissao, data_competencia, data_liquidacao, status, fornecedor_gc_id, nome_fornecedor, recipient_document, gc_codigo, gc_id, os_codigo, pago_sistema, liquidado, grupo_id";
     const finSelectRec = "id, valor, descricao, data_vencimento, data_emissao, data_competencia, data_liquidacao, status, cliente_gc_id, nome_cliente, recipient_document, gc_codigo, gc_id, os_codigo, pago_sistema, liquidado, grupo_id";
 
-    // 2. Lançamentos candidatos + lookup tables
+    // 2. Lançamentos candidatos (ONLY non-reconciled, non-liquidated) + lookup tables
     const [{ data: pagamentos }, { data: recebimentos }, { data: fornecedores }, { data: clientes }] = await Promise.all([
       supabase.from("fin_pagamentos").select(finSelectPag)
         .not("status", "in", '("cancelado")')
+        .or("pago_sistema.is.null,pago_sistema.eq.false")
+        .or("liquidado.is.null,liquidado.eq.false")
         .order("data_vencimento", { ascending: false })
         .limit(1500),
       supabase.from("fin_recebimentos").select(finSelectRec)
         .not("status", "in", '("cancelado")')
+        .or("pago_sistema.is.null,pago_sistema.eq.false")
+        .or("liquidado.is.null,liquidado.eq.false")
         .order("data_vencimento", { ascending: false })
         .limit(1500),
       supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj, chave_pix, nome"),
