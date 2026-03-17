@@ -256,7 +256,16 @@ export default function ExtratoBancoPage() {
       const { data, error } = await supabase.functions.invoke("reconciliation-engine", { body: {} });
       if (error) throw new Error(error.message);
       if (!data?.success) throw new Error(data?.error ?? "Erro");
-      toast.success(`Conciliação: ${data.stats.auto} auto-baixas, ${data.stats.review} revisão`);
+      
+      // Store suggestions for user review
+      const review = data.review || [];
+      const unmatched = (data.unmatched || []).filter((u: any) => u.sugestoes?.length > 0);
+      setAutoReview(review);
+      setAutoSuggestions(unmatched);
+      setSugVinculados(new Set());
+      if (review.length > 0 || unmatched.length > 0) setAutoSugOpen(true);
+      
+      toast.success(`Conciliação: ${data.stats.auto} auto, ${review.length} revisão, ${unmatched.length} sugestões`);
       invalidateAll();
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro na conciliação"); }
     finally { setAutoRunning(false); }
