@@ -117,7 +117,7 @@ export function ARGUSChat() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 w-[380px] bg-card border border-border rounded-xl shadow-2xl flex flex-col max-h-[600px] overflow-hidden">
+    <div className="fixed bottom-20 right-6 z-50 w-[380px] bg-card border border-border rounded-xl shadow-2xl flex flex-col max-h-[520px] overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border bg-muted/30">
         <div className="flex items-center gap-2 min-w-0">
