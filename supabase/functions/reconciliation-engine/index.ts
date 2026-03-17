@@ -282,13 +282,23 @@ function aplicarRegras(
     }
   }
 
-  // Regra 6: Valor exato + data ±7 dias → fallback ampliado
+  // Regra 6: Valor exato + data ±7 dias → REQUER identidade (nome/CNPJ/PIX)
   if (extDate) {
     const fallback7 = candidatos.filter(c => {
       const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
       return valorExato(extValor, Number(c.fin.valor)) && finDate && dataProxima(extDate, finDate, 7);
     });
-    if (fallback7.length === 1) return { rule: "VALOR_DATA_7DIAS", candidato: fallback7[0], auto: true };
+    if (fallback7.length === 1) {
+      const c = fallback7[0];
+      const hasIdentity = (extDoc && c.doc && docMatches(extDoc, c.doc))
+        || (extPix && c.chavePix && c.chavePix.toLowerCase() === extPix)
+        || (extNome && c.nome && nomeSimilarScore(extNome, c.nome) >= 0.15);
+      if (hasIdentity) {
+        return { rule: "VALOR_DATA_7DIAS", candidato: c, auto: true };
+      }
+      // No identity — suggest only, don't auto
+      return { rule: "VALOR_DATA_7DIAS", candidato: c, auto: false };
+    }
     if (fallback7.length > 1) {
       // Desempate por nome
       if (extNome) {
