@@ -464,64 +464,122 @@ function tentarSomaParcelas(
   alreadyLinked: Set<string>,
   usedIds: Set<string>,
 ): { parcelas: ParcelaSoma[]; rule: string } | null {
-  // Filtrar candidatos pelo mesmo nome (ILIKE-like) ou CNPJ raiz
-  const candidatos = pool.filter((fin: any) => {
-    if (usedIds.has(fin.id) || alreadyLinked.has(fin.id)) return false;
-    const gcId = isDebito ? fin.fornecedor_gc_id : fin.cliente_gc_id;
-    const lkp = isDebito ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
-    const finDoc = cleanDoc(fin.recipient_document) || lkp?.cpf_cnpj || "";
-    const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? lkp?.nome ?? "";
-    const finDate = fin.data_vencimento ?? fin.data_emissao ?? "";
-
-    // Must match by CNPJ root or name similarity (higher threshold to avoid false positives like "Casa da Madeira" ≠ "Casa das Resistências")
-    const docOk = extDoc && finDoc && docMatches(extDoc, finDoc);
-    const nomeOk = extNome && nomeSimilar(extNome, finNome, 0.5);
-    if (!docOk && !nomeOk) return false;
-
-    // Must be within ±30 days
-    if (!finDate || !extDate) return true;
-    return dataProxima(extDate, finDate, 30);
-  });
-
-  if (candidatos.length < 2 || candidatos.length > 15) return null;
-
-  // Sort by valor desc for greedy subset-sum
-  const sorted = [...candidatos].sort((a, b) => Number(b.valor) - Number(a.valor));
+  const janelaDias = isClientePrazoEstendido(extDoc) ? 90 : 30;
   const tabela: "pagamentos" | "recebimentos" = isDebito ? "pagamentos" : "recebimentos";
 
-  // Try exact sum (tolerance 0.01)
-  const result = findSubsetSum(sorted, extValor, 0.01);
-  if (result) {
-    return {
-      parcelas: result.map(fin => ({ id: fin.id, valor: Number(fin.valor), tabela })),
-      rule: "SOMA_PARCELAS",
-    };
+  const candidatos = pool
+    .filter((fin: any) => !usedIds.has(fin.id) && !alreadyLinked.has(fin.id) && Number(fin.valor) > 0)
+    .map((fin: any) => {
+      const gcId = isDebito ? fin.fornecedor_gc_id : fin.cliente_gc_id;
+      const lkp = isDebito ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
+      const finDoc = cleanDoc(fin.recipient_document) || lkp?.cpf_cnpj || "";
+      const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? lkp?.nome ?? "";
+      const finDate = fin.data_vencimento ?? fin.data_emissao ?? fin.data_liquidacao ?? "";
+      const docOk = Boolean(extDoc && finDoc && docMatches(extDoc, finDoc));
+      const nomeScore = extNome && finNome ? nomeSimilarScore(extNome, finNome) : 0;
+      const nomeOk = nomeScore >= 0.5;
+      const dateDiff = finDate && extDate
+        ? Math.abs(new Date(finDate).getTime() - new Date(extDate).getTime())
+        : 0;
+
+      return { fin, docOk, nomeOk, nomeScore, dateDiff, finDate };
+    })
+    .filter(({ docOk, nomeOk, finDate }) => {
+      if (!docOk && !nomeOk) return false;
+      if (!finDate || !extDate) return true;
+      return dataProxima(extDate, finDate, janelaDias);
+    });
+
+  if (candidatos.length < 2) return null;
+
+  const sortByRelevancia = (a: any, b: any) => {
+    if (a.docOk !== b.docOk) return Number(b.docOk) - Number(a.docOk);
+    if (a.dateDiff !== b.dateDiff) return a.dateDiff - b.dateDiff;
+    if (a.nomeScore !== b.nomeScore) return b.nomeScore - a.nomeScore;
+    return Number(b.fin.valor) - Number(a.fin.valor);
+  };
+
+  const sortByValor = (a: any, b: any) => {
+    if (a.docOk !== b.docOk) return Number(b.docOk) - Number(a.docOk);
+    if (Number(b.fin.valor) !== Number(a.fin.valor)) return Number(b.fin.valor) - Number(a.fin.valor);
+    return a.dateDiff - b.dateDiff;
+  };
+
+  const buildAttemptPool = (items: any[], sorter: (a: any, b: any) => number, limit = 15) => {
+    const seen = new Set<string>();
+    return items
+      .slice()
+      .sort(sorter)
+      .filter((item: any) => {
+        if (seen.has(item.fin.id)) return false;
+        seen.add(item.fin.id);
+        return true;
+      })
+      .slice(0, limit)
+      .map((item: any) => item.fin);
+  };
+
+  const candidatosDoc = candidatos.filter((c: any) => c.docOk);
+  const attemptPools = [
+    buildAttemptPool(candidatosDoc.length >= 2 ? candidatosDoc : candidatos, sortByRelevancia, 15),
+    buildAttemptPool(candidatos, sortByRelevancia, 15),
+    buildAttemptPool(candidatosDoc.length >= 2 ? candidatosDoc : candidatos, sortByValor, 15),
+    buildAttemptPool(candidatos, sortByValor, 15),
+  ];
+
+  for (const attempt of attemptPools) {
+    if (attempt.length < 2) continue;
+    const result = findSubsetSum(attempt, extValor, 0.01);
+    if (result) {
+      return {
+        parcelas: result.map((fin: any) => ({ id: fin.id, valor: Number(fin.valor), tabela })),
+        rule: "SOMA_PARCELAS",
+      };
+    }
   }
 
   return null;
 }
 
-// Greedy subset-sum with backtracking (max 15 items)
 function findSubsetSum(items: any[], target: number, tolerance: number): any[] | null {
-  const n = items.length;
-  if (n > 15) return null;
+  const sorted = [...items]
+    .filter((item) => Number(item.valor) > 0)
+    .sort((a, b) => Number(b.valor) - Number(a.valor));
 
-  // Try all subsets of size 2..min(n, 10)
-  const maxSize = Math.min(n, 10);
+  const n = sorted.length;
+  if (n < 2) return null;
 
-  function search(idx: number, remaining: number, selected: any[]): any[] | null {
-    if (Math.abs(remaining) <= tolerance && selected.length >= 2) return selected;
-    if (remaining < -tolerance || idx >= n || selected.length >= maxSize) return null;
+  const values = sorted.map((item) => Math.round(Number(item.valor) * 100));
+  const targetCents = Math.round(target * 100);
+  const toleranceCents = Math.max(1, Math.round(tolerance * 100));
+  const maxSize = Math.min(n, 15);
+  const suffixSum = new Array(n + 1).fill(0);
+  const memo = new Set<string>();
 
-    const val = Number(items[idx].valor);
-    // Include items[idx]
-    const withItem = search(idx + 1, remaining - val, [...selected, items[idx]]);
-    if (withItem) return withItem;
-    // Skip
-    return search(idx + 1, remaining, selected);
+  for (let i = n - 1; i >= 0; i--) {
+    suffixSum[i] = suffixSum[i + 1] + values[i];
   }
 
-  return search(0, target, []);
+  function search(idx: number, remaining: number, selected: number[]): number[] | null {
+    if (Math.abs(remaining) <= toleranceCents && selected.length >= 2) return selected;
+    if (idx >= n || selected.length >= maxSize || remaining < -toleranceCents) return null;
+    if (remaining > suffixSum[idx] + toleranceCents) return null;
+
+    const key = `${idx}:${remaining}:${selected.length}`;
+    if (memo.has(key)) return null;
+
+    const withItem = search(idx + 1, remaining - values[idx], [...selected, idx]);
+    if (withItem) return withItem;
+
+    const withoutItem = search(idx + 1, remaining, selected);
+    if (withoutItem) return withoutItem;
+
+    memo.add(key);
+    return null;
+  }
+
+  const indexes = search(0, targetCents, []);
+  return indexes ? indexes.map((index) => sorted[index]) : null;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -602,12 +660,10 @@ serve(async (req) => {
         .limit(1000),
     ]);
 
-    // IDs já vinculados para evitar duplicatas
+    // IDs já vinculados para evitar reutilização em conciliações N:N e 1:1
     const { data: linkedLancs } = await supabase
-      .from("fin_extrato_inter")
-      .select("lancamento_id")
-      .eq("reconciliado", true)
-      .not("lancamento_id", "is", null);
+      .from("fin_extrato_lancamentos")
+      .select("lancamento_id");
 
     const alreadyLinked = new Set(
       (linkedLancs ?? []).map((l: any) => l.lancamento_id).filter(Boolean)
