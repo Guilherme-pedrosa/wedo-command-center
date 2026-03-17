@@ -723,33 +723,20 @@ serve(async (req) => {
 
     for (const ext of (extratos ?? [])) {
       const isDebito = ext.tipo === "DEBITO";
-      const poolPendente = isDebito ? (pagamentos ?? []) : (recebimentos ?? []);
-      const poolJaPago = isDebito ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? []);
+      const pool = isDebito ? (pagamentos ?? []) : (recebimentos ?? []);
 
-      // Merge both pools, deduplicating by ID
-      const seenIds = new Set<string>();
-      const jaPagoIds = new Set<string>((poolJaPago ?? []).map((f: any) => f.id));
-      const mergedPool: any[] = [];
-      for (const fin of [...poolPendente, ...poolJaPago]) {
-        if (!seenIds.has(fin.id)) {
-          seenIds.add(fin.id);
-          mergedPool.push(fin);
-        }
-      }
-
-      // Build candidate list with enriched doc/pix from lookup tables
-      const candidatos: Candidato[] = mergedPool
+      // Build candidate list: ALL non-cancelled, filtered only by alreadyLinked (extrato binding)
+      const candidatos: Candidato[] = pool
         .filter((fin: any) => !usedIds.has(fin.id) && !alreadyLinked.has(fin.id))
         .map((fin: any) => {
           const gcId = isDebito ? fin.fornecedor_gc_id : fin.cliente_gc_id;
           const lookup = isDebito ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
           const doc = cleanDoc(fin.recipient_document) || lookup?.cpf_cnpj || "";
           const chavePix = (isDebito && lookup) ? (lookup as any).chave_pix ?? "" : "";
-          // Prefer the full name from the lookup table (cadastro) when the lançamento name is too short
           const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? "";
           const lookupNome = lookup?.nome ?? "";
           const nome = (finNome.split(/\s+/).filter((w: string) => w.length > 2).length >= 2) ? finNome : (lookupNome || finNome);
-          const jaPago = jaPagoIds.has(fin.id) || fin.liquidado === true || fin.status === "pago";
+          const jaPago = fin.liquidado === true || fin.status === "pago";
           return { fin, tipo: (isDebito ? "pagar" : "receber") as "pagar" | "receber", doc, chavePix, nome, jaPago };
         });
 
