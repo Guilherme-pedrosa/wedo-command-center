@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-17-v14-ja-pagos-no-pool-principal
+// redeploy: 2026-03-17-v15-pool-unico-sem-filtro-status
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
