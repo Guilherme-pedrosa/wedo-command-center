@@ -673,35 +673,22 @@ serve(async (req) => {
     const finSelectPag = "id, valor, descricao, data_vencimento, data_emissao, data_competencia, data_liquidacao, status, fornecedor_gc_id, nome_fornecedor, recipient_document, gc_codigo, gc_id, os_codigo, pago_sistema, liquidado, grupo_id";
     const finSelectRec = "id, valor, descricao, data_vencimento, data_emissao, data_competencia, data_liquidacao, status, cliente_gc_id, nome_cliente, recipient_document, gc_codigo, gc_id, os_codigo, pago_sistema, liquidado, grupo_id";
 
-    // 2. Lançamentos candidatos (ONLY non-reconciled, non-liquidated) + lookup tables
+    // 2. Lançamentos candidatos: TODOS exceto cancelados (status no GC é irrelevante,
+    //    o que importa é se já foi vinculado ao extrato — checado via alreadyLinked)
+    const cutoff180 = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     const [{ data: pagamentos }, { data: recebimentos }, { data: fornecedores }, { data: clientes }] = await Promise.all([
       supabase.from("fin_pagamentos").select(finSelectPag)
         .not("status", "in", '("cancelado")')
-        .or("pago_sistema.is.null,pago_sistema.eq.false")
-        .or("liquidado.is.null,liquidado.eq.false")
+        .gte("data_vencimento", cutoff180)
         .order("data_vencimento", { ascending: false })
-        .limit(1500),
+        .limit(3000),
       supabase.from("fin_recebimentos").select(finSelectRec)
         .not("status", "in", '("cancelado")')
-        .or("pago_sistema.is.null,pago_sistema.eq.false")
-        .or("liquidado.is.null,liquidado.eq.false")
+        .gte("data_vencimento", cutoff180)
         .order("data_vencimento", { ascending: false })
-        .limit(1500),
+        .limit(3000),
       supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj, chave_pix, nome"),
       supabase.from("fin_clientes").select("gc_id, cpf_cnpj, nome"),
-    ]);
-
-    // Pool secundário: lançamentos já pagos (para rastreabilidade retroativa)
-    const cutoff90 = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-    const [{ data: pagamentosJaPagos }, { data: recebimentosJaPagos }] = await Promise.all([
-      supabase.from("fin_pagamentos").select(finSelectPag)
-        .eq("status", "pago")
-        .gte("data_vencimento", cutoff90)
-        .limit(2000),
-      supabase.from("fin_recebimentos").select(finSelectRec)
-        .eq("status", "pago")
-        .gte("data_vencimento", cutoff90)
-        .limit(2000),
     ]);
 
     // IDs já vinculados — from N:N table AND from legacy 1:1 lancamento_id on fin_extrato_inter
