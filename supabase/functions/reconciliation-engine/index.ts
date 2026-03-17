@@ -889,7 +889,12 @@ serve(async (req) => {
             // Name mismatch — don't link to this candidate, fall through to já-pagos
           } else if (finDate && extDate && dataProxima(extDate, finDate, dateWindow)) {
             try {
-              await vincular(supabase, ext, candidatoUnico, nomeMatch ? "NOME_VALOR_EXATO" : "VALOR_UNICO");
+              const ruleLabel = nomeMatch ? "NOME_VALOR_EXATO" : "VALOR_UNICO";
+              if (candidatoUnico.jaPago) {
+                await vincularRastreabilidade(supabase, ext, candidatoUnico.fin.id, ruleLabel + "_JA_PAGO");
+              } else {
+                await vincular(supabase, ext, candidatoUnico, ruleLabel);
+              }
               usedIds.add(candidatoUnico.fin.id);
               stats.auto++;
             } catch (e) {
