@@ -516,7 +516,7 @@ function tentarSomaParcelas(
       const finDate = fin.data_vencimento ?? fin.data_emissao ?? fin.data_liquidacao ?? "";
       const docOk = Boolean(extDoc && finDoc && docMatches(extDoc, finDoc));
       const nomeScore = extNome && finNome ? nomeSimilarScore(extNome, finNome) : 0;
-      const nomeOk = nomeScore >= 0.5;
+      const nomeOk = extNome && finNome ? nomeForteMatch(extNome, finNome) : false;
       const dateDiff = finDate && extDate
         ? Math.abs(new Date(finDate).getTime() - new Date(extDate).getTime())
         : 0;
