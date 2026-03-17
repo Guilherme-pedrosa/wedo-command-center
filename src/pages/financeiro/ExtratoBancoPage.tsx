@@ -811,14 +811,14 @@ export default function ExtratoBancoPage() {
                         </div>
                         <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 shrink-0 border-orange-400/40 text-orange-400 hover:bg-orange-400/10"
                           onClick={() => {
-                            // Find the extrato row and open N:N mode pre-filtered
-                            const ext = filteredExtratos.find((e: any) => e.id === u.extrato_id);
-                            if (ext) {
-                              setSelectedExtrato(ext);
-                              setModoNN(true);
-                              setNnSearch(u.contrapartida?.split(" ")[0] || "");
-                              setAutoSugOpen(false);
-                            }
+                            // Find the extrato in list and expand it in N:N mode
+                            setExpandedId(u.extrato_id);
+                            setExpandedItem({ id: u.extrato_id, tipo: u.tipo, valor: u.valor, nome_contraparte: u.contrapartida, cpf_cnpj: u.cpf_cnpj, data_hora: u.data_hora });
+                            setSearchLanc(u.contrapartida?.split(" ")[0] || "");
+                            setMultiMode(true);
+                            setSelectedIds(new Set());
+                            setTaxaAdiantamento("");
+                            setAutoSugOpen(false);
                           }}>
                           <ArrowLeftRight className="h-3 w-3" /> Abrir N:N
                         </Button>
