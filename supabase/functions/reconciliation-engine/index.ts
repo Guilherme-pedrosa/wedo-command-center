@@ -117,6 +117,7 @@ interface Candidato {
   doc: string;
   chavePix: string;
   nome: string;
+  jaPago: boolean; // true = already paid in GC, use rastreabilidade
 }
 
 // ═══════════════════════════════════════════════════════════
