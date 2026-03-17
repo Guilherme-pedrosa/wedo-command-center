@@ -736,10 +736,22 @@ serve(async (req) => {
 
     for (const ext of (extratos ?? [])) {
       const isDebito = ext.tipo === "DEBITO";
-      const pool = isDebito ? (pagamentos ?? []) : (recebimentos ?? []);
+      const poolPendente = isDebito ? (pagamentos ?? []) : (recebimentos ?? []);
+      const poolJaPago = isDebito ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? []);
+
+      // Merge both pools, deduplicating by ID
+      const seenIds = new Set<string>();
+      const jaPagoIds = new Set<string>((poolJaPago ?? []).map((f: any) => f.id));
+      const mergedPool: any[] = [];
+      for (const fin of [...poolPendente, ...poolJaPago]) {
+        if (!seenIds.has(fin.id)) {
+          seenIds.add(fin.id);
+          mergedPool.push(fin);
+        }
+      }
 
       // Build candidate list with enriched doc/pix from lookup tables
-      const candidatos: Candidato[] = pool
+      const candidatos: Candidato[] = mergedPool
         .filter((fin: any) => !usedIds.has(fin.id) && !alreadyLinked.has(fin.id))
         .map((fin: any) => {
           const gcId = isDebito ? fin.fornecedor_gc_id : fin.cliente_gc_id;
@@ -750,7 +762,8 @@ serve(async (req) => {
           const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? "";
           const lookupNome = lookup?.nome ?? "";
           const nome = (finNome.split(/\s+/).filter((w: string) => w.length > 2).length >= 2) ? finNome : (lookupNome || finNome);
-          return { fin, tipo: (isDebito ? "pagar" : "receber") as "pagar" | "receber", doc, chavePix, nome };
+          const jaPago = jaPagoIds.has(fin.id) || fin.liquidado === true || fin.status === "pago";
+          return { fin, tipo: (isDebito ? "pagar" : "receber") as "pagar" | "receber", doc, chavePix, nome, jaPago };
         });
 
       const { rule, candidato, auto } = aplicarRegras(ext, candidatos);
