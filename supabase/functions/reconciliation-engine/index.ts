@@ -769,7 +769,7 @@ serve(async (req) => {
           const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? "";
           const lookupNome = lookup?.nome ?? "";
           const nome = (finNome.split(/\s+/).filter((w: string) => w.length > 2).length >= 2) ? finNome : (lookupNome || finNome);
-          const jaPago = fin.liquidado === true || fin.status === "pago";
+          const jaPago = isFinSettled(fin);
           return { fin, tipo: (isDebito ? "pagar" : "receber") as "pagar" | "receber", doc, chavePix, nome, jaPago };
         });
 
