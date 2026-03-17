@@ -257,8 +257,8 @@ export default function ExtratoBancoPage() {
 
   // Toggle expand for manual linking (unreconciled)
   const handleExpandRow = (e: any) => {
-    if (expandedId === e.id) { setExpandedId(null); setSearchLanc(""); }
-    else { setExpandedId(e.id); setExpandedItem(e); setSearchLanc(""); }
+    if (expandedId === e.id) { setExpandedId(null); setSearchLanc(""); setMultiMode(false); setSelectedIds(new Set()); setTaxaAdiantamento(""); }
+    else { setExpandedId(e.id); setExpandedItem(e); setSearchLanc(""); setMultiMode(false); setSelectedIds(new Set()); setTaxaAdiantamento(""); }
   };
 
   // Searched lancamentos for expanded row
