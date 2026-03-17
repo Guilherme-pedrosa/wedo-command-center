@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -45,7 +46,7 @@ const ruleLabels: Record<string, string> = {
   MATCH_GRUPO_RECEBER: "Grupo Receber", MATCH_GRUPO_PAGAR: "Grupo Pagar", MATCH_AGENDA: "Agenda",
   NOME_VALOR_EXATO: "Nome+Valor", CNPJ_VALOR_EXATO: "CNPJ+Valor", CNPJ_VALOR_TOLERANCIA: "CNPJ~Valor",
   PIX_KEY_VALOR: "PIX+Valor", REGRA_0_MAX_CONFIANCA: "Máx. Confiança", SOMA_PARCELAS: "Soma Parcelas",
-  MANUAL: "Manual", MANUAL_VINCULO: "Vínculo Manual", AI_GPT5: "IA GPT-5",
+  MANUAL: "Manual", MANUAL_VINCULO: "Vínculo Manual", MANUAL_SOMA: "Soma Manual N:N", MANUAL_SOMA_JUROS: "Juros Adiantamento", AI_GPT5: "IA GPT-5",
 };
 
 function buildMonthOptions() {
@@ -92,6 +93,10 @@ export default function ExtratoBancoPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedItem, setExpandedItem] = useState<any>(null);
   const [searchLanc, setSearchLanc] = useState("");
+  const [multiMode, setMultiMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [taxaAdiantamento, setTaxaAdiantamento] = useState<string>("");
+  const [batchLinking, setBatchLinking] = useState(false);
 
   // Confirm dialog
   const [showConfirm, setShowConfirm] = useState(false);
@@ -252,8 +257,8 @@ export default function ExtratoBancoPage() {
 
   // Toggle expand for manual linking (unreconciled)
   const handleExpandRow = (e: any) => {
-    if (expandedId === e.id) { setExpandedId(null); setSearchLanc(""); }
-    else { setExpandedId(e.id); setExpandedItem(e); setSearchLanc(""); }
+    if (expandedId === e.id) { setExpandedId(null); setSearchLanc(""); setMultiMode(false); setSelectedIds(new Set()); setTaxaAdiantamento(""); }
+    else { setExpandedId(e.id); setExpandedItem(e); setSearchLanc(""); setMultiMode(false); setSelectedIds(new Set()); setTaxaAdiantamento(""); }
   };
 
   // Searched lancamentos for expanded row
@@ -271,6 +276,52 @@ export default function ExtratoBancoPage() {
     if (isCredito) return { recebimentos: (recebimentosNL || []).filter(filterFn).slice(0, 50), pagamentos: [] };
     return { recebimentos: [], pagamentos: (pagamentosNL || []).filter(filterFn).slice(0, 50) };
   }, [expandedId, expandedItem, searchLanc, recebimentosNL, pagamentosNL]);
+
+  // Multi-select: computed sum and diff
+  const multiSelectedItems = useMemo(() => {
+    if (!multiMode || selectedIds.size === 0 || !expandedItem) return [];
+    const isCredito = expandedItem.tipo === "CREDITO";
+    const pool = isCredito ? (recebimentosNL || []) : (pagamentosNL || []);
+    return pool.filter((l: any) => selectedIds.has(l.id));
+  }, [multiMode, selectedIds, expandedItem, recebimentosNL, pagamentosNL]);
+
+  const multiSoma = multiSelectedItems.reduce((s: number, l: any) => s + Math.abs(Number(l.valor)), 0);
+  const multiExtValor = expandedItem ? Math.abs(Number(expandedItem.valor)) : 0;
+  const multiDiff = multiExtValor - multiSoma;
+  const multiExato = Math.abs(multiDiff) <= 0.01;
+  const multiTemTaxa = !multiExato && multiDiff < 0; // extrato < soma = taxa deducted
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBatchReconcile = async () => {
+    if (!expandedItem || selectedIds.size === 0) return;
+    setBatchLinking(true);
+    try {
+      const taxa = taxaAdiantamento ? parseFloat(taxaAdiantamento.replace(",", ".")) : undefined;
+      const { data, error } = await supabase.functions.invoke("manual-reconcile-batch", {
+        body: {
+          extrato_id: expandedItem.id,
+          lancamento_ids: Array.from(selectedIds),
+          taxa_adiantamento_pct: taxa && taxa > 0 ? taxa : undefined,
+        },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error ?? "Erro");
+      const msg = data.juros
+        ? `Conciliado ${data.conciliados} títulos + juros R$ ${data.juros.valor.toFixed(2)}`
+        : `Conciliado ${data.conciliados} títulos (soma exata)`;
+      toast.success(msg);
+      setExpandedId(null); setMultiMode(false); setSelectedIds(new Set()); setTaxaAdiantamento("");
+      invalidateAll();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+    finally { setBatchLinking(false); }
+  };
 
   const handleVincular = async () => {
     if (!selectedExtrato || !selectedLanc) return;
@@ -793,22 +844,87 @@ export default function ExtratoBancoPage() {
                     {/* Expanded: manual linking */}
                     {isExpanded && isPending && (
                       <div className="px-4 pb-3 bg-muted/10 space-y-2 border-t border-border">
-                        <div className="relative pt-2">
-                          <Search className="absolute left-2.5 top-4.5 h-3.5 w-3.5 text-muted-foreground" />
-                          <Input placeholder={`Buscar ${e.tipo === "CREDITO" ? "recebimento" : "pagamento"}...`} value={searchLanc} onChange={ev => setSearchLanc(ev.target.value)} className="pl-8 h-8 text-xs" autoFocus />
+                        <div className="flex items-center gap-2 pt-2">
+                          <div className="relative flex-1">
+                            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                            <Input placeholder={`Buscar ${e.tipo === "CREDITO" ? "recebimento" : "pagamento"}...`} value={searchLanc} onChange={ev => setSearchLanc(ev.target.value)} className="pl-8 h-8 text-xs" autoFocus />
+                          </div>
+                          <Button size="sm" variant={multiMode ? "default" : "outline"} className="h-8 text-[10px] gap-1 shrink-0" onClick={() => { setMultiMode(!multiMode); setSelectedIds(new Set()); setTaxaAdiantamento(""); }}>
+                            <CheckCircle className="h-3 w-3" />{multiMode ? "Modo N:N ativo" : "Conciliar N:N"}
+                          </Button>
                         </div>
+
+                        {/* Multi-select summary bar */}
+                        {multiMode && selectedIds.size > 0 && (
+                          <div className="rounded-md border border-primary/30 bg-primary/5 p-2.5 space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-3">
+                                <span className="text-muted-foreground">{selectedIds.size} selecionados</span>
+                                <span className="font-semibold">Soma: <span className="text-primary">{formatCurrency(multiSoma)}</span></span>
+                                <span className="text-muted-foreground">Extrato: {formatCurrency(multiExtValor)}</span>
+                                {multiExato ? (
+                                  <Badge className="text-[9px] bg-green-600">✅ Soma exata</Badge>
+                                ) : (
+                                  <Badge variant="outline" className={cn("text-[9px]", multiTemTaxa ? "text-yellow-600 border-yellow-500/30" : "text-red-500 border-red-500/30")}>
+                                    Δ {formatCurrency(Math.abs(multiDiff))} {multiTemTaxa ? "(taxa)" : ""}
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                            {/* Fee input when there's a difference */}
+                            {multiTemTaxa && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-muted-foreground shrink-0">Taxa adiantamento (%):</span>
+                                <Input
+                                  value={taxaAdiantamento}
+                                  onChange={ev => setTaxaAdiantamento(ev.target.value)}
+                                  placeholder="ex: 2.5"
+                                  className="h-7 text-xs w-24"
+                                />
+                                <span className="text-[10px] text-muted-foreground">
+                                  = R$ {Math.abs(multiDiff).toFixed(2)} de juros
+                                </span>
+                              </div>
+                            )}
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs gap-1.5 w-full"
+                              disabled={batchLinking || (!multiExato && !taxaAdiantamento)}
+                              onClick={handleBatchReconcile}
+                            >
+                              {batchLinking ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+                              Conciliar por soma ({selectedIds.size} títulos)
+                            </Button>
+                          </div>
+                        )}
+
                         <div className="space-y-1 max-h-[30vh] overflow-y-auto">
                           {(e.tipo === "CREDITO" ? searchedLancamentos.recebimentos : searchedLancamentos.pagamentos).map((l: any) => (
-                            <div key={l.id} onClick={() => { setSelectedExtrato(e); setSelectedLanc({ ...l, _tipo: e.tipo === "CREDITO" ? "receber" : "pagar" }); setShowConfirm(true); }}
-                              className="p-2 rounded-md border border-border cursor-pointer text-xs hover:bg-primary/10 hover:border-primary">
-                              <div className="font-medium">{l.descricao}</div>
-                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                <span className="font-bold text-primary">{formatCurrency(Number(l.valor))}</span>
-                                <span className="text-muted-foreground">{l.nome_cliente || l.nome_fornecedor}</span>
-                                {l.gc_codigo && <span className="text-muted-foreground">GC {l.gc_codigo}</span>}
-                                {l.liquidado && <Badge variant="secondary" className="text-[9px] h-4">Liquidado</Badge>}
+                            <div key={l.id}
+                              onClick={() => {
+                                if (multiMode) { toggleSelected(l.id); }
+                                else { setSelectedExtrato(e); setSelectedLanc({ ...l, _tipo: e.tipo === "CREDITO" ? "receber" : "pagar" }); setShowConfirm(true); }
+                              }}
+                              className={cn(
+                                "p-2 rounded-md border cursor-pointer text-xs transition-colors",
+                                multiMode && selectedIds.has(l.id) ? "border-primary bg-primary/10" : "border-border hover:bg-primary/10 hover:border-primary"
+                              )}>
+                              <div className="flex items-center gap-2">
+                                {multiMode && (
+                                  <Checkbox checked={selectedIds.has(l.id)} className="h-3.5 w-3.5" onClick={ev => ev.stopPropagation()} onCheckedChange={() => toggleSelected(l.id)} />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium">{l.descricao}</div>
+                                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                    <span className="font-bold text-primary">{formatCurrency(Number(l.valor))}</span>
+                                    <span className="text-muted-foreground">{l.nome_cliente || l.nome_fornecedor}</span>
+                                    {l.gc_codigo && <span className="text-muted-foreground">GC {l.gc_codigo}</span>}
+                                    {l.os_codigo && <span className="text-muted-foreground">OS {l.os_codigo}</span>}
+                                    {l.liquidado && <Badge variant="secondary" className="text-[9px] h-4">Liquidado</Badge>}
+                                  </div>
+                                  {renderGCMeta(l, e.tipo === "CREDITO" ? "receber" : "pagar")}
+                                </div>
                               </div>
-                              {renderGCMeta(l, e.tipo === "CREDITO" ? "receber" : "pagar")}
                             </div>
                           ))}
                           {!(e.tipo === "CREDITO" ? searchedLancamentos.recebimentos : searchedLancamentos.pagamentos).length && (
