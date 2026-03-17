@@ -1009,33 +1009,60 @@ serve(async (req) => {
                   return b.finValor - a.finValor;
                 });
 
-                const somaTotal = candidatosNn.reduce((s: number, c: any) => s + c.finValor, 0);
+                // CAP: only include candidates up to 105% of extrato value (avoid R$499k suggestion for R$16k extrato)
+                const teto = extValorApprox * 1.05;
+                let somaAcumulada = 0;
+                const candidatosCapped: any[] = [];
+                for (const c of candidatosNn) {
+                  if (somaAcumulada + c.finValor <= teto || candidatosCapped.length === 0) {
+                    candidatosCapped.push(c);
+                    somaAcumulada += c.finValor;
+                  }
+                  if (somaAcumulada >= teto) break;
+                }
 
-                unmatchedItems.push({
-                  extrato_id: ext.id,
-                  descricao_extrato: ext.descricao ?? "—",
-                  contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
-                  cpf_cnpj: ext.cpf_cnpj ?? "",
-                  valor: ext.valor,
-                  tipo: ext.tipo,
-                  data_hora: ext.data_hora,
-                  sugestao_nn: true,
-                  soma_candidatos: somaTotal,
-                  diferenca_nn: Math.abs(extValorApprox - somaTotal),
-                  candidatos_nn: candidatosNn.slice(0, 30).map((c: any) => ({
-                    lancamento_id: c.fin.id,
-                    lancamento_tipo: isDebitoApprox ? "pagamento" : "recebimento",
-                    descricao: c.fin.descricao,
-                    nome: c.finNome,
-                    valor: c.finValor,
-                    data_vencimento: c.finDate,
-                    status: c.status,
-                    gc_codigo: c.fin.gc_codigo,
-                    os_codigo: c.fin.os_codigo,
-                    doc_match: c.docOk,
-                    nome_match: c.nomeOk,
-                  })),
-                });
+                const somaTotal = candidatosCapped.reduce((s: number, c: any) => s + c.finValor, 0);
+                const difPct = Math.abs(somaTotal - extValorApprox) / extValorApprox;
+
+                // Only suggest if difference is within 5%
+                if (candidatosCapped.length >= 2 && difPct <= 0.05) {
+                  unmatchedItems.push({
+                    extrato_id: ext.id,
+                    descricao_extrato: ext.descricao ?? "—",
+                    contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
+                    cpf_cnpj: ext.cpf_cnpj ?? "",
+                    valor: ext.valor,
+                    tipo: ext.tipo,
+                    data_hora: ext.data_hora,
+                    sugestao_nn: true,
+                    soma_candidatos: somaTotal,
+                    diferenca_nn: Math.abs(extValorApprox - somaTotal),
+                    candidatos_nn: candidatosCapped.slice(0, 30).map((c: any) => ({
+                      lancamento_id: c.fin.id,
+                      lancamento_tipo: isDebitoApprox ? "pagamento" : "recebimento",
+                      descricao: c.fin.descricao,
+                      nome: c.finNome,
+                      valor: c.finValor,
+                      data_vencimento: c.finDate,
+                      status: c.status,
+                      gc_codigo: c.fin.gc_codigo,
+                      os_codigo: c.fin.os_codigo,
+                      doc_match: c.docOk,
+                      nome_match: c.nomeOk,
+                    })),
+                  });
+                } else {
+                  // Difference too large — just mark as unmatched without suggestion
+                  unmatchedItems.push({
+                    extrato_id: ext.id,
+                    descricao_extrato: ext.descricao ?? "—",
+                    contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
+                    cpf_cnpj: ext.cpf_cnpj ?? "",
+                    valor: ext.valor,
+                    tipo: ext.tipo,
+                    data_hora: ext.data_hora,
+                  });
+                }
               } else {
                 // Fallback: 1:1 approximate suggestions
                 const scored = poolApprox.map((fin: any) => {
