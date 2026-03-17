@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// redeploy: 2026-03-17-v14-ja-pagos-no-pool-principal
+// redeploy: 2026-03-17-v15-pool-unico-sem-filtro-status
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -673,35 +673,22 @@ serve(async (req) => {
     const finSelectPag = "id, valor, descricao, data_vencimento, data_emissao, data_competencia, data_liquidacao, status, fornecedor_gc_id, nome_fornecedor, recipient_document, gc_codigo, gc_id, os_codigo, pago_sistema, liquidado, grupo_id";
     const finSelectRec = "id, valor, descricao, data_vencimento, data_emissao, data_competencia, data_liquidacao, status, cliente_gc_id, nome_cliente, recipient_document, gc_codigo, gc_id, os_codigo, pago_sistema, liquidado, grupo_id";
 
-    // 2. Lançamentos candidatos (ONLY non-reconciled, non-liquidated) + lookup tables
+    // 2. Lançamentos candidatos: TODOS exceto cancelados (status no GC é irrelevante,
+    //    o que importa é se já foi vinculado ao extrato — checado via alreadyLinked)
+    const cutoff180 = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     const [{ data: pagamentos }, { data: recebimentos }, { data: fornecedores }, { data: clientes }] = await Promise.all([
       supabase.from("fin_pagamentos").select(finSelectPag)
         .not("status", "in", '("cancelado")')
-        .or("pago_sistema.is.null,pago_sistema.eq.false")
-        .or("liquidado.is.null,liquidado.eq.false")
+        .gte("data_vencimento", cutoff180)
         .order("data_vencimento", { ascending: false })
-        .limit(1500),
+        .limit(3000),
       supabase.from("fin_recebimentos").select(finSelectRec)
         .not("status", "in", '("cancelado")')
-        .or("pago_sistema.is.null,pago_sistema.eq.false")
-        .or("liquidado.is.null,liquidado.eq.false")
+        .gte("data_vencimento", cutoff180)
         .order("data_vencimento", { ascending: false })
-        .limit(1500),
+        .limit(3000),
       supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj, chave_pix, nome"),
       supabase.from("fin_clientes").select("gc_id, cpf_cnpj, nome"),
-    ]);
-
-    // Pool secundário: lançamentos já pagos (para rastreabilidade retroativa)
-    const cutoff90 = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-    const [{ data: pagamentosJaPagos }, { data: recebimentosJaPagos }] = await Promise.all([
-      supabase.from("fin_pagamentos").select(finSelectPag)
-        .eq("status", "pago")
-        .gte("data_vencimento", cutoff90)
-        .limit(2000),
-      supabase.from("fin_recebimentos").select(finSelectRec)
-        .eq("status", "pago")
-        .gte("data_vencimento", cutoff90)
-        .limit(2000),
     ]);
 
     // IDs já vinculados — from N:N table AND from legacy 1:1 lancamento_id on fin_extrato_inter
@@ -736,33 +723,20 @@ serve(async (req) => {
 
     for (const ext of (extratos ?? [])) {
       const isDebito = ext.tipo === "DEBITO";
-      const poolPendente = isDebito ? (pagamentos ?? []) : (recebimentos ?? []);
-      const poolJaPago = isDebito ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? []);
+      const pool = isDebito ? (pagamentos ?? []) : (recebimentos ?? []);
 
-      // Merge both pools, deduplicating by ID
-      const seenIds = new Set<string>();
-      const jaPagoIds = new Set<string>((poolJaPago ?? []).map((f: any) => f.id));
-      const mergedPool: any[] = [];
-      for (const fin of [...poolPendente, ...poolJaPago]) {
-        if (!seenIds.has(fin.id)) {
-          seenIds.add(fin.id);
-          mergedPool.push(fin);
-        }
-      }
-
-      // Build candidate list with enriched doc/pix from lookup tables
-      const candidatos: Candidato[] = mergedPool
+      // Build candidate list: ALL non-cancelled, filtered only by alreadyLinked (extrato binding)
+      const candidatos: Candidato[] = pool
         .filter((fin: any) => !usedIds.has(fin.id) && !alreadyLinked.has(fin.id))
         .map((fin: any) => {
           const gcId = isDebito ? fin.fornecedor_gc_id : fin.cliente_gc_id;
           const lookup = isDebito ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
           const doc = cleanDoc(fin.recipient_document) || lookup?.cpf_cnpj || "";
           const chavePix = (isDebito && lookup) ? (lookup as any).chave_pix ?? "" : "";
-          // Prefer the full name from the lookup table (cadastro) when the lançamento name is too short
           const finNome = (isDebito ? fin.nome_fornecedor : fin.nome_cliente) ?? "";
           const lookupNome = lookup?.nome ?? "";
           const nome = (finNome.split(/\s+/).filter((w: string) => w.length > 2).length >= 2) ? finNome : (lookupNome || finNome);
-          const jaPago = jaPagoIds.has(fin.id) || fin.liquidado === true || fin.status === "pago";
+          const jaPago = fin.liquidado === true || fin.status === "pago";
           return { fin, tipo: (isDebito ? "pagar" : "receber") as "pagar" | "receber", doc, chavePix, nome, jaPago };
         });
 
@@ -927,101 +901,33 @@ serve(async (req) => {
         // candidatosEfetivos === 0 → handledByPendentes stays false → fall to já-pagos
 
         if (!handledByPendentes) {
-          // Segundo passo: tentar rastreabilidade em lançamentos já pagos
-          const isDebitoExt = ext.tipo === "DEBITO";
-          const poolJaPago = isDebitoExt ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? []);
-          const extDoc   = cleanDoc(ext.cpf_cnpj);
-          const extValor = Math.abs(Number(ext.valor));
+          // Pool is already unified (pendentes + já pagos), just try SOMA_PARCELAS
+          const extValorSoma = Math.abs(Number(ext.valor));
+          const extNomeSoma = ext.nome_contraparte ?? ext.contrapartida ?? "";
+          const extDocSoma = cleanDoc(ext.cpf_cnpj);
+          const extDateSoma = ext.data_hora?.substring(0, 10) ?? "";
+          const isDebitoSoma = ext.tipo === "DEBITO";
 
-          const extNomeRast = ext.nome_contraparte ?? ext.contrapartida ?? "";
+          const somaResult = tentarSomaParcelas(
+            extValorSoma, extDocSoma, extNomeSoma, extDateSoma,
+            pool, isDebitoSoma, fornMap, cliMap, alreadyLinked, usedIds
+          );
 
-          const extDateRast = ext.data_hora?.substring(0, 10) ?? "";
-
-          // Filter out already-linked IDs
-          const poolDisponivel = poolJaPago.filter((fin: any) => !alreadyLinked.has(fin.id));
-
-          // Tentar por CNPJ + valor exato + data ±60d
-          const matchJaPago = poolDisponivel.find((fin: any) => {
-            const gcId  = isDebitoExt ? fin.fornecedor_gc_id : fin.cliente_gc_id;
-            const lkp   = isDebitoExt ? fornMap[gcId ?? ""] : cliMap[gcId ?? ""];
-            const finDoc = cleanDoc(fin.recipient_document) || lkp?.cpf_cnpj || "";
-            const finDate = fin.data_vencimento ?? fin.data_liquidacao ?? "";
-            return docMatches(extDoc, finDoc) && valorExato(extValor, Number(fin.valor))
-              && finDate && extDateRast && dataProxima(extDateRast, finDate, 60);
-          })
-          // Fallback 2: nome similar + valor exato + data ±60d
-          ?? (extNomeRast && extDateRast ? poolDisponivel.find((fin: any) => {
-            const finNome = isDebitoExt ? fin.nome_fornecedor : fin.nome_cliente;
-            const finDate = fin.data_vencimento ?? fin.data_liquidacao ?? "";
-            return nomeSimilar(extNomeRast, finNome) && valorExato(extValor, Number(fin.valor))
-              && finDate && dataProxima(extDateRast, finDate, 60);
-          }) : null)
-          // Fallback 3: valor exato único no pool (TEDs sem CNPJ e nome genérico)
-          // Seguro para rastreabilidade: não altera o lançamento, apenas vincula
-          ?? (() => {
-            if (extDoc) return null; // Se tem CNPJ e não matchou, não arriscar
-            const valorMatches = poolDisponivel.filter((fin: any) =>
-              valorExato(extValor, Number(fin.valor))
-            );
-            return valorMatches.length === 1 ? valorMatches[0] : null;
-          })();
-
-          if (matchJaPago) {
+          if (somaResult) {
             try {
-              await vincularRastreabilidade(supabase, ext, matchJaPago.id, "LINK_JA_PAGO_GC");
+              await saveSomaParcelas(supabase, ext.id, extValorSoma, somaResult.parcelas, somaResult.rule);
+              somaResult.parcelas.forEach(p => usedIds.add(p.id));
               stats.auto++;
             } catch (e) {
-              console.error("Erro rastreabilidade:", (e as Error).message);
+              console.error("Erro soma parcelas:", (e as Error).message);
               stats.errors++;
               unmatchedItems.push({
-                extrato_id: ext.id,
-                descricao_extrato: ext.descricao ?? "—",
-                contrapartida: ext.nome_contraparte ?? ext.contrapartida ?? "",
-                cpf_cnpj: ext.cpf_cnpj ?? "",
-                valor: ext.valor,
-                tipo: ext.tipo,
-                data_hora: ext.data_hora,
+                extrato_id: ext.id, descricao_extrato: ext.descricao ?? "—",
+                contrapartida: extNomeSoma, cpf_cnpj: ext.cpf_cnpj ?? "",
+                valor: ext.valor, tipo: ext.tipo, data_hora: ext.data_hora,
               });
             }
           } else {
-            // Terceiro passo: tentar SOMA_PARCELAS em ambos os pools (pendentes + já pagos)
-            const extNomeSoma = ext.nome_contraparte ?? ext.contrapartida ?? "";
-            const extDocSoma = cleanDoc(ext.cpf_cnpj);
-            const extDateSoma = ext.data_hora?.substring(0, 10) ?? "";
-            const isDebitoSoma = ext.tipo === "DEBITO";
-            
-            // DEDUPLICAR por ID para evitar que o mesmo registro apareça 2x
-            const rawPool = [
-              ...(isDebitoSoma ? (pagamentos ?? []) : (recebimentos ?? [])),
-              ...(isDebitoSoma ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? [])),
-            ];
-            const seenPoolIds = new Set<string>();
-            const allPool = rawPool.filter((fin: any) => {
-              if (seenPoolIds.has(fin.id)) return false;
-              seenPoolIds.add(fin.id);
-              return true;
-            });
-
-            const somaResult = tentarSomaParcelas(
-              extValor, extDocSoma, extNomeSoma, extDateSoma,
-              allPool, isDebitoSoma, fornMap, cliMap, alreadyLinked, usedIds
-            );
-
-            if (somaResult) {
-              try {
-                await saveSomaParcelas(supabase, ext.id, extValor, somaResult.parcelas, somaResult.rule);
-                somaResult.parcelas.forEach(p => usedIds.add(p.id));
-                stats.auto++;
-              } catch (e) {
-                console.error("Erro soma parcelas:", (e as Error).message);
-                stats.errors++;
-                unmatchedItems.push({
-                  extrato_id: ext.id, descricao_extrato: ext.descricao ?? "—",
-                  contrapartida: extNomeSoma, cpf_cnpj: ext.cpf_cnpj ?? "",
-                  valor: ext.valor, tipo: ext.tipo, data_hora: ext.data_hora,
-                });
-              }
-            } else {
               stats.unmatched++;
               const extValorApprox = Math.abs(Number(ext.valor));
               const extDocApprox = cleanDoc(ext.cpf_cnpj);
@@ -1029,17 +935,10 @@ serve(async (req) => {
               const isDebitoApprox = ext.tipo === "DEBITO";
               const extDateApprox = ext.data_hora?.substring(0, 10) ?? "";
               
-              // Combine all pools (pending + already paid), dedup
-              const rawPoolApprox = [
-                ...(isDebitoApprox ? (pagamentos ?? []) : (recebimentos ?? [])),
-                ...(isDebitoApprox ? (pagamentosJaPagos ?? []) : (recebimentosJaPagos ?? [])),
-              ];
-              const seenApprox = new Set<string>();
-              const poolApprox = rawPoolApprox.filter((fin: any) => {
-                if (seenApprox.has(fin.id) || alreadyLinked.has(fin.id) || usedIds.has(fin.id)) return false;
-                seenApprox.add(fin.id);
-                return true;
-              });
+              // Pool is already unified — just filter out used/linked
+              const poolApprox = pool.filter((fin: any) =>
+                !alreadyLinked.has(fin.id) && !usedIds.has(fin.id)
+              );
 
               // ── N:N SUGGESTION ──
               // If we have CNPJ-matching candidates whose individual values are smaller than extrato,
@@ -1191,7 +1090,6 @@ serve(async (req) => {
               }
             }
           }
-        }
       }
     }
 
