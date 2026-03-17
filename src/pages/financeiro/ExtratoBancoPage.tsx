@@ -844,22 +844,87 @@ export default function ExtratoBancoPage() {
                     {/* Expanded: manual linking */}
                     {isExpanded && isPending && (
                       <div className="px-4 pb-3 bg-muted/10 space-y-2 border-t border-border">
-                        <div className="relative pt-2">
-                          <Search className="absolute left-2.5 top-4.5 h-3.5 w-3.5 text-muted-foreground" />
-                          <Input placeholder={`Buscar ${e.tipo === "CREDITO" ? "recebimento" : "pagamento"}...`} value={searchLanc} onChange={ev => setSearchLanc(ev.target.value)} className="pl-8 h-8 text-xs" autoFocus />
+                        <div className="flex items-center gap-2 pt-2">
+                          <div className="relative flex-1">
+                            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                            <Input placeholder={`Buscar ${e.tipo === "CREDITO" ? "recebimento" : "pagamento"}...`} value={searchLanc} onChange={ev => setSearchLanc(ev.target.value)} className="pl-8 h-8 text-xs" autoFocus />
+                          </div>
+                          <Button size="sm" variant={multiMode ? "default" : "outline"} className="h-8 text-[10px] gap-1 shrink-0" onClick={() => { setMultiMode(!multiMode); setSelectedIds(new Set()); setTaxaAdiantamento(""); }}>
+                            <CheckCircle className="h-3 w-3" />{multiMode ? "Modo N:N ativo" : "Conciliar N:N"}
+                          </Button>
                         </div>
+
+                        {/* Multi-select summary bar */}
+                        {multiMode && selectedIds.size > 0 && (
+                          <div className="rounded-md border border-primary/30 bg-primary/5 p-2.5 space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-3">
+                                <span className="text-muted-foreground">{selectedIds.size} selecionados</span>
+                                <span className="font-semibold">Soma: <span className="text-primary">{formatCurrency(multiSoma)}</span></span>
+                                <span className="text-muted-foreground">Extrato: {formatCurrency(multiExtValor)}</span>
+                                {multiExato ? (
+                                  <Badge className="text-[9px] bg-green-600">✅ Soma exata</Badge>
+                                ) : (
+                                  <Badge variant="outline" className={cn("text-[9px]", multiTemTaxa ? "text-yellow-600 border-yellow-500/30" : "text-red-500 border-red-500/30")}>
+                                    Δ {formatCurrency(Math.abs(multiDiff))} {multiTemTaxa ? "(taxa)" : ""}
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                            {/* Fee input when there's a difference */}
+                            {multiTemTaxa && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-muted-foreground shrink-0">Taxa adiantamento (%):</span>
+                                <Input
+                                  value={taxaAdiantamento}
+                                  onChange={ev => setTaxaAdiantamento(ev.target.value)}
+                                  placeholder="ex: 2.5"
+                                  className="h-7 text-xs w-24"
+                                />
+                                <span className="text-[10px] text-muted-foreground">
+                                  = R$ {Math.abs(multiDiff).toFixed(2)} de juros
+                                </span>
+                              </div>
+                            )}
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs gap-1.5 w-full"
+                              disabled={batchLinking || (!multiExato && !taxaAdiantamento)}
+                              onClick={handleBatchReconcile}
+                            >
+                              {batchLinking ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+                              Conciliar por soma ({selectedIds.size} títulos)
+                            </Button>
+                          </div>
+                        )}
+
                         <div className="space-y-1 max-h-[30vh] overflow-y-auto">
                           {(e.tipo === "CREDITO" ? searchedLancamentos.recebimentos : searchedLancamentos.pagamentos).map((l: any) => (
-                            <div key={l.id} onClick={() => { setSelectedExtrato(e); setSelectedLanc({ ...l, _tipo: e.tipo === "CREDITO" ? "receber" : "pagar" }); setShowConfirm(true); }}
-                              className="p-2 rounded-md border border-border cursor-pointer text-xs hover:bg-primary/10 hover:border-primary">
-                              <div className="font-medium">{l.descricao}</div>
-                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                <span className="font-bold text-primary">{formatCurrency(Number(l.valor))}</span>
-                                <span className="text-muted-foreground">{l.nome_cliente || l.nome_fornecedor}</span>
-                                {l.gc_codigo && <span className="text-muted-foreground">GC {l.gc_codigo}</span>}
-                                {l.liquidado && <Badge variant="secondary" className="text-[9px] h-4">Liquidado</Badge>}
+                            <div key={l.id}
+                              onClick={() => {
+                                if (multiMode) { toggleSelected(l.id); }
+                                else { setSelectedExtrato(e); setSelectedLanc({ ...l, _tipo: e.tipo === "CREDITO" ? "receber" : "pagar" }); setShowConfirm(true); }
+                              }}
+                              className={cn(
+                                "p-2 rounded-md border cursor-pointer text-xs transition-colors",
+                                multiMode && selectedIds.has(l.id) ? "border-primary bg-primary/10" : "border-border hover:bg-primary/10 hover:border-primary"
+                              )}>
+                              <div className="flex items-center gap-2">
+                                {multiMode && (
+                                  <Checkbox checked={selectedIds.has(l.id)} className="h-3.5 w-3.5" onClick={ev => ev.stopPropagation()} onCheckedChange={() => toggleSelected(l.id)} />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium">{l.descricao}</div>
+                                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                    <span className="font-bold text-primary">{formatCurrency(Number(l.valor))}</span>
+                                    <span className="text-muted-foreground">{l.nome_cliente || l.nome_fornecedor}</span>
+                                    {l.gc_codigo && <span className="text-muted-foreground">GC {l.gc_codigo}</span>}
+                                    {l.os_codigo && <span className="text-muted-foreground">OS {l.os_codigo}</span>}
+                                    {l.liquidado && <Badge variant="secondary" className="text-[9px] h-4">Liquidado</Badge>}
+                                  </div>
+                                  {renderGCMeta(l, e.tipo === "CREDITO" ? "receber" : "pagar")}
+                                </div>
                               </div>
-                              {renderGCMeta(l, e.tipo === "CREDITO" ? "receber" : "pagar")}
                             </div>
                           ))}
                           {!(e.tipo === "CREDITO" ? searchedLancamentos.recebimentos : searchedLancamentos.pagamentos).length && (
