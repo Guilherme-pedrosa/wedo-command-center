@@ -68,7 +68,7 @@ function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): bool
 // Sapore S.A. e Sodexo — janela estendida de ±90 dias
 const CNPJ_PRAZO_ESTENDIDO = [
   "67945071", // Sapore S.A.
-  "46788569", // Sodexo (CNPJ raiz principal)
+  "49930514", // Sodexo Do Brasil Comercial S.A. (CNPJ raiz correto)
 ];
 
 function isClientePrazoEstendido(doc: string | null | undefined): boolean {
