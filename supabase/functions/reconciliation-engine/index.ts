@@ -828,7 +828,11 @@ serve(async (req) => {
             });
             if (withDoc.length === 1) {
               try {
-                await vincular(supabase, ext, withDoc[0], "CNPJ_VALOR_EXATO");
+                if (withDoc[0].jaPago) {
+                  await vincularRastreabilidade(supabase, ext, withDoc[0].fin.id, "CNPJ_VALOR_EXATO_JA_PAGO");
+                } else {
+                  await vincular(supabase, ext, withDoc[0], "CNPJ_VALOR_EXATO");
+                }
                 usedIds.add(withDoc[0].fin.id);
                 stats.auto++;
                 continue;
