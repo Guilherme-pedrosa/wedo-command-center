@@ -252,11 +252,11 @@ function aplicarRegras(
         });
         if (byPix.length === 1) return { rule: "PIX_CHAVE_VALOR", candidato: byPix[0], auto: true };
       }
-      // TIEBREAKER 3: Name similarity (pick best score)
+      // TIEBREAKER 3: Strong name match only
       if (extNome) {
         const scored = matches
-          .map(c => ({ c, score: nomeSimilarScore(extNome, c.nome) }))
-          .filter(x => x.score >= 0.35)
+          .map(c => ({ c, score: nomeSimilarScore(extNome, c.nome), strong: nomeForteMatch(extNome, c.nome) }))
+          .filter(x => x.strong)
           .sort((a, b) => b.score - a.score);
         if (scored.length === 1) return { rule: "NOME_VALOR_EXATO", candidato: scored[0].c, auto: true };
         if (scored.length > 1 && scored[0].score - scored[1].score >= 0.2) {
@@ -273,23 +273,21 @@ function aplicarRegras(
         ? Math.abs(new Date(sorted[1].fin.data_vencimento ?? sorted[1].fin.data_emissao).getTime() - new Date(extDate).getTime())
           - Math.abs(new Date(sorted[0].fin.data_vencimento ?? sorted[0].fin.data_emissao).getTime() - new Date(extDate).getTime())
         : 0;
-      // Only auto-link if there's a clear date gap AND name confirms
-      if (gap >= 86400000) {
-        const bestNome = sorted[0].nome;
-        const bestDoc = sorted[0].doc;
-        const hasIdentity = (extDoc && bestDoc && docMatches(extDoc, bestDoc))
-          || (extPix && sorted[0].chavePix && sorted[0].chavePix.toLowerCase() === extPix)
-          || (extNome && bestNome && nomeSimilarScore(extNome, bestNome) >= 0.15);
-        if (hasIdentity) {
-          return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: true };
-        }
+      const bestNome = sorted[0].nome;
+      const bestDoc = sorted[0].doc;
+      const hasIdentity = (extDoc && bestDoc && docMatches(extDoc, bestDoc))
+        || (extPix && sorted[0].chavePix && sorted[0].chavePix.toLowerCase() === extPix)
+        || (extNome && bestNome && nomeForteMatch(extNome, bestNome));
+      if (gap >= 86400000 && hasIdentity) {
+        return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: true };
       }
-      // BLOCKED: ambiguity unresolved or no identity → send to review
-      return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: false };
+      if (hasIdentity) {
+        return { rule: "VALOR_DATA_EXATO", candidato: sorted[0], auto: false };
+      }
     }
   }
 
-  // Regra 6: Valor exato + data ±7 dias → REQUER identidade (nome/CNPJ/PIX)
+  // Regra 6: Valor exato + data ±7 dias → REQUER identidade forte
   if (extDate) {
     const fallback7 = candidatos.filter(c => {
       const finDate = c.fin.data_vencimento ?? c.fin.data_emissao;
@@ -299,21 +297,26 @@ function aplicarRegras(
       const c = fallback7[0];
       const hasIdentity = (extDoc && c.doc && docMatches(extDoc, c.doc))
         || (extPix && c.chavePix && c.chavePix.toLowerCase() === extPix)
-        || (extNome && c.nome && nomeSimilarScore(extNome, c.nome) >= 0.15);
+        || (extNome && c.nome && nomeForteMatch(extNome, c.nome));
       if (hasIdentity) {
         return { rule: "VALOR_DATA_7DIAS", candidato: c, auto: true };
       }
-      // No identity — suggest only, don't auto
-      return { rule: "VALOR_DATA_7DIAS", candidato: c, auto: false };
     }
     if (fallback7.length > 1) {
-      // Desempate por nome
       if (extNome) {
-        const comNome = fallback7.filter(c => nomeSimilar(extNome, c.nome, 0.6));
+        const comNome = fallback7.filter(c => nomeForteMatch(extNome, c.nome));
         if (comNome.length === 1)
           return { rule: "VALOR_DATA_7DIAS_NOME", candidato: comNome[0], auto: true };
+        if (comNome.length > 1)
+          return { rule: "VALOR_DATA_7DIAS" as MatchRule, candidato: comNome[0], auto: false };
       }
-      return { rule: "VALOR_DATA_7DIAS" as MatchRule, candidato: fallback7[0], auto: false };
+      if (extDoc) {
+        const comDoc = fallback7.filter(c => docMatches(extDoc, c.doc));
+        if (comDoc.length === 1)
+          return { rule: "VALOR_DATA_7DIAS", candidato: comDoc[0], auto: true };
+        if (comDoc.length > 1)
+          return { rule: "VALOR_DATA_7DIAS" as MatchRule, candidato: comDoc[0], auto: false };
+      }
     }
   }
 
