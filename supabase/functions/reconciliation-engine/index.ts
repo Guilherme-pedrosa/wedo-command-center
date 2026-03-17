@@ -845,7 +845,11 @@ serve(async (req) => {
             const withNome = candidatosEfetivos.filter(c => nomeSimilar(extNomeCheck, c.nome));
             if (withNome.length === 1) {
               try {
-                await vincular(supabase, ext, withNome[0], "NOME_VALOR_EXATO");
+                if (withNome[0].jaPago) {
+                  await vincularRastreabilidade(supabase, ext, withNome[0].fin.id, "NOME_VALOR_EXATO_JA_PAGO");
+                } else {
+                  await vincular(supabase, ext, withNome[0], "NOME_VALOR_EXATO");
+                }
                 usedIds.add(withNome[0].fin.id);
                 stats.auto++;
                 continue;
