@@ -73,7 +73,6 @@ export const statusBadge = (status: 'verde' | 'amarelo' | 'vermelho') => {
 const AUVO_SOURCE_MAP: Record<string, number[]> = {
   '27867667': [48782],
   '27912040': [48784],
-  '28160784': [49032],
   '28223100': [49032],
 };
 
