@@ -309,7 +309,7 @@ export default function TvTecnicos() {
           return b.valor - a.valor;
         }),
       };
-    }).sort((a, b) => b.pct - a.pct);
+    }).sort((a, b) => b.realizado - a.realizado);
   }, [metas, osData, retornoMap]);
 
   const tecnicoNames = metas.map(m => m.nome_tecnico);
