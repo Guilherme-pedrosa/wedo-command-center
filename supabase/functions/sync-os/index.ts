@@ -35,14 +35,47 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
   return fetch(url, options);
 }
 
+function computeValorFromPayload(os: Record<string, unknown>): number {
+  // Try pagamentos array first (most reliable — represents actual invoiced value)
+  const pagamentos = os.pagamentos as Array<{ pagamento?: { valor?: string } }> | undefined;
+  if (Array.isArray(pagamentos) && pagamentos.length > 0) {
+    let sum = 0;
+    for (const p of pagamentos) {
+      sum += parseFloat(String(p?.pagamento?.valor || "0")) || 0;
+    }
+    if (sum > 0) return sum;
+  }
+
+  // Fallback: sum servicos + produtos
+  let total = 0;
+  const servicos = os.servicos as Array<{ servico?: { valor_total?: string } }> | undefined;
+  if (Array.isArray(servicos)) {
+    for (const s of servicos) {
+      total += parseFloat(String(s?.servico?.valor_total || "0")) || 0;
+    }
+  }
+  const produtos = os.produtos as Array<{ produto?: { valor_total?: string } }> | undefined;
+  if (Array.isArray(produtos)) {
+    for (const p of produtos) {
+      total += parseFloat(String(p?.produto?.valor_total || "0")) || 0;
+    }
+  }
+  return total;
+}
+
 function mapOsRecord(os: Record<string, unknown>) {
   const osId = String(os.id || "");
   const osCodigo = String(os.codigo || "");
   if (!osId || !osCodigo) return null;
 
-  const valorTotal = parseFloat(String(os.valor_total || "0")) || null;
-  const valorServicos = parseFloat(String(os.valor_servicos || "0")) || null;
-  const valorProdutos = parseFloat(String(os.valor_produtos || "0")) || null;
+  let valorTotal = parseFloat(String(os.valor_total || "0")) || 0;
+  // GC sometimes returns valor_total=0 even when pagamentos exist — compute from nested arrays
+  if (valorTotal === 0) {
+    valorTotal = computeValorFromPayload(os);
+  }
+
+  const valorServicos = parseFloat(String(os.valor_servicos || "0")) || 0;
+  const valorProdutos = parseFloat(String(os.valor_produtos || "0")) || 0;
 
   let dataSaida: string | null = null;
   const rawDataSaida = String(os.data_saida || "");
@@ -66,9 +99,9 @@ function mapOsRecord(os: Record<string, unknown>) {
     nome_situacao: String(os.nome_situacao || ""),
     nome_vendedor: String(os.nome_vendedor || "") || null,
     data_saida: dataSaida,
-    valor_total: valorTotal,
-    valor_servicos: valorServicos,
-    valor_pecas: valorProdutos,
+    valor_total: valorTotal || null,
+    valor_servicos: valorServicos || null,
+    valor_pecas: valorProdutos || null,
     numero_os: osCodigo,
     built_at: new Date().toISOString(),
   };
