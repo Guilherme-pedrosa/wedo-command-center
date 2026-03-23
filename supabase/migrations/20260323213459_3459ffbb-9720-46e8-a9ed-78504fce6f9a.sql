@@ -1,0 +1,1 @@
+ALTER TABLE public.fin_grupos_receber ADD COLUMN IF NOT EXISTS os_codigos text[] DEFAULT '{}';

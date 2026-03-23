@@ -393,6 +393,7 @@ export default function GruposReceberPage() {
             <tr className="border-b border-border bg-muted/50">
               <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Nome</th>
               <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Cliente</th>
+              <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">OS Vinculadas</th>
               <th className="p-3 text-right text-xs font-medium text-muted-foreground uppercase">Valor</th>
               <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Vencimento</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Neg./NFS-e</th>
@@ -404,13 +405,22 @@ export default function GruposReceberPage() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={9} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
+              <tr><td colSpan={10} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
             ) : !grupos?.length ? (
-              <tr><td colSpan={9}><EmptyState icon={Layers} title="Nenhum grupo" description="Crie grupos na tela de recebimentos." /></td></tr>
+              <tr><td colSpan={10}><EmptyState icon={Layers} title="Nenhum grupo" description="Crie grupos na tela de recebimentos." /></td></tr>
             ) : grupos.map((g: any) => (
               <tr key={g.id} className="border-b border-border hover:bg-muted/30">
                 <td className="p-3 font-medium text-foreground">{g.nome}</td>
                 <td className="p-3 text-foreground">{g.nome_cliente || "—"}</td>
+                <td className="p-3 text-xs">
+                  {(g.os_codigos as string[] | null)?.length ? (
+                    <div className="flex flex-wrap gap-1">
+                      {(g.os_codigos as string[]).map((os: string) => (
+                        <Badge key={os} variant="outline" className="text-[10px] font-mono">{os}</Badge>
+                      ))}
+                    </div>
+                  ) : "—"}
+                </td>
                 <td className="p-3 text-right font-semibold">{formatCurrency(Number(g.valor_total))}</td>
                 <td className="p-3">{g.data_vencimento ? formatDate(g.data_vencimento) : "—"}</td>
                 <td className="p-3 text-center text-xs">
@@ -532,6 +542,16 @@ export default function GruposReceberPage() {
                     <span className="text-muted-foreground">Vencimento</span>
                     <p>{selectedGrupo.data_vencimento ? formatDate(selectedGrupo.data_vencimento) : "—"}</p>
                   </div>
+                  {(selectedGrupo.os_codigos as string[] | null)?.length > 0 && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">OS Vinculadas</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(selectedGrupo.os_codigos as string[]).map((os: string) => (
+                          <Badge key={os} variant="outline" className="text-xs font-mono">{os}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* NFS-e section */}

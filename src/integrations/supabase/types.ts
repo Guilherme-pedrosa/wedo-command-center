@@ -1187,6 +1187,7 @@ export type Database = {
           nome: string
           nome_cliente: string | null
           observacao: string | null
+          os_codigos: string[] | null
           status: Database["public"]["Enums"]["fin_status_grupo"] | null
           updated_at: string | null
           valor_recebido: number | null
@@ -1217,6 +1218,7 @@ export type Database = {
           nome: string
           nome_cliente?: string | null
           observacao?: string | null
+          os_codigos?: string[] | null
           status?: Database["public"]["Enums"]["fin_status_grupo"] | null
           updated_at?: string | null
           valor_recebido?: number | null
@@ -1247,6 +1249,7 @@ export type Database = {
           nome?: string
           nome_cliente?: string | null
           observacao?: string | null
+          os_codigos?: string[] | null
           status?: Database["public"]["Enums"]["fin_status_grupo"] | null
           updated_at?: string | null
           valor_recebido?: number | null
