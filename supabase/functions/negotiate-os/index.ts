@@ -610,8 +610,15 @@ serve(async (req) => {
               .trim();
             const newDesc = `${negTag} - ${cleanedDesc || `OS ${os.codigo}`}`;
 
+            const currentObs = String(rec?.observacoes || rec?.observacao || "").trim();
+            const obsNeg = `negociado nº${negociacao_numero}`;
+            const newObs = currentObs
+              ? (currentObs.includes(obsNeg) ? currentObs : `${currentObs}\n${obsNeg}`)
+              : obsNeg;
+
             const putPayload: Record<string, unknown> = {
               descricao: newDesc,
+              observacoes: newObs,
               data_vencimento: rec.data_vencimento,
               plano_contas_id: rec.plano_contas_id,
               forma_pagamento_id: rec.forma_pagamento_id,
