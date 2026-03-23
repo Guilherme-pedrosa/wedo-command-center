@@ -408,7 +408,7 @@ serve(async (req) => {
               const descParcela = `${negTag} - Parcela ${idx + 1}/${parcelas} - OS ${os.codigo}`;
               const pagamento: Record<string, unknown> = {
                 data_vencimento: dt,
-                valor: (idx === parcelas - 1 ? valorUltimaOS : valorParcelaOS).toFixed(2),
+                valor: osParcelaValues[idx].toFixed(2),
                 descricao: descParcela,
               };
               if (formaPagamentoId) pagamento.forma_pagamento_id = formaPagamentoId;
