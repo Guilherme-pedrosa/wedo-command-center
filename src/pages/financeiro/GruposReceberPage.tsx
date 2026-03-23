@@ -22,6 +22,7 @@ import { useNavigate } from "react-router-dom";
 export default function GruposReceberPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const GC_BASE = "https://gestaoclick.com";
 
   const roundMoney = (value: number) => Math.round(value * 100) / 100;
 
@@ -101,6 +102,26 @@ export default function GruposReceberPage() {
       toast.error("Erro ao buscar NFS-e no GC", { id: "nfse-gc" });
     }
   };
+
+  const handleOpenGrupoRecebimentosGC = () => {
+    const recebimentoIds = Array.from(
+      new Set(
+        (grupoItens || [])
+          .map((item: any) => item.fin_recebimentos?.gc_id)
+          .filter(Boolean),
+      ),
+    );
+
+    if (!recebimentoIds.length) {
+      toast.error("Esse grupo não tem recebimentos vinculados no GC");
+      return;
+    }
+
+    recebimentoIds.forEach((gcId) => {
+      window.open(`${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${gcId}`, "_blank", "noopener,noreferrer");
+    });
+  };
+
   const [statusFilter, setStatusFilter] = useState("todos");
   const [selectedGrupo, setSelectedGrupo] = useState<any>(null);
   const [showBaixa, setShowBaixa] = useState(false);
@@ -820,10 +841,7 @@ export default function GruposReceberPage() {
                         <button onClick={() => handleOpenNfseGC(selectedGrupo.nfse_numero)} className="text-primary hover:underline flex items-center gap-1 text-sm cursor-pointer">
                           <ExternalLink className="h-3 w-3" /> Ver NFS-e no GC
                         </button>
-                        <button onClick={() => {
-                          const nfNome = encodeURIComponent(`NF ${selectedGrupo.nfse_numero}`);
-                          window.open(`https://gestaoclick.com/movimentacoes_financeiras/index_recebimento?loja=446246&nome=${nfNome}&data_inicio=01%2F01%2F2025&data_fim=31%2F12%2F2026&tipo=C&situacaoBuscaAvancada=true`, "_blank");
-                        }} className="text-primary hover:underline flex items-center gap-1 text-sm cursor-pointer">
+                        <button onClick={handleOpenGrupoRecebimentosGC} className="text-primary hover:underline flex items-center gap-1 text-sm cursor-pointer">
                           <Search className="h-3 w-3" /> Recebimentos no GC
                         </button>
                         {selectedGrupo.nfse_link && (
