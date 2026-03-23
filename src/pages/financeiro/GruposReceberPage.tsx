@@ -104,22 +104,32 @@ export default function GruposReceberPage() {
   };
 
   const handleOpenGrupoRecebimentosGC = () => {
-    const recebimentoIds = Array.from(
-      new Set(
-        (grupoItens || [])
-          .map((item: any) => item.fin_recebimentos?.gc_id)
-          .filter(Boolean),
-      ),
-    );
+    if (!selectedGrupo) return;
 
-    if (!recebimentoIds.length) {
-      toast.error("Esse grupo não tem recebimentos vinculados no GC");
+    // Build a filtered search URL matching the group's NFS-e number or name
+    const nfseNumero = selectedGrupo.nfse_numero || '';
+    const searchTerm = nfseNumero ? `NF ${nfseNumero}` : selectedGrupo.nome || '';
+    
+    if (!searchTerm) {
+      toast.error("Esse grupo não tem informações suficientes para buscar no GC");
       return;
     }
 
-    recebimentoIds.forEach((gcId) => {
-      window.open(`${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${gcId}`, "_blank", "noopener,noreferrer");
+    const params = new URLSearchParams({
+      loja: '446246',
+      'tipo-entidade': 'C',
+      nome: searchTerm,
+      data_inicio: '01/01/2020',
+      data_fim: '31/12/2030',
+      tipo: 'C',
+      situacaoBuscaAvancada: 'true',
     });
+
+    window.open(
+      `${GC_BASE}/movimentacoes_financeiras/index_recebimento?${params.toString()}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
   };
 
   const [statusFilter, setStatusFilter] = useState("todos");
