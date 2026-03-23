@@ -81,6 +81,9 @@ export default function NegociacaoOSPage() {
   const [valoresParcelas, setValoresParcelas] = useState<number[]>([]);
   const [valorNegociado, setValorNegociado] = useState<number>(0);
 
+  // Residuals
+  const [clientResiduais, setClientResiduais] = useState<ResidualItem[]>([]);
+
   // Results
   const [results, setResults] = useState<NegotiateResult[] | null>(null);
 
