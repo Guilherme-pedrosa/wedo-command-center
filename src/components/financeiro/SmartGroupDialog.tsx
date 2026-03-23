@@ -89,6 +89,8 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
   const [creating, setCreating] = useState(false);
   const [manualOverrides, setManualOverrides] = useState<Set<string>>(new Set());
   const [hasSearched, setHasSearched] = useState(false);
+  const [valorOverrides, setValorOverrides] = useState<Record<string, string>>({});
+  const [editingValor, setEditingValor] = useState<string | null>(null);
 
   // Clientes
   const { data: clientes = [] } = useQuery({
@@ -144,7 +146,16 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
   }, [suggestion, manualOverrides]);
 
   const selectedItems = recebimentos.filter((r: any) => selectedIds.has(r.id));
-  const selectedTotal = selectedItems.reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
+  
+  const getItemValor = (r: any): number => {
+    if (valorOverrides[r.id] !== undefined) {
+      const parsed = parseFloat(valorOverrides[r.id].replace(/\./g, "").replace(",", "."));
+      return isNaN(parsed) ? Number(r.valor || 0) : parsed;
+    }
+    return Number(r.valor || 0);
+  };
+  
+  const selectedTotal = selectedItems.reduce((s: number, r: any) => s + getItemValor(r), 0);
   const targetNum = parseFloat((valorAlvo || "0").replace(/\./g, "").replace(",", ".")) || 0;
   const diff = selectedTotal - targetNum;
 
