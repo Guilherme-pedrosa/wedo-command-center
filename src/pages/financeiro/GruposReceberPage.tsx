@@ -14,7 +14,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix, resyncRecebimentoFromGC, gcDelay, atualizarRecebimentoGC } from "@/api/financeiro";
-import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink, FileText, Link2, Plus, Upload, AlertTriangle, ShieldCheck, RefreshCw, Pencil, Trash2, CalendarIcon, Search, X, Minus, Sparkles } from "lucide-react";
+import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink, FileText, Link2, Plus, Upload, AlertTriangle, ShieldCheck, RefreshCw, Pencil, Trash2, CalendarIcon, Search, X, Minus, Sparkles, ScanSearch, Banknote, Check } from "lucide-react";
 import { SmartGroupDialog } from "@/components/financeiro/SmartGroupDialog";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
@@ -79,6 +79,8 @@ export default function GruposReceberPage() {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [syncingGC, setSyncingGC] = useState(false);
   const [showSmartGroup, setShowSmartGroup] = useState(false);
+  const [scanningPassivos, setScanningPassivos] = useState(false);
+  const [markingPassivo, setMarkingPassivo] = useState<string | null>(null);
 
   const canEditGroup = (g: any) => !g.nfse_numero && !g.gc_baixado && g.status !== "pago";
 
@@ -217,6 +219,52 @@ export default function GruposReceberPage() {
       return data || [];
     },
   });
+
+  // Fetch passivos (residuos) for the selected group's client
+  const { data: clientePassivos, refetch: refetchPassivos } = useQuery({
+    queryKey: ["fin-passivos-cliente", selectedGrupo?.cliente_gc_id],
+    enabled: !!selectedGrupo?.cliente_gc_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("fin_residuos_negociacao")
+        .select("*")
+        .eq("cliente_gc_id", selectedGrupo.cliente_gc_id)
+        .eq("utilizado", false)
+        .order("created_at", { ascending: false });
+      return data || [];
+    },
+  });
+
+  const handleScanPassivos = async () => {
+    setScanningPassivos(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("scan-passivos");
+      if (error) throw error;
+      toast.success(`Scan concluído: ${data.inserted} passivo(s) importado(s), ${data.skipped} já existente(s)`);
+      refetchPassivos();
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+    } finally {
+      setScanningPassivos(false);
+    }
+  };
+
+  const handleMarcarPassivoUtilizado = async (passivoId: string) => {
+    setMarkingPassivo(passivoId);
+    try {
+      const { error } = await supabase
+        .from("fin_residuos_negociacao")
+        .update({ utilizado: true, utilizado_em: new Date().toISOString() })
+        .eq("id", passivoId);
+      if (error) throw error;
+      toast.success("Passivo marcado como utilizado");
+      refetchPassivos();
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+    } finally {
+      setMarkingPassivo(null);
+    }
+  };
 
   const statusBadge = (s: string) => {
     const map: Record<string, string> = { 
@@ -449,6 +497,10 @@ export default function GruposReceberPage() {
             searchPlaceholder="Buscar status..."
             className="w-[180px] h-9"
           />
+          <Button size="sm" variant="outline" onClick={handleScanPassivos} disabled={scanningPassivos}>
+            {scanningPassivos ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ScanSearch className="h-3.5 w-3.5 mr-1.5" />}
+            Scan Passivos
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setShowSmartGroup(true)}>
             <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Agrupamento Inteligente
           </Button>
@@ -721,6 +773,56 @@ export default function GruposReceberPage() {
                   <div className="flex items-center gap-2 text-emerald-500 text-sm">
                     <CheckCircle className="h-4 w-4" />
                     Baixa enviada em {selectedGrupo.gc_baixado_em ? formatDateTime(selectedGrupo.gc_baixado_em) : ""}
+                  </div>
+                )}
+
+                {/* Passivos (Residuos) do cliente */}
+                {clientePassivos && clientePassivos.length > 0 && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold flex items-center gap-2">
+                        <Banknote className="h-4 w-4 text-amber-500" /> Passivos do Cliente ({clientePassivos.length})
+                      </h4>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Valores residuais de OS negociadas que ainda não foram utilizados.
+                    </p>
+                    <div className="space-y-2">
+                      {clientePassivos.map((p: any) => (
+                        <div key={p.id} className="flex items-center justify-between rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 text-sm">
+                              <span className="font-semibold text-amber-500">{formatCurrency(Number(p.valor_residual))}</span>
+                              {p.negociacao_origem_numero && (
+                                <Badge variant="outline" className="text-[10px] border-amber-500/30 text-amber-500">
+                                  Neg. nº{p.negociacao_origem_numero}
+                                </Badge>
+                              )}
+                            </div>
+                            {p.os_codigos?.length > 0 && (
+                              <div className="flex gap-1 mt-1">
+                                {p.os_codigos.map((os: string) => (
+                                  <Badge key={os} variant="outline" className="text-[9px] font-mono">OS {os}</Badge>
+                                ))}
+                              </div>
+                            )}
+                            {p.observacao && (
+                              <p className="text-[10px] text-muted-foreground mt-1 truncate">{p.observacao}</p>
+                            )}
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs ml-2 shrink-0 border-amber-500/30 hover:bg-amber-500/20"
+                            disabled={markingPassivo === p.id}
+                            onClick={() => handleMarcarPassivoUtilizado(p.id)}
+                          >
+                            {markingPassivo === p.id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Check className="h-3 w-3 mr-1" />}
+                            Utilizado
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
