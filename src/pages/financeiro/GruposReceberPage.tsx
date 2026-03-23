@@ -1226,6 +1226,50 @@ export default function GruposReceberPage() {
                 </div>
               )}
             </div>
+
+            {/* Valor a Cobrar / Passivo */}
+            {(() => {
+              const currentItensTotal = (grupoItens || [])
+                .filter((i: any) => !editItensToRemove.includes(i.id))
+                .reduce((s: number, i: any) => s + Number(i.valor || i.fin_recebimentos?.valor || 0), 0);
+              const addedTotal = editItensToAdd.reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
+              const editTotalItens = Math.round((currentItensTotal + addedTotal) * 100) / 100;
+              const valorCobrar = editValorCobrar ?? editTotalItens;
+              const residual = Math.round((editTotalItens - valorCobrar) * 100) / 100;
+
+              return editTotalItens > 0 ? (
+                <div className="space-y-2 rounded-lg border border-border p-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Total dos itens:</span>
+                    <span className="font-semibold">{formatCurrency(editTotalItens)}</span>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Valor a Cobrar</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min={0.01}
+                      max={editTotalItens}
+                      value={valorCobrar}
+                      onChange={(e) => {
+                        const v = Math.min(Number(e.target.value), editTotalItens);
+                        setEditValorCobrar(Math.round(v * 100) / 100);
+                      }}
+                      className="h-9"
+                    />
+                  </div>
+                  {residual > 0.01 && (
+                    <div className="flex items-center justify-between rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <Banknote className="h-4 w-4 text-amber-500" />
+                        <span className="text-muted-foreground">Passivo (valor residual):</span>
+                      </div>
+                      <span className="font-semibold text-amber-500">{formatCurrency(residual)}</span>
+                    </div>
+                  )}
+                </div>
+              ) : null;
+            })()}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancelar</Button>
