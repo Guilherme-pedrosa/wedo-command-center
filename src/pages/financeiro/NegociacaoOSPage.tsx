@@ -86,6 +86,7 @@ export default function NegociacaoOSPage() {
 
   // Results
   const [results, setResults] = useState<NegotiateResult[] | null>(null);
+  const [scanningPassivos, setScanningPassivos] = useState(false);
 
   // Load saved config
   useEffect(() => {
