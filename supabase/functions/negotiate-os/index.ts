@@ -253,9 +253,14 @@ serve(async (req) => {
         dueDates.push(`${yyyy}-${mm}-${dd}`);
       }
 
+      // Passivo vencimento = último dia útil do mês subsequente
       const lastNegotiatedDate = new Date(`${dueDates[dueDates.length - 1]}T00:00:00Z`);
-      lastNegotiatedDate.setUTCDate(lastNegotiatedDate.getUTCDate() + 30);
-      const residualDueDate = `${lastNegotiatedDate.getUTCFullYear()}-${String(lastNegotiatedDate.getUTCMonth() + 1).padStart(2, "0")}-${String(lastNegotiatedDate.getUTCDate()).padStart(2, "0")}`;
+      const nextMonth = new Date(Date.UTC(lastNegotiatedDate.getUTCFullYear(), lastNegotiatedDate.getUTCMonth() + 2, 0)); // último dia do mês seguinte
+      // Recuar para último dia útil (seg-sex)
+      while (nextMonth.getUTCDay() === 0 || nextMonth.getUTCDay() === 6) {
+        nextMonth.setUTCDate(nextMonth.getUTCDate() - 1);
+      }
+      const residualDueDate = `${nextMonth.getUTCFullYear()}-${String(nextMonth.getUTCMonth() + 1).padStart(2, "0")}-${String(nextMonth.getUTCDate()).padStart(2, "0")}`;
 
       const negTag = `NEG${negociacao_numero}`;
 
