@@ -540,7 +540,7 @@ export default function NegociacaoOSPage() {
                 </div>
                 <div className="flex justify-between text-xs text-muted-foreground pt-1 border-t border-border">
                   <span>Total parcelas:</span>
-                  <span className={`font-semibold ${Math.abs(valoresParcelas.reduce((a, b) => a + b, 0) - selectedTotal) > 0.02 ? 'text-destructive' : 'text-primary'}`}>
+                  <span className={`font-semibold ${Math.abs(valoresParcelas.reduce((a, b) => a + b, 0) - valorNegociado) > 0.02 ? 'text-destructive' : 'text-primary'}`}>
                     {formatCurrency(valoresParcelas.reduce((a, b) => a + b, 0))}
                   </span>
                 </div>
