@@ -412,6 +412,15 @@ export default function GruposReceberPage() {
               <tr key={g.id} className="border-b border-border hover:bg-muted/30">
                 <td className="p-3 font-medium text-foreground">{g.nome}</td>
                 <td className="p-3 text-foreground">{g.nome_cliente || "—"}</td>
+                <td className="p-3 text-xs">
+                  {(g.os_codigos as string[] | null)?.length ? (
+                    <div className="flex flex-wrap gap-1">
+                      {(g.os_codigos as string[]).map((os: string) => (
+                        <Badge key={os} variant="outline" className="text-[10px] font-mono">{os}</Badge>
+                      ))}
+                    </div>
+                  ) : "—"}
+                </td>
                 <td className="p-3 text-right font-semibold">{formatCurrency(Number(g.valor_total))}</td>
                 <td className="p-3">{g.data_vencimento ? formatDate(g.data_vencimento) : "—"}</td>
                 <td className="p-3 text-center text-xs">
