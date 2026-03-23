@@ -1204,6 +1204,27 @@ export async function syncPagamentosGC(
   }
 
   // Backfill recipient_document from fin_fornecedores (batched)
+  // ── Cleanup: remove local pagamentos whose gc_id no longer exists in GC ──
+  if (raws.length > 0 && filtros?.dataInicio && filtros?.dataFim) {
+    const gcIdsFromGC = new Set(raws.map((r) => String(r.id)));
+    const { data: localPags } = await supabase
+      .from("fin_pagamentos" as any)
+      .select("id, gc_id, grupo_id, status")
+      .gte("data_vencimento", filtros.dataInicio)
+      .lte("data_vencimento", filtros.dataFim)
+      .not("gc_id", "is", null) as any;
+
+    const orphans = (localPags ?? []).filter(
+      (r: any) => r.gc_id && !gcIdsFromGC.has(String(r.gc_id)) && r.status !== "cancelado"
+    );
+    if (orphans.length > 0) {
+      const orphanIds = orphans.map((o: any) => o.id);
+      await supabase.from("fin_grupo_pagar_itens" as any).delete().in("pagamento_id", orphanIds);
+      await supabase.from("fin_pagamentos" as any).delete().in("id", orphanIds);
+      console.log(`[syncPagamentosGC] Removed ${orphans.length} orphaned local pagamentos not found in GC`);
+    }
+  }
+
   try {
     const { data: fornecedores } = await supabase
       .from("fin_fornecedores" as any)
