@@ -263,6 +263,7 @@ export default function NegociacaoOSPage() {
           parcelas,
           dia_vencimento: diaVencimento,
           mes_inicio: mesInicio,
+          valores_parcelas: valoresParcelas,
           nome_cliente: selectedClient?.nome_cliente,
           cliente_gc_id: selectedClient?.cliente_id,
         },
