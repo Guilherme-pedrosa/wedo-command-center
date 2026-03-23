@@ -240,6 +240,8 @@ serve(async (req) => {
       const negociacao_numero = negNumErr ? Date.now() : (negNumData as number);
       console.log(`[negotiate-os] Negociação nº${negociacao_numero}`);
 
+      const roundMoney = (value: number) => Math.round(value * 100) / 100;
+
       // Generate due dates
       const [startYear, startMonth] = mes_inicio.split("-").map(Number);
       const dueDates: string[] = [];
@@ -250,6 +252,10 @@ serve(async (req) => {
         const dd = String(d.getDate()).padStart(2, "0");
         dueDates.push(`${yyyy}-${mm}-${dd}`);
       }
+
+      const lastNegotiatedDate = new Date(`${dueDates[dueDates.length - 1]}T00:00:00Z`);
+      lastNegotiatedDate.setUTCDate(lastNegotiatedDate.getUTCDate() + 30);
+      const residualDueDate = `${lastNegotiatedDate.getUTCFullYear()}-${String(lastNegotiatedDate.getUTCMonth() + 1).padStart(2, "0")}-${String(lastNegotiatedDate.getUTCDate()).padStart(2, "0")}`;
 
       const negTag = `NEG${negociacao_numero}`;
 
@@ -349,34 +355,30 @@ serve(async (req) => {
           await new Promise((r) => setTimeout(r, 500));
 
           // ── STEP B ──
-          console.log(`[negotiate-os] STEP B: OS ${os.id} → ${parcelas} parcelas`);
+          console.log(`[negotiate-os] STEP B: OS ${os.id} → ${parcelas} parcelas + passivo`);
 
-          // Calculate this OS's share of the negotiated value
           const totalOriginal = osDetails.reduce((s, o) => s + o.valor_total, 0);
           const osRatio = totalOriginal > 0 ? os.valor_total / totalOriginal : 1 / osDetails.length;
           const valorOSNegociado = valorNegociado && valorNegociado < totalOriginal
-            ? Math.round(valorNegociado * osRatio * 100) / 100
+            ? roundMoney(valorNegociado * osRatio)
             : os.valor_total;
+          const valorOSResidual = roundMoney(os.valor_total - valorOSNegociado);
 
-          // Use custom parcela values (proportionally scaled for this OS) or calculate equal split
           let osParcelaValues: number[];
           if (useCustomValues && valoresParcelas) {
             const totalCustom = valoresParcelas.reduce((a: number, b: number) => a + b, 0);
-            osParcelaValues = valoresParcelas.map((v: number) =>
-              Math.round((v / totalCustom) * valorOSNegociado * 100) / 100
-            );
-            // Fix rounding
-            const roundDiff = Math.round((valorOSNegociado - osParcelaValues.reduce((a, b) => a + b, 0)) * 100) / 100;
-            if (roundDiff !== 0) osParcelaValues[osParcelaValues.length - 1] += roundDiff;
+            osParcelaValues = valoresParcelas.map((v: number) => roundMoney((v / totalCustom) * valorOSNegociado));
+            const roundDiff = roundMoney(valorOSNegociado - osParcelaValues.reduce((a, b) => a + b, 0));
+            if (roundDiff !== 0) osParcelaValues[osParcelaValues.length - 1] = roundMoney(osParcelaValues[osParcelaValues.length - 1] + roundDiff);
           } else {
             const valorParcelaOS = Math.floor((valorOSNegociado / parcelas) * 100) / 100;
-            const valorUltimaOS = Math.round((valorOSNegociado - valorParcelaOS * (parcelas - 1)) * 100) / 100;
+            const valorUltimaOS = roundMoney(valorOSNegociado - valorParcelaOS * (parcelas - 1));
             osParcelaValues = Array.from({ length: parcelas }, (_, i) =>
               i === parcelas - 1 ? valorUltimaOS : valorParcelaOS
             );
           }
 
-          console.log(`[negotiate-os] OS ${os.id}: original=${os.valor_total}, negociado=${valorOSNegociado}`);
+          console.log(`[negotiate-os] OS ${os.id}: original=${os.valor_total}, negociado=${valorOSNegociado}, passivo=${valorOSResidual}`);
 
           const pagamentosRaw = Array.isArray(os.raw.pagamentos) ? os.raw.pagamentos : [];
           const primeiroPagamentoWrapper = (pagamentosRaw[0] && typeof pagamentosRaw[0] === "object")
@@ -392,31 +394,39 @@ serve(async (req) => {
           const planoContasId = String(primeiroPagamento.plano_contas_id || primeiroPagamento.categoria_id || "");
           const nomePlanoConta = String(primeiroPagamento.nome_plano_conta || primeiroPagamento.nome_categoria || "");
 
+          const pagamentosNegociados = dueDates.map((dt, idx) => {
+            const pagamento: Record<string, unknown> = {
+              data_vencimento: dt,
+              valor: osParcelaValues[idx].toFixed(2),
+              descricao: `${negTag} - Parcela ${idx + 1}/${parcelas} - OS ${os.codigo}`,
+            };
+            if (formaPagamentoId) pagamento.forma_pagamento_id = formaPagamentoId;
+            if (nomeFormaPagamento) pagamento.nome_forma_pagamento = nomeFormaPagamento;
+            if (planoContasId) { pagamento.plano_contas_id = planoContasId; pagamento.categoria_id = planoContasId; }
+            if (nomePlanoConta) { pagamento.nome_plano_conta = nomePlanoConta; pagamento.nome_categoria = nomePlanoConta; }
+            return { pagamento };
+          });
+
+          const pagamentosComPassivo = valorOSResidual > 0.01
+            ? [...pagamentosNegociados, { pagamento: {
+                data_vencimento: residualDueDate,
+                valor: valorOSResidual.toFixed(2),
+                descricao: `${negTag} - PASSIVO - OS ${os.codigo}`,
+                ...(formaPagamentoId ? { forma_pagamento_id: formaPagamentoId } : {}),
+                ...(nomeFormaPagamento ? { nome_forma_pagamento: nomeFormaPagamento } : {}),
+                ...(planoContasId ? { plano_contas_id: planoContasId, categoria_id: planoContasId } : {}),
+                ...(nomePlanoConta ? { nome_plano_conta: nomePlanoConta, nome_categoria: nomePlanoConta } : {}),
+              } }]
+            : pagamentosNegociados;
+
           const stepBPayload: Record<string, unknown> = {
             ...basePayload,
             situacao_id: SITUACAO_INTERMEDIARIA,
             data_primeira_parcela: dueDates[0],
-            numero_parcelas: String(parcelas),
-            condicao_pagamento: parcelas > 1 ? "parcelado" : "a_vista",
-            intervalo_dias: parcelas > 1
-              ? String(Math.max(1, Math.round(
-                  (new Date(`${dueDates[1]}T00:00:00Z`).getTime() - new Date(`${dueDates[0]}T00:00:00Z`).getTime()) /
-                  (1000 * 60 * 60 * 24)
-                )))
-              : "0",
-            pagamentos: dueDates.map((dt, idx) => {
-              const descParcela = `${negTag} - Parcela ${idx + 1}/${parcelas} - OS ${os.codigo}`;
-              const pagamento: Record<string, unknown> = {
-                data_vencimento: dt,
-                valor: osParcelaValues[idx].toFixed(2),
-                descricao: descParcela,
-              };
-              if (formaPagamentoId) pagamento.forma_pagamento_id = formaPagamentoId;
-              if (nomeFormaPagamento) pagamento.nome_forma_pagamento = nomeFormaPagamento;
-              if (planoContasId) { pagamento.plano_contas_id = planoContasId; pagamento.categoria_id = planoContasId; }
-              if (nomePlanoConta) { pagamento.nome_plano_conta = nomePlanoConta; pagamento.nome_categoria = nomePlanoConta; }
-              return { pagamento };
-            }),
+            numero_parcelas: String(pagamentosComPassivo.length),
+            condicao_pagamento: pagamentosComPassivo.length > 1 ? "parcelado" : "a_vista",
+            intervalo_dias: pagamentosComPassivo.length > 1 ? "30" : "0",
+            pagamentos: pagamentosComPassivo,
           };
 
           const existingObs = String(stepBPayload["observacoes"] || "");
@@ -484,29 +494,63 @@ serve(async (req) => {
       }
 
       // ═══════════════════════════════════════════════════════════════
-      // 3. CREATE GROUPS IMMEDIATELY (before Step D to avoid timeout)
+      // 3. Build negotiated groups + persist passive financial links
       // ═══════════════════════════════════════════════════════════════
       const successOS = osDetails.filter((os) =>
         gcUpdateResults.find((r) => r.os_id === os.id && r.status === "ok")
       );
 
-      const totalValor = successOS.reduce((sum, os) => sum + os.valor_total, 0);
+      const buildPlanForOS = (osValorTotal: number) => {
+        const totalOriginalAll = osDetails.reduce((sum, item) => sum + item.valor_total, 0);
+        const osRatio = totalOriginalAll > 0 ? osValorTotal / totalOriginalAll : 1 / Math.max(osDetails.length, 1);
+        const negotiatedTotal = valorNegociado && valorNegociado < totalOriginalAll
+          ? roundMoney(valorNegociado * osRatio)
+          : osValorTotal;
+
+        let parcelValues: number[];
+        if (useCustomValues && valoresParcelas) {
+          const totalCustom = valoresParcelas.reduce((a: number, b: number) => a + b, 0);
+          parcelValues = valoresParcelas.map((value: number) => roundMoney((value / totalCustom) * negotiatedTotal));
+          const parcelDiff = roundMoney(negotiatedTotal - parcelValues.reduce((a, b) => a + b, 0));
+          if (parcelDiff !== 0 && parcelValues.length > 0) {
+            parcelValues[parcelValues.length - 1] = roundMoney(parcelValues[parcelValues.length - 1] + parcelDiff);
+          }
+        } else {
+          const baseParcel = Math.floor((negotiatedTotal / parcelas) * 100) / 100;
+          const lastParcel = roundMoney(negotiatedTotal - baseParcel * (parcelas - 1));
+          parcelValues = Array.from({ length: parcelas }, (_, index) =>
+            index === parcelas - 1 ? lastParcel : baseParcel
+          );
+        }
+
+        const residual = roundMoney(osValorTotal - negotiatedTotal);
+        return { negotiatedTotal, residual, parcelValues };
+      };
+
+      const successPlans = successOS.map((os) => ({ os, plan: buildPlanForOS(os.valor_total) }));
+      const totalNegotiatedSuccess = roundMoney(successPlans.reduce((sum, item) => sum + item.plan.negotiatedTotal, 0));
+      const totalResidualSuccess = roundMoney(successPlans.reduce((sum, item) => sum + item.plan.residual, 0));
       const grupoIds: string[] = [];
 
-      if (successOS.length > 0 && totalValor > 0) {
-        const valorParcela = Math.floor((totalValor / parcelas) * 100) / 100;
-        const valorUltima = Math.round((totalValor - valorParcela * (parcelas - 1)) * 100) / 100;
-        const clienteNome = successOS[0].nome_cliente || nome_cliente || "Cliente";
+      if (successPlans.length > 0 && totalNegotiatedSuccess > 0) {
+        const groupValues = Array.from({ length: parcelas }, (_, index) =>
+          roundMoney(successPlans.reduce((sum, item) => sum + (item.plan.parcelValues[index] ?? 0), 0))
+        );
+        const groupDiff = roundMoney(totalNegotiatedSuccess - groupValues.reduce((sum, value) => sum + value, 0));
+        if (groupDiff !== 0 && groupValues.length > 0) {
+          groupValues[groupValues.length - 1] = roundMoney(groupValues[groupValues.length - 1] + groupDiff);
+        }
 
-        const osRef = successOS.map((os) => {
+        const clienteNome = successPlans[0].os.nome_cliente || nome_cliente || "Cliente";
+        const osRef = successPlans.map(({ os, plan }) => {
           const equip = os.nome_equipamento ? ` (${os.nome_equipamento})` : "";
-          return `OS ${os.codigo}${equip} — R$ ${os.valor_total.toFixed(2)}`;
+          return `OS ${os.codigo}${equip} — Original: R$ ${os.valor_total.toFixed(2)} · Negociado: R$ ${plan.negotiatedTotal.toFixed(2)} · Passivo: R$ ${plan.residual.toFixed(2)}`;
         }).join("\n");
 
-        console.log(`[negotiate-os] Criando ${parcelas} grupo(s) para ${successOS.length} OS...`);
+        console.log(`[negotiate-os] Criando ${parcelas} grupo(s) para ${successPlans.length} OS...`);
 
         for (let i = 0; i < parcelas; i++) {
-          const valor = i === parcelas - 1 ? valorUltima : valorParcela;
+          const valor = groupValues[i] ?? 0;
           const vencimento = dueDates[i];
           const nomeGrupo = `${clienteNome} — Neg. nº${negociacao_numero} (${i + 1}/${parcelas})`;
 
@@ -514,14 +558,14 @@ serve(async (req) => {
             .from("fin_grupos_receber")
             .insert({
               nome: nomeGrupo,
-              cliente_gc_id: cliente_gc_id || successOS[0].cliente_id || null,
+              cliente_gc_id: cliente_gc_id || successPlans[0].os.cliente_id || null,
               nome_cliente: clienteNome,
               valor_total: valor,
               data_vencimento: vencimento,
               status: "aberto",
-              itens_total: successOS.length,
+              itens_total: successPlans.length,
               negociacao_numero: negociacao_numero,
-              observacao: `Neg. nº${negociacao_numero} — Parcela ${i + 1}/${parcelas} — R$ ${valor.toFixed(2)}\nVencimento: ${vencimento}\n\n${osRef}`,
+              observacao: `Neg. nº${negociacao_numero} — Parcela ${i + 1}/${parcelas} — R$ ${valor.toFixed(2)}\nVencimento: ${vencimento}\nPassivo total: R$ ${totalResidualSuccess.toFixed(2)} (${residualDueDate})\n\n${osRef}`,
             })
             .select("id")
             .single();
@@ -536,44 +580,49 @@ serve(async (req) => {
       }
 
       // ═══════════════════════════════════════════════════════════════
-      // 4. STEP D: Tag descriptions in GC (best-effort, single pass)
+      // 4. STEP D: Tag/update negotiated receivables and capture passive
       // ═══════════════════════════════════════════════════════════════
-      for (const os of successOS) {
+      const passiveReceivables = new Map<string, {
+        cliente_gc_id: string;
+        nome_cliente: string;
+        valor_residual: number;
+        negociacao_origem_numero: number;
+        gc_recebimento_id: string;
+        gc_codigo: string | null;
+        os_codigos: string[];
+        observacao: string;
+      }>();
+
+      for (const { os, plan } of successPlans) {
         try {
           await new Promise((r) => setTimeout(r, 800));
           console.log(`[negotiate-os] STEP D: OS ${os.codigo} → buscando financeiros`);
 
-          const valorOS = os.valor_total;
-          const valorParcelaOS = Math.floor((valorOS / parcelas) * 100) / 100;
-          const valorUltimaOS = Math.round((valorOS - valorParcelaOS * (parcelas - 1)) * 100) / 100;
-
           const expectedByDueDate = new Map<string, number[]>();
           for (let idx = 0; idx < dueDates.length; idx++) {
             const due = dueDates[idx];
-            const expectedValue = Number((idx === parcelas - 1 ? valorUltimaOS : valorParcelaOS).toFixed(2));
             const bucket = expectedByDueDate.get(due) || [];
-            bucket.push(expectedValue);
+            bucket.push(plan.parcelValues[idx] ?? 0);
             expectedByDueDate.set(due, bucket);
           }
-
-          const sortedDueDates = [...dueDates].sort();
-          const minDueDate = sortedDueDates[0];
-          const maxDueDate = sortedDueDates[sortedDueDates.length - 1];
+          if (plan.residual > 0.01) {
+            const residualBucket = expectedByDueDate.get(residualDueDate) || [];
+            residualBucket.push(plan.residual);
+            expectedByDueDate.set(residualDueDate, residualBucket);
+          }
 
           const normalizeMoney = (value: unknown): number => {
             const parsed = Number.parseFloat(String(value ?? "0").replace(",", "."));
             if (!Number.isFinite(parsed)) return 0;
-            return Math.round(parsed * 100) / 100;
+            return roundMoney(parsed);
           };
 
           const codigoLower = os.codigo.toLowerCase();
-
-          // Single fetch pass
           const searchParams = new URLSearchParams({
             limite: "100",
             pagina: "1",
-            data_inicio: minDueDate,
-            data_fim: maxDueDate,
+            data_inicio: dueDates[0],
+            data_fim: residualDueDate,
           });
 
           const recResp = await rateLimitedFetch(
@@ -588,15 +637,16 @@ serve(async (req) => {
 
           const recData = await recResp.json();
           const rawList = Array.isArray(recData?.data) ? recData.data : [];
-
           const matching = rawList.filter((item: any) => {
             const rec = item?.Recebimento || item?.recebimento || item;
-            const desc = String(rec?.descricao || "").toLowerCase();
-            const matchesOS = desc.includes(codigoLower) || desc.includes(`os ${codigoLower}`);
             const dueDate = String(rec?.data_vencimento || "").slice(0, 10);
             const expectedValues = expectedByDueDate.get(dueDate) || [];
+            if (expectedValues.length === 0) return false;
+
+            const desc = String(rec?.descricao || "").toLowerCase();
             const recValue = normalizeMoney(rec?.valor ?? rec?.valor_total);
-            const matchesValue = expectedValues.some((v) => Math.abs(v - recValue) <= 0.02);
+            const matchesOS = desc.includes(codigoLower) || desc.includes(`os ${codigoLower}`);
+            const matchesValue = expectedValues.some((value) => Math.abs(value - recValue) <= 0.02);
             return matchesOS || matchesValue;
           });
 
@@ -607,42 +657,66 @@ serve(async (req) => {
             const recId = String(rec?.id || "").trim();
             if (!recId) continue;
 
+            const recValue = normalizeMoney(rec?.valor ?? rec?.valor_total);
+            const dueDate = String(rec?.data_vencimento || "").slice(0, 10);
             const currentDesc = String(rec?.descricao || "").trim();
-            if (currentDesc.toUpperCase().includes(negTag.toUpperCase())) continue;
+            const currentObs = String(rec?.observacoes || rec?.observacao || "").trim();
+            const isPassive = currentDesc.toUpperCase().includes("PASSIVO") || (dueDate === residualDueDate && plan.residual > 0.01 && Math.abs(plan.residual - recValue) <= 0.02);
 
             const cleanedDesc = currentDesc
               .replace(/^\[?\s*neg[\s#\.\-]*\d+\]?\s*[-–—:]?\s*/i, "")
               .replace(/^NEG\d+\s*[-–—:]?\s*/i, "")
               .trim();
-            const newDesc = `${negTag} - ${cleanedDesc || `OS ${os.codigo}`}`;
 
-            const currentObs = String(rec?.observacoes || rec?.observacao || "").trim();
-            const obsNeg = `negociado nº${negociacao_numero}`;
-            const newObs = currentObs
-              ? (currentObs.includes(obsNeg) ? currentObs : `${currentObs}\n${obsNeg}`)
-              : obsNeg;
+            const desiredDesc = currentDesc.toUpperCase().includes(negTag.toUpperCase())
+              ? currentDesc
+              : isPassive
+                ? `${negTag} - PASSIVO - OS ${os.codigo}`
+                : `${negTag} - ${cleanedDesc || `OS ${os.codigo}`}`;
 
-            const putPayload: Record<string, unknown> = {
-              descricao: newDesc,
-              observacoes: newObs,
-              data_vencimento: rec.data_vencimento,
-              plano_contas_id: rec.plano_contas_id,
-              forma_pagamento_id: rec.forma_pagamento_id,
-              conta_bancaria_id: rec.conta_bancaria_id,
-              valor: rec.valor,
-              data_competencia: rec.data_competencia,
-            };
+            const obsLine = isPassive
+              ? `passivo da negociação nº${negociacao_numero}`
+              : `negociado nº${negociacao_numero}`;
+            const desiredObs = currentObs
+              ? (currentObs.includes(obsLine) ? currentObs : `${currentObs}\n${obsLine}`)
+              : obsLine;
 
-            const putResp = await rateLimitedFetch(
-              `${GC_BASE_URL}/api/recebimentos/${recId}`,
-              { method: "PUT", headers: gcHeaders, body: JSON.stringify(putPayload) }
-            );
-            const putData = await putResp.json();
+            if (desiredDesc !== currentDesc || desiredObs !== currentObs) {
+              const putPayload: Record<string, unknown> = {
+                descricao: desiredDesc,
+                observacoes: desiredObs,
+                data_vencimento: rec.data_vencimento,
+                plano_contas_id: rec.plano_contas_id,
+                forma_pagamento_id: rec.forma_pagamento_id,
+                conta_bancaria_id: rec.conta_bancaria_id,
+                valor: rec.valor,
+                data_competencia: rec.data_competencia,
+              };
 
-            if (putResp.ok || putData?.code === 200) {
-              console.log(`[negotiate-os] STEP D OK: ${recId} → "${newDesc}"`);
-            } else {
-              console.warn(`[negotiate-os] STEP D ERRO: ${recId}: ${putData?.message || putResp.status}`);
+              const putResp = await rateLimitedFetch(
+                `${GC_BASE_URL}/api/recebimentos/${recId}`,
+                { method: "PUT", headers: gcHeaders, body: JSON.stringify(putPayload) }
+              );
+              const putData = await putResp.json();
+
+              if (putResp.ok || putData?.code === 200) {
+                console.log(`[negotiate-os] STEP D OK: ${recId} → "${desiredDesc}"`);
+              } else {
+                console.warn(`[negotiate-os] STEP D ERRO: ${recId}: ${putData?.data?.mensagem || putData?.message || putResp.status}`);
+              }
+            }
+
+            if (isPassive) {
+              passiveReceivables.set(recId, {
+                cliente_gc_id: cliente_gc_id || os.cliente_id,
+                nome_cliente: os.nome_cliente || nome_cliente || "Cliente",
+                valor_residual: plan.residual,
+                negociacao_origem_numero: negociacao_numero,
+                gc_recebimento_id: recId,
+                gc_codigo: rec?.codigo ? String(rec.codigo) : null,
+                os_codigos: [os.codigo],
+                observacao: `Financeiro passivo da negociação nº${negociacao_numero}\nOS ${os.codigo}\nVencimento: ${residualDueDate}\nValor: R$ ${plan.residual.toFixed(2)}`,
+              });
             }
           }
         } catch (stepDErr: any) {
@@ -651,97 +725,53 @@ serve(async (req) => {
       }
 
       // ═══════════════════════════════════════════════════════════════
-      // 4b. STEP E: Create passive receivable in GC for the residual
+      // 4b. Persist passive receivables locally for future renegotiation
       // ═══════════════════════════════════════════════════════════════
-      const valorResidual = valorNegociado
-        ? Math.round((totalValor - valorNegociado) * 100) / 100
-        : 0;
+      for (const passive of passiveReceivables.values()) {
+        const { data: existingResidual } = await supabase
+          .from("fin_residuos_negociacao")
+          .select("id")
+          .eq("gc_recebimento_id", passive.gc_recebimento_id)
+          .maybeSingle();
 
-      if (valorResidual > 0.01 && successOS.length > 0) {
-        try {
-          console.log(`[negotiate-os] STEP E: Criando financeiro passivo R$ ${valorResidual.toFixed(2)}`);
-
-          const firstOS = successOS[0];
-          const pagamentosRaw = Array.isArray(firstOS.raw.pagamentos) ? firstOS.raw.pagamentos : [];
-          const pWrap = (pagamentosRaw[0] && typeof pagamentosRaw[0] === "object")
-            ? pagamentosRaw[0] as Record<string, unknown> : {};
-          const pInner = (
-            (pWrap.pagamento && typeof pWrap.pagamento === "object" && pWrap.pagamento) ||
-            (pWrap.Pagamento && typeof pWrap.Pagamento === "object" && pWrap.Pagamento) ||
-            pWrap
-          ) as Record<string, unknown>;
-
-          const fpId = String(pInner.forma_pagamento_id || "");
-          const pcId = String(pInner.plano_contas_id || pInner.categoria_id || "");
-          const cbId = String(pInner.conta_bancaria_id || "");
-
-          const osCodigos = successOS.map((o) => o.codigo);
-          const descPassivo = `${negTag} - PASSIVO - OS ${osCodigos.join(", ")}`;
-          const obsPassivo = `Financeiro passivo da negociação nº${negociacao_numero}\nValor original: R$ ${totalValor.toFixed(2)}\nValor negociado: R$ ${(valorNegociado || 0).toFixed(2)}\nResidual: R$ ${valorResidual.toFixed(2)}`;
-
-          const postPayload: Record<string, unknown> = {
-            descricao: descPassivo,
-            data_vencimento: dueDates[0],
-            valor: valorResidual.toFixed(2),
-            data_competencia: dueDates[0],
-            observacoes: obsPassivo,
-            cliente_id: firstOS.cliente_id,
-            entidade: "C",
-          };
-          if (fpId) postPayload.forma_pagamento_id = fpId;
-          if (pcId) postPayload.plano_contas_id = pcId;
-          if (cbId) postPayload.conta_bancaria_id = cbId;
-
-          const passResp = await rateLimitedFetch(
-            `${GC_BASE_URL}/api/recebimentos`,
-            { method: "POST", headers: gcHeaders, body: JSON.stringify(postPayload) }
-          );
-          const passText = await passResp.text();
-          let passData: any;
-          try { passData = JSON.parse(passText); } catch { passData = {}; }
-
-          if (passResp.ok || passData?.code === 200) {
-            const gcRecId = String(passData?.data?.id || "");
-            const gcCodigo = String(passData?.data?.codigo || "");
-            console.log(`[negotiate-os] STEP E OK: Passivo criado GC id=${gcRecId} codigo=${gcCodigo}`);
-
-            await supabase.from("fin_residuos_negociacao").insert({
-              cliente_gc_id: cliente_gc_id || firstOS.cliente_id,
-              nome_cliente: firstOS.nome_cliente || nome_cliente || "Cliente",
-              valor_residual: valorResidual,
-              negociacao_origem_numero: negociacao_numero,
-              gc_recebimento_id: gcRecId || null,
-              gc_codigo: gcCodigo || null,
-              os_codigos: osCodigos,
-              observacao: obsPassivo,
-            });
-            console.log(`[negotiate-os] STEP E: Resíduo salvo no banco local`);
-          } else {
-            console.warn(`[negotiate-os] STEP E ERRO: ${passResp.status} - ${passText.slice(0, 300)}`);
-            await supabase.from("fin_residuos_negociacao").insert({
-              cliente_gc_id: cliente_gc_id || firstOS.cliente_id,
-              nome_cliente: firstOS.nome_cliente || nome_cliente || "Cliente",
-              valor_residual: valorResidual,
-              negociacao_origem_numero: negociacao_numero,
-              os_codigos: osCodigos,
-              observacao: `${obsPassivo}\n[ERRO GC: ${passText.slice(0, 200)}]`,
-            });
-          }
-        } catch (stepEErr: any) {
-          console.warn(`[negotiate-os] STEP E error (non-fatal): ${stepEErr.message}`);
+        if (existingResidual?.id) {
+          await supabase
+            .from("fin_residuos_negociacao")
+            .update({
+              cliente_gc_id: passive.cliente_gc_id,
+              nome_cliente: passive.nome_cliente,
+              valor_residual: passive.valor_residual,
+              negociacao_origem_numero: passive.negociacao_origem_numero,
+              gc_codigo: passive.gc_codigo,
+              os_codigos: passive.os_codigos,
+              observacao: passive.observacao,
+            })
+            .eq("id", existingResidual.id);
+        } else {
+          await supabase.from("fin_residuos_negociacao").insert({
+            cliente_gc_id: passive.cliente_gc_id,
+            nome_cliente: passive.nome_cliente,
+            valor_residual: passive.valor_residual,
+            negociacao_origem_numero: passive.negociacao_origem_numero,
+            gc_recebimento_id: passive.gc_recebimento_id,
+            gc_codigo: passive.gc_codigo,
+            os_codigos: passive.os_codigos,
+            observacao: passive.observacao,
+            utilizado: false,
+          });
         }
       }
 
       // ═══════════════════════════════════════════════════════════════
-      // 5. Link fin_recebimentos to groups (best-effort after sync)
+      // 5. Link negotiated receivables to groups (best-effort after sync)
       // ═══════════════════════════════════════════════════════════════
-      if (grupoIds.length > 0 && successOS.length > 0) {
+      if (grupoIds.length > 0 && successPlans.length > 0) {
         try {
           for (let i = 0; i < grupoIds.length && i < parcelas; i++) {
             const grupoId = grupoIds[i];
             const vencimento = dueDates[i];
 
-            for (const os of successOS) {
+            for (const { os } of successPlans) {
               const { data: recs } = await supabase
                 .from("fin_recebimentos")
                 .select("id, gc_codigo, valor, data_vencimento, os_codigo")
@@ -781,12 +811,11 @@ serve(async (req) => {
       const okCount = gcUpdateResults.filter((r) => r.status === "ok").length;
       const errCount = gcUpdateResults.filter((r) => r.status === "error").length;
 
-      // Log
       await supabase.from("fin_sync_log").insert({
         tipo: "negotiate-os",
         status: errCount > 0 ? (okCount > 0 ? "partial" : "erro") : "ok",
-        payload: { os_ids, parcelas, dia_vencimento, mes_inicio, cliente_gc_id },
-        resposta: { gcUpdateResults, grupoIds, totalValor },
+        payload: { os_ids, parcelas, dia_vencimento, mes_inicio, cliente_gc_id, valorNegociado },
+        resposta: { gcUpdateResults, grupoIds, total_negociado: totalNegotiatedSuccess, total_passivo: totalResidualSuccess },
         duracao_ms: Date.now() - startTime,
       });
 
