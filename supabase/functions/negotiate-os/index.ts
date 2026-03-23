@@ -350,9 +350,33 @@ serve(async (req) => {
 
           // ── STEP B ──
           console.log(`[negotiate-os] STEP B: OS ${os.id} → ${parcelas} parcelas`);
-          const valorOS = os.valor_total;
-          const valorParcelaOS = Math.floor((valorOS / parcelas) * 100) / 100;
-          const valorUltimaOS = Math.round((valorOS - valorParcelaOS * (parcelas - 1)) * 100) / 100;
+
+          // Calculate this OS's share of the negotiated value
+          const totalOriginal = osDetails.reduce((s, o) => s + o.valor_total, 0);
+          const osRatio = totalOriginal > 0 ? os.valor_total / totalOriginal : 1 / osDetails.length;
+          const valorOSNegociado = valorNegociado && valorNegociado < totalOriginal
+            ? Math.round(valorNegociado * osRatio * 100) / 100
+            : os.valor_total;
+
+          // Use custom parcela values (proportionally scaled for this OS) or calculate equal split
+          let osParcelaValues: number[];
+          if (useCustomValues && valoresParcelas) {
+            const totalCustom = valoresParcelas.reduce((a: number, b: number) => a + b, 0);
+            osParcelaValues = valoresParcelas.map((v: number) =>
+              Math.round((v / totalCustom) * valorOSNegociado * 100) / 100
+            );
+            // Fix rounding
+            const roundDiff = Math.round((valorOSNegociado - osParcelaValues.reduce((a, b) => a + b, 0)) * 100) / 100;
+            if (roundDiff !== 0) osParcelaValues[osParcelaValues.length - 1] += roundDiff;
+          } else {
+            const valorParcelaOS = Math.floor((valorOSNegociado / parcelas) * 100) / 100;
+            const valorUltimaOS = Math.round((valorOSNegociado - valorParcelaOS * (parcelas - 1)) * 100) / 100;
+            osParcelaValues = Array.from({ length: parcelas }, (_, i) =>
+              i === parcelas - 1 ? valorUltimaOS : valorParcelaOS
+            );
+          }
+
+          console.log(`[negotiate-os] OS ${os.id}: original=${os.valor_total}, negociado=${valorOSNegociado}`);
 
           const pagamentosRaw = Array.isArray(os.raw.pagamentos) ? os.raw.pagamentos : [];
           const primeiroPagamentoWrapper = (pagamentosRaw[0] && typeof pagamentosRaw[0] === "object")
