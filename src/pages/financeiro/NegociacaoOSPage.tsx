@@ -70,6 +70,7 @@ export default function NegociacaoOSPage() {
     d.setMonth(d.getMonth() + 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
+  const [valoresParcelas, setValoresParcelas] = useState<number[]>([]);
 
   // Results
   const [results, setResults] = useState<NegotiateResult[] | null>(null);
