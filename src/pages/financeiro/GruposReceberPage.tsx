@@ -192,10 +192,11 @@ export default function GruposReceberPage() {
 
       const totalItens = roundMoney(candidateItems.reduce((sum, item) => sum + item.valor, 0));
       const valorDesejado = editValorCobrar !== null
-        ? Math.max(0.01, Math.min(roundMoney(editValorCobrar), totalItens))
+        ? Math.max(0.01, roundMoney(editValorCobrar))
         : totalItens;
 
-      const keepKeys = valorDesejado < totalItens - 0.01
+      // Se o valor desejado >= total dos itens (com tolerância), manter todos
+      const keepKeys = valorDesejado < totalItens - 1.00
         ? findClosestSubsetAtOrBelow(candidateItems.map((item) => ({ key: item.key, valor: item.valor })), valorDesejado)
         : new Set(candidateItems.map((item) => item.key));
 
