@@ -301,16 +301,7 @@ export default function NegociacaoOSPage() {
       const ok = data.summary?.ok || 0;
       const errs = data.summary?.errors || 0;
 
-      // Save residual if exists
-      if (valorResidual > 0.01 && ok > 0 && selectedClient) {
-        await supabase.from("fin_residuos_negociacao").insert({
-          cliente_gc_id: selectedClient.cliente_id,
-          nome_cliente: selectedClient.nome_cliente,
-          valor_residual: valorResidual,
-          negociacao_origem_numero: data.negociacao_numero || null,
-          observacao: `Residual de negociação - ${selectedOSIds.size} OS`,
-        });
-      }
+      // Residual is now created by the backend (Step E) in negotiate-os
 
       if (errs === 0) {
         toast.success(`✅ ${ok} OS negociada(s) com sucesso!`);
