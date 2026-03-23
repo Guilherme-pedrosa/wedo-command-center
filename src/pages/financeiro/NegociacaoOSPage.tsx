@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { callGC } from "@/lib/gc-client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, HandshakeIcon, AlertCircle, CheckCircle2, ArrowLeft } from "lucide-react";
+import { Loader2, Search, HandshakeIcon, AlertCircle, CheckCircle2, ArrowLeft, Settings2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import toast from "react-hot-toast";
@@ -36,6 +37,14 @@ interface NegotiateResult {
   error?: string;
 }
 
+interface GCSituacao {
+  id: string;
+  nome: string;
+}
+
+const CONFIG_KEY = "negociacao_situacao_ids";
+const DEFAULT_SITUACAO = "7116099"; // Executado - Ag Negociação Financeira
+
 export default function NegociacaoOSPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -44,6 +53,13 @@ export default function NegociacaoOSPage() {
   const [selectedClient, setSelectedClient] = useState<ClientGroup | null>(null);
   const [selectedOSIds, setSelectedOSIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState("");
+
+  // Config
+  const [showConfig, setShowConfig] = useState(false);
+  const [situacoes, setSituacoes] = useState<GCSituacao[]>([]);
+  const [selectedSituacoes, setSelectedSituacoes] = useState<string[]>([DEFAULT_SITUACAO]);
+  const [loadingSituacoes, setLoadingSituacoes] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
 
   // Negotiation params
   const [showNegotiate, setShowNegotiate] = useState(false);
@@ -58,11 +74,30 @@ export default function NegociacaoOSPage() {
   // Results
   const [results, setResults] = useState<NegotiateResult[] | null>(null);
 
-  const fetchOS = async () => {
+  // Load saved config
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("fin_configuracoes")
+        .select("valor")
+        .eq("chave", CONFIG_KEY)
+        .maybeSingle();
+      if (data?.valor) {
+        try {
+          const ids = JSON.parse(data.valor) as string[];
+          if (Array.isArray(ids) && ids.length > 0) {
+            setSelectedSituacoes(ids);
+          }
+        } catch { /* ignore */ }
+      }
+    })();
+  }, []);
+
+  const fetchOS = useCallback(async () => {
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke("negotiate-os", {
-        body: { action: "list" },
+        body: { action: "list", situacao_ids: selectedSituacoes },
       });
       if (error) throw error;
       const groupedClients = (data.clients || [])
@@ -74,18 +109,69 @@ export default function NegociacaoOSPage() {
         .filter((c: ClientGroup) => c.os_list.length > 1 && c.valor_total > 0);
       setClients(groupedClients);
       if (groupedClients.length === 0) {
-        toast("Nenhum cliente com 2+ OS em 'Ag Negociação' encontrado", { icon: "ℹ️" });
+        toast("Nenhum cliente com 2+ OS nas situações selecionadas", { icon: "ℹ️" });
       }
     } catch (err) {
       toast.error(`Erro ao buscar OS: ${(err as Error).message}`);
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedSituacoes]);
 
   useEffect(() => {
     fetchOS();
-  }, []);
+  }, [fetchOS]);
+
+  const fetchSituacoes = async () => {
+    setLoadingSituacoes(true);
+    try {
+      const res = await callGC<{ data: GCSituacao[] }>({
+        endpoint: "/api/situacoes",
+        params: { limite: "200", pagina: "1" },
+      });
+      const items = Array.isArray(res.data?.data) ? res.data.data : [];
+      setSituacoes(items.map((s: any) => ({ id: String(s.id), nome: String(s.nome || s.descricao || s.id) })));
+    } catch (err) {
+      toast.error("Erro ao carregar situações do GestãoClick");
+    } finally {
+      setLoadingSituacoes(false);
+    }
+  };
+
+  const handleOpenConfig = () => {
+    setShowConfig(true);
+    if (situacoes.length === 0) fetchSituacoes();
+  };
+
+  const toggleSituacao = (id: string) => {
+    setSelectedSituacoes((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+    );
+  };
+
+  const handleSaveConfig = async () => {
+    if (selectedSituacoes.length === 0) {
+      toast.error("Selecione ao menos uma situação");
+      return;
+    }
+    setSavingConfig(true);
+    try {
+      const { error } = await supabase
+        .from("fin_configuracoes")
+        .upsert(
+          { chave: CONFIG_KEY, valor: JSON.stringify(selectedSituacoes), updated_at: new Date().toISOString() },
+          { onConflict: "chave" }
+        );
+      if (error) throw error;
+      toast.success("Configuração salva!");
+      setShowConfig(false);
+      fetchOS();
+    } catch (err) {
+      toast.error("Erro ao salvar configuração");
+    } finally {
+      setSavingConfig(false);
+    }
+  };
 
   const filteredClients = clients.filter((c) =>
     c.nome_cliente.toLowerCase().includes(searchTerm.toLowerCase())
@@ -201,14 +287,20 @@ export default function NegociacaoOSPage() {
               Negociação de OS
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              OS em "Executado - Ag Negociação" agrupadas por cliente
+              OS agrupadas por cliente ({selectedSituacoes.length} situação(ões) configurada(s))
             </p>
           </div>
         </div>
-        <Button onClick={fetchOS} disabled={loading} variant="outline" size="sm">
-          {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-          Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={handleOpenConfig} variant="outline" size="sm">
+            <Settings2 className="h-4 w-4 mr-1" />
+            Situações
+          </Button>
+          <Button onClick={fetchOS} disabled={loading} variant="outline" size="sm">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            Atualizar
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
@@ -404,6 +496,54 @@ export default function NegociacaoOSPage() {
               </DialogFooter>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Config Dialog */}
+      <Dialog open={showConfig} onOpenChange={setShowConfig}>
+        <DialogContent className="max-w-lg max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>Configurar Situações</DialogTitle>
+            <DialogDescription>
+              Selecione quais situações de OS serão analisadas para negociação.
+            </DialogDescription>
+          </DialogHeader>
+
+          {loadingSituacoes ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Carregando situações do GestãoClick...</span>
+            </div>
+          ) : (
+            <div className="max-h-[50vh] overflow-y-auto space-y-1 pr-1">
+              {situacoes.map((sit) => (
+                <label
+                  key={sit.id}
+                  className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-muted/50 cursor-pointer"
+                >
+                  <Checkbox
+                    checked={selectedSituacoes.includes(sit.id)}
+                    onCheckedChange={() => toggleSituacao(sit.id)}
+                  />
+                  <span className="text-sm flex-1">{sit.nome}</span>
+                  <span className="text-xs text-muted-foreground font-mono">{sit.id}</span>
+                </label>
+              ))}
+              {situacoes.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Nenhuma situação encontrada.
+                </p>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowConfig(false)}>Cancelar</Button>
+            <Button onClick={handleSaveConfig} disabled={savingConfig || selectedSituacoes.length === 0}>
+              {savingConfig ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Salvar ({selectedSituacoes.length})
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

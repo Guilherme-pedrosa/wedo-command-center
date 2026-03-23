@@ -79,6 +79,7 @@ interface NegotiateRequest {
   forma_pagamento_id?: string;
   nome_cliente?: string;
   cliente_gc_id?: string;
+  situacao_ids?: string[];
 }
 
 serve(async (req) => {
@@ -114,37 +115,45 @@ serve(async (req) => {
 
     // ─── LIST ──────────────────────────────────────────────
     if (body.action === "list") {
+      const situacaoIds = Array.isArray(body.situacao_ids) && body.situacao_ids.length > 0
+        ? body.situacao_ids
+        : [SITUACAO_ORIGEM];
+
       const allOS: Record<string, unknown>[] = [];
-      let page = 1;
-      let totalPages = 1;
 
-      while (page <= totalPages) {
-        const params = new URLSearchParams({
-          limite: "100",
-          pagina: String(page),
-          situacao_id: SITUACAO_ORIGEM,
-        });
+      for (const situacaoId of situacaoIds) {
+        let page = 1;
+        let totalPages = 1;
 
-        const response = await rateLimitedFetch(
-          `${GC_BASE_URL}/api/ordens_servicos?${params.toString()}`,
-          { headers: gcHeaders }
-        );
+        while (page <= totalPages) {
+          const params = new URLSearchParams({
+            limite: "100",
+            pagina: String(page),
+            situacao_id: situacaoId,
+          });
 
-        if (response.status === 429) {
-          await new Promise((r) => setTimeout(r, 2000));
-          continue;
+          const response = await rateLimitedFetch(
+            `${GC_BASE_URL}/api/ordens_servicos?${params.toString()}`,
+            { headers: gcHeaders }
+          );
+
+          if (response.status === 429) {
+            await new Promise((r) => setTimeout(r, 2000));
+            continue;
+          }
+
+          if (!response.ok) {
+            console.log(`[negotiate-os] GC API error for situacao ${situacaoId}: ${response.status}`);
+            break;
+          }
+
+          const data = await response.json();
+          const records = Array.isArray(data?.data) ? data.data : [];
+          totalPages = data?.meta?.total_paginas || 1;
+
+          allOS.push(...records);
+          page++;
         }
-
-        if (!response.ok) {
-          throw new Error(`GC API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        const records = Array.isArray(data?.data) ? data.data : [];
-        totalPages = data?.meta?.total_paginas || 1;
-
-        allOS.push(...records);
-        page++;
       }
 
       // Group by client
