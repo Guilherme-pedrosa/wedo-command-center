@@ -306,7 +306,7 @@ export default function GruposReceberPage() {
           const rec = grupoItens?.find((gi: any) => gi.recebimento_id === item.recebimentoId)?.fin_recebimentos;
           if (rec?.gc_id && rec?.gc_payload_raw) {
             try {
-              await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw, { data_vencimento: vencPostergado });
+              await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw as Record<string, unknown>, { data_vencimento: vencPostergado });
             } catch { /* ignore */ }
             await gcDelay();
           }
