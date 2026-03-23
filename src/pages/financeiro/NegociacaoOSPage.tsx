@@ -71,6 +71,7 @@ export default function NegociacaoOSPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
   const [valoresParcelas, setValoresParcelas] = useState<number[]>([]);
+  const [valorNegociado, setValorNegociado] = useState<number>(0);
 
   // Results
   const [results, setResults] = useState<NegotiateResult[] | null>(null);
@@ -214,34 +215,37 @@ export default function NegociacaoOSPage() {
     .filter((os) => selectedOSIds.has(os.id))
     .reduce((sum, os) => sum + os.valor_total, 0) || 0;
 
-  const valorParcela = parcelas > 0 ? selectedTotal / parcelas : 0;
+  const valorParcela = parcelas > 0 ? valorNegociado / parcelas : 0;
+  const valorResidual = Math.round((selectedTotal - valorNegociado) * 100) / 100;
+
+  // Reset valorNegociado when selectedTotal changes
+  useEffect(() => {
+    setValorNegociado(selectedTotal);
+  }, [selectedTotal]);
 
   // Initialize parcela values when params change
   useEffect(() => {
-    if (parcelas > 0 && selectedTotal > 0) {
-      const base = Math.round((selectedTotal / parcelas) * 100) / 100;
+    if (parcelas > 0 && valorNegociado > 0) {
+      const base = Math.round((valorNegociado / parcelas) * 100) / 100;
       const arr = Array(parcelas).fill(base);
-      // Adjust last to fix rounding
-      const diff = selectedTotal - arr.reduce((a: number, b: number) => a + b, 0);
+      const diff = Math.round((valorNegociado - arr.reduce((a: number, b: number) => a + b, 0)) * 100) / 100;
       arr[arr.length - 1] = Math.round((arr[arr.length - 1] + diff) * 100) / 100;
       setValoresParcelas(arr);
     }
-  }, [parcelas, selectedTotal]);
+  }, [parcelas, valorNegociado]);
 
   const handleParcelaValueChange = (index: number, newValue: number) => {
     const updated = [...valoresParcelas];
     updated[index] = Math.round(newValue * 100) / 100;
-    const usedByOthers = updated.reduce((sum, v, i) => i !== index ? sum + v : sum, 0);
-    const remaining = selectedTotal - updated[index];
+    const remaining = valorNegociado - updated[index];
     const othersCount = updated.length - 1;
     if (othersCount > 0 && remaining >= 0) {
       const eachOther = Math.round((remaining / othersCount) * 100) / 100;
       for (let i = 0; i < updated.length; i++) {
         if (i !== index) updated[i] = eachOther;
       }
-      // Fix rounding on last non-edited
       const totalNow = updated.reduce((a, b) => a + b, 0);
-      const roundDiff = Math.round((selectedTotal - totalNow) * 100) / 100;
+      const roundDiff = Math.round((valorNegociado - totalNow) * 100) / 100;
       if (roundDiff !== 0) {
         const lastOther = index === updated.length - 1 ? updated.length - 2 : updated.length - 1;
         updated[lastOther] = Math.round((updated[lastOther] + roundDiff) * 100) / 100;
@@ -264,6 +268,8 @@ export default function NegociacaoOSPage() {
           dia_vencimento: diaVencimento,
           mes_inicio: mesInicio,
           valores_parcelas: valoresParcelas,
+          valor_negociado: valorNegociado,
+          valor_residual: valorResidual > 0.01 ? valorResidual : 0,
           nome_cliente: selectedClient?.nome_cliente,
           cliente_gc_id: selectedClient?.cliente_id,
         },
@@ -458,6 +464,28 @@ export default function NegociacaoOSPage() {
 
           {!results ? (
             <div className="space-y-4">
+              {/* Valor Negociado + Residual */}
+              <div className="space-y-2">
+                <Label>Valor a Negociar</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0.01}
+                  max={selectedTotal}
+                  value={valorNegociado}
+                  onChange={(e) => {
+                    const v = Math.min(Number(e.target.value), selectedTotal);
+                    setValorNegociado(Math.round(v * 100) / 100);
+                  }}
+                />
+                {valorResidual > 0.01 && (
+                  <div className="flex items-center justify-between rounded-md bg-accent/50 px-3 py-2 text-sm">
+                    <span className="text-muted-foreground">Valor residual (próxima negociação):</span>
+                    <span className="font-semibold text-accent-foreground">{formatCurrency(valorResidual)}</span>
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Nº Parcelas</Label>
@@ -512,7 +540,7 @@ export default function NegociacaoOSPage() {
                 </div>
                 <div className="flex justify-between text-xs text-muted-foreground pt-1 border-t border-border">
                   <span>Total parcelas:</span>
-                  <span className={`font-semibold ${Math.abs(valoresParcelas.reduce((a, b) => a + b, 0) - selectedTotal) > 0.02 ? 'text-destructive' : 'text-primary'}`}>
+                  <span className={`font-semibold ${Math.abs(valoresParcelas.reduce((a, b) => a + b, 0) - valorNegociado) > 0.02 ? 'text-destructive' : 'text-primary'}`}>
                     {formatCurrency(valoresParcelas.reduce((a, b) => a + b, 0))}
                   </span>
                 </div>
