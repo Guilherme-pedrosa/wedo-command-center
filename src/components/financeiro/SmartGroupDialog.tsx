@@ -326,24 +326,82 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
                 <div className="divide-y divide-border">
                   {recebimentos.map((r: any) => {
                     const isSelected = selectedIds.has(r.id);
+                    const originalValor = Number(r.valor || 0);
+                    const currentValor = getItemValor(r);
+                    const isEditing = editingValor === r.id;
+                    const hasOverride = valorOverrides[r.id] !== undefined && currentValor !== originalValor;
+                    
                     return (
                       <div
                         key={r.id}
                         className={cn(
-                          "flex items-center gap-3 px-3 py-2 text-sm cursor-pointer transition-colors",
+                          "flex items-center gap-3 px-3 py-2 text-sm transition-colors",
                           isSelected ? "bg-primary/5" : "hover:bg-muted/30"
                         )}
-                        onClick={() => toggleItem(r.id)}
                       >
-                        <Checkbox checked={isSelected} className="pointer-events-none" />
-                        <div className="flex-1 min-w-0">
+                        <div className="cursor-pointer" onClick={() => toggleItem(r.id)}>
+                          <Checkbox checked={isSelected} className="pointer-events-none" />
+                        </div>
+                        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleItem(r.id)}>
                           <div className="truncate text-xs text-foreground">{r.descricao}</div>
                           <div className="text-[10px] text-muted-foreground">
                             {r.os_codigo && `OS ${r.os_codigo} · `}
                             {r.data_vencimento && `Venc. ${formatDate(r.data_vencimento)}`}
                           </div>
                         </div>
-                        <span className="font-semibold text-xs whitespace-nowrap">{formatCurrency(Number(r.valor))}</span>
+                        <div className="flex items-center gap-1.5">
+                          {isEditing ? (
+                            <div className="flex items-center gap-1">
+                              <Input
+                                className="h-6 w-24 text-xs text-right"
+                                defaultValue={valorOverrides[r.id] ?? originalValor.toFixed(2).replace('.', ',')}
+                                autoFocus
+                                onClick={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const val = (e.target as HTMLInputElement).value;
+                                    const parsed = parseFloat(val.replace(/\./g, "").replace(",", "."));
+                                    if (!isNaN(parsed) && parsed > 0 && parsed <= originalValor) {
+                                      setValorOverrides(prev => ({ ...prev, [r.id]: val }));
+                                    } else if (parsed > originalValor) {
+                                      toast.error(`Máximo: ${formatCurrency(originalValor)}`);
+                                    }
+                                    setEditingValor(null);
+                                  }
+                                  if (e.key === 'Escape') setEditingValor(null);
+                                }}
+                                onBlur={(e) => {
+                                  const val = e.target.value;
+                                  const parsed = parseFloat(val.replace(/\./g, "").replace(",", "."));
+                                  if (!isNaN(parsed) && parsed > 0 && parsed <= originalValor) {
+                                    setValorOverrides(prev => ({ ...prev, [r.id]: val }));
+                                  }
+                                  setEditingValor(null);
+                                }}
+                              />
+                            </div>
+                          ) : (
+                            <>
+                              <span className={cn("font-semibold text-xs whitespace-nowrap", hasOverride && "text-amber-500")}>
+                                {formatCurrency(currentValor)}
+                              </span>
+                              {hasOverride && (
+                                <span className="text-[9px] text-muted-foreground line-through">
+                                  {formatCurrency(originalValor)}
+                                </span>
+                              )}
+                              {isSelected && (
+                                <button
+                                  className="text-muted-foreground hover:text-foreground p-0.5"
+                                  onClick={(e) => { e.stopPropagation(); setEditingValor(r.id); }}
+                                  title="Desmembrar valor"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
