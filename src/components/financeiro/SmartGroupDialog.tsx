@@ -195,7 +195,7 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
       const grupoItens = selectedItems.map((r: any) => ({
         grupo_id: (grupo as any).id,
         recebimento_id: r.id,
-        valor: Number(r.valor),
+        valor: getItemValor(r),
         os_codigo_original: r.os_codigo || null,
         gc_os_id: r.gc_id || null,
         snapshot_valor: Number(r.valor),
