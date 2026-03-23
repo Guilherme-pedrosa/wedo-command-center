@@ -355,34 +355,30 @@ serve(async (req) => {
           await new Promise((r) => setTimeout(r, 500));
 
           // ── STEP B ──
-          console.log(`[negotiate-os] STEP B: OS ${os.id} → ${parcelas} parcelas`);
+          console.log(`[negotiate-os] STEP B: OS ${os.id} → ${parcelas} parcelas + passivo`);
 
-          // Calculate this OS's share of the negotiated value
           const totalOriginal = osDetails.reduce((s, o) => s + o.valor_total, 0);
           const osRatio = totalOriginal > 0 ? os.valor_total / totalOriginal : 1 / osDetails.length;
           const valorOSNegociado = valorNegociado && valorNegociado < totalOriginal
-            ? Math.round(valorNegociado * osRatio * 100) / 100
+            ? roundMoney(valorNegociado * osRatio)
             : os.valor_total;
+          const valorOSResidual = roundMoney(os.valor_total - valorOSNegociado);
 
-          // Use custom parcela values (proportionally scaled for this OS) or calculate equal split
           let osParcelaValues: number[];
           if (useCustomValues && valoresParcelas) {
             const totalCustom = valoresParcelas.reduce((a: number, b: number) => a + b, 0);
-            osParcelaValues = valoresParcelas.map((v: number) =>
-              Math.round((v / totalCustom) * valorOSNegociado * 100) / 100
-            );
-            // Fix rounding
-            const roundDiff = Math.round((valorOSNegociado - osParcelaValues.reduce((a, b) => a + b, 0)) * 100) / 100;
-            if (roundDiff !== 0) osParcelaValues[osParcelaValues.length - 1] += roundDiff;
+            osParcelaValues = valoresParcelas.map((v: number) => roundMoney((v / totalCustom) * valorOSNegociado));
+            const roundDiff = roundMoney(valorOSNegociado - osParcelaValues.reduce((a, b) => a + b, 0));
+            if (roundDiff !== 0) osParcelaValues[osParcelaValues.length - 1] = roundMoney(osParcelaValues[osParcelaValues.length - 1] + roundDiff);
           } else {
             const valorParcelaOS = Math.floor((valorOSNegociado / parcelas) * 100) / 100;
-            const valorUltimaOS = Math.round((valorOSNegociado - valorParcelaOS * (parcelas - 1)) * 100) / 100;
+            const valorUltimaOS = roundMoney(valorOSNegociado - valorParcelaOS * (parcelas - 1));
             osParcelaValues = Array.from({ length: parcelas }, (_, i) =>
               i === parcelas - 1 ? valorUltimaOS : valorParcelaOS
             );
           }
 
-          console.log(`[negotiate-os] OS ${os.id}: original=${os.valor_total}, negociado=${valorOSNegociado}`);
+          console.log(`[negotiate-os] OS ${os.id}: original=${os.valor_total}, negociado=${valorOSNegociado}, passivo=${valorOSResidual}`);
 
           const pagamentosRaw = Array.isArray(os.raw.pagamentos) ? os.raw.pagamentos : [];
           const primeiroPagamentoWrapper = (pagamentosRaw[0] && typeof pagamentosRaw[0] === "object")
@@ -398,31 +394,39 @@ serve(async (req) => {
           const planoContasId = String(primeiroPagamento.plano_contas_id || primeiroPagamento.categoria_id || "");
           const nomePlanoConta = String(primeiroPagamento.nome_plano_conta || primeiroPagamento.nome_categoria || "");
 
+          const pagamentosNegociados = dueDates.map((dt, idx) => {
+            const pagamento: Record<string, unknown> = {
+              data_vencimento: dt,
+              valor: osParcelaValues[idx].toFixed(2),
+              descricao: `${negTag} - Parcela ${idx + 1}/${parcelas} - OS ${os.codigo}`,
+            };
+            if (formaPagamentoId) pagamento.forma_pagamento_id = formaPagamentoId;
+            if (nomeFormaPagamento) pagamento.nome_forma_pagamento = nomeFormaPagamento;
+            if (planoContasId) { pagamento.plano_contas_id = planoContasId; pagamento.categoria_id = planoContasId; }
+            if (nomePlanoConta) { pagamento.nome_plano_conta = nomePlanoConta; pagamento.nome_categoria = nomePlanoConta; }
+            return { pagamento };
+          });
+
+          const pagamentosComPassivo = valorOSResidual > 0.01
+            ? [...pagamentosNegociados, { pagamento: {
+                data_vencimento: residualDueDate,
+                valor: valorOSResidual.toFixed(2),
+                descricao: `${negTag} - PASSIVO - OS ${os.codigo}`,
+                ...(formaPagamentoId ? { forma_pagamento_id: formaPagamentoId } : {}),
+                ...(nomeFormaPagamento ? { nome_forma_pagamento: nomeFormaPagamento } : {}),
+                ...(planoContasId ? { plano_contas_id: planoContasId, categoria_id: planoContasId } : {}),
+                ...(nomePlanoConta ? { nome_plano_conta: nomePlanoConta, nome_categoria: nomePlanoConta } : {}),
+              } }]
+            : pagamentosNegociados;
+
           const stepBPayload: Record<string, unknown> = {
             ...basePayload,
             situacao_id: SITUACAO_INTERMEDIARIA,
             data_primeira_parcela: dueDates[0],
-            numero_parcelas: String(parcelas),
-            condicao_pagamento: parcelas > 1 ? "parcelado" : "a_vista",
-            intervalo_dias: parcelas > 1
-              ? String(Math.max(1, Math.round(
-                  (new Date(`${dueDates[1]}T00:00:00Z`).getTime() - new Date(`${dueDates[0]}T00:00:00Z`).getTime()) /
-                  (1000 * 60 * 60 * 24)
-                )))
-              : "0",
-            pagamentos: dueDates.map((dt, idx) => {
-              const descParcela = `${negTag} - Parcela ${idx + 1}/${parcelas} - OS ${os.codigo}`;
-              const pagamento: Record<string, unknown> = {
-                data_vencimento: dt,
-                valor: osParcelaValues[idx].toFixed(2),
-                descricao: descParcela,
-              };
-              if (formaPagamentoId) pagamento.forma_pagamento_id = formaPagamentoId;
-              if (nomeFormaPagamento) pagamento.nome_forma_pagamento = nomeFormaPagamento;
-              if (planoContasId) { pagamento.plano_contas_id = planoContasId; pagamento.categoria_id = planoContasId; }
-              if (nomePlanoConta) { pagamento.nome_plano_conta = nomePlanoConta; pagamento.nome_categoria = nomePlanoConta; }
-              return { pagamento };
-            }),
+            numero_parcelas: String(pagamentosComPassivo.length),
+            condicao_pagamento: pagamentosComPassivo.length > 1 ? "parcelado" : "a_vista",
+            intervalo_dias: pagamentosComPassivo.length > 1 ? "30" : "0",
+            pagamentos: pagamentosComPassivo,
           };
 
           const existingObs = String(stepBPayload["observacoes"] || "");
