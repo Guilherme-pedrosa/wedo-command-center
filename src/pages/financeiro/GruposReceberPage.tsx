@@ -961,52 +961,64 @@ export default function GruposReceberPage() {
                   </div>
                 )}
 
-                {/* Items */}
+                {/* Financeiros vinculados */}
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-sm font-semibold">Itens ({grupoItens?.length || 0})</h4>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      disabled={resyncingGrupo || !grupoItens?.length}
-                      onClick={async () => {
-                        setResyncingGrupo(true);
-                        try {
-                          const itensComGcId = grupoItens?.filter((i: any) => i.fin_recebimentos?.gc_id) || [];
-                          if (!itensComGcId.length) { toast.error("Nenhum item com gc_id"); return; }
-                          let ok = 0, fail = 0;
-                          for (const item of itensComGcId) {
-                            const osCodigo = item.os_codigo_original || item.fin_recebimentos?.os_codigo;
-                            const success = await resyncRecebimentoFromGC(item.fin_recebimentos.gc_id, osCodigo);
-                            if (success) ok++; else fail++;
-                            await gcDelay();
-                          }
-                          // Recalculate group total
-                          const { data: updatedItens } = await supabase
-                            .from("fin_grupo_receber_itens")
-                            .select("valor")
-                            .eq("grupo_id", selectedGrupo.id);
-                          const novoTotal = (updatedItens || []).reduce((s: number, i: any) => s + Number(i.valor || 0), 0);
-                          await supabase.from("fin_grupos_receber").update({ valor_total: novoTotal, updated_at: new Date().toISOString() }).eq("id", selectedGrupo.id);
+                  <div className="flex items-center justify-between mb-2 gap-3 flex-wrap">
+                    <div>
+                      <h4 className="text-sm font-semibold">Financeiros vinculados ({grupoItens?.length || 0})</h4>
+                      <p className="text-xs text-muted-foreground">
+                        Estes são os recebimentos que compõem o valor combinado do grupo: <span className="font-medium text-foreground">{formatCurrency(grupoItensTotal)}</span>
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-xs">
+                        Grupo: {formatCurrency(Number(selectedGrupo.valor_total || 0))}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs">
+                        Itens: {formatCurrency(grupoItensTotal)}
+                      </Badge>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        disabled={resyncingGrupo || !grupoItens?.length}
+                        onClick={async () => {
+                          setResyncingGrupo(true);
+                          try {
+                            const itensComGcId = grupoItens?.filter((i: any) => i.fin_recebimentos?.gc_id) || [];
+                            if (!itensComGcId.length) { toast.error("Nenhum item com gc_id"); return; }
+                            let ok = 0, fail = 0;
+                            for (const item of itensComGcId) {
+                              const osCodigo = item.os_codigo_original || item.fin_recebimentos?.os_codigo;
+                              const success = await resyncRecebimentoFromGC(item.fin_recebimentos.gc_id, osCodigo);
+                              if (success) ok++; else fail++;
+                              await gcDelay();
+                            }
+                            const { data: updatedItens } = await supabase
+                              .from("fin_grupo_receber_itens")
+                              .select("valor")
+                              .eq("grupo_id", selectedGrupo.id);
+                            const novoTotal = (updatedItens || []).reduce((s: number, i: any) => s + Number(i.valor || 0), 0);
+                            await supabase.from("fin_grupos_receber").update({ valor_total: novoTotal, updated_at: new Date().toISOString() }).eq("id", selectedGrupo.id);
 
-                          toast.success(`Atualizado ${ok}/${itensComGcId.length} itens do GC`);
-                          if (fail) toast.error(`${fail} item(ns) falharam`);
-                          queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens"] });
-                          queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
-                        } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
-                        finally { setResyncingGrupo(false); }
-                      }}
-                    >
-                      {resyncingGrupo ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                      Atualizar do GC
-                    </Button>
+                            toast.success(`Atualizado ${ok}/${itensComGcId.length} itens do GC`);
+                            if (fail) toast.error(`${fail} item(ns) falharam`);
+                            queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens"] });
+                            queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
+                          } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+                          finally { setResyncingGrupo(false); }
+                        }}
+                      >
+                        {resyncingGrupo ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                        Atualizar do GC
+                      </Button>
+                    </div>
                   </div>
                   <div className="rounded-md border border-border overflow-hidden">
                     <table className="w-full text-xs">
                       <thead className="bg-muted/50">
                         <tr>
-                          <th className="p-2 text-left">Cód GC</th>
+                          <th className="p-2 text-left">Recebimento GC</th>
                           <th className="p-2 text-left">
                             <TooltipProvider>
                               <Tooltip>
@@ -1030,10 +1042,23 @@ export default function GruposReceberPage() {
                           const rec = i.fin_recebimentos;
                           const osOriginal = i.os_codigo_original || rec?.os_codigo;
                           const gcOsId = i.gc_os_id || rec?.gc_id;
-                          
+                          const gcRecebimentoUrl = rec?.gc_id ? `${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${rec.gc_id}` : null;
+
                           return (
                             <tr key={i.id} className="border-t border-border">
-                              <td className="p-2 font-mono">{rec?.gc_codigo || "—"}</td>
+                              <td className="p-2 font-mono">
+                                {gcRecebimentoUrl ? (
+                                  <a
+                                    href={gcRecebimentoUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-primary hover:underline inline-flex items-center gap-1"
+                                  >
+                                    {rec?.gc_codigo || rec?.gc_id}
+                                    <ExternalLink className="h-3 w-3" />
+                                  </a>
+                                ) : rec?.gc_codigo || "—"}
+                              </td>
                               <td className="p-2">
                                 {osOriginal ? (
                                   gcOsId ? (
