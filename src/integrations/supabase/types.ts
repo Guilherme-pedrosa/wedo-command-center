@@ -1966,6 +1966,45 @@ export type Database = {
           },
         ]
       }
+      fin_residuos_negociacao: {
+        Row: {
+          cliente_gc_id: string
+          created_at: string | null
+          created_by: string | null
+          id: string
+          negociacao_origem_numero: number | null
+          nome_cliente: string
+          observacao: string | null
+          utilizado: boolean | null
+          utilizado_em: string | null
+          valor_residual: number
+        }
+        Insert: {
+          cliente_gc_id: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          negociacao_origem_numero?: number | null
+          nome_cliente: string
+          observacao?: string | null
+          utilizado?: boolean | null
+          utilizado_em?: string | null
+          valor_residual: number
+        }
+        Update: {
+          cliente_gc_id?: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          negociacao_origem_numero?: number | null
+          nome_cliente?: string
+          observacao?: string | null
+          utilizado?: boolean | null
+          utilizado_em?: string | null
+          valor_residual?: number
+        }
+        Relationships: []
+      }
       fin_sync_log: {
         Row: {
           created_at: string | null
