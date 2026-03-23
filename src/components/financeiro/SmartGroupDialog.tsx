@@ -17,7 +17,7 @@ import { atualizarRecebimentoGC, gcDelay } from "@/api/financeiro";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CalendarIcon, Loader2, Sparkles, Target, X } from "lucide-react";
+import { CalendarIcon, Loader2, Sparkles, Target, X, Pencil, Check } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface SmartGroupDialogProps {
@@ -89,6 +89,8 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
   const [creating, setCreating] = useState(false);
   const [manualOverrides, setManualOverrides] = useState<Set<string>>(new Set());
   const [hasSearched, setHasSearched] = useState(false);
+  const [valorOverrides, setValorOverrides] = useState<Record<string, string>>({});
+  const [editingValor, setEditingValor] = useState<string | null>(null);
 
   // Clientes
   const { data: clientes = [] } = useQuery({
@@ -144,7 +146,16 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
   }, [suggestion, manualOverrides]);
 
   const selectedItems = recebimentos.filter((r: any) => selectedIds.has(r.id));
-  const selectedTotal = selectedItems.reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
+  
+  const getItemValor = (r: any): number => {
+    if (valorOverrides[r.id] !== undefined) {
+      const parsed = parseFloat(valorOverrides[r.id].replace(/\./g, "").replace(",", "."));
+      return isNaN(parsed) ? Number(r.valor || 0) : parsed;
+    }
+    return Number(r.valor || 0);
+  };
+  
+  const selectedTotal = selectedItems.reduce((s: number, r: any) => s + getItemValor(r), 0);
   const targetNum = parseFloat((valorAlvo || "0").replace(/\./g, "").replace(",", ".")) || 0;
   const diff = selectedTotal - targetNum;
 
@@ -184,7 +195,7 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
       const grupoItens = selectedItems.map((r: any) => ({
         grupo_id: (grupo as any).id,
         recebimento_id: r.id,
-        valor: Number(r.valor),
+        valor: getItemValor(r),
         os_codigo_original: r.os_codigo || null,
         gc_os_id: r.gc_id || null,
         snapshot_valor: Number(r.valor),
@@ -229,6 +240,8 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
     setGroupDate(undefined);
     setManualOverrides(new Set());
     setHasSearched(false);
+    setValorOverrides({});
+    setEditingValor(null);
   };
 
   return (
@@ -313,24 +326,82 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
                 <div className="divide-y divide-border">
                   {recebimentos.map((r: any) => {
                     const isSelected = selectedIds.has(r.id);
+                    const originalValor = Number(r.valor || 0);
+                    const currentValor = getItemValor(r);
+                    const isEditing = editingValor === r.id;
+                    const hasOverride = valorOverrides[r.id] !== undefined && currentValor !== originalValor;
+                    
                     return (
                       <div
                         key={r.id}
                         className={cn(
-                          "flex items-center gap-3 px-3 py-2 text-sm cursor-pointer transition-colors",
+                          "flex items-center gap-3 px-3 py-2 text-sm transition-colors",
                           isSelected ? "bg-primary/5" : "hover:bg-muted/30"
                         )}
-                        onClick={() => toggleItem(r.id)}
                       >
-                        <Checkbox checked={isSelected} className="pointer-events-none" />
-                        <div className="flex-1 min-w-0">
+                        <div className="cursor-pointer" onClick={() => toggleItem(r.id)}>
+                          <Checkbox checked={isSelected} className="pointer-events-none" />
+                        </div>
+                        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleItem(r.id)}>
                           <div className="truncate text-xs text-foreground">{r.descricao}</div>
                           <div className="text-[10px] text-muted-foreground">
                             {r.os_codigo && `OS ${r.os_codigo} · `}
                             {r.data_vencimento && `Venc. ${formatDate(r.data_vencimento)}`}
                           </div>
                         </div>
-                        <span className="font-semibold text-xs whitespace-nowrap">{formatCurrency(Number(r.valor))}</span>
+                        <div className="flex items-center gap-1.5">
+                          {isEditing ? (
+                            <div className="flex items-center gap-1">
+                              <Input
+                                className="h-6 w-24 text-xs text-right"
+                                defaultValue={valorOverrides[r.id] ?? originalValor.toFixed(2).replace('.', ',')}
+                                autoFocus
+                                onClick={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const val = (e.target as HTMLInputElement).value;
+                                    const parsed = parseFloat(val.replace(/\./g, "").replace(",", "."));
+                                    if (!isNaN(parsed) && parsed > 0 && parsed <= originalValor) {
+                                      setValorOverrides(prev => ({ ...prev, [r.id]: val }));
+                                    } else if (parsed > originalValor) {
+                                      toast.error(`Máximo: ${formatCurrency(originalValor)}`);
+                                    }
+                                    setEditingValor(null);
+                                  }
+                                  if (e.key === 'Escape') setEditingValor(null);
+                                }}
+                                onBlur={(e) => {
+                                  const val = e.target.value;
+                                  const parsed = parseFloat(val.replace(/\./g, "").replace(",", "."));
+                                  if (!isNaN(parsed) && parsed > 0 && parsed <= originalValor) {
+                                    setValorOverrides(prev => ({ ...prev, [r.id]: val }));
+                                  }
+                                  setEditingValor(null);
+                                }}
+                              />
+                            </div>
+                          ) : (
+                            <>
+                              <span className={cn("font-semibold text-xs whitespace-nowrap", hasOverride && "text-amber-500")}>
+                                {formatCurrency(currentValor)}
+                              </span>
+                              {hasOverride && (
+                                <span className="text-[9px] text-muted-foreground line-through">
+                                  {formatCurrency(originalValor)}
+                                </span>
+                              )}
+                              {isSelected && (
+                                <button
+                                  className="text-muted-foreground hover:text-foreground p-0.5"
+                                  onClick={(e) => { e.stopPropagation(); setEditingValor(r.id); }}
+                                  title="Desmembrar valor"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

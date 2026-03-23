@@ -162,6 +162,7 @@ export default function GruposReceberPage() {
   const [scanningPassivos, setScanningPassivos] = useState(false);
   const [markingPassivo, setMarkingPassivo] = useState<string | null>(null);
   const [editValorCobrar, setEditValorCobrar] = useState<number | null>(null);
+  const [editingItemValor, setEditingItemValor] = useState<string | null>(null);
 
   const canEditGroup = (g: any) => !g.nfse_numero && !g.gc_baixado && g.status !== "pago";
 
@@ -1109,7 +1110,44 @@ export default function GruposReceberPage() {
                                 )}
                               </td>
                               <td className="p-2 truncate max-w-[150px]">{rec?.descricao}</td>
-                              <td className="p-2 text-right font-medium">{formatCurrency(Number(i.valor || rec?.valor))}</td>
+                              <td className="p-2 text-right font-medium">
+                                {editingItemValor === i.id ? (
+                                  <Input
+                                    className="h-6 w-24 text-xs text-right ml-auto"
+                                    defaultValue={Number(i.valor || rec?.valor).toFixed(2).replace('.', ',')}
+                                    autoFocus
+                                    onKeyDown={async (e) => {
+                                      if (e.key === 'Enter') {
+                                        const val = (e.target as HTMLInputElement).value;
+                                        const parsed = parseFloat(val.replace(/\./g, "").replace(",", "."));
+                                        const originalVal = Number(rec?.valor || 0);
+                                        if (isNaN(parsed) || parsed <= 0) { toast.error("Valor inválido"); return; }
+                                        if (parsed > originalVal) { toast.error(`Máximo: ${formatCurrency(originalVal)}`); return; }
+                                        await supabase.from("fin_grupo_receber_itens").update({ valor: parsed }).eq("id", i.id);
+                                        // Recalculate group total
+                                        const { data: allItens } = await supabase.from("fin_grupo_receber_itens").select("valor").eq("grupo_id", selectedGrupo.id);
+                                        const novoTotal = (allItens || []).reduce((s: number, it: any) => s + Number(it.valor || 0), 0);
+                                        await supabase.from("fin_grupos_receber").update({ valor_total: novoTotal, updated_at: new Date().toISOString() }).eq("id", selectedGrupo.id);
+                                        toast.success(`Valor atualizado para ${formatCurrency(parsed)}`);
+                                        queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens"] });
+                                        queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
+                                        setEditingItemValor(null);
+                                      }
+                                      if (e.key === 'Escape') setEditingItemValor(null);
+                                    }}
+                                    onBlur={() => setEditingItemValor(null)}
+                                  />
+                                ) : (
+                                  <span
+                                    className="cursor-pointer hover:text-primary inline-flex items-center gap-1 justify-end"
+                                    onClick={() => setEditingItemValor(i.id)}
+                                    title="Clique para editar valor"
+                                  >
+                                    {formatCurrency(Number(i.valor || rec?.valor))}
+                                    <Pencil className="h-2.5 w-2.5 text-muted-foreground" />
+                                  </span>
+                                )}
+                              </td>
                               <td className="p-2 text-center">{rec?.pago_sistema ? "✅" : "—"}</td>
                               <td className="p-2 text-center">{i.gc_baixado ? "✅" : "⏳"}</td>
                             </tr>
