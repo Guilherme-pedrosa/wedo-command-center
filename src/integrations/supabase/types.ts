@@ -1971,10 +1971,13 @@ export type Database = {
           cliente_gc_id: string
           created_at: string | null
           created_by: string | null
+          gc_codigo: string | null
+          gc_recebimento_id: string | null
           id: string
           negociacao_origem_numero: number | null
           nome_cliente: string
           observacao: string | null
+          os_codigos: string[] | null
           utilizado: boolean | null
           utilizado_em: string | null
           valor_residual: number
@@ -1983,10 +1986,13 @@ export type Database = {
           cliente_gc_id: string
           created_at?: string | null
           created_by?: string | null
+          gc_codigo?: string | null
+          gc_recebimento_id?: string | null
           id?: string
           negociacao_origem_numero?: number | null
           nome_cliente: string
           observacao?: string | null
+          os_codigos?: string[] | null
           utilizado?: boolean | null
           utilizado_em?: string | null
           valor_residual: number
@@ -1995,10 +2001,13 @@ export type Database = {
           cliente_gc_id?: string
           created_at?: string | null
           created_by?: string | null
+          gc_codigo?: string | null
+          gc_recebimento_id?: string | null
           id?: string
           negociacao_origem_numero?: number | null
           nome_cliente?: string
           observacao?: string | null
+          os_codigos?: string[] | null
           utilizado?: boolean | null
           utilizado_em?: string | null
           valor_residual?: number
