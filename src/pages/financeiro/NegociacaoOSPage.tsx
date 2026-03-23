@@ -70,6 +70,7 @@ export default function NegociacaoOSPage() {
     d.setMonth(d.getMonth() + 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
+  const [valoresParcelas, setValoresParcelas] = useState<number[]>([]);
 
   // Results
   const [results, setResults] = useState<NegotiateResult[] | null>(null);
@@ -215,6 +216,40 @@ export default function NegociacaoOSPage() {
 
   const valorParcela = parcelas > 0 ? selectedTotal / parcelas : 0;
 
+  // Initialize parcela values when params change
+  useEffect(() => {
+    if (parcelas > 0 && selectedTotal > 0) {
+      const base = Math.round((selectedTotal / parcelas) * 100) / 100;
+      const arr = Array(parcelas).fill(base);
+      // Adjust last to fix rounding
+      const diff = selectedTotal - arr.reduce((a: number, b: number) => a + b, 0);
+      arr[arr.length - 1] = Math.round((arr[arr.length - 1] + diff) * 100) / 100;
+      setValoresParcelas(arr);
+    }
+  }, [parcelas, selectedTotal]);
+
+  const handleParcelaValueChange = (index: number, newValue: number) => {
+    const updated = [...valoresParcelas];
+    updated[index] = Math.round(newValue * 100) / 100;
+    const usedByOthers = updated.reduce((sum, v, i) => i !== index ? sum + v : sum, 0);
+    const remaining = selectedTotal - updated[index];
+    const othersCount = updated.length - 1;
+    if (othersCount > 0 && remaining >= 0) {
+      const eachOther = Math.round((remaining / othersCount) * 100) / 100;
+      for (let i = 0; i < updated.length; i++) {
+        if (i !== index) updated[i] = eachOther;
+      }
+      // Fix rounding on last non-edited
+      const totalNow = updated.reduce((a, b) => a + b, 0);
+      const roundDiff = Math.round((selectedTotal - totalNow) * 100) / 100;
+      if (roundDiff !== 0) {
+        const lastOther = index === updated.length - 1 ? updated.length - 2 : updated.length - 1;
+        updated[lastOther] = Math.round((updated[lastOther] + roundDiff) * 100) / 100;
+      }
+    }
+    setValoresParcelas(updated);
+  };
+
   const handleExecute = async () => {
     if (selectedOSIds.size === 0) return;
     setExecuting(true);
@@ -228,6 +263,7 @@ export default function NegociacaoOSPage() {
           parcelas,
           dia_vencimento: diaVencimento,
           mes_inicio: mesInicio,
+          valores_parcelas: valoresParcelas,
           nome_cliente: selectedClient?.nome_cliente,
           cliente_gc_id: selectedClient?.cliente_id,
         },
@@ -454,19 +490,33 @@ export default function NegociacaoOSPage() {
                 />
               </div>
 
-              <Card className="bg-muted/50">
-                <CardContent className="pt-4 space-y-2">
-                  <p className="text-sm font-medium">Resumo</p>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <span className="text-muted-foreground">Valor por parcela:</span>
-                    <span className="font-semibold text-right">{formatCurrency(valorParcela)}</span>
-                    <span className="text-muted-foreground">Primeira parcela:</span>
-                    <span className="text-right">{previewDates[0] || "—"}</span>
-                    <span className="text-muted-foreground">Última parcela:</span>
-                    <span className="text-right">{previewDates[previewDates.length - 1] || "—"}</span>
-                  </div>
-                </CardContent>
-              </Card>
+              {/* Editable parcelas */}
+              <div className="space-y-2">
+                <Label>Valores das Parcelas</Label>
+                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                  {valoresParcelas.map((val, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground w-16 shrink-0">
+                        {previewDates[i] || `Parcela ${i + 1}`}
+                      </span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        value={val}
+                        onChange={(e) => handleParcelaValueChange(i, Number(e.target.value))}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground pt-1 border-t border-border">
+                  <span>Total parcelas:</span>
+                  <span className={`font-semibold ${Math.abs(valoresParcelas.reduce((a, b) => a + b, 0) - selectedTotal) > 0.02 ? 'text-destructive' : 'text-primary'}`}>
+                    {formatCurrency(valoresParcelas.reduce((a, b) => a + b, 0))}
+                  </span>
+                </div>
+              </div>
 
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowNegotiate(false)}>Cancelar</Button>
