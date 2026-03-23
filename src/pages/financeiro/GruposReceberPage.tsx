@@ -23,6 +23,55 @@ export default function GruposReceberPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  const roundMoney = (value: number) => Math.round(value * 100) / 100;
+
+  const findClosestSubsetAtOrBelow = (
+    items: Array<{ key: string; valor: number }>,
+    target: number,
+  ) => {
+    const sorted = [...items]
+      .filter((item) => item.valor > 0)
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 30);
+
+    let bestKeys: string[] = [];
+    let bestSum = 0;
+    const tolerance = 0.02;
+
+    const search = (index: number, currentSum: number, chosen: string[]) => {
+      if (Math.abs(currentSum - target) <= tolerance) {
+        bestKeys = [...chosen];
+        bestSum = currentSum;
+        return true;
+      }
+
+      if (currentSum > bestSum && currentSum <= target + tolerance) {
+        bestSum = currentSum;
+        bestKeys = [...chosen];
+      }
+
+      if (index >= sorted.length) return false;
+
+      let remaining = 0;
+      for (let i = index; i < sorted.length; i++) remaining += sorted[i].valor;
+      if (currentSum + remaining < bestSum) return false;
+
+      for (let i = index; i < sorted.length; i++) {
+        const next = currentSum + sorted[i].valor;
+        if (next <= target + tolerance) {
+          chosen.push(sorted[i].key);
+          if (search(i + 1, next, chosen)) return true;
+          chosen.pop();
+        }
+      }
+
+      return false;
+    };
+
+    search(0, 0, []);
+    return new Set(bestKeys);
+  };
+
   const handleDownloadXml = async (filePath: string) => {
     try {
       const { data, error } = await supabase.storage.from("nf-xmls").createSignedUrl(filePath, 300);
@@ -89,89 +138,114 @@ export default function GruposReceberPage() {
     if (!selectedGrupo) return;
     setSaving(true);
     try {
-      // Remove items marked for removal
-      for (const itemId of editItensToRemove) {
-        const { data: item } = await supabase.from("fin_grupo_receber_itens").select("recebimento_id").eq("id", itemId).single();
-        if (item) {
-          await supabase.from("fin_recebimentos").update({ grupo_id: null }).eq("id", item.recebimento_id);
+      const { data: currentGroupItems, error: currentItemsError } = await supabase
+        .from("fin_grupo_receber_itens")
+        .select("id, recebimento_id, valor, os_codigo_original, fin_recebimentos(valor, os_codigo, descricao)")
+        .eq("grupo_id", selectedGrupo.id);
+
+      if (currentItemsError) throw currentItemsError;
+
+      const baseItems = (currentGroupItems || [])
+        .filter((item: any) => !editItensToRemove.includes(item.id))
+        .map((item: any) => ({
+          key: `existing:${item.id}`,
+          source: "existing" as const,
+          groupItemId: item.id,
+          recebimentoId: item.recebimento_id,
+          valor: Number(item.valor || item.fin_recebimentos?.valor || 0),
+          osCodigo: item.os_codigo_original || item.fin_recebimentos?.os_codigo || null,
+        }));
+
+      const addedItems = editItensToAdd.map((rec: any) => ({
+        key: `new:${rec.id}`,
+        source: "new" as const,
+        recebimentoId: rec.id,
+        valor: Number(rec.valor || 0),
+        osCodigo: rec.os_codigo || null,
+      }));
+
+      const candidateItems = [...baseItems, ...addedItems].filter((item) => item.valor > 0);
+      if (!candidateItems.length) {
+        throw new Error("O grupo precisa ter pelo menos um item.");
+      }
+
+      const totalItens = roundMoney(candidateItems.reduce((sum, item) => sum + item.valor, 0));
+      const valorDesejado = editValorCobrar !== null
+        ? Math.max(0.01, Math.min(roundMoney(editValorCobrar), totalItens))
+        : totalItens;
+
+      const keepKeys = valorDesejado < totalItens - 0.01
+        ? findClosestSubsetAtOrBelow(candidateItems.map((item) => ({ key: item.key, valor: item.valor })), valorDesejado)
+        : new Set(candidateItems.map((item) => item.key));
+
+      const keptItems = candidateItems.filter((item) => keepKeys.has(item.key));
+      const removedItems = candidateItems.filter((item) => !keepKeys.has(item.key));
+
+      if (!keptItems.length) {
+        throw new Error("Nenhuma combinação de itens fecha o valor informado. Ajuste o valor a cobrar.");
+      }
+
+      const removedExisting = removedItems.filter((item) => item.source === "existing");
+      if (removedExisting.length > 0) {
+        const recebimentoIds = removedExisting.map((item) => item.recebimentoId);
+        const groupItemIds = removedExisting.map((item) => item.groupItemId).filter(Boolean);
+
+        await supabase.from("fin_recebimentos").update({ grupo_id: null }).in("id", recebimentoIds);
+        if (groupItemIds.length > 0) {
+          await supabase.from("fin_grupo_receber_itens").delete().in("id", groupItemIds as string[]);
         }
-        await supabase.from("fin_grupo_receber_itens").delete().eq("id", itemId);
       }
 
-      // Add new items
-      for (const rec of editItensToAdd) {
-        await supabase.from("fin_grupo_receber_itens").insert({
-          grupo_id: selectedGrupo.id,
-          recebimento_id: rec.id,
-          valor: rec.valor,
-          os_codigo_original: rec.os_codigo || null,
-          gc_os_id: rec.gc_id || null,
-          snapshot_valor: rec.valor,
-          snapshot_data: rec.data_vencimento || null,
-        });
-        await supabase.from("fin_recebimentos").update({ grupo_id: selectedGrupo.id }).eq("id", rec.id);
+      const keptNewItems = keptItems.filter((item) => item.source === "new");
+      if (keptNewItems.length > 0) {
+        await supabase.from("fin_grupo_receber_itens").insert(
+          keptNewItems.map((item) => {
+            const rec = editItensToAdd.find((entry: any) => entry.id === item.recebimentoId);
+            return {
+              grupo_id: selectedGrupo.id,
+              recebimento_id: item.recebimentoId,
+              valor: item.valor,
+              os_codigo_original: item.osCodigo,
+              gc_os_id: rec?.gc_id || null,
+              snapshot_valor: item.valor,
+              snapshot_data: rec?.data_vencimento || null,
+            };
+          }),
+        );
+        await supabase.from("fin_recebimentos").update({ grupo_id: selectedGrupo.id }).in("id", keptNewItems.map((item) => item.recebimentoId));
       }
 
-      // Update group metadata
+      const valorGrupoFinal = roundMoney(keptItems.reduce((sum, item) => sum + item.valor, 0));
+      const valorSeparado = roundMoney(removedItems.reduce((sum, item) => sum + item.valor, 0));
+      const osCodigos = Array.from(new Set(keptItems.map((item) => item.osCodigo).filter(Boolean)));
+      const keptRecebimentoIds = keptItems.map((item) => item.recebimentoId);
+
       const { error } = await supabase.from("fin_grupos_receber").update({
         nome: editNome,
         data_vencimento: editVencimento || null,
         observacao: editObs || null,
+        valor_total: valorGrupoFinal,
+        itens_total: keptItems.length,
+        os_codigos: osCodigos.length > 0 ? osCodigos : null,
         updated_at: new Date().toISOString(),
       }).eq("id", selectedGrupo.id);
       if (error) throw error;
 
-      // Recalculate totals
-      const { data: allItens } = await supabase
-        .from("fin_grupo_receber_itens")
-        .select("valor")
-        .eq("grupo_id", selectedGrupo.id);
-      const novoTotal = (allItens || []).reduce((s: number, i: any) => s + Number(i.valor || 0), 0);
-      
-      // Use editValorCobrar if set, otherwise use full total
-      const valorEfetivo = editValorCobrar !== null && editValorCobrar < novoTotal 
-        ? editValorCobrar 
-        : novoTotal;
-      const valorResidual = Math.round((novoTotal - valorEfetivo) * 100) / 100;
-
-      await supabase.from("fin_grupos_receber").update({
-        valor_total: valorEfetivo,
-        itens_total: allItens?.length || 0,
-      }).eq("id", selectedGrupo.id);
-
-      // Create passivo if there's a residual
-      if (valorResidual > 0.01 && selectedGrupo.cliente_gc_id) {
-        const osCodigos = (selectedGrupo.os_codigos as string[] | null) || [];
-        await supabase.from("fin_residuos_negociacao").insert({
-          cliente_gc_id: selectedGrupo.cliente_gc_id,
-          nome_cliente: selectedGrupo.nome_cliente || "—",
-          valor_residual: valorResidual,
-          negociacao_origem_numero: selectedGrupo.negociacao_numero || null,
-          os_codigos: osCodigos,
-          observacao: `Passivo gerado do grupo "${editNome}" — Total itens: ${formatCurrency(novoTotal)}, Valor cobrado: ${formatCurrency(valorEfetivo)}`,
-          utilizado: false,
-        });
-        toast.success(`Passivo de ${formatCurrency(valorResidual)} criado para ${selectedGrupo.nome_cliente}`);
+      if (editVencimento && keptRecebimentoIds.length > 0) {
+        await supabase.from("fin_recebimentos").update({ data_vencimento: editVencimento }).in("id", keptRecebimentoIds);
       }
 
-      // Update vencimento on linked recebimentos
-      if (editVencimento) {
-        const { data: itens } = await supabase
-          .from("fin_grupo_receber_itens")
-          .select("recebimento_id")
-          .eq("grupo_id", selectedGrupo.id);
-        if (itens?.length) {
-          const ids = itens.map((i: any) => i.recebimento_id);
-          await supabase.from("fin_recebimentos").update({ data_vencimento: editVencimento }).in("id", ids);
-        }
-      }
-
-      toast.success("Grupo atualizado");
+      toast.success(
+        valorSeparado > 0.01
+          ? `Grupo ajustado: ${formatCurrency(valorGrupoFinal)} no grupo e ${formatCurrency(valorSeparado)} separado como passivo`
+          : "Grupo atualizado",
+      );
       setShowEditDialog(false);
       setSelectedGrupo(null);
       queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
       queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens"] });
       queryClient.invalidateQueries({ queryKey: ["fin-passivos-cliente"] });
+      queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
     finally { setSaving(false); }
   };
