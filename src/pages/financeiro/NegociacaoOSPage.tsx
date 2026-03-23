@@ -464,6 +464,28 @@ export default function NegociacaoOSPage() {
 
           {!results ? (
             <div className="space-y-4">
+              {/* Valor Negociado + Residual */}
+              <div className="space-y-2">
+                <Label>Valor a Negociar</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0.01}
+                  max={selectedTotal}
+                  value={valorNegociado}
+                  onChange={(e) => {
+                    const v = Math.min(Number(e.target.value), selectedTotal);
+                    setValorNegociado(Math.round(v * 100) / 100);
+                  }}
+                />
+                {valorResidual > 0.01 && (
+                  <div className="flex items-center justify-between rounded-md bg-accent/50 px-3 py-2 text-sm">
+                    <span className="text-muted-foreground">Valor residual (próxima negociação):</span>
+                    <span className="font-semibold text-accent-foreground">{formatCurrency(valorResidual)}</span>
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Nº Parcelas</Label>
