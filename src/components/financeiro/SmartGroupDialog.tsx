@@ -17,7 +17,7 @@ import { atualizarRecebimentoGC, gcDelay } from "@/api/financeiro";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CalendarIcon, Loader2, Sparkles, Target, X } from "lucide-react";
+import { CalendarIcon, Loader2, Sparkles, Target, X, Pencil, Check } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface SmartGroupDialogProps {
