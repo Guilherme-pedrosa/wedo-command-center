@@ -221,6 +221,8 @@ serve(async (req) => {
     // ─── EXECUTE ───────────────────────────────────────────
     if (body.action === "execute") {
       const { os_ids, parcelas, dia_vencimento, mes_inicio, nome_cliente, cliente_gc_id } = body;
+      const valoresParcelas = (body as any).valores_parcelas as number[] | undefined;
+      const valorNegociado = (body as any).valor_negociado as number | undefined;
 
       if (!os_ids?.length || !parcelas || !dia_vencimento || !mes_inicio) {
         return new Response(
@@ -228,6 +230,10 @@ serve(async (req) => {
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
+
+      // Calculate per-OS value distribution based on negotiated values
+      // Total negotiated value split proportionally across OS by their original values
+      const useCustomValues = Array.isArray(valoresParcelas) && valoresParcelas.length === parcelas;
 
       // Get sequential negotiation number
       const { data: negNumData, error: negNumErr } = await supabase.rpc("next_negociacao_number");
