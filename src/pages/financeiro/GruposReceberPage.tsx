@@ -594,6 +594,7 @@ export default function GruposReceberPage() {
                         setEditItensToAdd([]);
                         setSearchReceb("");
                         setSearchResults([]);
+                        setEditValorCobrar(null);
                         setShowEditDialog(true);
                       }}>
                           <Pencil className="h-3 w-3" />
