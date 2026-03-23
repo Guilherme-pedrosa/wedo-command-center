@@ -663,7 +663,9 @@ serve(async (req) => {
             const dueDate = String(rec?.data_vencimento || "").slice(0, 10);
             const currentDesc = String(rec?.descricao || "").trim();
             const currentObs = String(rec?.observacoes || rec?.observacao || "").trim();
-            const isPassive = currentDesc.toUpperCase().includes("PASSIVO") || (dueDate === residualDueDate && plan.residual > 0.01 && Math.abs(plan.residual - recValue) <= 0.02);
+            const isPassive = currentDesc.toUpperCase().includes("PASSIVO")
+              || (dueDate === residualDueDate && plan.residual > 0.01 && Math.abs(plan.residual - recValue) <= 0.02)
+              || (plan.residual > 0.01 && Math.abs(plan.residual - recValue) <= 0.02 && !plan.parcelValues.some((pv) => Math.abs(pv - recValue) <= 0.02));
 
             const cleanedDesc = currentDesc
               .replace(/^\[?\s*neg[\s#\.\-]*\d+\]?\s*[-–—:]?\s*/i, "")
