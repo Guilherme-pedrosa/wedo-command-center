@@ -498,6 +498,54 @@ export default function NegociacaoOSPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Config Dialog */}
+      <Dialog open={showConfig} onOpenChange={setShowConfig}>
+        <DialogContent className="max-w-lg max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>Configurar Situações</DialogTitle>
+            <DialogDescription>
+              Selecione quais situações de OS serão analisadas para negociação.
+            </DialogDescription>
+          </DialogHeader>
+
+          {loadingSituacoes ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Carregando situações do GestãoClick...</span>
+            </div>
+          ) : (
+            <div className="max-h-[50vh] overflow-y-auto space-y-1 pr-1">
+              {situacoes.map((sit) => (
+                <label
+                  key={sit.id}
+                  className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-muted/50 cursor-pointer"
+                >
+                  <Checkbox
+                    checked={selectedSituacoes.includes(sit.id)}
+                    onCheckedChange={() => toggleSituacao(sit.id)}
+                  />
+                  <span className="text-sm flex-1">{sit.nome}</span>
+                  <span className="text-xs text-muted-foreground font-mono">{sit.id}</span>
+                </label>
+              ))}
+              {situacoes.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Nenhuma situação encontrada.
+                </p>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowConfig(false)}>Cancelar</Button>
+            <Button onClick={handleSaveConfig} disabled={savingConfig || selectedSituacoes.length === 0}>
+              {savingConfig ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Salvar ({selectedSituacoes.length})
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
