@@ -194,7 +194,7 @@ export default function PagamentosPage() {
   ) => {
     setSyncing(true);
     try {
-      const result = await syncByMonthChunks(filtros, onProgress, onStep);
+      const result = await syncByMonthChunks(filtros, onProgress, onStep, "pagamentos");
       toast.success(`Importados: ${result.importados} registros`);
       queryClient.invalidateQueries({ queryKey: ["fin-pagamentos"] });
       setShowSyncDialog(false);
