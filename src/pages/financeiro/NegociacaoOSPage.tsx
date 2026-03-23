@@ -190,9 +190,17 @@ export default function NegociacaoOSPage() {
     c.nome_cliente.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleSelectClient = (client: ClientGroup) => {
+  const handleSelectClient = async (client: ClientGroup) => {
     setSelectedClient(client);
     setSelectedOSIds(new Set(client.os_list.map((os) => os.id)));
+    // Fetch residuals for this client
+    const { data } = await supabase
+      .from("fin_residuos_negociacao")
+      .select("*")
+      .eq("cliente_gc_id", client.cliente_id)
+      .eq("utilizado", false)
+      .order("created_at", { ascending: false });
+    setClientResiduais((data as ResidualItem[]) || []);
   };
 
   const handleBack = () => {
