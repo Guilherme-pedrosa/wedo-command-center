@@ -357,6 +357,36 @@ export default function NegociacaoOSPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            onClick={async () => {
+              setScanningPassivos(true);
+              try {
+                const { data, error } = await supabase.functions.invoke("scan-passivos");
+                if (error) throw error;
+                toast.success(`Scan concluído: ${data.inserted} passivo(s) importado(s), ${data.skipped} já existente(s)`);
+                // Refresh residuals if client is selected
+                if (selectedClient) {
+                  const { data: residuals } = await supabase
+                    .from("fin_residuos_negociacao")
+                    .select("*")
+                    .eq("cliente_gc_id", selectedClient.cliente_id)
+                    .eq("utilizado", false)
+                    .order("created_at", { ascending: false });
+                  setClientResiduais((residuals as ResidualItem[]) || []);
+                }
+              } catch (err) {
+                toast.error(`Erro: ${(err as Error).message}`);
+              } finally {
+                setScanningPassivos(false);
+              }
+            }}
+            disabled={scanningPassivos}
+            variant="outline"
+            size="sm"
+          >
+            {scanningPassivos ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ScanSearch className="h-4 w-4 mr-1" />}
+            Scan Passivos
+          </Button>
           <Button onClick={handleOpenConfig} variant="outline" size="sm">
             <Settings2 className="h-4 w-4 mr-1" />
             Situações
