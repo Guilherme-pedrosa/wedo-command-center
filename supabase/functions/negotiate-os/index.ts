@@ -79,6 +79,7 @@ interface NegotiateRequest {
   forma_pagamento_id?: string;
   nome_cliente?: string;
   cliente_gc_id?: string;
+  situacao_ids?: string[];
 }
 
 serve(async (req) => {
