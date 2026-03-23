@@ -287,14 +287,20 @@ export default function NegociacaoOSPage() {
               Negociação de OS
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              OS em "Executado - Ag Negociação" agrupadas por cliente
+              OS agrupadas por cliente ({selectedSituacoes.length} situação(ões) configurada(s))
             </p>
           </div>
         </div>
-        <Button onClick={fetchOS} disabled={loading} variant="outline" size="sm">
-          {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-          Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={handleOpenConfig} variant="outline" size="sm">
+            <Settings2 className="h-4 w-4 mr-1" />
+            Situações
+          </Button>
+          <Button onClick={fetchOS} disabled={loading} variant="outline" size="sm">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            Atualizar
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
