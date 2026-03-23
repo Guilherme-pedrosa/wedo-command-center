@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
-import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix, resyncRecebimentoFromGC, gcDelay, atualizarRecebimentoGC, desmembrarRecebimentoNegociacao } from "@/api/financeiro";
+import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix, resyncRecebimentoFromGC, gcDelay, atualizarRecebimentoGC, registrarResidualNegociacao } from "@/api/financeiro";
 import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink, FileText, Link2, Plus, Upload, AlertTriangle, ShieldCheck, RefreshCw, Pencil, Trash2, CalendarIcon, Search, X, Minus, Sparkles, ScanSearch, Banknote, Check } from "lucide-react";
 import { SmartGroupDialog } from "@/components/financeiro/SmartGroupDialog";
 import toast from "react-hot-toast";
@@ -1157,19 +1157,17 @@ export default function GruposReceberPage() {
                                           if (isNaN(parsed) || parsed <= 0) { toast.error("Valor inválido"); return; }
                                           if (parsed > valorAtual) { toast.error(`Máximo: ${formatCurrency(valorAtual)}`); return; }
                                           if (Math.abs(parsed - valorAtual) <= 0.009) { setEditingItemValor(null); return; }
-                                          if (!selectedGrupo?.data_vencimento) {
-                                            toast.error("Defina o vencimento do grupo para desmembrar o restante.");
-                                            return;
-                                          }
 
-                                          const vencResidual = fnsFormat(addMonths(new Date(`${selectedGrupo.data_vencimento}T12:00:00`), 1), "yyyy-MM-dd");
-
-                                          await desmembrarRecebimentoNegociacao({
+                                          // Registra resíduo localmente (não mexe no GC)
+                                          await registrarResidualNegociacao({
                                             recebimentoId: i.recebimento_id,
+                                            valorOriginal: valorAtual,
                                             valorNegociado: parsed,
-                                            dataVencimentoNegociado: selectedGrupo.data_vencimento,
-                                            dataVencimentoResidual: vencResidual,
-                                            grupoId: selectedGrupo.id,
+                                            clienteGcId: selectedGrupo?.cliente_gc_id || null,
+                                            nomeCliente: selectedGrupo?.nome_cliente || null,
+                                            osCodigo: rec?.os_codigo || null,
+                                            gcRecebimentoId: rec?.gc_id || null,
+                                            gcCodigo: rec?.gc_codigo || null,
                                           });
 
                                           await supabase.from("fin_grupo_receber_itens").update({ valor: parsed }).eq("id", i.id);
