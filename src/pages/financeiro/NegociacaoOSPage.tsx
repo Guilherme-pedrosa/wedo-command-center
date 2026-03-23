@@ -126,11 +126,11 @@ export default function NegociacaoOSPage() {
     setLoadingSituacoes(true);
     try {
       const res = await callGC<{ data: GCSituacao[] }>({
-        endpoint: "/api/situacoes",
+        endpoint: "/api/situacoes_ordens_servicos",
         params: { limite: "200", pagina: "1" },
       });
       const items = Array.isArray(res.data?.data) ? res.data.data : [];
-      setSituacoes(items.map((s: any) => ({ id: String(s.id), nome: String(s.nome || s.descricao || s.id) })));
+      setSituacoes(items.map((s: any) => ({ id: String(s.id), nome: String(s.nome || s.id) })));
     } catch (err) {
       toast.error("Erro ao carregar situações do GestãoClick");
     } finally {
