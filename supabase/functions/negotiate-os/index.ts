@@ -701,6 +701,7 @@ serve(async (req) => {
           results: gcUpdateResults,
           grupos_criados: grupoIds.length,
           grupo_ids: grupoIds,
+          negociacao_numero,
           summary: { total: os_ids.length, ok: okCount, errors: errCount },
           duration_ms: Date.now() - startTime,
         }),
