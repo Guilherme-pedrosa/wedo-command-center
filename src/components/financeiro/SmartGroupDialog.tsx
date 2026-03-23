@@ -240,6 +240,8 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
     setGroupDate(undefined);
     setManualOverrides(new Set());
     setHasSearched(false);
+    setValorOverrides({});
+    setEditingValor(null);
   };
 
   return (
