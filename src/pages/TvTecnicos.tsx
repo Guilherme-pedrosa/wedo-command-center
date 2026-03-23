@@ -221,6 +221,42 @@ export default function TvTecnicos() {
     };
   }, [month, qc, year]);
 
+  // Realtime refresh to keep the TV panel in sync without waiting for polling.
+  useEffect(() => {
+    const channel = supabase
+      .channel(`tv-tecnicos-refresh-${year}-${month}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'os_index' },
+        () => qc.invalidateQueries({ queryKey: ['os_index_tecnicos', year, month] })
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'fin_os_retornos' },
+        () => qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] })
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'fin_metas_tecnicos' },
+        () => qc.invalidateQueries({ queryKey: ['fin_metas_tecnicos'] })
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'fin_sync_log' },
+        () => qc.invalidateQueries({ queryKey: ['last_sync_os'] })
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sync_log' },
+        () => qc.invalidateQueries({ queryKey: ['last_sync_os'] })
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [month, qc, year]);
+
   // Mutations
   const addRetorno = useMutation({
     mutationFn: async (params: { os_codigo: string; tecnico_original: string; tecnico_retorno: string; valor: number; observacao?: string | null }) => {
