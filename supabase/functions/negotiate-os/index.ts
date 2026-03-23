@@ -554,6 +554,7 @@ serve(async (req) => {
           const vencimento = dueDates[i];
           const nomeGrupo = `${clienteNome} — Neg. nº${negociacao_numero} (${i + 1}/${parcelas})`;
 
+          const osCodigos = successPlans.map(({ os }) => os.codigo);
           const { data: grupo, error: grupoErr } = await supabase
             .from("fin_grupos_receber")
             .insert({
@@ -565,6 +566,7 @@ serve(async (req) => {
               status: "aberto",
               itens_total: successPlans.length,
               negociacao_numero: negociacao_numero,
+              os_codigos: osCodigos,
               observacao: `Neg. nº${negociacao_numero} — Parcela ${i + 1}/${parcelas} — R$ ${valor.toFixed(2)}\nVencimento: ${vencimento}\nPassivo total: R$ ${totalResidualSuccess.toFixed(2)} (${residualDueDate})\n\n${osRef}`,
             })
             .select("id")

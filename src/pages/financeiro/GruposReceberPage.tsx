@@ -393,6 +393,7 @@ export default function GruposReceberPage() {
             <tr className="border-b border-border bg-muted/50">
               <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Nome</th>
               <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Cliente</th>
+              <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">OS Vinculadas</th>
               <th className="p-3 text-right text-xs font-medium text-muted-foreground uppercase">Valor</th>
               <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Vencimento</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Neg./NFS-e</th>
