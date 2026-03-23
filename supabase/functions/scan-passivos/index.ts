@@ -146,6 +146,7 @@ serve(async (req) => {
     // Upsert into fin_residuos_negociacao
     let inserted = 0;
     let skipped = 0;
+    let removidos = 0;
 
     for (const p of found) {
       // Check if already exists
@@ -179,13 +180,65 @@ serve(async (req) => {
       }
     }
 
-    console.log(`[scan-passivos] Done: ${found.length} found, ${inserted} inserted, ${skipped} skipped`);
+    // ── Validar resíduos existentes: remover os que não existem mais no GC ──
+    const gcIdsFound = new Set(found.map(p => p.gc_recebimento_id));
+
+    const { data: allResiduos } = await supabase
+      .from("fin_residuos_negociacao")
+      .select("id, gc_recebimento_id, utilizado")
+      .eq("utilizado", false);
+
+    const residuosComGcId = (allResiduos ?? []).filter(
+      (r: any) => r.gc_recebimento_id && r.gc_recebimento_id.trim() !== ""
+    );
+
+    // Check each existing residual against GC individually
+    for (const residuo of residuosComGcId as any[]) {
+      if (gcIdsFound.has(residuo.gc_recebimento_id)) continue; // Still exists in GC scan
+
+      // Double-check with a direct GC GET to avoid false positives from date range limits
+      try {
+        const checkResp = await rateLimitedFetch(
+          `${GC_BASE_URL}/api/recebimentos/${residuo.gc_recebimento_id}`,
+          { headers: gcHeaders }
+        );
+        if (checkResp.ok) {
+          const checkData = await checkResp.json();
+          const rec = checkData?.data || checkData;
+          if (rec?.id) continue; // Still exists in GC, keep it
+        }
+      } catch {
+        continue; // Network error, don't delete — be safe
+      }
+
+      // Not found in GC — remove locally
+      await supabase.from("fin_residuos_negociacao").delete().eq("id", residuo.id);
+      removidos++;
+      console.log(`[scan-passivos] Removido resíduo órfão: gc_recebimento_id=${residuo.gc_recebimento_id}`);
+    }
+
+    // Also clean up residuals that have no gc_recebimento_id (orphans from broken creation)
+    const { data: orphanResiduos } = await supabase
+      .from("fin_residuos_negociacao")
+      .select("id, gc_recebimento_id")
+      .eq("utilizado", false)
+      .is("gc_recebimento_id", null);
+
+    if (orphanResiduos && orphanResiduos.length > 0) {
+      const orphanIds = orphanResiduos.map((r: any) => r.id);
+      await supabase.from("fin_residuos_negociacao").delete().in("id", orphanIds);
+      removidos += orphanIds.length;
+      console.log(`[scan-passivos] Removidos ${orphanIds.length} resíduos sem gc_recebimento_id`);
+    }
+
+    console.log(`[scan-passivos] Done: ${found.length} found, ${inserted} inserted, ${skipped} skipped, ${removidos} removidos`);
 
     return new Response(JSON.stringify({
       success: true,
       total_found: found.length,
       inserted,
       skipped,
+      removidos,
       passivos: found.map(p => ({
         gc_codigo: p.gc_codigo,
         descricao: p.descricao,

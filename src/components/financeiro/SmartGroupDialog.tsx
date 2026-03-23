@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { atualizarRecebimentoGC, desmembrarRecebimentoNegociacao, gcDelay } from "@/api/financeiro";
+import { atualizarRecebimentoGC, registrarResidualNegociacao, gcDelay } from "@/api/financeiro";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -216,16 +216,28 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
         const isPartial = valorSelecionado < valorOriginal - 0.01;
 
         if (isPartial) {
-          if (!vencGrupo || !vencResidual) {
-            throw new Error("Informe o vencimento da negociação para desmembrar os valores parciais.");
+          // Não mexe no GC — apenas rastreia o valor parcial no item do grupo
+          // e registra o resíduo localmente (igual negotiate-os)
+          const updateData: Record<string, any> = { grupo_id: (grupo as any).id };
+          if (vencGrupo) updateData.data_vencimento = vencGrupo;
+          await supabase.from("fin_recebimentos").update(updateData).eq("id", r.id);
+
+          if (vencGrupo && r.gc_id && r.gc_payload_raw) {
+            try {
+              await atualizarRecebimentoGC(r.gc_id, r.gc_payload_raw, { data_vencimento: vencGrupo });
+            } catch { /* ignore */ }
+            await gcDelay();
           }
 
-          await desmembrarRecebimentoNegociacao({
+          await registrarResidualNegociacao({
             recebimentoId: r.id,
+            valorOriginal,
             valorNegociado: valorSelecionado,
-            dataVencimentoNegociado: vencGrupo,
-            dataVencimentoResidual: vencResidual,
-            grupoId: (grupo as any).id,
+            clienteGcId: clienteId || null,
+            nomeCliente: clienteNome || null,
+            osCodigo: r.os_codigo || null,
+            gcRecebimentoId: r.gc_id || null,
+            gcCodigo: r.gc_codigo || null,
           });
         } else {
           const updateData: Record<string, any> = { grupo_id: (grupo as any).id };
