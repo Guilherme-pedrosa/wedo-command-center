@@ -310,42 +310,113 @@ export default function GruposReceberPage() {
   };
 
   const handleSyncNfseGC = async () => {
-    if (!selectedGrupo || !grupoItens?.length || !selectedGrupo.nfse_numero) return;
+    if (!selectedGrupo || !selectedGrupo.nfse_numero) return;
     setSyncingGC(true);
     let ok = 0;
     let erros = 0;
     try {
-      for (const item of grupoItens) {
-        const rec = item.fin_recebimentos as any;
-        if (!rec?.gc_id || !rec?.gc_payload_raw) { erros++; continue; }
+      // 1. Update recebimentos in GC
+      if (grupoItens?.length) {
+        for (const item of grupoItens) {
+          const rec = item.fin_recebimentos as any;
+          if (!rec?.gc_id || !rec?.gc_payload_raw) { erros++; continue; }
 
-        const descOriginal = rec.descricao || "";
-        const nfTag = `NF ${selectedGrupo.nfse_numero}`;
-        const novaDescricao = descOriginal.includes(nfTag) ? descOriginal : `${descOriginal} — ${nfTag}`;
-        
-        try {
-          await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw, {
-            descricao: novaDescricao,
-            observacao: `NFS-e ${selectedGrupo.nfse_numero} vinculada via ARGUS`,
-            data_vencimento: selectedGrupo.data_vencimento || undefined,
-            nf_numero: selectedGrupo.nfse_numero,
-            atributos: [{ atributo_id: 8928, valor: selectedGrupo.nfse_numero }],
-          });
-          await gcDelay();
-
-          await supabase.from("fin_recebimentos")
-            .update({ 
-              descricao: novaDescricao, 
-              nfe_numero: selectedGrupo.nfse_numero,
+          const descOriginal = rec.descricao || "";
+          const nfTag = `NF ${selectedGrupo.nfse_numero}`;
+          const novaDescricao = descOriginal.includes(nfTag) ? descOriginal : `${descOriginal} — ${nfTag}`;
+          
+          try {
+            await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw, {
+              descricao: novaDescricao,
+              observacao: `NFS-e ${selectedGrupo.nfse_numero} vinculada via ARGUS`,
               data_vencimento: selectedGrupo.data_vencimento || undefined,
-            })
-            .eq("id", item.recebimento_id);
-          ok++;
-        } catch (e) {
-          console.error(`Erro sync GC item ${rec.gc_codigo}:`, e);
-          erros++;
+              nf_numero: selectedGrupo.nfse_numero,
+              atributos: [{ atributo_id: 8928, valor: selectedGrupo.nfse_numero }],
+            });
+            await gcDelay();
+
+            await supabase.from("fin_recebimentos")
+              .update({ 
+                descricao: novaDescricao, 
+                nfe_numero: selectedGrupo.nfse_numero,
+                data_vencimento: selectedGrupo.data_vencimento || undefined,
+              })
+              .eq("id", item.recebimento_id);
+            ok++;
+          } catch (e) {
+            console.error(`Erro sync GC item ${rec.gc_codigo}:`, e);
+            erros++;
+          }
         }
       }
+
+      // 2. Update OS in GC with NF number
+      const osCodigos = selectedGrupo.os_codigos as string[] | null;
+      if (osCodigos?.length) {
+        const { callGC } = await import("@/lib/gc-client");
+        
+        // Look up os_id from os_index for each os_codigo
+        const { data: osRecords } = await supabase
+          .from("os_index")
+          .select("os_id, os_codigo")
+          .in("os_codigo", osCodigos);
+        
+        // Deduplicate by os_id (same OS can have multiple orc rows)
+        const uniqueOsIds = [...new Set((osRecords || []).map(r => r.os_id))];
+        
+        for (const osId of uniqueOsIds) {
+          try {
+            // GET current OS from GC
+            const getRes = await callGC<any>({
+              endpoint: `/api/ordens_servicos/${osId}`,
+            });
+            await gcDelay();
+            
+            const osData = getRes.data?.data ?? getRes.data;
+            if (!osData?.id) {
+              console.error(`[syncNfse] OS ${osId} não encontrada no GC`);
+              erros++;
+              continue;
+            }
+
+            // Add NF number to observacao
+            const obsOriginal = String(osData.observacao || "");
+            const nfTag = `NF ${selectedGrupo.nfse_numero}`;
+            const novaObs = obsOriginal.includes(nfTag) ? obsOriginal : (obsOriginal ? `${obsOriginal} | ${nfTag}` : nfTag);
+
+            // PUT update preserving all existing fields
+            const putPayload = {
+              ...osData,
+              observacao: novaObs,
+              nf_numero: selectedGrupo.nfse_numero,
+            };
+            // Remove read-only fields
+            delete putPayload.id;
+            delete putPayload.codigo;
+            delete putPayload.created_at;
+            delete putPayload.updated_at;
+
+            const putRes = await callGC<any>({
+              endpoint: `/api/ordens_servicos/${osId}`,
+              method: "PUT",
+              payload: putPayload,
+            });
+            await gcDelay();
+
+            if (putRes.status >= 400) {
+              console.error(`[syncNfse] Erro PUT OS ${osId}: HTTP ${putRes.status}`);
+              erros++;
+            } else {
+              ok++;
+              console.log(`[syncNfse] OS ${osId} atualizada com NF ${selectedGrupo.nfse_numero}`);
+            }
+          } catch (e) {
+            console.error(`[syncNfse] Erro ao atualizar OS ${osId}:`, e);
+            erros++;
+          }
+        }
+      }
+
       queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens", selectedGrupo.id] });
       toast.success(`NFS-e sincronizada no GC: ${ok} atualizados${erros ? `, ${erros} erros` : ""}`);
     } catch (err) {
