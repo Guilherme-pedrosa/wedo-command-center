@@ -9,10 +9,18 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, HandshakeIcon, AlertCircle, CheckCircle2, ArrowLeft, Settings2 } from "lucide-react";
+import { Loader2, Search, HandshakeIcon, AlertCircle, CheckCircle2, ArrowLeft, Settings2, Banknote } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import toast from "react-hot-toast";
+
+interface ResidualItem {
+  id: string;
+  valor_residual: number;
+  negociacao_origem_numero: number | null;
+  observacao: string | null;
+  created_at: string | null;
+}
 
 interface OSItem {
   id: string;
@@ -72,6 +80,9 @@ export default function NegociacaoOSPage() {
   });
   const [valoresParcelas, setValoresParcelas] = useState<number[]>([]);
   const [valorNegociado, setValorNegociado] = useState<number>(0);
+
+  // Residuals
+  const [clientResiduais, setClientResiduais] = useState<ResidualItem[]>([]);
 
   // Results
   const [results, setResults] = useState<NegotiateResult[] | null>(null);
@@ -179,15 +190,24 @@ export default function NegociacaoOSPage() {
     c.nome_cliente.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleSelectClient = (client: ClientGroup) => {
+  const handleSelectClient = async (client: ClientGroup) => {
     setSelectedClient(client);
     setSelectedOSIds(new Set(client.os_list.map((os) => os.id)));
+    // Fetch residuals for this client
+    const { data } = await supabase
+      .from("fin_residuos_negociacao")
+      .select("*")
+      .eq("cliente_gc_id", client.cliente_id)
+      .eq("utilizado", false)
+      .order("created_at", { ascending: false });
+    setClientResiduais((data as ResidualItem[]) || []);
   };
 
   const handleBack = () => {
     if (selectedClient) {
       setSelectedClient(null);
       setSelectedOSIds(new Set());
+      setClientResiduais([]);
       return;
     }
     navigate(-1);
@@ -280,6 +300,17 @@ export default function NegociacaoOSPage() {
 
       const ok = data.summary?.ok || 0;
       const errs = data.summary?.errors || 0;
+
+      // Save residual if exists
+      if (valorResidual > 0.01 && ok > 0 && selectedClient) {
+        await supabase.from("fin_residuos_negociacao").insert({
+          cliente_gc_id: selectedClient.cliente_id,
+          nome_cliente: selectedClient.nome_cliente,
+          valor_residual: valorResidual,
+          negociacao_origem_numero: data.negociacao_numero || null,
+          observacao: `Residual de negociação - ${selectedOSIds.size} OS`,
+        });
+      }
 
       if (errs === 0) {
         toast.success(`✅ ${ok} OS negociada(s) com sucesso!`);
@@ -449,6 +480,28 @@ export default function NegociacaoOSPage() {
               </TableBody>
             </Table>
           </Card>
+
+          {/* Residual values from previous negotiations */}
+          {clientResiduais.length > 0 && (
+            <div className="space-y-2">
+              {clientResiduais.map((r) => (
+                <div
+                  key={r.id}
+                  className="flex items-center justify-between rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3"
+                >
+                  <div className="flex items-center gap-2 text-sm">
+                    <Banknote className="h-4 w-4 text-yellow-500" />
+                    <span className="text-yellow-200">
+                      Valor residual{r.negociacao_origem_numero ? ` (Neg. nº${r.negociacao_origem_numero})` : ""}
+                    </span>
+                  </div>
+                  <span className="font-semibold text-yellow-400">
+                    {formatCurrency(Number(r.valor_residual))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
