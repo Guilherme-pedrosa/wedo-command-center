@@ -211,7 +211,7 @@ export default function RecebimentosPage() {
   ) => {
     setSyncing(true);
     try {
-      const result = await syncByMonthChunks(filtros, onProgress, onStep);
+      const result = await syncByMonthChunks(filtros, onProgress, onStep, "recebimentos");
       toast.success(`Importados: ${result.importados} registros`);
       queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
       setShowSyncDialog(false);

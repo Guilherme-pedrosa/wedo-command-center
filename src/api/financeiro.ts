@@ -737,10 +737,13 @@ export interface SyncDateFilter {
 
 // ─── Chunked sync by month (splits large ranges) ────────────────────
 
+export type SyncScope = "recebimentos" | "pagamentos" | "ambos";
+
 export async function syncByMonthChunks(
   filtros: SyncDateFilter,
   onProgress?: (atual: number, total: number) => void,
-  onStep?: (etapa: string) => void
+  onStep?: (etapa: string) => void,
+  scope: SyncScope = "ambos"
 ): Promise<{ importados: number; atualizados: number; erros: number }> {
   const start = new Date((filtros.dataInicio || fnsFormat(new Date(), "yyyy-MM-dd")) + "T00:00:00");
   const end = new Date((filtros.dataFim || fnsFormat(new Date(), "yyyy-MM-dd")) + "T23:59:59");
@@ -771,23 +774,28 @@ export async function syncByMonthChunks(
     };
 
     try {
-      const [r, p] = await Promise.all([
-        syncRecebimentosGC(
-          (atual, total) => onProgress?.(
-            i * 100 + Math.round((atual / Math.max(total, 1)) * 100),
-            chunks.length * 100
-          ),
-          chunkFiltros
-        ),
-        syncPagamentosGC(undefined, chunkFiltros),
-      ]);
-      totals.importados += r.importados + p.importados;
-      totals.atualizados += r.atualizados + p.atualizados;
-      totals.erros += r.erros + p.erros;
+      const progressCb = (atual: number, total: number) => onProgress?.(
+        i * 100 + Math.round((atual / Math.max(total, 1)) * 100),
+        chunks.length * 100
+      );
+
+      let importados = 0, atualizados = 0, erros = 0;
+
+      if (scope === "recebimentos" || scope === "ambos") {
+        const r = await syncRecebimentosGC(progressCb, chunkFiltros);
+        importados += r.importados; atualizados += r.atualizados; erros += r.erros;
+      }
+      if (scope === "pagamentos" || scope === "ambos") {
+        const p = await syncPagamentosGC(scope === "pagamentos" ? progressCb : undefined, chunkFiltros);
+        importados += p.importados; atualizados += p.atualizados; erros += p.erros;
+      }
+
+      totals.importados += importados;
+      totals.atualizados += atualizados;
+      totals.erros += erros;
     } catch (err) {
       console.error(`[syncByMonthChunks] Erro no chunk ${chunk.label}:`, err);
       totals.erros++;
-      // Continue to next chunk even if this one fails
     }
   }
 
