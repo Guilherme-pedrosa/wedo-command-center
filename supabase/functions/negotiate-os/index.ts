@@ -651,6 +651,88 @@ serve(async (req) => {
       }
 
       // ═══════════════════════════════════════════════════════════════
+      // 4b. STEP E: Create passive receivable in GC for the residual
+      // ═══════════════════════════════════════════════════════════════
+      const valorResidual = valorNegociado
+        ? Math.round((totalValor - valorNegociado) * 100) / 100
+        : 0;
+
+      if (valorResidual > 0.01 && successOS.length > 0) {
+        try {
+          console.log(`[negotiate-os] STEP E: Criando financeiro passivo R$ ${valorResidual.toFixed(2)}`);
+
+          const firstOS = successOS[0];
+          const pagamentosRaw = Array.isArray(firstOS.raw.pagamentos) ? firstOS.raw.pagamentos : [];
+          const pWrap = (pagamentosRaw[0] && typeof pagamentosRaw[0] === "object")
+            ? pagamentosRaw[0] as Record<string, unknown> : {};
+          const pInner = (
+            (pWrap.pagamento && typeof pWrap.pagamento === "object" && pWrap.pagamento) ||
+            (pWrap.Pagamento && typeof pWrap.Pagamento === "object" && pWrap.Pagamento) ||
+            pWrap
+          ) as Record<string, unknown>;
+
+          const fpId = String(pInner.forma_pagamento_id || "");
+          const pcId = String(pInner.plano_contas_id || pInner.categoria_id || "");
+          const cbId = String(pInner.conta_bancaria_id || "");
+
+          const osCodigos = successOS.map((o) => o.codigo);
+          const descPassivo = `${negTag} - PASSIVO - OS ${osCodigos.join(", ")}`;
+          const obsPassivo = `Financeiro passivo da negociação nº${negociacao_numero}\nValor original: R$ ${totalValor.toFixed(2)}\nValor negociado: R$ ${(valorNegociado || 0).toFixed(2)}\nResidual: R$ ${valorResidual.toFixed(2)}`;
+
+          const postPayload: Record<string, unknown> = {
+            descricao: descPassivo,
+            data_vencimento: dueDates[0],
+            valor: valorResidual.toFixed(2),
+            data_competencia: dueDates[0],
+            observacoes: obsPassivo,
+            cliente_id: firstOS.cliente_id,
+            entidade: "C",
+          };
+          if (fpId) postPayload.forma_pagamento_id = fpId;
+          if (pcId) postPayload.plano_contas_id = pcId;
+          if (cbId) postPayload.conta_bancaria_id = cbId;
+
+          const passResp = await rateLimitedFetch(
+            `${GC_BASE_URL}/api/recebimentos`,
+            { method: "POST", headers: gcHeaders, body: JSON.stringify(postPayload) }
+          );
+          const passText = await passResp.text();
+          let passData: any;
+          try { passData = JSON.parse(passText); } catch { passData = {}; }
+
+          if (passResp.ok || passData?.code === 200) {
+            const gcRecId = String(passData?.data?.id || "");
+            const gcCodigo = String(passData?.data?.codigo || "");
+            console.log(`[negotiate-os] STEP E OK: Passivo criado GC id=${gcRecId} codigo=${gcCodigo}`);
+
+            await supabase.from("fin_residuos_negociacao").insert({
+              cliente_gc_id: cliente_gc_id || firstOS.cliente_id,
+              nome_cliente: firstOS.nome_cliente || nome_cliente || "Cliente",
+              valor_residual: valorResidual,
+              negociacao_origem_numero: negociacao_numero,
+              gc_recebimento_id: gcRecId || null,
+              gc_codigo: gcCodigo || null,
+              os_codigos: osCodigos,
+              observacao: obsPassivo,
+            });
+            console.log(`[negotiate-os] STEP E: Resíduo salvo no banco local`);
+          } else {
+            console.warn(`[negotiate-os] STEP E ERRO: ${passResp.status} - ${passText.slice(0, 300)}`);
+            await supabase.from("fin_residuos_negociacao").insert({
+              cliente_gc_id: cliente_gc_id || firstOS.cliente_id,
+              nome_cliente: firstOS.nome_cliente || nome_cliente || "Cliente",
+              valor_residual: valorResidual,
+              negociacao_origem_numero: negociacao_numero,
+              os_codigos: osCodigos,
+              observacao: `${obsPassivo}\n[ERRO GC: ${passText.slice(0, 200)}]`,
+            });
+          }
+        } catch (stepEErr: any) {
+          console.warn(`[negotiate-os] STEP E error (non-fatal): ${stepEErr.message}`);
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════
       // 5. Link fin_recebimentos to groups (best-effort after sync)
       // ═══════════════════════════════════════════════════════════════
       if (grupoIds.length > 0 && successOS.length > 0) {
