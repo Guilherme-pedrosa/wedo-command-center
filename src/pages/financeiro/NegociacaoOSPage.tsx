@@ -268,6 +268,8 @@ export default function NegociacaoOSPage() {
           dia_vencimento: diaVencimento,
           mes_inicio: mesInicio,
           valores_parcelas: valoresParcelas,
+          valor_negociado: valorNegociado,
+          valor_residual: valorResidual > 0.01 ? valorResidual : 0,
           nome_cliente: selectedClient?.nome_cliente,
           cliente_gc_id: selectedClient?.cliente_id,
         },
