@@ -208,7 +208,7 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
       if (groupDate) updateData.data_vencimento = format(groupDate, "yyyy-MM-dd");
       await supabase.from("fin_recebimentos").update(updateData).in("id", selectedItems.map((r: any) => r.id));
 
-      // Sync vencimento pro GC
+      // Sync vencimento pro GC (itens selecionados)
       if (groupDate) {
         const venc = format(groupDate, "yyyy-MM-dd");
         for (const r of selectedItems as any[]) {
@@ -218,6 +218,31 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
             } catch { /* ignore */ }
             await gcDelay();
           }
+        }
+      }
+
+      // Recebimentos NÃO selecionados: vencimento = 1 mês após o vencimento do grupo
+      if (groupDate) {
+        const excludedItems = recebimentos.filter((r: any) => !selectedIds.has(r.id));
+        if (excludedItems.length > 0) {
+          const vencExcluidos = format(addMonths(groupDate, 1), "yyyy-MM-dd");
+          
+          // Atualizar local
+          await supabase
+            .from("fin_recebimentos")
+            .update({ data_vencimento: vencExcluidos })
+            .in("id", excludedItems.map((r: any) => r.id));
+
+          // Sync no GC
+          for (const r of excludedItems as any[]) {
+            if (r.gc_id && r.gc_payload_raw) {
+              try {
+                await atualizarRecebimentoGC(r.gc_id, r.gc_payload_raw, { data_vencimento: vencExcluidos });
+              } catch { /* ignore */ }
+              await gcDelay();
+            }
+          }
+          toast.success(`${excludedItems.length} recebimento(s) restante(s) → vencimento ${format(addMonths(groupDate, 1), "dd/MM/yyyy")}`);
         }
       }
 
