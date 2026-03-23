@@ -281,6 +281,37 @@ export default function GruposReceberPage() {
 
       if (editVencimento && keptRecebimentoIds.length > 0) {
         await supabase.from("fin_recebimentos").update({ data_vencimento: editVencimento }).in("id", keptRecebimentoIds);
+        
+        // Sync vencimento dos itens mantidos no GC
+        for (const item of keptItems) {
+          const rec = grupoItens?.find((gi: any) => gi.recebimento_id === item.recebimentoId)?.fin_recebimentos
+            || editItensToAdd.find((r: any) => r.id === item.recebimentoId);
+          if (rec?.gc_id && rec?.gc_payload_raw) {
+            try {
+              await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw, { data_vencimento: editVencimento });
+            } catch { /* ignore */ }
+            await gcDelay();
+          }
+        }
+      }
+
+      // Itens removidos do grupo: vencimento = 1 mês depois do grupo
+      if (editVencimento && removedExisting.length > 0) {
+        const vencPostergado = fnsFormat(addMonths(new Date(editVencimento + 'T12:00:00'), 1), "yyyy-MM-dd");
+        const removedRecIds = removedExisting.map((item) => item.recebimentoId);
+        await supabase.from("fin_recebimentos").update({ data_vencimento: vencPostergado }).in("id", removedRecIds);
+        
+        // Sync no GC
+        for (const item of removedExisting) {
+          const rec = grupoItens?.find((gi: any) => gi.recebimento_id === item.recebimentoId)?.fin_recebimentos;
+          if (rec?.gc_id && rec?.gc_payload_raw) {
+            try {
+              await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw, { data_vencimento: vencPostergado });
+            } catch { /* ignore */ }
+            await gcDelay();
+          }
+        }
+        toast.success(`${removedExisting.length} item(ns) removido(s) → venc. ${fnsFormat(addMonths(new Date(editVencimento + 'T12:00:00'), 1), "dd/MM/yyyy")}`);
       }
 
       toast.success(
