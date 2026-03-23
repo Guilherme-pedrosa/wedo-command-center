@@ -215,34 +215,37 @@ export default function NegociacaoOSPage() {
     .filter((os) => selectedOSIds.has(os.id))
     .reduce((sum, os) => sum + os.valor_total, 0) || 0;
 
-  const valorParcela = parcelas > 0 ? selectedTotal / parcelas : 0;
+  const valorParcela = parcelas > 0 ? valorNegociado / parcelas : 0;
+  const valorResidual = Math.round((selectedTotal - valorNegociado) * 100) / 100;
+
+  // Reset valorNegociado when selectedTotal changes
+  useEffect(() => {
+    setValorNegociado(selectedTotal);
+  }, [selectedTotal]);
 
   // Initialize parcela values when params change
   useEffect(() => {
-    if (parcelas > 0 && selectedTotal > 0) {
-      const base = Math.round((selectedTotal / parcelas) * 100) / 100;
+    if (parcelas > 0 && valorNegociado > 0) {
+      const base = Math.round((valorNegociado / parcelas) * 100) / 100;
       const arr = Array(parcelas).fill(base);
-      // Adjust last to fix rounding
-      const diff = selectedTotal - arr.reduce((a: number, b: number) => a + b, 0);
+      const diff = Math.round((valorNegociado - arr.reduce((a: number, b: number) => a + b, 0)) * 100) / 100;
       arr[arr.length - 1] = Math.round((arr[arr.length - 1] + diff) * 100) / 100;
       setValoresParcelas(arr);
     }
-  }, [parcelas, selectedTotal]);
+  }, [parcelas, valorNegociado]);
 
   const handleParcelaValueChange = (index: number, newValue: number) => {
     const updated = [...valoresParcelas];
     updated[index] = Math.round(newValue * 100) / 100;
-    const usedByOthers = updated.reduce((sum, v, i) => i !== index ? sum + v : sum, 0);
-    const remaining = selectedTotal - updated[index];
+    const remaining = valorNegociado - updated[index];
     const othersCount = updated.length - 1;
     if (othersCount > 0 && remaining >= 0) {
       const eachOther = Math.round((remaining / othersCount) * 100) / 100;
       for (let i = 0; i < updated.length; i++) {
         if (i !== index) updated[i] = eachOther;
       }
-      // Fix rounding on last non-edited
       const totalNow = updated.reduce((a, b) => a + b, 0);
-      const roundDiff = Math.round((selectedTotal - totalNow) * 100) / 100;
+      const roundDiff = Math.round((valorNegociado - totalNow) * 100) / 100;
       if (roundDiff !== 0) {
         const lastOther = index === updated.length - 1 ? updated.length - 2 : updated.length - 1;
         updated[lastOther] = Math.round((updated[lastOther] + roundDiff) * 100) / 100;
