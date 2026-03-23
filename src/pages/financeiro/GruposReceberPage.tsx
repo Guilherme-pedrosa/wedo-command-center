@@ -776,6 +776,56 @@ export default function GruposReceberPage() {
                   </div>
                 )}
 
+                {/* Passivos (Residuos) do cliente */}
+                {clientePassivos && clientePassivos.length > 0 && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold flex items-center gap-2">
+                        <Banknote className="h-4 w-4 text-amber-500" /> Passivos do Cliente ({clientePassivos.length})
+                      </h4>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Valores residuais de OS negociadas que ainda não foram utilizados.
+                    </p>
+                    <div className="space-y-2">
+                      {clientePassivos.map((p: any) => (
+                        <div key={p.id} className="flex items-center justify-between rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 text-sm">
+                              <span className="font-semibold text-amber-500">{formatCurrency(Number(p.valor_residual))}</span>
+                              {p.negociacao_origem_numero && (
+                                <Badge variant="outline" className="text-[10px] border-amber-500/30 text-amber-500">
+                                  Neg. nº{p.negociacao_origem_numero}
+                                </Badge>
+                              )}
+                            </div>
+                            {p.os_codigos?.length > 0 && (
+                              <div className="flex gap-1 mt-1">
+                                {p.os_codigos.map((os: string) => (
+                                  <Badge key={os} variant="outline" className="text-[9px] font-mono">OS {os}</Badge>
+                                ))}
+                              </div>
+                            )}
+                            {p.observacao && (
+                              <p className="text-[10px] text-muted-foreground mt-1 truncate">{p.observacao}</p>
+                            )}
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs ml-2 shrink-0 border-amber-500/30 hover:bg-amber-500/20"
+                            disabled={markingPassivo === p.id}
+                            onClick={() => handleMarcarPassivoUtilizado(p.id)}
+                          >
+                            {markingPassivo === p.id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Check className="h-3 w-3 mr-1" />}
+                            Utilizado
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Items */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
