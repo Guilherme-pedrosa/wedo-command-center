@@ -542,6 +542,16 @@ export default function GruposReceberPage() {
                     <span className="text-muted-foreground">Vencimento</span>
                     <p>{selectedGrupo.data_vencimento ? formatDate(selectedGrupo.data_vencimento) : "—"}</p>
                   </div>
+                  {(selectedGrupo.os_codigos as string[] | null)?.length > 0 && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">OS Vinculadas</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(selectedGrupo.os_codigos as string[]).map((os: string) => (
+                          <Badge key={os} variant="outline" className="text-xs font-mono">{os}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* NFS-e section */}
