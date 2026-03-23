@@ -240,6 +240,8 @@ serve(async (req) => {
       const negociacao_numero = negNumErr ? Date.now() : (negNumData as number);
       console.log(`[negotiate-os] Negociação nº${negociacao_numero}`);
 
+      const roundMoney = (value: number) => Math.round(value * 100) / 100;
+
       // Generate due dates
       const [startYear, startMonth] = mes_inicio.split("-").map(Number);
       const dueDates: string[] = [];
@@ -250,6 +252,10 @@ serve(async (req) => {
         const dd = String(d.getDate()).padStart(2, "0");
         dueDates.push(`${yyyy}-${mm}-${dd}`);
       }
+
+      const lastNegotiatedDate = new Date(`${dueDates[dueDates.length - 1]}T00:00:00Z`);
+      lastNegotiatedDate.setUTCDate(lastNegotiatedDate.getUTCDate() + 30);
+      const residualDueDate = `${lastNegotiatedDate.getUTCFullYear()}-${String(lastNegotiatedDate.getUTCMonth() + 1).padStart(2, "0")}-${String(lastNegotiatedDate.getUTCDate()).padStart(2, "0")}`;
 
       const negTag = `NEG${negociacao_numero}`;
 
