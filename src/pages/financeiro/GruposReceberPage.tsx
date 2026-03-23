@@ -79,6 +79,8 @@ export default function GruposReceberPage() {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [syncingGC, setSyncingGC] = useState(false);
   const [showSmartGroup, setShowSmartGroup] = useState(false);
+  const [scanningPassivos, setScanningPassivos] = useState(false);
+  const [markingPassivo, setMarkingPassivo] = useState<string | null>(null);
 
   const canEditGroup = (g: any) => !g.nfse_numero && !g.gc_baixado && g.status !== "pago";
 
