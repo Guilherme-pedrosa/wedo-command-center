@@ -354,6 +354,10 @@ export default function GruposReceberPage() {
     },
   });
 
+  const grupoItensTotal = roundMoney(
+    (grupoItens || []).reduce((sum: number, item: any) => sum + Number(item.valor || item.fin_recebimentos?.valor || 0), 0),
+  );
+
   // Fetch passivos (residuos) for the selected group's client
   const { data: clientePassivos, refetch: refetchPassivos } = useQuery({
     queryKey: ["fin-passivos-cliente", selectedGrupo?.cliente_gc_id],
