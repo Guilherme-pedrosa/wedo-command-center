@@ -216,6 +216,40 @@ export default function NegociacaoOSPage() {
 
   const valorParcela = parcelas > 0 ? selectedTotal / parcelas : 0;
 
+  // Initialize parcela values when params change
+  useEffect(() => {
+    if (parcelas > 0 && selectedTotal > 0) {
+      const base = Math.round((selectedTotal / parcelas) * 100) / 100;
+      const arr = Array(parcelas).fill(base);
+      // Adjust last to fix rounding
+      const diff = selectedTotal - arr.reduce((a: number, b: number) => a + b, 0);
+      arr[arr.length - 1] = Math.round((arr[arr.length - 1] + diff) * 100) / 100;
+      setValoresParcelas(arr);
+    }
+  }, [parcelas, selectedTotal]);
+
+  const handleParcelaValueChange = (index: number, newValue: number) => {
+    const updated = [...valoresParcelas];
+    updated[index] = Math.round(newValue * 100) / 100;
+    const usedByOthers = updated.reduce((sum, v, i) => i !== index ? sum + v : sum, 0);
+    const remaining = selectedTotal - updated[index];
+    const othersCount = updated.length - 1;
+    if (othersCount > 0 && remaining >= 0) {
+      const eachOther = Math.round((remaining / othersCount) * 100) / 100;
+      for (let i = 0; i < updated.length; i++) {
+        if (i !== index) updated[i] = eachOther;
+      }
+      // Fix rounding on last non-edited
+      const totalNow = updated.reduce((a, b) => a + b, 0);
+      const roundDiff = Math.round((selectedTotal - totalNow) * 100) / 100;
+      if (roundDiff !== 0) {
+        const lastOther = index === updated.length - 1 ? updated.length - 2 : updated.length - 1;
+        updated[lastOther] = Math.round((updated[lastOther] + roundDiff) * 100) / 100;
+      }
+    }
+    setValoresParcelas(updated);
+  };
+
   const handleExecute = async () => {
     if (selectedOSIds.size === 0) return;
     setExecuting(true);
