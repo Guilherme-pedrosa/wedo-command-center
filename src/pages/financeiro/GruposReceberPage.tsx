@@ -497,6 +497,10 @@ export default function GruposReceberPage() {
             searchPlaceholder="Buscar status..."
             className="w-[180px] h-9"
           />
+          <Button size="sm" variant="outline" onClick={handleScanPassivos} disabled={scanningPassivos}>
+            {scanningPassivos ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ScanSearch className="h-3.5 w-3.5 mr-1.5" />}
+            Scan Passivos
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setShowSmartGroup(true)}>
             <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Agrupamento Inteligente
           </Button>
