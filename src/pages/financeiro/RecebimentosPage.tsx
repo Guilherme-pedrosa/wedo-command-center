@@ -366,6 +366,11 @@ export default function RecebimentosPage() {
           <h1 className="text-2xl font-bold text-foreground">Recebimentos</h1>
           <p className="text-sm text-muted-foreground">
             {filtered.length} lançamento{filtered.length !== 1 ? "s" : ""} encontrado{filtered.length !== 1 ? "s" : ""}
+            {selected.size > 0 && (
+              <span className="ml-2 text-primary font-semibold">
+                · {selected.size} selecionado{selected.size !== 1 ? "s" : ""} · {formatCurrency(selectedTotal)}
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
