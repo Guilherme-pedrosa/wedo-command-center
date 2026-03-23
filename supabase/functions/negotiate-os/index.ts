@@ -599,6 +599,79 @@ serve(async (req) => {
         os_codigos: string[];
         observacao: string;
       }>();
+      const linkedReceivableIds = new Map<string, string>();
+
+      const buildReceivableKey = (osCodigo: string, dueDate: string, value: number, kind: "neg" | "passive") =>
+        `${kind}:${osCodigo}:${dueDate}:${roundMoney(value).toFixed(2)}`;
+
+      const upsertLocalReceivable = async (params: {
+        rec: Record<string, unknown>;
+        dueDate: string;
+        desiredDesc: string;
+        desiredObs: string;
+        osCodigo: string;
+      }): Promise<string | null> => {
+        const recId = String(params.rec?.id || "").trim();
+        if (!recId) return null;
+
+        const payload = {
+          gc_id: recId,
+          gc_codigo: params.rec?.codigo ? String(params.rec.codigo) : null,
+          gc_payload_raw: params.rec,
+          descricao: params.desiredDesc,
+          observacao: params.desiredObs,
+          os_codigo: params.osCodigo,
+          tipo: "os",
+          origem: "gc_os",
+          valor: normalizeMoney(params.rec?.valor ?? params.rec?.valor_total),
+          cliente_gc_id: String(params.rec?.cliente_id || cliente_gc_id || "") || null,
+          nome_cliente: String(params.rec?.nome_cliente || nome_cliente || "") || null,
+          data_vencimento: params.dueDate || null,
+          data_competencia: params.rec?.data_competencia ? String(params.rec.data_competencia) : null,
+          data_liquidacao: params.rec?.data_liquidacao ? String(params.rec.data_liquidacao) : null,
+          liquidado: String(params.rec?.liquidado || "0") === "1",
+          status: String(params.rec?.liquidado || "0") === "1" ? "pago" : "pendente",
+          last_synced_at: new Date().toISOString(),
+        };
+
+        const { data: existingLocal, error: existingErr } = await supabase
+          .from("fin_recebimentos")
+          .select("id")
+          .eq("gc_id", recId)
+          .maybeSingle();
+
+        if (existingErr) {
+          console.warn(`[negotiate-os] STEP D local lookup error ${recId}: ${existingErr.message}`);
+          return null;
+        }
+
+        if (existingLocal?.id) {
+          const { error: updateErr } = await supabase
+            .from("fin_recebimentos")
+            .update(payload)
+            .eq("id", existingLocal.id);
+
+          if (updateErr) {
+            console.warn(`[negotiate-os] STEP D local update error ${recId}: ${updateErr.message}`);
+            return null;
+          }
+
+          return existingLocal.id;
+        }
+
+        const { data: insertedLocal, error: insertErr } = await supabase
+          .from("fin_recebimentos")
+          .insert(payload)
+          .select("id")
+          .single();
+
+        if (insertErr) {
+          console.warn(`[negotiate-os] STEP D local insert error ${recId}: ${insertErr.message}`);
+          return null;
+        }
+
+        return insertedLocal?.id ?? null;
+      };
 
       for (const { os, plan } of successPlans) {
         try {
@@ -625,25 +698,36 @@ serve(async (req) => {
           };
 
           const codigoLower = os.codigo.toLowerCase();
-          const searchParams = new URLSearchParams({
-            limite: "100",
-            pagina: "1",
-            data_inicio: dueDates[0],
-            data_fim: residualDueDate,
-          });
+          const rawList: Record<string, unknown>[] = [];
+          let page = 1;
+          let totalPages = 1;
 
-          const recResp = await rateLimitedFetch(
-            `${GC_BASE_URL}/api/recebimentos?${searchParams.toString()}`,
-            { headers: gcHeaders }
-          );
+          while (page <= totalPages) {
+            const searchParams = new URLSearchParams({
+              limite: "100",
+              pagina: String(page),
+              cliente_id: cliente_gc_id || os.cliente_id,
+              data_inicio: dueDates[0],
+              data_fim: residualDueDate,
+            });
 
-          if (!recResp.ok) {
-            console.warn(`[negotiate-os] STEP D: fetch failed ${recResp.status}`);
-            continue;
+            const recResp = await rateLimitedFetch(
+              `${GC_BASE_URL}/api/recebimentos?${searchParams.toString()}`,
+              { headers: gcHeaders }
+            );
+
+            if (!recResp.ok) {
+              console.warn(`[negotiate-os] STEP D: fetch failed ${recResp.status}`);
+              break;
+            }
+
+            const recData = await recResp.json();
+            const pageItems = Array.isArray(recData?.data) ? recData.data : [];
+            rawList.push(...pageItems);
+            totalPages = recData?.meta?.total_paginas || 1;
+            page++;
           }
 
-          const recData = await recResp.json();
-          const rawList = Array.isArray(recData?.data) ? recData.data : [];
           const matching = rawList.filter((item: any) => {
             const rec = item?.Recebimento || item?.recebimento || item;
             const dueDate = String(rec?.data_vencimento || "").slice(0, 10);
@@ -715,6 +799,19 @@ serve(async (req) => {
               }
             }
 
+            const localReceivableId = await upsertLocalReceivable({
+              rec,
+              dueDate,
+              desiredDesc,
+              desiredObs,
+              osCodigo: os.codigo,
+            });
+
+            if (localReceivableId) {
+              const mapKey = buildReceivableKey(os.codigo, dueDate, recValue, isPassive ? "passive" : "neg");
+              linkedReceivableIds.set(mapKey, localReceivableId);
+            }
+
             if (isPassive) {
               passiveReceivables.set(recId, {
                 cliente_gc_id: cliente_gc_id || os.cliente_id,
@@ -780,36 +877,34 @@ serve(async (req) => {
             const grupoId = grupoIds[i];
             const vencimento = dueDates[i];
 
-            for (const { os } of successPlans) {
-              const { data: recs } = await supabase
-                .from("fin_recebimentos")
-                .select("id, gc_codigo, valor, data_vencimento, os_codigo")
-                .eq("os_codigo", os.codigo)
-                .eq("liquidado", false)
-                .is("grupo_id", null)
-                .eq("data_vencimento", vencimento)
-                .limit(5);
+            for (const { os, plan } of successPlans) {
+              const valorParcela = plan.parcelValues[i] ?? 0;
+              if (valorParcela <= 0.01) continue;
 
-              if (recs && recs.length > 0) {
-                for (const rec of recs) {
-                  await supabase
-                    .from("fin_grupo_receber_itens")
-                    .insert({
-                      grupo_id: grupoId,
-                      recebimento_id: rec.id,
-                      valor: rec.valor,
-                      os_codigo_original: rec.os_codigo || os.codigo,
-                      snapshot_valor: rec.valor,
-                      snapshot_data: vencimento,
-                    });
-
-                  await supabase
-                    .from("fin_recebimentos")
-                    .update({ grupo_id: grupoId })
-                    .eq("id", rec.id);
-                }
-                console.log(`[negotiate-os] Grupo ${i + 1}: ${recs.length} itens vinculados (OS ${os.codigo})`);
+              const mapKey = buildReceivableKey(os.codigo, vencimento, valorParcela, "neg");
+              const recebimentoId = linkedReceivableIds.get(mapKey);
+              if (!recebimentoId) {
+                console.warn(`[negotiate-os] Grupo ${i + 1}: financeiro não encontrado para OS ${os.codigo} (${vencimento} / ${valorParcela.toFixed(2)})`);
+                continue;
               }
+
+              await supabase
+                .from("fin_grupo_receber_itens")
+                .insert({
+                  grupo_id: grupoId,
+                  recebimento_id: recebimentoId,
+                  valor: valorParcela,
+                  os_codigo_original: os.codigo,
+                  snapshot_valor: valorParcela,
+                  snapshot_data: vencimento,
+                });
+
+              await supabase
+                .from("fin_recebimentos")
+                .update({ grupo_id: grupoId })
+                .eq("id", recebimentoId);
+
+              console.log(`[negotiate-os] Grupo ${i + 1}: item vinculado (OS ${os.codigo} / ${valorParcela.toFixed(2)})`);
             }
           }
         } catch (linkErr: any) {
