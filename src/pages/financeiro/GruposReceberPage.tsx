@@ -220,6 +220,52 @@ export default function GruposReceberPage() {
     },
   });
 
+  // Fetch passivos (residuos) for the selected group's client
+  const { data: clientePassivos, refetch: refetchPassivos } = useQuery({
+    queryKey: ["fin-passivos-cliente", selectedGrupo?.cliente_gc_id],
+    enabled: !!selectedGrupo?.cliente_gc_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("fin_residuos_negociacao")
+        .select("*")
+        .eq("cliente_gc_id", selectedGrupo.cliente_gc_id)
+        .eq("utilizado", false)
+        .order("created_at", { ascending: false });
+      return data || [];
+    },
+  });
+
+  const handleScanPassivos = async () => {
+    setScanningPassivos(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("scan-passivos");
+      if (error) throw error;
+      toast.success(`Scan concluído: ${data.inserted} passivo(s) importado(s), ${data.skipped} já existente(s)`);
+      refetchPassivos();
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+    } finally {
+      setScanningPassivos(false);
+    }
+  };
+
+  const handleMarcarPassivoUtilizado = async (passivoId: string) => {
+    setMarkingPassivo(passivoId);
+    try {
+      const { error } = await supabase
+        .from("fin_residuos_negociacao")
+        .update({ utilizado: true, utilizado_em: new Date().toISOString() })
+        .eq("id", passivoId);
+      if (error) throw error;
+      toast.success("Passivo marcado como utilizado");
+      refetchPassivos();
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+    } finally {
+      setMarkingPassivo(null);
+    }
+  };
+
   const statusBadge = (s: string) => {
     const map: Record<string, string> = { 
       aberto: "bg-muted/50 text-muted-foreground", 
