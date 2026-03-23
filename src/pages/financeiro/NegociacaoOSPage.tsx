@@ -207,6 +207,7 @@ export default function NegociacaoOSPage() {
     if (selectedClient) {
       setSelectedClient(null);
       setSelectedOSIds(new Set());
+      setClientResiduais([]);
       return;
     }
     navigate(-1);
