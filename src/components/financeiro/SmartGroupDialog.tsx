@@ -200,7 +200,15 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
 
       const vencGrupo = groupDate ? format(groupDate, "yyyy-MM-dd") : null;
       const vencResidual = groupDate ? format(addMonths(groupDate, 1), "yyyy-MM-dd") : null;
-      const grupoItens = [] as Record<string, unknown>[];
+      const grupoItens: Array<{
+        grupo_id: string;
+        recebimento_id: string;
+        valor: number;
+        os_codigo_original: string | null;
+        gc_os_id: string | null;
+        snapshot_valor: number;
+        snapshot_data: string | null;
+      }> = [];
 
       for (const r of selectedItems as any[]) {
         const valorSelecionado = getItemValor(r);
