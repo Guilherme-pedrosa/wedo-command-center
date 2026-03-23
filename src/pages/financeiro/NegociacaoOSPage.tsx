@@ -489,19 +489,33 @@ export default function NegociacaoOSPage() {
                 />
               </div>
 
-              <Card className="bg-muted/50">
-                <CardContent className="pt-4 space-y-2">
-                  <p className="text-sm font-medium">Resumo</p>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <span className="text-muted-foreground">Valor por parcela:</span>
-                    <span className="font-semibold text-right">{formatCurrency(valorParcela)}</span>
-                    <span className="text-muted-foreground">Primeira parcela:</span>
-                    <span className="text-right">{previewDates[0] || "—"}</span>
-                    <span className="text-muted-foreground">Última parcela:</span>
-                    <span className="text-right">{previewDates[previewDates.length - 1] || "—"}</span>
-                  </div>
-                </CardContent>
-              </Card>
+              {/* Editable parcelas */}
+              <div className="space-y-2">
+                <Label>Valores das Parcelas</Label>
+                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                  {valoresParcelas.map((val, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground w-16 shrink-0">
+                        {previewDates[i] || `Parcela ${i + 1}`}
+                      </span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        value={val}
+                        onChange={(e) => handleParcelaValueChange(i, Number(e.target.value))}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground pt-1 border-t border-border">
+                  <span>Total parcelas:</span>
+                  <span className={`font-semibold ${Math.abs(valoresParcelas.reduce((a, b) => a + b, 0) - selectedTotal) > 0.02 ? 'text-destructive' : 'text-primary'}`}>
+                    {formatCurrency(valoresParcelas.reduce((a, b) => a + b, 0))}
+                  </span>
+                </div>
+              </div>
 
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowNegotiate(false)}>Cancelar</Button>
