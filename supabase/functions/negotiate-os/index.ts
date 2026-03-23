@@ -425,13 +425,19 @@ serve(async (req) => {
             : `negociado nº${negociacao_numero}`;
           if (formaPagamentoId) stepBPayload["forma_pagamento_id"] = formaPagamentoId;
 
+          // Extra delay after Step A to let GC settle
+          await new Promise((r) => setTimeout(r, 1000));
+
           const stepBResp = await rateLimitedFetch(
             `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
             { method: "PUT", headers: gcHeaders, body: JSON.stringify(stepBPayload) }
           );
-          const stepBData = await stepBResp.json();
+          const stepBText = await stepBResp.text();
+          let stepBData: any;
+          try { stepBData = JSON.parse(stepBText); } catch { stepBData = {}; }
+          console.log(`[negotiate-os] STEP B response ${stepBResp.status}: ${stepBText.slice(0, 500)}`);
           if (!stepBResp.ok && stepBData?.code !== 200) {
-            gcUpdateResults.push({ os_id: os.id, status: "error", error: `Step B failed: ${stepBData?.message || stepBResp.status}` });
+            gcUpdateResults.push({ os_id: os.id, status: "error", error: `Step B failed: ${stepBData?.message || stepBResp.status} - ${stepBText.slice(0, 200)}` });
             continue;
           }
           console.log(`[negotiate-os] STEP B OK: OS ${os.id}`);
