@@ -127,10 +127,32 @@ export default function GruposReceberPage() {
         .select("valor")
         .eq("grupo_id", selectedGrupo.id);
       const novoTotal = (allItens || []).reduce((s: number, i: any) => s + Number(i.valor || 0), 0);
+      
+      // Use editValorCobrar if set, otherwise use full total
+      const valorEfetivo = editValorCobrar !== null && editValorCobrar < novoTotal 
+        ? editValorCobrar 
+        : novoTotal;
+      const valorResidual = Math.round((novoTotal - valorEfetivo) * 100) / 100;
+
       await supabase.from("fin_grupos_receber").update({
-        valor_total: novoTotal,
+        valor_total: valorEfetivo,
         itens_total: allItens?.length || 0,
       }).eq("id", selectedGrupo.id);
+
+      // Create passivo if there's a residual
+      if (valorResidual > 0.01 && selectedGrupo.cliente_gc_id) {
+        const osCodigos = (selectedGrupo.os_codigos as string[] | null) || [];
+        await supabase.from("fin_residuos_negociacao").insert({
+          cliente_gc_id: selectedGrupo.cliente_gc_id,
+          nome_cliente: selectedGrupo.nome_cliente || "—",
+          valor_residual: valorResidual,
+          negociacao_origem_numero: selectedGrupo.negociacao_numero || null,
+          os_codigos: osCodigos,
+          observacao: `Passivo gerado do grupo "${editNome}" — Total itens: ${formatCurrency(novoTotal)}, Valor cobrado: ${formatCurrency(valorEfetivo)}`,
+          utilizado: false,
+        });
+        toast.success(`Passivo de ${formatCurrency(valorResidual)} criado para ${selectedGrupo.nome_cliente}`);
+      }
 
       // Update vencimento on linked recebimentos
       if (editVencimento) {
@@ -149,6 +171,7 @@ export default function GruposReceberPage() {
       setSelectedGrupo(null);
       queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
       queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens"] });
+      queryClient.invalidateQueries({ queryKey: ["fin-passivos-cliente"] });
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
     finally { setSaving(false); }
   };
