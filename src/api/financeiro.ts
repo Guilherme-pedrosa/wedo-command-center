@@ -70,6 +70,35 @@ interface GCApiResponse<T> {
 
 export const gcDelay = (ms = 350) => new Promise((r) => setTimeout(r, ms));
 
+const GC_RECEBIMENTO_BASE_KEYS = [
+  "juros",
+  "desconto",
+  "taxa_banco",
+  "taxa_operadora",
+  "plano_contas_id",
+  "nome_plano_conta",
+  "categoria_id",
+  "nome_categoria",
+  "centro_custo_id",
+  "nome_centro_custo",
+  "conta_bancaria_id",
+  "nome_conta_bancaria",
+  "forma_pagamento_id",
+  "nome_forma_pagamento",
+  "entidade",
+  "cliente_id",
+  "nome_cliente",
+  "fornecedor_id",
+  "nome_fornecedor",
+  "transportadora_id",
+  "nome_transportadora",
+  "funcionario_id",
+  "nome_funcionario",
+];
+
+const roundMoney = (value: number) => Math.round(value * 100) / 100;
+const formatMoneyValue = (value: number) => roundMoney(value).toFixed(2);
+
 export function extrairOsCodigo(descricao: string | null | undefined): string | null {
   if (!descricao) return null;
   const match = descricao.match(/Ordem de serviço de nº\s*(\d+)/i);
@@ -252,9 +281,11 @@ export async function atualizarRecebimentoGC(
   gcPayloadRaw: Record<string, unknown>,
   campos: {
     data_vencimento?: string;
+    data_competencia?: string;
     descricao?: string;
     observacao?: string;
     nf_numero?: string;
+    valor?: number;
     atributos?: Array<{ atributo_id: number; valor: string } | { id: number; valor: string }>;
   }
 ): Promise<{ status: number; data: unknown; duration_ms: number }> {
@@ -268,6 +299,12 @@ export async function atualizarRecebimentoGC(
     ...campos,
     ...(atributosNormalizados ? { atributos: atributosNormalizados } : {}),
   };
+
+  if (campos.valor !== undefined) {
+    const valorFormatado = formatMoneyValue(campos.valor);
+    (payload as Record<string, unknown>).valor = valorFormatado;
+    (payload as Record<string, unknown>).valor_total = valorFormatado;
+  }
 
   // Remove campos de liquidação para não baixar acidentalmente
   delete (payload as any).liquidado;
@@ -305,6 +342,198 @@ export async function atualizarRecebimentoGC(
   }
 
   return res;
+}
+
+function buildRecebimentoPayloadFromRaw(
+  gcPayloadRaw: Record<string, unknown>,
+  campos: {
+    data_vencimento: string;
+    data_competencia?: string;
+    descricao?: string;
+    valor: number;
+  }
+) {
+  const payload: Record<string, unknown> = {
+    descricao: campos.descricao ?? String(gcPayloadRaw.descricao ?? "Sem descrição"),
+    data_vencimento: campos.data_vencimento,
+    data_competencia:
+      campos.data_competencia ??
+      (typeof gcPayloadRaw.data_competencia === "string" && gcPayloadRaw.data_competencia
+        ? gcPayloadRaw.data_competencia
+        : campos.data_vencimento),
+    valor: formatMoneyValue(campos.valor),
+    valor_total: formatMoneyValue(campos.valor),
+    entidade: gcPayloadRaw.entidade ?? "C",
+    liquidado: "0",
+  };
+
+  for (const key of GC_RECEBIMENTO_BASE_KEYS) {
+    const value = gcPayloadRaw[key];
+    if (value !== undefined && value !== null && value !== "") {
+      payload[key] = value;
+    }
+  }
+
+  delete payload.id;
+  delete payload.codigo;
+  delete payload.usuario_id;
+  delete payload.nome_usuario;
+  delete payload.loja_id;
+  delete payload.nome_loja;
+  delete payload.data_liquidacao;
+
+  return payload;
+}
+
+export async function criarRecebimentoGC(
+  gcPayloadRaw: Record<string, unknown>,
+  campos: {
+    data_vencimento: string;
+    data_competencia?: string;
+    descricao?: string;
+    valor: number;
+  }
+): Promise<Record<string, unknown>> {
+  const payload = buildRecebimentoPayloadFromRaw(gcPayloadRaw, campos);
+
+  const res = await callGC<Record<string, unknown>>({
+    endpoint: "/api/recebimentos",
+    method: "POST",
+    payload,
+  });
+
+  const responseData = res.data as Record<string, unknown> | undefined;
+  const created = (responseData?.data as Record<string, unknown> | undefined) ?? responseData;
+
+  if (res.status >= 400 || !created?.id) {
+    throw new Error(`Erro ao criar recebimento no GC: HTTP ${res.status}`);
+  }
+
+  return created;
+}
+
+interface DesmembrarRecebimentoNegociacaoParams {
+  recebimentoId: string;
+  valorNegociado: number;
+  dataVencimentoNegociado: string;
+  dataVencimentoResidual: string;
+  grupoId?: string | null;
+}
+
+export async function desmembrarRecebimentoNegociacao({
+  recebimentoId,
+  valorNegociado,
+  dataVencimentoNegociado,
+  dataVencimentoResidual,
+  grupoId,
+}: DesmembrarRecebimentoNegociacaoParams) {
+  const { data: recebimento, error: recError } = await supabase
+    .from("fin_recebimentos" as any)
+    .select("*")
+    .eq("id", recebimentoId)
+    .single() as any;
+
+  if (recError || !recebimento) {
+    throw new Error("Recebimento não encontrado para desmembrar.");
+  }
+
+  const gcId = recebimento.gc_id as string | null;
+  const gcPayloadRaw = recebimento.gc_payload_raw as Record<string, unknown> | null;
+
+  if (!gcId || !gcPayloadRaw) {
+    throw new Error("Esse recebimento não possui vínculo com o ERP para desmembramento.");
+  }
+
+  const valorOriginal = roundMoney(Number(recebimento.valor ?? gcPayloadRaw.valor_total ?? gcPayloadRaw.valor ?? 0));
+  const valorParcial = roundMoney(valorNegociado);
+  const valorResidual = roundMoney(valorOriginal - valorParcial);
+
+  if (valorParcial <= 0 || valorResidual <= 0.009) {
+    throw new Error("Desmembramento parcial inválido.");
+  }
+
+  await atualizarRecebimentoGC(gcId, gcPayloadRaw, {
+    data_vencimento: dataVencimentoNegociado,
+    valor: valorParcial,
+  });
+
+  const nowIso = new Date().toISOString();
+  const negotiatedPayload = {
+    ...gcPayloadRaw,
+    data_vencimento: dataVencimentoNegociado,
+    valor: formatMoneyValue(valorParcial),
+    valor_total: formatMoneyValue(valorParcial),
+    liquidado: "0",
+    data_liquidacao: null,
+  };
+
+  const { error: updateError } = await supabase
+    .from("fin_recebimentos" as any)
+    .update({
+      grupo_id: grupoId ?? null,
+      valor: valorParcial,
+      data_vencimento: dataVencimentoNegociado,
+      gc_payload_raw: negotiatedPayload,
+      liquidado: false,
+      status: "pendente",
+      last_synced_at: nowIso,
+      updated_at: nowIso,
+    })
+    .eq("id", recebimentoId);
+
+  if (updateError) throw updateError;
+
+  const residualRaw = await criarRecebimentoGC(gcPayloadRaw, {
+    descricao: String(gcPayloadRaw.descricao ?? recebimento.descricao ?? "Sem descrição"),
+    data_vencimento: dataVencimentoResidual,
+    data_competencia:
+      (typeof gcPayloadRaw.data_competencia === "string" && gcPayloadRaw.data_competencia) ||
+      recebimento.data_competencia ||
+      dataVencimentoResidual,
+    valor: valorResidual,
+  });
+
+  const residualDescricao = String(residualRaw.descricao ?? recebimento.descricao ?? "Sem descrição");
+  const { id: _ignoredId, ...recebimentoBase } = recebimento as Record<string, unknown>;
+
+  const residualLocal = {
+    ...recebimentoBase,
+    grupo_id: null,
+    gc_id: String(residualRaw.id),
+    gc_codigo: residualRaw.codigo ? String(residualRaw.codigo) : null,
+    gc_payload_raw: residualRaw,
+    descricao: residualDescricao,
+    os_codigo: extrairOsCodigo(residualDescricao),
+    tipo: inferirTipo(residualDescricao),
+    origem: inferirOrigem(residualDescricao),
+    valor: valorResidual,
+    data_vencimento: String(residualRaw.data_vencimento ?? dataVencimentoResidual),
+    data_competencia: String(residualRaw.data_competencia ?? recebimento.data_competencia ?? dataVencimentoResidual),
+    data_liquidacao: null,
+    liquidado: false,
+    status: "pendente",
+    gc_baixado: false,
+    gc_baixado_em: null,
+    pago_sistema: false,
+    pago_sistema_em: null,
+    last_synced_at: nowIso,
+    updated_at: nowIso,
+  };
+
+  const { data: residualRow, error: residualError } = await supabase
+    .from("fin_recebimentos" as any)
+    .upsert(residualLocal, { onConflict: "gc_id" })
+    .select("id")
+    .single() as any;
+
+  if (residualError) throw residualError;
+
+  return {
+    negotiatedRecebimentoId: recebimentoId,
+    residualRecebimentoId: residualRow?.id ?? null,
+    valorOriginal,
+    valorResidual,
+  };
 }
 
 // ─── Re-sync individual recebimento from GC by gc_id ─────────────────

@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
-import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix, resyncRecebimentoFromGC, gcDelay, atualizarRecebimentoGC } from "@/api/financeiro";
+import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix, resyncRecebimentoFromGC, gcDelay, atualizarRecebimentoGC, desmembrarRecebimentoNegociacao } from "@/api/financeiro";
 import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink, FileText, Link2, Plus, Upload, AlertTriangle, ShieldCheck, RefreshCw, Pencil, Trash2, CalendarIcon, Search, X, Minus, Sparkles, ScanSearch, Banknote, Check } from "lucide-react";
 import { SmartGroupDialog } from "@/components/financeiro/SmartGroupDialog";
 import toast from "react-hot-toast";
@@ -1150,20 +1150,41 @@ export default function GruposReceberPage() {
                                     autoFocus
                                     onKeyDown={async (e) => {
                                       if (e.key === 'Enter') {
-                                        const val = (e.target as HTMLInputElement).value;
-                                        const parsed = parseFloat(val.replace(/\./g, "").replace(",", "."));
-                                        const originalVal = Number(rec?.valor || 0);
-                                        if (isNaN(parsed) || parsed <= 0) { toast.error("Valor inválido"); return; }
-                                        if (parsed > originalVal) { toast.error(`Máximo: ${formatCurrency(originalVal)}`); return; }
-                                        await supabase.from("fin_grupo_receber_itens").update({ valor: parsed }).eq("id", i.id);
-                                        // Recalculate group total
-                                        const { data: allItens } = await supabase.from("fin_grupo_receber_itens").select("valor").eq("grupo_id", selectedGrupo.id);
-                                        const novoTotal = (allItens || []).reduce((s: number, it: any) => s + Number(it.valor || 0), 0);
-                                        await supabase.from("fin_grupos_receber").update({ valor_total: novoTotal, updated_at: new Date().toISOString() }).eq("id", selectedGrupo.id);
-                                        toast.success(`Valor atualizado para ${formatCurrency(parsed)}`);
-                                        queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens"] });
-                                        queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
-                                        setEditingItemValor(null);
+                                        try {
+                                          const val = (e.target as HTMLInputElement).value;
+                                          const parsed = parseFloat(val.replace(/\./g, "").replace(",", "."));
+                                          const valorAtual = Number(i.valor || rec?.valor || 0);
+                                          if (isNaN(parsed) || parsed <= 0) { toast.error("Valor inválido"); return; }
+                                          if (parsed > valorAtual) { toast.error(`Máximo: ${formatCurrency(valorAtual)}`); return; }
+                                          if (Math.abs(parsed - valorAtual) <= 0.009) { setEditingItemValor(null); return; }
+                                          if (!selectedGrupo?.data_vencimento) {
+                                            toast.error("Defina o vencimento do grupo para desmembrar o restante.");
+                                            return;
+                                          }
+
+                                          const vencResidual = fnsFormat(addMonths(new Date(`${selectedGrupo.data_vencimento}T12:00:00`), 1), "yyyy-MM-dd");
+
+                                          await desmembrarRecebimentoNegociacao({
+                                            recebimentoId: i.recebimento_id,
+                                            valorNegociado: parsed,
+                                            dataVencimentoNegociado: selectedGrupo.data_vencimento,
+                                            dataVencimentoResidual: vencResidual,
+                                            grupoId: selectedGrupo.id,
+                                          });
+
+                                          await supabase.from("fin_grupo_receber_itens").update({ valor: parsed }).eq("id", i.id);
+                                          const { data: allItens } = await supabase.from("fin_grupo_receber_itens").select("valor").eq("grupo_id", selectedGrupo.id);
+                                          const novoTotal = (allItens || []).reduce((s: number, it: any) => s + Number(it.valor || 0), 0);
+                                          await supabase.from("fin_grupos_receber").update({ valor_total: novoTotal, updated_at: new Date().toISOString() }).eq("id", selectedGrupo.id);
+                                          setSelectedGrupo((prev: any) => prev ? { ...prev, valor_total: novoTotal } : prev);
+                                          toast.success(`Valor atualizado para ${formatCurrency(parsed)}`);
+                                          queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens"] });
+                                          queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
+                                          queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
+                                          setEditingItemValor(null);
+                                        } catch (err) {
+                                          toast.error(err instanceof Error ? err.message : "Erro ao desmembrar item");
+                                        }
                                       }
                                       if (e.key === 'Escape') setEditingItemValor(null);
                                     }}

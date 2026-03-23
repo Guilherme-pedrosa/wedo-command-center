@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { atualizarRecebimentoGC, gcDelay } from "@/api/financeiro";
+import { atualizarRecebimentoGC, desmembrarRecebimentoNegociacao, gcDelay } from "@/api/financeiro";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -181,6 +181,11 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
     if (!groupName.trim() || selectedItems.length === 0) return;
     setCreating(true);
     try {
+      const hasPartialSelection = selectedItems.some((r: any) => getItemValor(r) < Number(r.valor || 0) - 0.01);
+      if (hasPartialSelection && !groupDate) {
+        throw new Error("Informe o vencimento da negociação para desmembrar os valores parciais.");
+      }
+
       const total = selectedTotal;
       const { data: grupo, error: gErr } = await supabase.from("fin_grupos_receber").insert({
         nome: groupName,
@@ -193,33 +198,52 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
       }).select().single();
       if (gErr) throw gErr;
 
-      const grupoItens = selectedItems.map((r: any) => ({
-        grupo_id: (grupo as any).id,
-        recebimento_id: r.id,
-        valor: getItemValor(r),
-        os_codigo_original: r.os_codigo || null,
-        gc_os_id: r.gc_id || null,
-        snapshot_valor: Number(r.valor),
-        snapshot_data: r.data_vencimento || null,
-      }));
-      await supabase.from("fin_grupo_receber_itens").insert(grupoItens);
+      const vencGrupo = groupDate ? format(groupDate, "yyyy-MM-dd") : null;
+      const vencResidual = groupDate ? format(addMonths(groupDate, 1), "yyyy-MM-dd") : null;
+      const grupoItens = [] as Record<string, unknown>[];
 
-      const updateData: Record<string, any> = { grupo_id: (grupo as any).id };
-      if (groupDate) updateData.data_vencimento = format(groupDate, "yyyy-MM-dd");
-      await supabase.from("fin_recebimentos").update(updateData).in("id", selectedItems.map((r: any) => r.id));
+      for (const r of selectedItems as any[]) {
+        const valorSelecionado = getItemValor(r);
+        const valorOriginal = Number(r.valor || 0);
+        const isPartial = valorSelecionado < valorOriginal - 0.01;
 
-      // Sync vencimento pro GC (itens selecionados)
-      if (groupDate) {
-        const venc = format(groupDate, "yyyy-MM-dd");
-        for (const r of selectedItems as any[]) {
-          if (r.gc_id && r.gc_payload_raw) {
+        if (isPartial) {
+          if (!vencGrupo || !vencResidual) {
+            throw new Error("Informe o vencimento da negociação para desmembrar os valores parciais.");
+          }
+
+          await desmembrarRecebimentoNegociacao({
+            recebimentoId: r.id,
+            valorNegociado: valorSelecionado,
+            dataVencimentoNegociado: vencGrupo,
+            dataVencimentoResidual: vencResidual,
+            grupoId: (grupo as any).id,
+          });
+        } else {
+          const updateData: Record<string, any> = { grupo_id: (grupo as any).id };
+          if (vencGrupo) updateData.data_vencimento = vencGrupo;
+          await supabase.from("fin_recebimentos").update(updateData).eq("id", r.id);
+
+          if (vencGrupo && r.gc_id && r.gc_payload_raw) {
             try {
-              await atualizarRecebimentoGC(r.gc_id, r.gc_payload_raw, { data_vencimento: venc });
+              await atualizarRecebimentoGC(r.gc_id, r.gc_payload_raw, { data_vencimento: vencGrupo });
             } catch { /* ignore */ }
             await gcDelay();
           }
         }
+
+        grupoItens.push({
+          grupo_id: (grupo as any).id,
+          recebimento_id: r.id,
+          valor: valorSelecionado,
+          os_codigo_original: r.os_codigo || null,
+          gc_os_id: r.gc_id || null,
+          snapshot_valor: valorOriginal,
+          snapshot_data: r.data_vencimento || null,
+        });
       }
+
+      await supabase.from("fin_grupo_receber_itens").insert(grupoItens);
 
       // Recebimentos NÃO selecionados: vencimento = 1 mês após o vencimento do grupo
       if (groupDate) {
