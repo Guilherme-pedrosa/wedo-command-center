@@ -288,7 +288,7 @@ export default function GruposReceberPage() {
             || editItensToAdd.find((r: any) => r.id === item.recebimentoId);
           if (rec?.gc_id && rec?.gc_payload_raw) {
             try {
-              await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw, { data_vencimento: editVencimento });
+              await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw as Record<string, unknown>, { data_vencimento: editVencimento });
             } catch { /* ignore */ }
             await gcDelay();
           }
