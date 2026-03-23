@@ -213,14 +213,16 @@ serve(async (req) => {
       const valorGrupo = Number(grupo.valor_total) || 0;
 
       // ── Valor validation ──
+      // Permitir pequena tolerância de arredondamento entre NF e grupo
+      const valorTolerance = 1.0;
       // Primary check: valor_total (gross) must match group value
       // Retained taxes don't change the receivable amount
-      if (Math.abs(nf.valor_total - valorGrupo) < 0.01) {
+      if (Math.abs(nf.valor_total - valorGrupo) <= valorTolerance) {
         // Total matches — if there are deductions, just inform
         if (nf.valor_deducoes > 0) {
           avisos.push(`NF possui retenções de R$ ${nf.valor_deducoes.toFixed(2)} (IR: ${nf.valor_ir.toFixed(2)}, ISS: ${nf.valor_iss.toFixed(2)}, PIS: ${nf.valor_pis.toFixed(2)}, COFINS: ${nf.valor_cofins.toFixed(2)}, CSLL: ${nf.valor_csll.toFixed(2)}, INSS: ${nf.valor_inss.toFixed(2)}). Líquido: R$ ${nf.valor_liquido.toFixed(2)}`);
         }
-      } else if (nf.valor_liquido > 0 && Math.abs(nf.valor_liquido - valorGrupo) < 0.01) {
+      } else if (nf.valor_liquido > 0 && Math.abs(nf.valor_liquido - valorGrupo) <= valorTolerance) {
         // Líquido matches — group may have been created with net value
         avisos.push(`Valor líquido da NF (R$ ${nf.valor_liquido.toFixed(2)}) confere, mas o total bruto é R$ ${nf.valor_total.toFixed(2)} (retenções: R$ ${nf.valor_deducoes.toFixed(2)})`);
       } else {
