@@ -218,6 +218,7 @@ export default function GruposReceberPage() {
       const valorGrupoFinal = roundMoney(keptItems.reduce((sum, item) => sum + item.valor, 0));
       const valorSeparado = roundMoney(removedItems.reduce((sum, item) => sum + item.valor, 0));
       const osCodigos = Array.from(new Set(keptItems.map((item) => item.osCodigo).filter(Boolean)));
+      const osCodigosSeparados = Array.from(new Set(removedItems.map((item) => item.osCodigo).filter(Boolean)));
       const keptRecebimentoIds = keptItems.map((item) => item.recebimentoId);
 
       const { error } = await supabase.from("fin_grupos_receber").update({
@@ -231,13 +232,26 @@ export default function GruposReceberPage() {
       }).eq("id", selectedGrupo.id);
       if (error) throw error;
 
+      if (valorSeparado > 0.01 && selectedGrupo.cliente_gc_id) {
+        const { error: residualError } = await supabase.from("fin_residuos_negociacao").insert({
+          cliente_gc_id: selectedGrupo.cliente_gc_id,
+          nome_cliente: selectedGrupo.nome_cliente || "—",
+          valor_residual: valorSeparado,
+          negociacao_origem_numero: selectedGrupo.negociacao_numero || null,
+          os_codigos: osCodigosSeparados.length > 0 ? osCodigosSeparados : null,
+          observacao: `Passivo gerado na edição do grupo "${editNome}" — Valor cobrado: ${formatCurrency(valorGrupoFinal)} · Valor separado: ${formatCurrency(valorSeparado)}`,
+          utilizado: false,
+        });
+        if (residualError) throw residualError;
+      }
+
       if (editVencimento && keptRecebimentoIds.length > 0) {
         await supabase.from("fin_recebimentos").update({ data_vencimento: editVencimento }).in("id", keptRecebimentoIds);
       }
 
       toast.success(
         valorSeparado > 0.01
-          ? `Grupo ajustado: ${formatCurrency(valorGrupoFinal)} no grupo e ${formatCurrency(valorSeparado)} separado como passivo`
+          ? `Grupo ajustado: ${formatCurrency(valorGrupoFinal)} no grupo e ${formatCurrency(valorSeparado)} em passivo`
           : "Grupo atualizado",
       );
       setShowEditDialog(false);
