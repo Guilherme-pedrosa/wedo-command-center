@@ -435,7 +435,8 @@ export async function resyncRecebimentoFromGC(gcId: string, osCodigo?: string | 
     return false;
   }
 
-  // Also update the item value in fin_grupo_receber_itens
+  // Update snapshot_valor in fin_grupo_receber_itens (reference only)
+  // NOTE: Do NOT update item.valor — that holds the negotiated/allocated amount
   const { data: rec } = await supabase
     .from("fin_recebimentos")
     .select("id")
@@ -445,7 +446,7 @@ export async function resyncRecebimentoFromGC(gcId: string, osCodigo?: string | 
   if (rec) {
     await supabase
       .from("fin_grupo_receber_itens")
-      .update({ valor })
+      .update({ snapshot_valor: valor })
       .eq("recebimento_id", rec.id);
   }
 
