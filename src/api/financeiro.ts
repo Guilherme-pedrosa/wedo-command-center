@@ -137,7 +137,7 @@ async function fetchPaginatedGC<T>(
   while (page <= totalPages) {
     const res = await callGC<GCApiResponse<T>>({
       endpoint,
-      params: { limite: "100", pagina: String(page), ...params },
+      params: { limite: "200", pagina: String(page), ...params },
     });
 
     if (res.status === 401) throw new Error("GC_AUTH_ERROR");
