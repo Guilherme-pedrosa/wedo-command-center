@@ -107,21 +107,44 @@ export default function GruposReceberPage() {
   const handleOpenGrupoRecebimentosGC = () => {
     if (!selectedGrupo) return;
 
-    // Build a filtered search URL matching the group's NFS-e number or name
-    const nfseNumero = selectedGrupo.nfse_numero || '';
-    const searchTerm = nfseNumero ? `NF ${nfseNumero}` : selectedGrupo.nome || '';
+    const negNum = selectedGrupo.negociacao_numero;
+    const nfNum = selectedGrupo.nfse_numero;
     
+    let searchTerm = '';
+    if (negNum && nfNum) {
+      searchTerm = `NEG ${negNum} NF${nfNum}`;
+    } else if (negNum) {
+      searchTerm = `NEG ${negNum}`;
+    } else if (nfNum) {
+      searchTerm = `NF ${nfNum}`;
+    } else {
+      searchTerm = selectedGrupo.nome || '';
+    }
+
     if (!searchTerm) {
       toast.error("Esse grupo não tem informações suficientes para buscar no GC");
       return;
+    }
+
+    const vencimento = selectedGrupo.data_vencimento;
+    let dataInicio = '01/01/2020';
+    let dataFim = '31/12/2030';
+    
+    if (vencimento) {
+      const d = new Date(vencimento + 'T12:00:00');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yyyy = d.getFullYear();
+      dataInicio = `${dd}/${mm}/${yyyy}`;
+      dataFim = `${dd}/${mm}/${yyyy}`;
     }
 
     const params = new URLSearchParams({
       loja: '446246',
       'tipo-entidade': 'C',
       nome: searchTerm,
-      data_inicio: '01/01/2020',
-      data_fim: '31/12/2030',
+      data_inicio: dataInicio,
+      data_fim: dataFim,
       tipo: 'C',
       situacaoBuscaAvancada: 'true',
     });
