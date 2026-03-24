@@ -769,9 +769,27 @@ serve(async (req) => {
             const dueDate = String(rec?.data_vencimento || "").slice(0, 10);
             const currentDesc = String(rec?.descricao || "").trim();
             const currentObs = String(rec?.observacoes || rec?.observacao || "").trim();
-            const isPassive = currentDesc.toUpperCase().includes("PASSIVO")
-              || (dueDate === residualDueDate && plan.residual > 0.01 && Math.abs(plan.residual - recValue) <= 0.02)
-              || (plan.residual > 0.01 && Math.abs(plan.residual - recValue) <= 0.02 && !plan.parcelValues.some((pv) => Math.abs(pv - recValue) <= 0.02));
+            // Detectar passivo por múltiplos critérios (GC não usa nossa descrição)
+            const descUpper = currentDesc.toUpperCase();
+            const isPassive = descUpper.includes("PASSIVO")
+              // Valor bate com residual e data >= residualDueDate (tolerância de +/- 7 dias)
+              || (plan.residual > 0.01 
+                  && Math.abs(plan.residual - recValue) <= 0.02
+                  && Math.abs(new Date(dueDate).getTime() - new Date(residualDueDate).getTime()) <= 7 * 86400000)
+              // Valor bate com residual e NÃO bate com nenhuma parcela
+              || (plan.residual > 0.01 
+                  && Math.abs(plan.residual - recValue) <= 0.02 
+                  && !plan.parcelValues.some((pv) => Math.abs(pv - recValue) <= 0.02))
+              // É parcela (x/y) onde y > 1 e x > parcelas negociadas (último = passivo)
+              || (() => {
+                const parcelMatch = currentDesc.match(/\((\d+)\/(\d+)\)/);
+                if (parcelMatch) {
+                  const parcelNum = parseInt(parcelMatch[1], 10);
+                  const parcelTotal = parseInt(parcelMatch[2], 10);
+                  return parcelTotal > 1 && parcelNum === parcelTotal && plan.residual > 0.01;
+                }
+                return false;
+              })();
 
             const cleanedDesc = currentDesc
               .replace(/^\[?\s*neg[\s#\.\-]*\d+\]?\s*[-–—:]?\s*/i, "")
