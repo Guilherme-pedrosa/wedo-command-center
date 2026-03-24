@@ -134,7 +134,7 @@ export default function PagamentosPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("fin_pagamentos")
-        .select("*, fin_formas_pagamento:forma_pagamento_id(nome)")
+        .select("*, fin_formas_pagamento:forma_pagamento_id(nome), fin_plano_contas:plano_contas_id(nome)")
         .eq("data_vencimento", hoje)
         .neq("status", "cancelado");
       return data || [];
@@ -573,9 +573,10 @@ export default function PagamentosPage() {
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase border-b pb-1">{forma}</h3>
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="text-muted-foreground">
+                       <tr className="text-muted-foreground">
                         <th className="text-left pb-1">Fornecedor</th>
                         <th className="text-left pb-1">Descrição</th>
+                        <th className="text-left pb-1">Plano de Contas</th>
                         <th className="text-right pb-1">Valor</th>
                         <th className="text-center pb-1">Status</th>
                       </tr>
@@ -585,6 +586,7 @@ export default function PagamentosPage() {
                         <tr key={p.id} className="border-b border-border/30">
                           <td className="py-1">{p.nome_fornecedor || "—"}</td>
                           <td className="py-1 truncate max-w-[200px]">{p.descricao}</td>
+                          <td className="py-1 truncate max-w-[150px] text-muted-foreground">{p.fin_plano_contas?.nome || "—"}</td>
                           <td className="py-1 text-right font-medium">{formatCurrency(Number(p.valor))}</td>
                           <td className="py-1 text-center">{statusBadge(p)}</td>
                         </tr>
@@ -592,7 +594,7 @@ export default function PagamentosPage() {
                     </tbody>
                     <tfoot>
                       <tr className="font-semibold">
-                        <td colSpan={2} className="pt-1">Subtotal {forma}</td>
+                        <td colSpan={3} className="pt-1">Subtotal {forma}</td>
                         <td className="pt-1 text-right">{formatCurrency((items as any[]).reduce((s, p) => s + Number(p.valor || 0), 0))}</td>
                         <td></td>
                       </tr>
