@@ -244,9 +244,13 @@ export default function NegociacaoOSPage() {
     }
   };
 
-  const selectedTotal = selectedClient?.os_list
+  const valorResiduaisSelecionados = clientResiduais
+    .filter(r => selectedResidualIds.has(r.id))
+    .reduce((sum, r) => sum + (r.valor_residual || 0), 0);
+
+  const selectedTotal = (selectedClient?.os_list
     .filter((os) => selectedOSIds.has(os.id))
-    .reduce((sum, os) => sum + os.valor_total, 0) || 0;
+    .reduce((sum, os) => sum + os.valor_total, 0) || 0) + valorResiduaisSelecionados;
 
   const valorParcela = parcelas > 0 ? valorNegociado / parcelas : 0;
   const valorResidual = Math.round((selectedTotal - valorNegociado) * 100) / 100;
