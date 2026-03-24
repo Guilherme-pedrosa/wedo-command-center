@@ -183,6 +183,7 @@ export default function GruposReceberPage() {
   const [syncingGC, setSyncingGC] = useState(false);
   const [showSmartGroup, setShowSmartGroup] = useState(false);
   const [scanningPassivos, setScanningPassivos] = useState(false);
+  const [taggingPassivos, setTaggingPassivos] = useState(false);
   const [markingPassivo, setMarkingPassivo] = useState<string | null>(null);
   const [editValorCobrar, setEditValorCobrar] = useState<number | null>(null);
   const [editingItemValor, setEditingItemValor] = useState<string | null>(null);
@@ -469,6 +470,34 @@ export default function GruposReceberPage() {
       toast.error(`Erro: ${(err as Error).message}`);
     } finally {
       setScanningPassivos(false);
+    }
+  };
+
+  const handleTagPassivos = async () => {
+    if (!selectedGrupo?.cliente_gc_id || !selectedGrupo?.os_codigos?.length) {
+      toast.error("Grupo sem cliente ou OS vinculadas");
+      return;
+    }
+    setTaggingPassivos(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("tag-passivos", {
+        body: {
+          cliente_gc_id: selectedGrupo.cliente_gc_id,
+          negociacao_numero: selectedGrupo.negociacao_numero || 0,
+          os_codigos: selectedGrupo.os_codigos,
+        },
+      });
+      if (error) throw error;
+      const msg = `${data.tagged} passivo(s) tageado(s) no GC`;
+      const scanMsg = data.scan_result?.inserted ? `, ${data.scan_result.inserted} importado(s)` : '';
+      const errMsg = data.errors?.length ? ` (${data.errors.length} erros)` : '';
+      toast.success(`${msg}${scanMsg}${errMsg}`);
+      refetchPassivos();
+      queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+    } finally {
+      setTaggingPassivos(false);
     }
   };
 
@@ -962,6 +991,22 @@ export default function GruposReceberPage() {
                     <CheckCircle className="h-4 w-4" />
                     Baixa enviada em {selectedGrupo.gc_baixado_em ? formatDateTime(selectedGrupo.gc_baixado_em) : ""}
                   </div>
+                )}
+
+                {/* Botão Atualizar Passivos - busca no GC e tageia */}
+                {selectedGrupo?.os_codigos?.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleTagPassivos}
+                    disabled={taggingPassivos}
+                    className="w-full"
+                  >
+                    {taggingPassivos
+                      ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      : <Banknote className="h-3.5 w-3.5 mr-1.5" />}
+                    Atualizar Passivos no GC
+                  </Button>
                 )}
 
                 {/* Passivos (Residuos) do cliente */}
