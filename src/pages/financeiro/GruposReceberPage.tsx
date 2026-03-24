@@ -189,6 +189,25 @@ export default function GruposReceberPage() {
   const [editingItemValor, setEditingItemValor] = useState<string | null>(null);
   const [osIdMap, setOsIdMap] = useState<Record<string, string>>({});
 
+  useEffect(() => {
+    if (!selectedGrupo?.os_codigos?.length) {
+      setOsIdMap({});
+      return;
+    }
+    const fetchOsIds = async () => {
+      const { data } = await supabase
+        .from("os_index")
+        .select("os_id, os_codigo")
+        .in("os_codigo", selectedGrupo.os_codigos as string[]);
+      const map: Record<string, string> = {};
+      for (const r of (data || []) as { os_id: string; os_codigo: string }[]) {
+        if (!map[r.os_codigo]) map[r.os_codigo] = r.os_id;
+      }
+      setOsIdMap(map);
+    };
+    fetchOsIds();
+  }, [selectedGrupo?.id]);
+
   const canEditGroup = (g: any) => !g.nfse_numero && !g.gc_baixado && g.status !== "pago";
 
   const handleEditGroup = async () => {
