@@ -411,17 +411,32 @@ export default function GruposReceberPage() {
       await supabase.from("fin_grupo_receber_itens").delete().eq("grupo_id", selectedGrupo.id);
 
       // Rollback residuais: reverter passivos que foram utilizados nesta negociação
-      if (selectedGrupo.negociacao_numero) {
-        await supabase
+      if (selectedGrupo.cliente_gc_id) {
+        const osCodigos = (selectedGrupo.os_codigos || []) as string[];
+        // Find residuals for this client that are used and have overlapping os_codigos
+        const { data: residuais } = await supabase
           .from("fin_residuos_negociacao")
-          .update({ utilizado: false, utilizado_em: null })
-          .eq("utilizado", true)
-          .or(
-            (selectedGrupo.os_codigos || [])
-              .map((code: string) => `os_codigos.cs.{${code}}`)
-              .join(",")
-          );
-        console.log(`[delete-grupo] Residuais revertidos para negociação #${selectedGrupo.negociacao_numero}`);
+          .select("id, os_codigos")
+          .eq("cliente_gc_id", selectedGrupo.cliente_gc_id)
+          .eq("utilizado", true);
+        
+        if (residuais?.length) {
+          // Filter residuals whose os_codigos overlap with the group's os_codigos
+          const idsToRevert = residuais
+            .filter((r: any) => {
+              const rCodes = (r.os_codigos || []) as string[];
+              return rCodes.some((c: string) => osCodigos.includes(c));
+            })
+            .map((r: any) => r.id);
+          
+          if (idsToRevert.length > 0) {
+            await supabase
+              .from("fin_residuos_negociacao")
+              .update({ utilizado: false, utilizado_em: null })
+              .in("id", idsToRevert);
+            console.log(`[delete-grupo] ${idsToRevert.length} residuais revertidos`);
+          }
+        }
       }
 
       await supabase.from("fin_grupos_receber").delete().eq("id", selectedGrupo.id);
