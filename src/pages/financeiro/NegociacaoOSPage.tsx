@@ -547,6 +547,17 @@ export default function NegociacaoOSPage() {
                       <span className="text-sm text-muted-foreground">
                         Residual Neg. nº{r.negociacao_origem_numero ?? '—'}
                       </span>
+                      {r.gc_recebimento_id && (
+                        <a
+                          href={`https://gestaoclick.com/movimentacoes_financeiras/visualizar_recebimento/${r.gc_recebimento_id}?retorno=%2Fmovimentacoes_financeiras%2Findex_recebimento`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-yellow-500 hover:text-yellow-300"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
                     </div>
                     <span className={`text-sm font-semibold ${
                       selectedResidualIds.has(r.id) ? 'text-yellow-400' : 'text-muted-foreground'
