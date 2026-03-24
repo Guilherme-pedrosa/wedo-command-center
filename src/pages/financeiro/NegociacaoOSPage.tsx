@@ -21,6 +21,8 @@ interface ResidualItem {
   observacao: string | null;
   created_at: string | null;
   gc_recebimento_id: string | null;
+  gc_codigo: string | null;
+  os_codigos: string[] | null;
 }
 
 interface OSItem {
@@ -544,9 +546,23 @@ export default function NegociacaoOSPage() {
                         onCheckedChange={() => toggleResidual(r.id)}
                       />
                       <Banknote className="h-4 w-4 text-yellow-500" />
-                      <span className="text-sm text-muted-foreground">
-                        Residual Neg. nº{r.negociacao_origem_numero ?? '—'}
-                      </span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-sm text-muted-foreground">
+                          Residual Neg. nº{r.negociacao_origem_numero ?? '—'}
+                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {r.gc_codigo && (
+                            <span className="text-xs text-muted-foreground/70 font-mono">
+                              Fin. #{r.gc_codigo}
+                            </span>
+                          )}
+                          {r.os_codigos && r.os_codigos.length > 0 && (
+                            <span className="text-xs text-muted-foreground/70">
+                              OS {r.os_codigos.join(', OS ')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                       {r.gc_recebimento_id && (
                         <a
                           href={`https://gestaoclick.com/movimentacoes_financeiras/visualizar_recebimento/${r.gc_recebimento_id}?retorno=%2Fmovimentacoes_financeiras%2Findex_recebimento`}
