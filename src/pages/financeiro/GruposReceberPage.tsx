@@ -112,7 +112,8 @@ export default function GruposReceberPage() {
 
     let searchTerm = '';
     if (nfNum) {
-      searchTerm = `NF ${nfNum}`;
+      // Filtro idêntico à nomenclatura usada na descrição do financeiro: NF{numero} sem espaço
+      searchTerm = `NF${nfNum}`;
     } else if (negNum) {
       searchTerm = `NEG${negNum}`;
     } else {
