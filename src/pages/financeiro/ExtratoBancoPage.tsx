@@ -787,6 +787,7 @@ export default function ExtratoBancoPage() {
                           <div>
                             <span className="font-medium">{c.descricao}</span>
                             <span className="ml-2 font-bold text-primary">{formatCurrency(Number(c.valor))}</span>
+                            {c.data_vencimento && <span className="ml-2 text-muted-foreground">{format(new Date(c.data_vencimento + "T12:00:00"), "dd/MM")}</span>}
                             <span className="ml-2 text-muted-foreground">{c.nome}</span>
                           </div>
                           <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 shrink-0"
