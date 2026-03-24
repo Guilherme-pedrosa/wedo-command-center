@@ -342,29 +342,49 @@ export async function registrarResidualNegociacao(params: {
 }
 
 // ─── Re-sync individual recebimento from GC by gc_id ─────────────────
-export async function resyncRecebimentoFromGC(gcId: string, osCodigo?: string | null): Promise<boolean> {
+export async function resyncRecebimentoFromGC(gcId: string, osCodigo?: string | null, clienteGcId?: string | null): Promise<boolean> {
   let res = await callGC<any>({
     endpoint: `/api/recebimentos/${gcId}`,
   });
 
   let raw = res.data?.data ?? res.data;
 
-  // If the old gc_id no longer exists and we have an OS code, search by OS
+  // If the old gc_id no longer exists, search by cliente + OS code across all pages
   if ((res.status >= 400 || !raw?.id) && osCodigo) {
-    console.warn(`[resync] gc_id ${gcId} não encontrado, buscando pela OS ${osCodigo}...`);
+    console.warn(`[resync] gc_id ${gcId} não encontrado, buscando pela OS ${osCodigo}${clienteGcId ? ` cliente=${clienteGcId}` : ''}...`);
     
-    // Search GC for a recebimento matching this OS
-    const searchRes = await callGC<any>({
-      endpoint: "/api/recebimentos",
-      params: { limite: "100", pagina: "1" },
-    });
+    let match: any = null;
+    let page = 1;
+    let totalPages = 1;
 
-    const lista = searchRes.data?.data || [];
-    const match = lista.find((item: any) => {
-      const desc = item.descricao || "";
-      const osFromDesc = extrairOsCodigo(desc);
-      return osFromDesc === osCodigo;
-    });
+    while (page <= totalPages && !match) {
+      const params: Record<string, string> = { limite: "100", pagina: String(page) };
+      if (clienteGcId) params.cliente_id = clienteGcId;
+
+      const searchRes = await callGC<any>({
+        endpoint: "/api/recebimentos",
+        params,
+      });
+
+      const lista = Array.isArray(searchRes.data?.data) ? searchRes.data.data : [];
+      totalPages = searchRes.data?.meta?.total_paginas || 1;
+
+      match = lista.find((item: any) => {
+        const rec = item?.Recebimento || item?.recebimento || item;
+        const desc = String(rec?.descricao || "").toLowerCase();
+        return desc.includes(`os ${osCodigo.toLowerCase()}`) 
+          || desc.includes(`nº ${osCodigo}`)
+          || desc.includes(`nº${osCodigo}`)
+          || extrairOsCodigo(desc) === osCodigo;
+      });
+
+      if (match) {
+        // Unwrap if nested
+        match = match?.Recebimento || match?.recebimento || match;
+      }
+
+      page++;
+    }
 
     if (!match) {
       console.error(`[resync] OS ${osCodigo} não encontrada nos recebimentos do GC`);
@@ -372,8 +392,8 @@ export async function resyncRecebimentoFromGC(gcId: string, osCodigo?: string | 
     }
 
     raw = match;
-    const newGcId = match.id;
-    const newGcCodigo = match.codigo;
+    const newGcId = String(match.id);
+    const newGcCodigo = match.codigo ? String(match.codigo) : null;
     console.log(`[resync] OS ${osCodigo} encontrada com novo gc_id=${newGcId} codigo=${newGcCodigo}`);
 
     // Update the gc_id reference in fin_recebimentos
