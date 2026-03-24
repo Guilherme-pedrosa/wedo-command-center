@@ -409,6 +409,21 @@ export default function GruposReceberPage() {
       }
       // Delete items then group
       await supabase.from("fin_grupo_receber_itens").delete().eq("grupo_id", selectedGrupo.id);
+
+      // Rollback residuais: reverter passivos que foram utilizados nesta negociação
+      if (selectedGrupo.negociacao_numero) {
+        await supabase
+          .from("fin_residuos_negociacao")
+          .update({ utilizado: false, utilizado_em: null })
+          .eq("utilizado", true)
+          .or(
+            (selectedGrupo.os_codigos || [])
+              .map((code: string) => `os_codigos.cs.{${code}}`)
+              .join(",")
+          );
+        console.log(`[delete-grupo] Residuais revertidos para negociação #${selectedGrupo.negociacao_numero}`);
+      }
+
       await supabase.from("fin_grupos_receber").delete().eq("id", selectedGrupo.id);
 
       toast.success("Grupo excluído");
