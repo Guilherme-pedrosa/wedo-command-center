@@ -183,6 +183,7 @@ export default function GruposReceberPage() {
   const [syncingGC, setSyncingGC] = useState(false);
   const [showSmartGroup, setShowSmartGroup] = useState(false);
   const [scanningPassivos, setScanningPassivos] = useState(false);
+  const [taggingPassivos, setTaggingPassivos] = useState(false);
   const [markingPassivo, setMarkingPassivo] = useState<string | null>(null);
   const [editValorCobrar, setEditValorCobrar] = useState<number | null>(null);
   const [editingItemValor, setEditingItemValor] = useState<string | null>(null);
