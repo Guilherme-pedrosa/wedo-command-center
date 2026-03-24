@@ -1085,7 +1085,7 @@ export default function GruposReceberPage() {
                           const rec = i.fin_recebimentos;
                           const osOriginal = i.os_codigo_original || rec?.os_codigo;
                           const gcOsId = i.gc_os_id || rec?.gc_id;
-                          const gcRecebimentoUrl = rec?.gc_id ? `${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${rec.gc_id}` : null;
+                          const gcRecebimentoUrl = rec?.gc_id ? `${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${rec.gc_id}?retorno=%2Fmovimentacoes_financeiras%2Findex_recebimento` : null;
 
                           return (
                             <tr key={i.id} className="border-t border-border">
@@ -1109,7 +1109,7 @@ export default function GruposReceberPage() {
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <a 
-                                            href={`https://gestaoclick.com/ordens_servicos/${gcOsId}`}
+                                            href={`https://gestaoclick.com/ordens_servicos/visualizar/${gcOsId}`}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="text-primary hover:underline flex items-center gap-1"

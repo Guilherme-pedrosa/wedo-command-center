@@ -27,8 +27,8 @@ import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
 const GC_BASE = "https://gestaoclick.com";
-const gcOsLink = (osCode: string) => `${GC_BASE}/ordens_servicos/${osCode}`;
-const gcRecebimentoLink = (gcId: string) => `${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${gcId}`;
+const gcOsLink = (osCode: string) => `${GC_BASE}/ordens_servicos/visualizar/${osCode}`;
+const gcRecebimentoLink = (gcId: string) => `${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${gcId}?retorno=%2Fmovimentacoes_financeiras%2Findex_recebimento`;
 const gcPagamentoLink = (gcId: string) => `${GC_BASE}/movimentacoes_financeiras/visualizar_pagamento/${gcId}`;
 const gcCompraLink = (numero: string) => `${GC_BASE}/compras/visualizar_compra/${numero}`;
 
