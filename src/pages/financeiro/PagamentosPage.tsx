@@ -573,9 +573,10 @@ export default function PagamentosPage() {
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase border-b pb-1">{forma}</h3>
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="text-muted-foreground">
+                       <tr className="text-muted-foreground">
                         <th className="text-left pb-1">Fornecedor</th>
                         <th className="text-left pb-1">Descrição</th>
+                        <th className="text-left pb-1">Plano de Contas</th>
                         <th className="text-right pb-1">Valor</th>
                         <th className="text-center pb-1">Status</th>
                       </tr>
