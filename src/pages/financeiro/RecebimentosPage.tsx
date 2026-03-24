@@ -443,6 +443,14 @@ export default function RecebimentosPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={handleExportPDF} title="Exportar PDF">
+            <Download className="h-3.5 w-3.5 mr-1.5" />
+            PDF
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleExportExcel} title="Exportar Excel">
+            <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />
+            Excel
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setShowFechamento(true)}>
             <FileText className="h-3.5 w-3.5 mr-1.5" />
             Fechamento do Dia
