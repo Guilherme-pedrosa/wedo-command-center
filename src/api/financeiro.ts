@@ -68,7 +68,7 @@ interface GCApiResponse<T> {
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-export const gcDelay = (ms = 350) => new Promise((r) => setTimeout(r, ms));
+export const gcDelay = (ms = 100) => new Promise((r) => setTimeout(r, ms));
 
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
 
