@@ -608,22 +608,20 @@ export default function GruposReceberPage() {
               continue;
             }
 
-            // Add NF number to observacao
-            const obsOriginal = String(osData.observacao || "");
+            // Add NF number to observacoes (plural — GC field name)
+            const obsOriginal = String(osData.observacoes || osData.observacao || "");
             const nfTag = `NF ${selectedGrupo.nfse_numero}`;
             const novaObs = obsOriginal.includes(nfTag) ? obsOriginal : (obsOriginal ? `${obsOriginal} | ${nfTag}` : nfTag);
 
-            // PUT update preserving all existing fields
-            const putPayload = {
-              ...osData,
-              observacao: novaObs,
-              nf_numero: selectedGrupo.nfse_numero,
+            // PUT update — only send required + changed fields (spreading full object causes 404)
+            const putPayload: Record<string, any> = {
+              tipo: osData.tipo || "servico",
+              codigo: osData.codigo,
+              cliente_id: osData.cliente_id,
+              situacao_id: osData.situacao_id,
+              data: osData.data,
+              observacoes: novaObs,
             };
-            // Remove read-only fields
-            delete putPayload.id;
-            delete putPayload.codigo;
-            delete putPayload.created_at;
-            delete putPayload.updated_at;
 
             const putRes = await callGC<any>({
               endpoint: `/api/ordens_servicos/${osId}`,
