@@ -430,6 +430,20 @@ serve(async (req) => {
               } }]
             : pagamentosNegociados;
 
+          // ── FIX: Ensure sum of pagamentos exactly matches os.valor_total to avoid GC 404 ──
+          {
+            const allPags = pagamentosComPassivo.map(p => p.pagamento);
+            const sumPags = allPags.reduce((s, p) => s + parseFloat(String(p.valor)), 0);
+            const diff = roundMoney(os.valor_total - sumPags);
+            if (diff !== 0 && Math.abs(diff) <= 0.05) {
+              // Adjust last payment to absorb rounding difference
+              const lastPag = allPags[allPags.length - 1];
+              const adjustedVal = roundMoney(parseFloat(String(lastPag.valor)) + diff);
+              lastPag.valor = adjustedVal.toFixed(2);
+              console.log(`[negotiate-os] Rounding fix: adjusted last payment by ${diff} for OS ${os.id}`);
+            }
+          }
+
           const stepBPayload: Record<string, unknown> = {
             ...basePayload,
             situacao_id: SITUACAO_INTERMEDIARIA,
