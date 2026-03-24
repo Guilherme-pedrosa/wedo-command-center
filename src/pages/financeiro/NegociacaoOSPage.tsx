@@ -552,27 +552,37 @@ export default function NegociacaoOSPage() {
                         </span>
                         <div className="flex items-center gap-2 flex-wrap">
                           {r.gc_codigo && (
-                            <span className="text-xs text-muted-foreground/70 font-mono">
+                            <a
+                              href={`https://gestaoclick.com/movimentacoes_financeiras/visualizar_recebimento/${r.gc_recebimento_id}?retorno=%2Fmovimentacoes_financeiras%2Findex_recebimento`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-xs text-primary hover:underline font-mono inline-flex items-center gap-0.5"
+                            >
                               Fin. #{r.gc_codigo}
-                            </span>
+                              <ExternalLink className="h-2.5 w-2.5" />
+                            </a>
                           )}
                           {r.os_codigos && r.os_codigos.length > 0 && (
-                            <span className="text-xs text-muted-foreground/70">
-                              OS {r.os_codigos.join(', OS ')}
+                            <span className="text-xs text-muted-foreground/70 inline-flex items-center gap-1 flex-wrap">
+                              {r.os_codigos.map((code, idx) => (
+                                <a
+                                  key={code}
+                                  href={`https://gestaoclick.com/ordens_servicos/visualizar/${code}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-primary hover:underline inline-flex items-center gap-0.5"
+                                >
+                                  OS {code}
+                                  <ExternalLink className="h-2.5 w-2.5" />
+                                  {idx < (r.os_codigos?.length ?? 0) - 1 ? ',' : ''}
+                                </a>
+                              ))}
                             </span>
                           )}
                         </div>
                       </div>
-                      {r.gc_recebimento_id && (
-                        <a
-                          href={`https://gestaoclick.com/movimentacoes_financeiras/visualizar_recebimento/${r.gc_recebimento_id}?retorno=%2Fmovimentacoes_financeiras%2Findex_recebimento`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-yellow-500 hover:text-yellow-300"
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
                       )}
                     </div>
                     <span className={`text-sm font-semibold ${
