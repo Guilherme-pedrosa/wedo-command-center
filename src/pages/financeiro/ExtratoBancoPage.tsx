@@ -1124,6 +1124,7 @@ export default function ExtratoBancoPage() {
                                     <span className="text-muted-foreground">{l.nome_cliente || l.nome_fornecedor}</span>
                                     {l.gc_codigo && <span className="text-muted-foreground">GC {l.gc_codigo}</span>}
                                     {l.os_codigo && <span className="text-muted-foreground">OS {l.os_codigo}</span>}
+                                    {l.data_vencimento && <span className="text-muted-foreground">Venc. {new Date(l.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR")}</span>}
                                     {l.liquidado && <Badge variant="secondary" className="text-[9px] h-4">Liquidado</Badge>}
                                   </div>
                                   {renderGCMeta(l, e.tipo === "CREDITO" ? "receber" : "pagar")}
