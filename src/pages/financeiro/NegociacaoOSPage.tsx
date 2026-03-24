@@ -120,10 +120,10 @@ export default function NegociacaoOSPage() {
           const valorTotal = osList.reduce((sum, os) => sum + os.valor_total, 0);
           return { ...c, os_list: osList, valor_total: valorTotal };
         })
-        .filter((c: ClientGroup) => c.os_list.length > 1 && c.valor_total > 0);
+        .filter((c: ClientGroup) => c.os_list.length >= 1 && c.valor_total > 0);
       setClients(groupedClients);
       if (groupedClients.length === 0) {
-        toast("Nenhum cliente com 2+ OS nas situações selecionadas", { icon: "ℹ️" });
+        toast("Nenhum cliente com OS nas situações selecionadas", { icon: "ℹ️" });
       }
     } catch (err) {
       toast.error(`Erro ao buscar OS: ${(err as Error).message}`);
@@ -257,10 +257,12 @@ export default function NegociacaoOSPage() {
 
   const handleParcelaValueChange = (index: number, newValue: number) => {
     const updated = [...valoresParcelas];
-    updated[index] = Math.round(newValue * 100) / 100;
-    const remaining = valorNegociado - updated[index];
+    const clamped = Math.min(Math.max(0, newValue), valorNegociado);
+    updated[index] = Math.round(clamped * 100) / 100;
+    
     const othersCount = updated.length - 1;
-    if (othersCount > 0 && remaining >= 0) {
+    if (othersCount > 0) {
+      const remaining = Math.max(0, valorNegociado - updated[index]);
       const eachOther = Math.round((remaining / othersCount) * 100) / 100;
       for (let i = 0; i < updated.length; i++) {
         if (i !== index) updated[i] = eachOther;
@@ -268,8 +270,8 @@ export default function NegociacaoOSPage() {
       const totalNow = updated.reduce((a, b) => a + b, 0);
       const roundDiff = Math.round((valorNegociado - totalNow) * 100) / 100;
       if (roundDiff !== 0) {
-        const lastOther = index === updated.length - 1 ? updated.length - 2 : updated.length - 1;
-        updated[lastOther] = Math.round((updated[lastOther] + roundDiff) * 100) / 100;
+        const lastOtherIdx = index === updated.length - 1 ? 0 : updated.length - 1;
+        updated[lastOtherIdx] = Math.round((updated[lastOtherIdx] + roundDiff) * 100) / 100;
       }
     }
     setValoresParcelas(updated);
@@ -293,6 +295,7 @@ export default function NegociacaoOSPage() {
           valor_residual: valorResidual > 0.01 ? valorResidual : 0,
           nome_cliente: selectedClient?.nome_cliente,
           cliente_gc_id: selectedClient?.cliente_id,
+          situacao_ids: selectedSituacoes,
         },
       });
 
@@ -619,11 +622,25 @@ export default function NegociacaoOSPage() {
                     {formatCurrency(valoresParcelas.reduce((a, b) => a + b, 0))}
                   </span>
                 </div>
+                {Math.abs(valoresParcelas.reduce((a, b) => a + b, 0) - valorNegociado) > 0.02 && (
+                  <div className="text-destructive text-xs flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    Soma das parcelas ({formatCurrency(valoresParcelas.reduce((a, b) => a + b, 0))}) diverge do valor negociado ({formatCurrency(valorNegociado)})
+                  </div>
+                )}
               </div>
 
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowNegotiate(false)}>Cancelar</Button>
-                <Button onClick={handleExecute} disabled={executing}>
+                <Button onClick={handleExecute} disabled={
+                  executing || 
+                  selectedOSIds.size === 0 || 
+                  valorNegociado <= 0 || 
+                  valorNegociado > selectedTotal ||
+                  parcelas < 1 ||
+                  valoresParcelas.length !== parcelas ||
+                  Math.abs(valoresParcelas.reduce((a, b) => a + b, 0) - valorNegociado) > 0.02
+                }>
                   {executing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                   Executar Negociação
                 </Button>
@@ -640,7 +657,7 @@ export default function NegociacaoOSPage() {
                       <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
                     )}
                     <span className="font-mono">{r.os_id}</span>
-                    {r.error && <span className="text-destructive text-xs truncate">{r.error}</span>}
+                    {r.error && <span className="text-destructive text-xs">{r.error}</span>}
                   </div>
                 ))}
               </div>

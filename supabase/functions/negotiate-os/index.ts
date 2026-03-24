@@ -204,7 +204,7 @@ serve(async (req) => {
       }
 
       const clients = Object.values(byClient)
-        .filter((c) => c.os_list.length > 1)
+        .filter((c) => c.os_list.length >= 1)
         .sort((a, b) => b.valor_total - a.valor_total);
 
       return new Response(
@@ -220,7 +220,7 @@ serve(async (req) => {
 
     // ─── EXECUTE ───────────────────────────────────────────
     if (body.action === "execute") {
-      const { os_ids, parcelas, dia_vencimento, mes_inicio, nome_cliente, cliente_gc_id } = body;
+      const { os_ids, parcelas, dia_vencimento, mes_inicio, nome_cliente, cliente_gc_id, situacao_ids } = body as any;
       const valoresParcelas = (body as any).valores_parcelas as number[] | undefined;
       const valorNegociado = (body as any).valor_negociado as number | undefined;
 
@@ -453,6 +453,14 @@ serve(async (req) => {
           console.log(`[negotiate-os] STEP B response ${stepBResp.status}: ${stepBText.slice(0, 500)}`);
           if (!stepBResp.ok && stepBData?.code !== 200) {
             gcUpdateResults.push({ os_id: os.id, status: "error", error: `Step B failed: ${stepBData?.message || stepBResp.status} - ${stepBText.slice(0, 200)}` });
+            // Revert Step A: restore original situation
+            try {
+              await rateLimitedFetch(
+                `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
+                { method: "PUT", headers: gcHeaders, body: JSON.stringify({ ...basePayload, situacao_id: situacaoIds?.[0] || SITUACAO_ORIGEM }) }
+              );
+              console.log(`[negotiate-os] Step A reverted for OS ${os.id}`);
+            } catch { /* best-effort revert */ }
             continue;
           }
           console.log(`[negotiate-os] STEP B OK: OS ${os.id}`);
@@ -873,6 +881,10 @@ serve(async (req) => {
       // ═══════════════════════════════════════════════════════════════
       if (grupoIds.length > 0 && successPlans.length > 0) {
         try {
+          // Wait for GC receivables to settle
+          console.log(`[negotiate-os] Waiting 3s for GC receivables to settle...`);
+          await new Promise((r) => setTimeout(r, 3000));
+
           for (let i = 0; i < grupoIds.length && i < parcelas; i++) {
             const grupoId = grupoIds[i];
             const vencimento = dueDates[i];
@@ -882,7 +894,48 @@ serve(async (req) => {
               if (valorParcela <= 0.01) continue;
 
               const mapKey = buildReceivableKey(os.codigo, vencimento, valorParcela, "neg");
-              const recebimentoId = linkedReceivableIds.get(mapKey);
+              let recebimentoId = linkedReceivableIds.get(mapKey);
+
+              // Fallback: search local DB if not found in Step D mapping
+              if (!recebimentoId) {
+                // Attempt 1: exact date match
+                const { data: recsExact } = await supabase
+                  .from("fin_recebimentos")
+                  .select("id, gc_codigo, valor, data_vencimento, os_codigo")
+                  .eq("os_codigo", os.codigo)
+                  .eq("liquidado", false)
+                  .is("grupo_id", null)
+                  .eq("data_vencimento", vencimento)
+                  .limit(5);
+
+                let recs = recsExact || [];
+
+                // Attempt 2: fallback by tag in description
+                if (recs.length === 0) {
+                  const { data: recsTag } = await supabase
+                    .from("fin_recebimentos")
+                    .select("id, gc_codigo, valor, data_vencimento, os_codigo, descricao")
+                    .eq("liquidado", false)
+                    .is("grupo_id", null)
+                    .ilike("descricao", `%${negTag}%`)
+                    .ilike("descricao", `%OS ${os.codigo}%`)
+                    .not("descricao", "ilike", "%PASSIVO%")
+                    .limit(10);
+
+                  recs = (recsTag || []).filter((r: any) => {
+                    const recDate = String(r.data_vencimento || "").slice(0, 10);
+                    return recDate === vencimento;
+                  });
+                }
+
+                // Find best match by value
+                const match = recs.find((r: any) => Math.abs(Number(r.valor) - valorParcela) <= 0.02);
+                if (match) {
+                  recebimentoId = match.id;
+                  console.log(`[negotiate-os] Step 5 fallback found: ${recebimentoId} for OS ${os.codigo}`);
+                }
+              }
+
               if (!recebimentoId) {
                 console.warn(`[negotiate-os] Grupo ${i + 1}: financeiro não encontrado para OS ${os.codigo} (${vencimento} / ${valorParcela.toFixed(2)})`);
                 continue;
