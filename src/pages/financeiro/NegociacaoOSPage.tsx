@@ -412,7 +412,19 @@ export default function NegociacaoOSPage() {
                     .eq("cliente_gc_id", selectedClient.cliente_id)
                     .eq("utilizado", false)
                     .order("created_at", { ascending: false });
-                  setClientResiduais((residuals as ResidualItem[]) || []);
+                  const resList = (residuals as ResidualItem[]) || [];
+                  setClientResiduais(resList);
+                  // Update OS code→id map
+                  const allCodes = resList.flatMap(r => r.os_codigos || []);
+                  if (allCodes.length > 0) {
+                    const { data: osRows } = await supabase
+                      .from("os_index")
+                      .select("os_id, os_codigo")
+                      .in("os_codigo", [...new Set(allCodes)]);
+                    const map: Record<string, string> = {};
+                    (osRows || []).forEach((row: any) => { map[row.os_codigo] = row.os_id; });
+                    setOsCodeToIdMap(map);
+                  }
                 }
               } catch (err) {
                 toast.error(`Erro: ${(err as Error).message}`);
