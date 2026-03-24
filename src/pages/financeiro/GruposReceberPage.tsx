@@ -132,11 +132,12 @@ export default function GruposReceberPage() {
     
     if (vencimento) {
       const d = new Date(vencimento + 'T12:00:00');
-      const dd = String(d.getDate()).padStart(2, '0');
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const yyyy = d.getFullYear();
-      dataInicio = `${dd}/${mm}/${yyyy}`;
-      dataFim = `${dd}/${mm}/${yyyy}`;
+      // Filtrar pelo mês inteiro do vencimento
+      const lastDay = new Date(yyyy, d.getMonth() + 1, 0).getDate();
+      dataInicio = `01/${mm}/${yyyy}`;
+      dataFim = `${String(lastDay).padStart(2, '0')}/${mm}/${yyyy}`;
     }
 
     const params = new URLSearchParams({
