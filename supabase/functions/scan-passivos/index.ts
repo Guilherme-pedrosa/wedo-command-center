@@ -100,9 +100,6 @@ serve(async (req) => {
         const descricao = String(rec?.descricao || "").trim();
         const descUpper = descricao.toUpperCase();
 
-        // Only process PASSIVO receivables
-        if (!descUpper.includes("PASSIVO")) continue;
-
         const recId = String(rec?.id || "").trim();
         if (!recId) continue;
 
@@ -113,6 +110,12 @@ serve(async (req) => {
         const clienteId = String(rec?.cliente_id || "").trim();
         const nomeCliente = String(rec?.nome_cliente || "").trim();
         const codigo = rec?.codigo ? String(rec.codigo) : null;
+
+        // Detectar passivo tanto pelo novo prefixo quanto por recebimentos legados do GC (2/2, 3/3, ...)
+        const parcelMatch = descricao.match(/\((\d+)\/(\d+)\)/);
+        const isLegacyPassive = !!parcelMatch && Number(parcelMatch[2]) > 1 && Number(parcelMatch[1]) === Number(parcelMatch[2]);
+        const isPassive = descUpper.includes("PASSIVO") || isLegacyPassive;
+        if (!isPassive) continue;
 
         // Extract NEG number from description (supports both formats)
         let negNumero: number | null = null;
@@ -125,6 +128,12 @@ serve(async (req) => {
         const osMatches = descricao.matchAll(/OS\s+(\d+)/gi);
         for (const m of osMatches) {
           if (m[1] && !osCodigos.includes(m[1])) osCodigos.push(m[1]);
+        }
+
+        // Fallback: descrição legada do GC "Ordem de serviço de nº 8963 (2/2)"
+        if (osCodigos.length === 0) {
+          const legacyOsMatch = descricao.match(/ordem\s+de\s+servi[cç]o\s+de\s+n[ºo]\s*(\d+)/i);
+          if (legacyOsMatch?.[1]) osCodigos.push(legacyOsMatch[1]);
         }
 
         found.push({
@@ -162,6 +171,10 @@ serve(async (req) => {
         continue;
       }
 
+      const descricaoNormalizada = p.descricao.toUpperCase().includes("PASSIVO")
+        ? p.descricao
+        : `Passivo ${p.descricao}`;
+
       const { error } = await supabase.from("fin_residuos_negociacao").insert({
         cliente_gc_id: p.cliente_id,
         nome_cliente: p.nome_cliente,
@@ -170,7 +183,7 @@ serve(async (req) => {
         gc_recebimento_id: p.gc_recebimento_id,
         gc_codigo: p.gc_codigo,
         os_codigos: p.os_codigos,
-        observacao: `Importado via scan — ${p.descricao}\nVencimento: ${p.data_vencimento}`,
+        observacao: `Importado via scan — ${descricaoNormalizada}\nVencimento: ${p.data_vencimento}`,
         utilizado: false,
       });
 

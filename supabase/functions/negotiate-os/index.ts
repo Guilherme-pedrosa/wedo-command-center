@@ -241,6 +241,11 @@ serve(async (req) => {
       console.log(`[negotiate-os] Negociação nº${negociacao_numero}`);
 
       const roundMoney = (value: number) => Math.round(value * 100) / 100;
+      const normalizeMoney = (value: unknown): number => {
+        const parsed = Number.parseFloat(String(value ?? "0").replace(",", "."));
+        if (!Number.isFinite(parsed)) return 0;
+        return roundMoney(parsed);
+      };
 
       // Generate due dates
       const [startYear, startMonth] = mes_inicio.split("-").map(Number);
@@ -699,11 +704,6 @@ serve(async (req) => {
             expectedByDueDate.set(residualDueDate, residualBucket);
           }
 
-          const normalizeMoney = (value: unknown): number => {
-            const parsed = Number.parseFloat(String(value ?? "0").replace(",", "."));
-            if (!Number.isFinite(parsed)) return 0;
-            return roundMoney(parsed);
-          };
 
           const codigoLower = os.codigo.toLowerCase();
           const rawList: Record<string, unknown>[] = [];
