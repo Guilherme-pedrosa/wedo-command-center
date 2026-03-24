@@ -744,14 +744,18 @@ serve(async (req) => {
           const matching = rawList.filter((item: any) => {
             const rec = item?.Recebimento || item?.recebimento || item;
             const dueDate = String(rec?.data_vencimento || "").slice(0, 10);
-            const expectedValues = expectedByDueDate.get(dueDate) || [];
-            if (expectedValues.length === 0) return false;
-
             const desc = String(rec?.descricao || "").toLowerCase();
             const recValue = normalizeMoney(rec?.valor ?? rec?.valor_total);
+
+            // 1. Descrição contém o código da OS → sempre incluir (cobre passivos)
             const matchesOS = desc.includes(codigoLower) || desc.includes(`os ${codigoLower}`);
+            if (matchesOS) return true;
+
+            // 2. Data no mapa de valores esperados + valor bate → incluir
+            const expectedValues = expectedByDueDate.get(dueDate) || [];
+            if (expectedValues.length === 0) return false;
             const matchesValue = expectedValues.some((value) => Math.abs(value - recValue) <= 0.02);
-            return matchesOS || matchesValue;
+            return matchesValue;
           });
 
           console.log(`[negotiate-os] STEP D: ${rawList.length} financeiros, ${matching.length} candidatos para OS ${os.codigo}`);
