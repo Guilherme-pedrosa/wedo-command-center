@@ -656,7 +656,7 @@ export default function NegociacaoOSPage() {
                       <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
                     )}
                     <span className="font-mono">{r.os_id}</span>
-                    {r.error && <span className="text-destructive text-xs truncate">{r.error}</span>}
+                    {r.error && <span className="text-destructive text-xs">{r.error}</span>}
                   </div>
                 ))}
               </div>
