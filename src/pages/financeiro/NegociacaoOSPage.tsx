@@ -83,6 +83,7 @@ export default function NegociacaoOSPage() {
 
   // Residuals
   const [clientResiduais, setClientResiduais] = useState<ResidualItem[]>([]);
+  const [selectedResidualIds, setSelectedResidualIds] = useState<Set<string>>(new Set());
 
   // Results
   const [results, setResults] = useState<NegotiateResult[] | null>(null);
