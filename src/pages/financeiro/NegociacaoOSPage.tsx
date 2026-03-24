@@ -614,6 +614,7 @@ export default function NegociacaoOSPage() {
                                   {idx < (r.os_codigos?.length ?? 0) - 1 ? ',' : ''}
                                 </span>
                                 );
+                              })}
                             </span>
                           )}
                         </div>
