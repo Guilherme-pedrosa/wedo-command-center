@@ -208,19 +208,15 @@ serve(async (req) => {
           const rec = checkData?.data?.[0] || checkData?.data || checkData?.Recebimento || checkData;
 
           if (rec?.id) {
-            // Verificar se está liquidado ou cancelado
-            const liquidado = rec.liquidado === true
-              || rec.liquidado === 1
-              || String(rec.liquidado) === '1'
-              || String(rec.liquidado).toLowerCase() === 'true';
-
+            // Verificar se está cancelado (único motivo para remover)
+            // IMPORTANTE: NÃO remover por estar liquidado — passivos negociados ficam liquidados no GC
             const situacao = String(rec.situacao_nome || rec.situacao || '').toLowerCase();
             const cancelado = situacao.includes('cancelad') || situacao.includes('cancel');
 
-            if (!liquidado && !cancelado) {
-              continue; // Ainda ativo no GC — manter residual
+            if (!cancelado) {
+              continue; // Ainda existe no GC (mesmo que liquidado) — manter residual
             }
-            console.log(`[scan-passivos] Residual gc_id=${residuo.gc_recebimento_id} está ${liquidado ? 'liquidado' : 'cancelado'} no GC — removendo`);
+            console.log(`[scan-passivos] Residual gc_id=${residuo.gc_recebimento_id} está cancelado no GC — removendo`);
           }
           // rec sem id — não existe mais, cai no delete
         }
