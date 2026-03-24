@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 const GC_BASE_URL = "https://api.gestaoclick.com";
-const MIN_DELAY_MS = 350;
+const MIN_DELAY_MS = 300;
 const SITUACAO_ORIGEM = "7116099"; // Executado - Ag Negociação Financeira
 const SITUACAO_INTERMEDIARIA = "8896431"; // Ag Compra de Peças (permite editar pagamentos)
 const SITUACAO_DESTINO = "7063724"; // Executado - Ag Pagamento
@@ -124,8 +124,9 @@ serve(async (req) => {
       for (const situacaoId of situacaoIds) {
         let page = 1;
         let totalPages = 1;
+        const MAX_PAGES = 10; // Prevent timeout on large datasets
 
-        while (page <= totalPages) {
+        while (page <= totalPages && page <= MAX_PAGES) {
           const params = new URLSearchParams({
             limite: "100",
             pagina: String(page),
