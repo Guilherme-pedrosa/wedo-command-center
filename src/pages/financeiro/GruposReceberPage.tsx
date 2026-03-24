@@ -622,70 +622,7 @@ export default function GruposReceberPage() {
         }
       }
 
-      // 2. Update OS in GC with NF number
-      const osCodigos = selectedGrupo.os_codigos as string[] | null;
-      if (osCodigos?.length) {
-        const { callGC } = await import("@/lib/gc-client");
-        
-        // Look up os_id from os_index for each os_codigo
-        const { data: osRecords } = await supabase
-          .from("os_index")
-          .select("os_id, os_codigo")
-          .in("os_codigo", osCodigos);
-        
-        // Deduplicate by os_id (same OS can have multiple orc rows)
-        const uniqueOsIds = [...new Set((osRecords || []).map(r => r.os_id))];
-        
-        for (const osId of uniqueOsIds) {
-          try {
-            // GET current OS from GC
-            const getRes = await callGC<any>({
-              endpoint: `/api/ordens_servicos/${osId}`,
-            });
-            await gcDelay();
-            
-            const osData = getRes.data?.data ?? getRes.data;
-            if (!osData?.id) {
-              console.error(`[syncNfse] OS ${osId} não encontrada no GC`);
-              erros++;
-              continue;
-            }
 
-            // Add NF number to observacoes (plural — GC field name)
-            const obsOriginal = String(osData.observacoes || osData.observacao || "");
-            const nfTag = `NF ${selectedGrupo.nfse_numero}`;
-            const novaObs = obsOriginal.includes(nfTag) ? obsOriginal : (obsOriginal ? `${obsOriginal} | ${nfTag}` : nfTag);
-
-            // PUT update — only send required + changed fields (spreading full object causes 404)
-            const putPayload: Record<string, any> = {
-              tipo: osData.tipo || "servico",
-              codigo: osData.codigo,
-              cliente_id: osData.cliente_id,
-              situacao_id: osData.situacao_id,
-              data: osData.data,
-              observacoes: novaObs,
-            };
-
-            const putRes = await callGC<any>({
-              endpoint: `/api/ordens_servicos/${osId}`,
-              method: "PUT",
-              payload: putPayload,
-            });
-            await gcDelay();
-
-            if (putRes.status >= 400) {
-              console.error(`[syncNfse] Erro PUT OS ${osId}: HTTP ${putRes.status}`);
-              erros++;
-            } else {
-              ok++;
-              console.log(`[syncNfse] OS ${osId} atualizada com NF ${selectedGrupo.nfse_numero}`);
-            }
-          } catch (e) {
-            console.error(`[syncNfse] Erro ao atualizar OS ${osId}:`, e);
-            erros++;
-          }
-        }
-      }
 
       queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens", selectedGrupo.id] });
       toast.success(`NFS-e sincronizada no GC: ${ok} atualizados${erros ? `, ${erros} erros` : ""}`);
