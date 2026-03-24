@@ -595,8 +595,17 @@ export default function GruposReceberPage() {
           if (!rec?.gc_id || !rec?.gc_payload_raw) { erros++; continue; }
 
           const descOriginal = rec.descricao || "";
-          const nfTag = `NF ${selectedGrupo.nfse_numero}`;
-          const novaDescricao = descOriginal.includes(nfTag) ? descOriginal : `${descOriginal} — ${nfTag}`;
+          const nfTag = `NF${selectedGrupo.nfse_numero}`;
+          // Inserir NF logo após o prefixo NEG para facilitar busca no GC
+          let novaDescricao = descOriginal;
+          if (!descOriginal.includes(nfTag)) {
+            const negMatch = descOriginal.match(/^(NEG\s*\d+)/i);
+            if (negMatch) {
+              novaDescricao = descOriginal.replace(negMatch[0], `${negMatch[0]} ${nfTag}`);
+            } else {
+              novaDescricao = `${nfTag} ${descOriginal}`;
+            }
+          }
           
           try {
             await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw, {
