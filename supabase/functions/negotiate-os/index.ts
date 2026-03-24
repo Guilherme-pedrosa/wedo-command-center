@@ -1050,7 +1050,12 @@ serve(async (req) => {
       const residualIds: string[] = body.residual_ids || [];
       const residualResults: Array<{ id: string; status: string; error?: string }> = [];
 
-      if (residualIds.length > 0) {
+      // GUARD: Só processar residuais se pelo menos 1 OS teve sucesso OU se não há OS (só residuais)
+      const osOkCount = gcUpdateResults.filter((r: any) => r.status === "ok").length;
+      const hasOsInRequest = os_ids.length > 0;
+      const shouldProcessResiduals = residualIds.length > 0 && (!hasOsInRequest || osOkCount > 0);
+
+      if (shouldProcessResiduals) {
         // Buscar dados dos residuais selecionados
         const { data: residuaisData } = await supabase
           .from("fin_residuos_negociacao")
@@ -1238,6 +1243,11 @@ serve(async (req) => {
             console.error(`[negotiate-os] Step 6 exception residual ${residual.id}:`, (err as Error).message);
             residualResults.push({ id: residual.id, status: "error", error: (err as Error).message });
           }
+        }
+      } else if (residualIds.length > 0) {
+        console.warn(`[negotiate-os] Step 6 SKIPPED: ${os_ids.length} OS com ${osOkCount} sucesso — residuais NÃO consumidos`);
+        for (const rId of residualIds) {
+          residualResults.push({ id: rId, status: "skipped", error: "Negociação das OS falhou — residuais preservados" });
         }
       }
 
