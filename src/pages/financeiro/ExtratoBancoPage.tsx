@@ -764,6 +764,7 @@ export default function ExtratoBancoPage() {
                       <div>
                         <span className="font-medium">{r.melhor.descricao}</span>
                         <span className="ml-2 font-bold text-primary">{formatCurrency(Number(r.melhor.valor))}</span>
+                        {r.melhor.data_vencimento && <span className="ml-2 text-muted-foreground">{format(new Date(r.melhor.data_vencimento + "T12:00:00"), "dd/MM")}</span>}
                         <span className="ml-2 text-muted-foreground">{r.melhor.nome}</span>
                         {r.melhor.rule && <Badge variant="outline" className="text-[8px] ml-2">{ruleLabels[r.melhor.rule] || r.melhor.rule}</Badge>}
                       </div>
@@ -786,6 +787,7 @@ export default function ExtratoBancoPage() {
                           <div>
                             <span className="font-medium">{c.descricao}</span>
                             <span className="ml-2 font-bold text-primary">{formatCurrency(Number(c.valor))}</span>
+                            {c.data_vencimento && <span className="ml-2 text-muted-foreground">{format(new Date(c.data_vencimento + "T12:00:00"), "dd/MM")}</span>}
                             <span className="ml-2 text-muted-foreground">{c.nome}</span>
                           </div>
                           <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 shrink-0"
@@ -867,6 +869,7 @@ export default function ExtratoBancoPage() {
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-medium">{s.descricao}</span>
                             <span className="font-bold text-primary">{formatCurrency(s.valor)}</span>
+                            {s.data_vencimento && <span className="text-muted-foreground">{format(new Date(s.data_vencimento + "T12:00:00"), "dd/MM")}</span>}
                             {s.nome && <span className="text-muted-foreground">{s.nome}</span>}
                             {s.gc_codigo && <span className="text-muted-foreground">GC {s.gc_codigo}</span>}
                             {s.os_codigo && <span className="text-muted-foreground">OS {s.os_codigo}</span>}
