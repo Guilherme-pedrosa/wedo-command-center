@@ -20,6 +20,7 @@ interface ResidualItem {
   negociacao_origem_numero: number | null;
   observacao: string | null;
   created_at: string | null;
+  gc_recebimento_id: string | null;
 }
 
 interface OSItem {
