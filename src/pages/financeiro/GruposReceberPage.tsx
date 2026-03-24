@@ -594,18 +594,11 @@ export default function GruposReceberPage() {
           const rec = item.fin_recebimentos as any;
           if (!rec?.gc_id || !rec?.gc_payload_raw) { erros++; continue; }
 
-          const descOriginal = rec.descricao || "";
           const nfTag = `NF${selectedGrupo.nfse_numero}`;
-          // Inserir NF logo após o prefixo NEG para facilitar busca no GC
-          let novaDescricao = descOriginal;
-          if (!descOriginal.includes(nfTag)) {
-            const negMatch = descOriginal.match(/^(NEG\s*\d+)/i);
-            if (negMatch) {
-              novaDescricao = descOriginal.replace(negMatch[0], `${negMatch[0]} ${nfTag}`);
-            } else {
-              novaDescricao = `${nfTag} ${descOriginal}`;
-            }
-          }
+          // Descrição curta e buscável: "NEG21 NF297"
+          const negMatch = (rec.descricao || "").match(/NEG\s*(\d+)/i);
+          const negPrefix = negMatch ? `NEG${negMatch[1]}` : "";
+          const novaDescricao = negPrefix ? `${negPrefix} ${nfTag}` : nfTag;
           
           try {
             await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw, {
