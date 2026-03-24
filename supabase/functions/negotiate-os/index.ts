@@ -453,6 +453,14 @@ serve(async (req) => {
           console.log(`[negotiate-os] STEP B response ${stepBResp.status}: ${stepBText.slice(0, 500)}`);
           if (!stepBResp.ok && stepBData?.code !== 200) {
             gcUpdateResults.push({ os_id: os.id, status: "error", error: `Step B failed: ${stepBData?.message || stepBResp.status} - ${stepBText.slice(0, 200)}` });
+            // Revert Step A: restore original situation
+            try {
+              await rateLimitedFetch(
+                `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
+                { method: "PUT", headers: gcHeaders, body: JSON.stringify({ ...basePayload, situacao_id: situacaoIds?.[0] || SITUACAO_ORIGEM }) }
+              );
+              console.log(`[negotiate-os] Step A reverted for OS ${os.id}`);
+            } catch { /* best-effort revert */ }
             continue;
           }
           console.log(`[negotiate-os] STEP B OK: OS ${os.id}`);
