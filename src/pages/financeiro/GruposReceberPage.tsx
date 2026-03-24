@@ -894,9 +894,24 @@ export default function GruposReceberPage() {
                     <div className="col-span-2">
                       <span className="text-muted-foreground">OS Vinculadas</span>
                       <div className="flex flex-wrap gap-1 mt-1">
-                        {(selectedGrupo.os_codigos as string[]).map((os: string) => (
-                          <Badge key={os} variant="outline" className="text-xs font-mono">{os}</Badge>
-                        ))}
+                        {(selectedGrupo.os_codigos as string[]).map((os: string) => {
+                          const osGcId = osIdMap[os];
+                          return osGcId ? (
+                            <a
+                              key={os}
+                              href={`${GC_BASE}/ordens_servicos/visualizar/${osGcId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex"
+                            >
+                              <Badge variant="outline" className="text-xs font-mono cursor-pointer hover:bg-primary/10 hover:border-primary/50">
+                                {os} <ExternalLink className="h-2.5 w-2.5 ml-1" />
+                              </Badge>
+                            </a>
+                          ) : (
+                            <Badge key={os} variant="outline" className="text-xs font-mono">{os}</Badge>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
