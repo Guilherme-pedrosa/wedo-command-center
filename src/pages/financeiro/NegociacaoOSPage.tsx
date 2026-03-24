@@ -621,11 +621,25 @@ export default function NegociacaoOSPage() {
                     {formatCurrency(valoresParcelas.reduce((a, b) => a + b, 0))}
                   </span>
                 </div>
+                {Math.abs(valoresParcelas.reduce((a, b) => a + b, 0) - valorNegociado) > 0.02 && (
+                  <div className="text-destructive text-xs flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    Soma das parcelas ({formatCurrency(valoresParcelas.reduce((a, b) => a + b, 0))}) diverge do valor negociado ({formatCurrency(valorNegociado)})
+                  </div>
+                )}
               </div>
 
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowNegotiate(false)}>Cancelar</Button>
-                <Button onClick={handleExecute} disabled={executing}>
+                <Button onClick={handleExecute} disabled={
+                  executing || 
+                  selectedOSIds.size === 0 || 
+                  valorNegociado <= 0 || 
+                  valorNegociado > selectedTotal ||
+                  parcelas < 1 ||
+                  valoresParcelas.length !== parcelas ||
+                  Math.abs(valoresParcelas.reduce((a, b) => a + b, 0) - valorNegociado) > 0.02
+                }>
                   {executing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                   Executar Negociação
                 </Button>
