@@ -1074,47 +1074,65 @@ serve(async (req) => {
 
         for (const residual of residuaisSelecionados) {
           try {
-            if (!residual.gc_recebimento_id) {
-              console.warn(`[negotiate-os] Step 6: residual ${residual.id} sem gc_recebimento_id, pulando GC update`);
-              residualResults.push({ id: residual.id, status: "error", error: "Sem gc_recebimento_id" });
-              continue;
+            let gcRecId = residual.gc_recebimento_id;
+            let recAtual: Record<string, unknown> | null = null;
+
+            // Se tem gc_recebimento_id, tentar GET direto
+            if (gcRecId) {
+              const getResp = await rateLimitedFetch(
+                `${GC_BASE_URL}/api/recebimentos/${gcRecId}`,
+                { headers: gcHeaders }
+              );
+              if (getResp.ok) {
+                const getBody = await getResp.json();
+                recAtual = getBody?.data?.[0] || getBody?.data || getBody?.Recebimento || getBody;
+                if (!recAtual?.id) recAtual = null;
+              }
             }
 
-            // Step 6-GET: Buscar dados atuais do recebimento no GC (necessário para o PUT)
-            const getResp = await rateLimitedFetch(
-              `${GC_BASE_URL}/api/recebimentos/${residual.gc_recebimento_id}`,
-              { headers: gcHeaders }
-            );
-
-            if (!getResp.ok) {
-              console.error(`[negotiate-os] Step 6 GET falhou para residual ${residual.id}: HTTP ${getResp.status}`);
-              residualResults.push({
-                id: residual.id,
-                status: "error",
-                error: `GET recebimento falhou (${getResp.status})`,
+            // Fallback: buscar por OS + valor + cliente
+            if (!recAtual && residual.os_codigos?.length) {
+              const osCod = residual.os_codigos[0];
+              const searchParams = new URLSearchParams({
+                limite: "50",
+                cliente_id: cliente_gc_id || "",
+                data_inicio: dueDates[0],
+                data_fim: new Date(new Date(`${residualDueDate}T00:00:00Z`).getTime() + 60 * 86400000).toISOString().slice(0, 10),
               });
-              continue;
+              const searchResp = await rateLimitedFetch(
+                `${GC_BASE_URL}/api/recebimentos?${searchParams.toString()}`,
+                { headers: gcHeaders }
+              );
+              if (searchResp.ok) {
+                const searchData = await searchResp.json();
+                const candidates = (Array.isArray(searchData?.data) ? searchData.data : [])
+                  .map((item: any) => item?.Recebimento || item?.recebimento || item)
+                  .filter((rec: any) => {
+                    const desc = String(rec?.descricao || "").toLowerCase();
+                    const hasOS = desc.includes(osCod.toLowerCase());
+                    const noNEG = !desc.toUpperCase().includes("NEG");
+                    const valorClose = Math.abs(
+                      (parseFloat(String(rec?.valor || "0").replace(",", ".")) || 0) - residual.valor_residual
+                    ) <= 0.02;
+                    return hasOS && noNEG && valorClose;
+                  });
+                if (candidates.length > 0) {
+                  recAtual = candidates[0];
+                  gcRecId = String(recAtual?.id || "");
+                  console.log(`[negotiate-os] Step 6: encontrou passivo ${gcRecId} por busca`);
+                }
+              }
             }
 
-            const getBody = await getResp.json();
-            const recAtual = getBody?.data?.[0] || getBody?.data || getBody?.Recebimento || getBody;
-
-            if (!recAtual?.id) {
-              console.error(`[negotiate-os] Step 6: recebimento ${residual.gc_recebimento_id} não encontrado no GC`);
-              residualResults.push({
-                id: residual.id,
-                status: "error",
-                error: "Recebimento não encontrado no GC",
-              });
+            if (!recAtual?.id || !gcRecId) {
+              console.warn(`[negotiate-os] Step 6: residual ${residual.id} sem recebimento no GC`);
+              residualResults.push({ id: residual.id, status: "pending", error: "Recebimento não encontrado no GC (será tageado depois)" });
               continue;
             }
 
             await new Promise((r) => setTimeout(r, MIN_DELAY_MS));
 
-            // Calcular novo vencimento (mesmo primeiro vencimento da negociação)
-            const novoVencimento = dueDates[0];
-
-            // Montar descrição da nova negociação
+            // Montar descrição
             const osRef = residual.os_codigos?.length
               ? residual.os_codigos.map((c: string) => `OS ${c}`).join(', ')
               : '';
@@ -1122,33 +1140,22 @@ serve(async (req) => {
               ? `ex-Neg.${residual.negociacao_origem_numero}`
               : '';
             const novaDescricao = `${negTag} - Parcela - ${osRef} ${negOrigem}`.trim();
+            const novoVencimento = dueDates[0];
 
-            // Step 6A: PUT com todos os 7 campos obrigatórios do GC
+            // PUT — SÓ os 7 campos obrigatórios (sem observacoes nem campos extras)
             const putPayload: Record<string, unknown> = {
-              // Campos que estamos ATUALIZANDO:
               descricao: novaDescricao,
               data_vencimento: novoVencimento,
-              // Campos obrigatórios PRESERVADOS do GET:
               plano_contas_id: recAtual.plano_contas_id,
               forma_pagamento_id: recAtual.forma_pagamento_id,
               conta_bancaria_id: recAtual.conta_bancaria_id,
               valor: recAtual.valor,
               data_competencia: recAtual.data_competencia || novoVencimento,
-              // Campos opcionais preservados para não perder dados:
-              observacoes: `${String(recAtual.observacoes || '')}\nIncluído na negociação nº${negociacao_numero}`.trim(),
-              cliente_id: recAtual.cliente_id,
-              nome_cliente: recAtual.nome_cliente,
-              entidade: recAtual.entidade || 'C',
-              centro_custo_id: recAtual.centro_custo_id,
             };
 
             const stepResidualResp = await rateLimitedFetch(
-              `${GC_BASE_URL}/api/recebimentos/${residual.gc_recebimento_id}`,
-              {
-                method: "PUT",
-                headers: gcHeaders,
-                body: JSON.stringify(putPayload),
-              }
+              `${GC_BASE_URL}/api/recebimentos/${gcRecId}`,
+              { method: "PUT", headers: gcHeaders, body: JSON.stringify(putPayload) }
             );
 
             const stepResidualText = await stepResidualResp.text();
@@ -1156,26 +1163,21 @@ serve(async (req) => {
             try { stepResidualData = JSON.parse(stepResidualText); } catch { stepResidualData = {}; }
 
             if (!stepResidualResp.ok && stepResidualData?.code !== 200) {
-              console.error(`[negotiate-os] Step 6A falhou para residual ${residual.id}: ${stepResidualText.slice(0, 300)}`);
-              residualResults.push({
-                id: residual.id,
-                status: "error",
-                error: `GC PUT falhou (${stepResidualResp.status}): ${stepResidualData?.data?.mensagem || stepResidualData?.message || stepResidualText.slice(0, 200)}`,
-              });
+              console.error(`[negotiate-os] Step 6 PUT falhou ${gcRecId}: ${stepResidualText.slice(0, 300)}`);
+              residualResults.push({ id: residual.id, status: "error", error: `PUT falhou: ${stepResidualResp.status}` });
               continue;
             }
 
-            console.log(`[negotiate-os] Step 6A OK: residual ${residual.id} → "${novaDescricao}" venc. ${novoVencimento}`);
+            console.log(`[negotiate-os] Step 6 OK: ${gcRecId} → "${novaDescricao}" venc. ${novoVencimento}`);
 
             await new Promise((r) => setTimeout(r, MIN_DELAY_MS));
 
-            // Step 6B: Upsert local em fin_recebimentos para vincular ao grupo
+            // Upsert local em fin_recebimentos
             const localPayload = {
               gc_id: String(recAtual.id),
               gc_codigo: recAtual.codigo ? String(recAtual.codigo) : null,
               gc_payload_raw: recAtual,
               descricao: novaDescricao,
-              observacao: putPayload.observacoes as string,
               os_codigo: residual.os_codigos?.[0] || null,
               tipo: "os",
               origem: "gc_os" as const,
@@ -1183,13 +1185,12 @@ serve(async (req) => {
               cliente_gc_id: String(recAtual.cliente_id || cliente_gc_id || ""),
               nome_cliente: String(recAtual.nome_cliente || nome_cliente || ""),
               data_vencimento: novoVencimento,
-              data_competencia: recAtual.data_competencia || novoVencimento,
+              data_competencia: String(recAtual.data_competencia || novoVencimento),
               liquidado: String(recAtual.liquidado || "0") === "1",
               status: (String(recAtual.liquidado || "0") === "1" ? "pago" : "pendente") as "pago" | "pendente",
               last_synced_at: new Date().toISOString(),
             };
 
-            // Check if already exists locally
             const { data: existingLocal } = await supabase
               .from("fin_recebimentos")
               .select("id")
@@ -1197,7 +1198,6 @@ serve(async (req) => {
               .maybeSingle();
 
             let localRecebimentoId: string | null = null;
-
             if (existingLocal?.id) {
               await supabase.from("fin_recebimentos").update(localPayload).eq("id", existingLocal.id);
               localRecebimentoId = existingLocal.id;
@@ -1210,13 +1210,9 @@ serve(async (req) => {
               localRecebimentoId = inserted?.id || null;
             }
 
-            // Vincular ao primeiro grupo da negociação (se existir)
+            // Vincular ao primeiro grupo da negociação
             if (localRecebimentoId && grupoIds.length > 0) {
-              await supabase
-                .from("fin_recebimentos")
-                .update({ grupo_id: grupoIds[0] })
-                .eq("id", localRecebimentoId);
-
+              await supabase.from("fin_recebimentos").update({ grupo_id: grupoIds[0] }).eq("id", localRecebimentoId);
               await supabase.from("fin_grupo_receber_itens").insert({
                 grupo_id: grupoIds[0],
                 recebimento_id: localRecebimentoId,
@@ -1226,32 +1222,21 @@ serve(async (req) => {
                 snapshot_valor: parseFloat(String(recAtual.valor || "0").replace(",", ".")) || 0,
                 snapshot_data: novoVencimento,
               });
-
-              console.log(`[negotiate-os] Step 6B: residual ${residual.id} vinculado ao grupo ${grupoIds[0]}`);
+              console.log(`[negotiate-os] Step 6: residual ${residual.id} vinculado ao grupo ${grupoIds[0]}`);
             }
 
-            // Step 6C: Marcar residual como utilizado no Supabase
-            const { error: updateError } = await supabase
-              .from("fin_residuos_negociacao")
-              .update({
-                utilizado: true,
-                utilizado_em: new Date().toISOString(),
-              })
-              .eq("id", residual.id);
-
-            if (updateError) {
-              console.error(`[negotiate-os] Step 6C erro ao marcar utilizado: ${updateError.message}`);
-            }
+            // Marcar como utilizado
+            await supabase.from("fin_residuos_negociacao").update({
+              utilizado: true,
+              utilizado_em: new Date().toISOString(),
+              gc_recebimento_id: gcRecId,
+            }).eq("id", residual.id);
 
             residualResults.push({ id: residual.id, status: "ok" });
             console.log(`[negotiate-os] Residual ${residual.id} processado com sucesso`);
           } catch (err) {
             console.error(`[negotiate-os] Step 6 exception residual ${residual.id}:`, (err as Error).message);
-            residualResults.push({
-              id: residual.id,
-              status: "error",
-              error: (err as Error).message,
-            });
+            residualResults.push({ id: residual.id, status: "error", error: (err as Error).message });
           }
         }
       }

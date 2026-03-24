@@ -584,6 +584,7 @@ export default function NegociacaoOSPage() {
                       <Checkbox
                         checked={selectedResidualIds.has(r.id)}
                         onCheckedChange={() => toggleResidual(r.id)}
+                        onClick={(e: React.MouseEvent) => e.stopPropagation()}
                       />
                       <Banknote className="h-4 w-4 text-yellow-500" />
                       <div className="flex flex-col gap-0.5">
