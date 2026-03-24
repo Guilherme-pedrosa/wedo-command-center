@@ -516,7 +516,18 @@ export default function NegociacaoOSPage() {
                         onCheckedChange={() => toggleOS(os.id)}
                       />
                     </TableCell>
-                    <TableCell className="font-mono text-xs">{os.codigo}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      <a
+                        href={`https://gestaoclick.com/ordens_servicos/visualizar/${os.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline inline-flex items-center gap-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {os.codigo}
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </TableCell>
                     <TableCell className="max-w-[200px] truncate text-sm">{os.descricao || "—"}</TableCell>
                     <TableCell className="text-sm">{os.data}</TableCell>
                     <TableCell className="text-right font-semibold">{formatCurrency(os.valor_total)}</TableCell>
