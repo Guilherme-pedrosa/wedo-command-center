@@ -260,20 +260,33 @@ export async function atualizarRecebimentoGC(
     atributos?: Array<{ atributo_id: number; valor: string } | { id: number; valor: string }>;
   }
 ): Promise<{ status: number; data: unknown; duration_ms: number }> {
-  const atributosNormalizados = campos.atributos?.map((a) => ({
-    atributo_id: "atributo_id" in a ? a.atributo_id : a.id,
-    valor: String(a.valor ?? ""),
-  }));
 
-  const payload = {
-    ...gcPayloadRaw,
-    ...campos,
-    ...(atributosNormalizados ? { atributos: atributosNormalizados } : {}),
+  // PUT /recebimentos/{id} exige 7 campos obrigatórios
+  // Extrair APENAS esses do cache, sem mandar campos readonly
+  const payload: Record<string, unknown> = {
+    descricao:          campos.descricao          ?? gcPayloadRaw.descricao ?? '',
+    data_vencimento:    campos.data_vencimento    ?? gcPayloadRaw.data_vencimento,
+    valor:              gcPayloadRaw.valor,
+    data_competencia:   gcPayloadRaw.data_competencia ?? gcPayloadRaw.data_vencimento,
+    plano_contas_id:    gcPayloadRaw.plano_contas_id,
+    forma_pagamento_id: gcPayloadRaw.forma_pagamento_id,
+    conta_bancaria_id:  gcPayloadRaw.conta_bancaria_id,
   };
 
-  // Remove campos de liquidação para não baixar acidentalmente
-  delete (payload as any).liquidado;
-  delete (payload as any).data_liquidacao;
+  // Campos opcionais que existem na API (só se presentes no cache)
+  if (gcPayloadRaw.cliente_id)      payload.cliente_id = gcPayloadRaw.cliente_id;
+  if (gcPayloadRaw.entidade)        payload.entidade = gcPayloadRaw.entidade;
+  if (gcPayloadRaw.centro_custo_id) payload.centro_custo_id = gcPayloadRaw.centro_custo_id;
+  if (gcPayloadRaw.juros)           payload.juros = gcPayloadRaw.juros;
+  if (gcPayloadRaw.desconto)        payload.desconto = gcPayloadRaw.desconto;
+
+  // Atributos (campos extras financeiros) — se enviados
+  if (campos.atributos?.length) {
+    payload.atributos = campos.atributos.map((a) => ({
+      atributo_id: "atributo_id" in a ? a.atributo_id : (a as any).id,
+      valor: String(a.valor ?? ""),
+    }));
+  }
 
   const res = await callGC({
     endpoint: `/api/recebimentos/${gcId}`,
@@ -281,24 +294,15 @@ export async function atualizarRecebimentoGC(
     payload,
   });
 
-  const embeddedJsonMatch = typeof res.data === "string"
-    ? res.data.match(/\{"code":\d+,"status":"(?:error|success)","data":\{[\s\S]*?\}\}/)
-    : null;
-
   let embeddedCode: number | null = null;
   let embeddedStatus: string | null = null;
   let embeddedMessage: string | null = null;
-
-  if (embeddedJsonMatch?.[0]) {
-    try {
-      const parsed = JSON.parse(embeddedJsonMatch[0]) as { code?: number; status?: string; data?: { mensagem?: string } };
-      embeddedCode = parsed.code ?? null;
-      embeddedStatus = parsed.status ?? null;
-      embeddedMessage = parsed.data?.mensagem ?? null;
-    } catch {
-      // ignore parse errors and fallback to HTTP status
-    }
-  }
+  try {
+    const body = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
+    embeddedCode = body?.code ?? null;
+    embeddedStatus = body?.status ?? null;
+    embeddedMessage = body?.data?.mensagem || body?.message || null;
+  } catch { /* ignore */ }
 
   if (res.status >= 400 || (embeddedCode !== null && embeddedCode >= 400) || embeddedStatus === "error") {
     throw new Error(
