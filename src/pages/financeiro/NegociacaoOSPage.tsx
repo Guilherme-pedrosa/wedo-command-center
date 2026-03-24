@@ -87,6 +87,7 @@ export default function NegociacaoOSPage() {
   // Residuals
   const [clientResiduais, setClientResiduais] = useState<ResidualItem[]>([]);
   const [selectedResidualIds, setSelectedResidualIds] = useState<Set<string>>(new Set());
+  const [osCodeToIdMap, setOsCodeToIdMap] = useState<Record<string, string>>({});
 
   // Results
   const [results, setResults] = useState<NegotiateResult[] | null>(null);
@@ -205,8 +206,24 @@ export default function NegociacaoOSPage() {
       .eq("cliente_gc_id", client.cliente_id)
       .eq("utilizado", false)
       .order("created_at", { ascending: false });
-    setClientResiduais((data as ResidualItem[]) || []);
+    const residuals = (data as ResidualItem[]) || [];
+    setClientResiduais(residuals);
     setSelectedResidualIds(new Set());
+
+    // Lookup os_id from os_index for residual os_codigos
+    const allOsCodes = residuals.flatMap(r => r.os_codigos || []);
+    if (allOsCodes.length > 0) {
+      const uniqueCodes = [...new Set(allOsCodes)];
+      const { data: osRows } = await supabase
+        .from("os_index")
+        .select("os_id, os_codigo")
+        .in("os_codigo", uniqueCodes);
+      const map: Record<string, string> = {};
+      (osRows || []).forEach((row: any) => { map[row.os_codigo] = row.os_id; });
+      setOsCodeToIdMap(map);
+    } else {
+      setOsCodeToIdMap({});
+    }
   };
 
   const toggleResidual = (id: string) => {
@@ -395,7 +412,19 @@ export default function NegociacaoOSPage() {
                     .eq("cliente_gc_id", selectedClient.cliente_id)
                     .eq("utilizado", false)
                     .order("created_at", { ascending: false });
-                  setClientResiduais((residuals as ResidualItem[]) || []);
+                  const resList = (residuals as ResidualItem[]) || [];
+                  setClientResiduais(resList);
+                  // Update OS code→id map
+                  const allCodes = resList.flatMap(r => r.os_codigos || []);
+                  if (allCodes.length > 0) {
+                    const { data: osRows } = await supabase
+                      .from("os_index")
+                      .select("os_id, os_codigo")
+                      .in("os_codigo", [...new Set(allCodes)]);
+                    const map: Record<string, string> = {};
+                    (osRows || []).forEach((row: any) => { map[row.os_codigo] = row.os_id; });
+                    setOsCodeToIdMap(map);
+                  }
                 }
               } catch (err) {
                 toast.error(`Erro: ${(err as Error).message}`);
@@ -576,10 +605,12 @@ export default function NegociacaoOSPage() {
                           )}
                           {r.os_codigos && r.os_codigos.length > 0 && (
                             <span className="text-xs text-muted-foreground/70 inline-flex items-center gap-1 flex-wrap">
-                              {r.os_codigos.map((code, idx) => (
+                              {r.os_codigos.map((code, idx) => {
+                                const osGcId = osCodeToIdMap[code];
+                                return osGcId ? (
                                 <a
                                   key={code}
-                                  href={`https://gestaoclick.com/ordens_servicos/visualizar/${code}`}
+                                  href={`https://gestaoclick.com/ordens_servicos/visualizar/${osGcId}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   onClick={(e) => e.stopPropagation()}
@@ -589,7 +620,13 @@ export default function NegociacaoOSPage() {
                                   <ExternalLink className="h-2.5 w-2.5" />
                                   {idx < (r.os_codigos?.length ?? 0) - 1 ? ',' : ''}
                                 </a>
-                              ))}
+                                ) : (
+                                <span key={code} className="text-muted-foreground inline-flex items-center gap-0.5">
+                                  OS {code}
+                                  {idx < (r.os_codigos?.length ?? 0) - 1 ? ',' : ''}
+                                </span>
+                                );
+                              })}
                             </span>
                           )}
                         </div>
