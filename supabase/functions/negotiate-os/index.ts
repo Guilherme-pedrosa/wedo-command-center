@@ -711,12 +711,17 @@ serve(async (req) => {
           let totalPages = 1;
 
           while (page <= totalPages) {
+            // Estender data_fim em 7 dias para cobrir variação do GC
+            const extendedEnd = new Date(`${residualDueDate}T00:00:00Z`);
+            extendedEnd.setUTCDate(extendedEnd.getUTCDate() + 7);
+            const dataFimExtended = extendedEnd.toISOString().slice(0, 10);
+
             const searchParams = new URLSearchParams({
               limite: "100",
               pagina: String(page),
               cliente_id: cliente_gc_id || os.cliente_id,
               data_inicio: dueDates[0],
-              data_fim: residualDueDate,
+              data_fim: dataFimExtended,
             });
 
             const recResp = await rateLimitedFetch(
@@ -739,14 +744,18 @@ serve(async (req) => {
           const matching = rawList.filter((item: any) => {
             const rec = item?.Recebimento || item?.recebimento || item;
             const dueDate = String(rec?.data_vencimento || "").slice(0, 10);
-            const expectedValues = expectedByDueDate.get(dueDate) || [];
-            if (expectedValues.length === 0) return false;
-
             const desc = String(rec?.descricao || "").toLowerCase();
             const recValue = normalizeMoney(rec?.valor ?? rec?.valor_total);
+
+            // 1. Descrição contém o código da OS → sempre incluir (cobre passivos)
             const matchesOS = desc.includes(codigoLower) || desc.includes(`os ${codigoLower}`);
+            if (matchesOS) return true;
+
+            // 2. Data no mapa de valores esperados + valor bate → incluir
+            const expectedValues = expectedByDueDate.get(dueDate) || [];
+            if (expectedValues.length === 0) return false;
             const matchesValue = expectedValues.some((value) => Math.abs(value - recValue) <= 0.02);
-            return matchesOS || matchesValue;
+            return matchesValue;
           });
 
           console.log(`[negotiate-os] STEP D: ${rawList.length} financeiros, ${matching.length} candidatos para OS ${os.codigo}`);
@@ -760,9 +769,27 @@ serve(async (req) => {
             const dueDate = String(rec?.data_vencimento || "").slice(0, 10);
             const currentDesc = String(rec?.descricao || "").trim();
             const currentObs = String(rec?.observacoes || rec?.observacao || "").trim();
-            const isPassive = currentDesc.toUpperCase().includes("PASSIVO")
-              || (dueDate === residualDueDate && plan.residual > 0.01 && Math.abs(plan.residual - recValue) <= 0.02)
-              || (plan.residual > 0.01 && Math.abs(plan.residual - recValue) <= 0.02 && !plan.parcelValues.some((pv) => Math.abs(pv - recValue) <= 0.02));
+            // Detectar passivo por múltiplos critérios (GC não usa nossa descrição)
+            const descUpper = currentDesc.toUpperCase();
+            const isPassive = descUpper.includes("PASSIVO")
+              // Valor bate com residual e data >= residualDueDate (tolerância de +/- 7 dias)
+              || (plan.residual > 0.01 
+                  && Math.abs(plan.residual - recValue) <= 0.02
+                  && Math.abs(new Date(dueDate).getTime() - new Date(residualDueDate).getTime()) <= 7 * 86400000)
+              // Valor bate com residual e NÃO bate com nenhuma parcela
+              || (plan.residual > 0.01 
+                  && Math.abs(plan.residual - recValue) <= 0.02 
+                  && !plan.parcelValues.some((pv) => Math.abs(pv - recValue) <= 0.02))
+              // É parcela (x/y) onde y > 1 e x > parcelas negociadas (último = passivo)
+              || (() => {
+                const parcelMatch = currentDesc.match(/\((\d+)\/(\d+)\)/);
+                if (parcelMatch) {
+                  const parcelNum = parseInt(parcelMatch[1], 10);
+                  const parcelTotal = parseInt(parcelMatch[2], 10);
+                  return parcelTotal > 1 && parcelNum === parcelTotal && plan.residual > 0.01;
+                }
+                return false;
+              })();
 
             const cleanedDesc = currentDesc
               .replace(/^\[?\s*neg[\s#\.\-]*\d+\]?\s*[-–—:]?\s*/i, "")
