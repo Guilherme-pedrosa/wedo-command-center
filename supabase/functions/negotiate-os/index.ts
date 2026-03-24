@@ -416,7 +416,7 @@ serve(async (req) => {
             ? [...pagamentosNegociados, { pagamento: {
                 data_vencimento: residualDueDate,
                 valor: valorOSResidual.toFixed(2),
-                descricao: `${negTag} - PASSIVO - OS ${os.codigo}`,
+                descricao: `Passivo OS ${os.codigo} (negociação ${negociacao_numero})`,
                 ...(formaPagamentoId ? { forma_pagamento_id: formaPagamentoId } : {}),
                 ...(nomeFormaPagamento ? { nome_forma_pagamento: nomeFormaPagamento } : {}),
                 ...(planoContasId ? { plano_contas_id: planoContasId, categoria_id: planoContasId } : {}),
