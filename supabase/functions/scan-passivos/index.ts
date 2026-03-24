@@ -202,16 +202,34 @@ serve(async (req) => {
           `${GC_BASE_URL}/api/recebimentos/${residuo.gc_recebimento_id}`,
           { headers: gcHeaders }
         );
+
         if (checkResp.ok) {
           const checkData = await checkResp.json();
-          const rec = checkData?.data || checkData;
-          if (rec?.id) continue; // Still exists in GC, keep it
+          const rec = checkData?.data?.[0] || checkData?.data || checkData?.Recebimento || checkData;
+
+          if (rec?.id) {
+            // Verificar se está liquidado ou cancelado
+            const liquidado = rec.liquidado === true
+              || rec.liquidado === 1
+              || String(rec.liquidado) === '1'
+              || String(rec.liquidado).toLowerCase() === 'true';
+
+            const situacao = String(rec.situacao_nome || rec.situacao || '').toLowerCase();
+            const cancelado = situacao.includes('cancelad') || situacao.includes('cancel');
+
+            if (!liquidado && !cancelado) {
+              continue; // Ainda ativo no GC — manter residual
+            }
+            console.log(`[scan-passivos] Residual gc_id=${residuo.gc_recebimento_id} está ${liquidado ? 'liquidado' : 'cancelado'} no GC — removendo`);
+          }
+          // rec sem id — não existe mais, cai no delete
         }
+        // checkResp não ok (404 etc.) — não existe mais, cai no delete
       } catch {
-        continue; // Network error, don't delete — be safe
+        continue; // erro de rede — manter por segurança
       }
 
-      // Not found in GC — remove locally
+      // Remove do Supabase
       await supabase.from("fin_residuos_negociacao").delete().eq("id", residuo.id);
       removidos++;
       console.log(`[scan-passivos] Removido resíduo órfão: gc_recebimento_id=${residuo.gc_recebimento_id}`);

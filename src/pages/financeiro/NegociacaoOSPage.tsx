@@ -312,6 +312,7 @@ export default function NegociacaoOSPage() {
           nome_cliente: selectedClient?.nome_cliente,
           cliente_gc_id: selectedClient?.cliente_id,
           situacao_ids: selectedSituacoes,
+          residual_ids: Array.from(selectedResidualIds),
         },
       });
 
