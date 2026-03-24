@@ -135,7 +135,8 @@ export default function PagamentosPage() {
       const { data } = await supabase
         .from("fin_pagamentos")
         .select("*, fin_formas_pagamento:forma_pagamento_id(nome)")
-        .eq("data_liquidacao", hoje);
+        .eq("data_vencimento", hoje)
+        .neq("status", "cancelado");
       return data || [];
     },
   });
@@ -565,7 +566,7 @@ export default function PagamentosPage() {
             {loadingFechamento ? (
               <div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
             ) : Object.keys(fechamentoGrouped).length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">Nenhum pagamento liquidado hoje.</p>
+              <p className="text-center text-muted-foreground py-8">Nenhum pagamento com vencimento hoje.</p>
             ) : (
               Object.entries(fechamentoGrouped).map(([forma, items]) => (
                 <div key={forma} className="space-y-2">
