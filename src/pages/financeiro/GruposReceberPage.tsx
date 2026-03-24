@@ -473,6 +473,34 @@ export default function GruposReceberPage() {
     }
   };
 
+  const handleTagPassivos = async () => {
+    if (!selectedGrupo?.cliente_gc_id || !selectedGrupo?.os_codigos?.length) {
+      toast.error("Grupo sem cliente ou OS vinculadas");
+      return;
+    }
+    setTaggingPassivos(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("tag-passivos", {
+        body: {
+          cliente_gc_id: selectedGrupo.cliente_gc_id,
+          negociacao_numero: selectedGrupo.negociacao_numero || 0,
+          os_codigos: selectedGrupo.os_codigos,
+        },
+      });
+      if (error) throw error;
+      const msg = `${data.tagged} passivo(s) tageado(s) no GC`;
+      const scanMsg = data.scan_result?.inserted ? `, ${data.scan_result.inserted} importado(s)` : '';
+      const errMsg = data.errors?.length ? ` (${data.errors.length} erros)` : '';
+      toast.success(`${msg}${scanMsg}${errMsg}`);
+      refetchPassivos();
+      queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+    } finally {
+      setTaggingPassivos(false);
+    }
+  };
+
   const handleMarcarPassivoUtilizado = async (passivoId: string) => {
     setMarkingPassivo(passivoId);
     try {
