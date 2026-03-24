@@ -393,6 +393,11 @@ export default function NegociacaoOSPage() {
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
               OS agrupadas por cliente ({selectedSituacoes.length} situação(ões) configurada(s))
+              {clients.length > 0 && (
+                <span className="ml-2 font-medium text-foreground">
+                  — Total: R$ {clients.reduce((sum, c) => sum + c.valor_total, 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                </span>
+              )}
             </p>
           </div>
         </div>
