@@ -869,6 +869,7 @@ export default function ExtratoBancoPage() {
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-medium">{s.descricao}</span>
                             <span className="font-bold text-primary">{formatCurrency(s.valor)}</span>
+                            {s.data_vencimento && <span className="text-muted-foreground">{format(new Date(s.data_vencimento + "T12:00:00"), "dd/MM")}</span>}
                             {s.nome && <span className="text-muted-foreground">{s.nome}</span>}
                             {s.gc_codigo && <span className="text-muted-foreground">GC {s.gc_codigo}</span>}
                             {s.os_codigo && <span className="text-muted-foreground">OS {s.os_codigo}</span>}
