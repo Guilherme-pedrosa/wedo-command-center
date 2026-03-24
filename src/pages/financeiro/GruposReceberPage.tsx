@@ -1096,7 +1096,7 @@ export default function GruposReceberPage() {
                             let ok = 0, fail = 0;
                             for (const item of itensComGcId) {
                               const osCodigo = item.os_codigo_original || item.fin_recebimentos?.os_codigo;
-                              const success = await resyncRecebimentoFromGC(item.fin_recebimentos.gc_id, osCodigo);
+                              const success = await resyncRecebimentoFromGC(item.fin_recebimentos.gc_id, osCodigo, selectedGrupo.cliente_gc_id);
                               if (success) ok++; else fail++;
                               await gcDelay();
                             }
