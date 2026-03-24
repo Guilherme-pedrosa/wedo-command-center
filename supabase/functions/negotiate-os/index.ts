@@ -711,12 +711,17 @@ serve(async (req) => {
           let totalPages = 1;
 
           while (page <= totalPages) {
+            // Estender data_fim em 7 dias para cobrir variação do GC
+            const extendedEnd = new Date(`${residualDueDate}T00:00:00Z`);
+            extendedEnd.setUTCDate(extendedEnd.getUTCDate() + 7);
+            const dataFimExtended = extendedEnd.toISOString().slice(0, 10);
+
             const searchParams = new URLSearchParams({
               limite: "100",
               pagina: String(page),
               cliente_id: cliente_gc_id || os.cliente_id,
               data_inicio: dueDates[0],
-              data_fim: residualDueDate,
+              data_fim: dataFimExtended,
             });
 
             const recResp = await rateLimitedFetch(
