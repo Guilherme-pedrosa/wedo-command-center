@@ -842,10 +842,13 @@ export async function syncByMonthChunks(
     };
 
     try {
-      const progressCb = (atual: number, total: number) => onProgress?.(
-        i * 100 + Math.round((atual / Math.max(total, 1)) * 100),
-        chunks.length * 100
-      );
+      const progressCb = (atual: number, total: number) => {
+        onStep?.(`[${i + 1}/${chunks.length}] ${chunk.label} — ${atual}/${total} registros`);
+        onProgress?.(
+          i * 100 + Math.round((atual / Math.max(total, 1)) * 100),
+          chunks.length * 100
+        );
+      };
 
       let importados = 0, atualizados = 0, erros = 0;
 
@@ -854,7 +857,7 @@ export async function syncByMonthChunks(
         importados += r.importados; atualizados += r.atualizados; erros += r.erros;
       }
       if (scope === "pagamentos" || scope === "ambos") {
-        const p = await syncPagamentosGC(scope === "pagamentos" ? progressCb : undefined, chunkFiltros);
+        const p = await syncPagamentosGC(progressCb, chunkFiltros);
         importados += p.importados; atualizados += p.atualizados; erros += p.erros;
       }
 
