@@ -691,20 +691,20 @@ export default function GruposReceberPage() {
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-lg border border-border bg-card overflow-x-auto">
+        <table className="w-full text-sm min-w-[1000px]">
           <thead>
             <tr className="border-b border-border bg-muted/50">
-              <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Nome</th>
-              <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Cliente</th>
-              <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">OS Vinculadas</th>
-              <th className="p-3 text-right text-xs font-medium text-muted-foreground uppercase">Valor</th>
-              <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase">Vencimento</th>
-              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Neg./NFS-e</th>
-              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Itens</th>
-              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Status</th>
-              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Baixa GC</th>
-              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">Ações</th>
+              <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Nome</th>
+              <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Cliente</th>
+              <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">OS Vinculadas</th>
+              <th className="p-3 text-right text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Valor</th>
+              <th className="p-3 text-left text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Vencimento</th>
+              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Neg./NFS-e</th>
+              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Itens</th>
+              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Status</th>
+              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Baixa GC</th>
+              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Ações</th>
             </tr>
           </thead>
           <tbody>
