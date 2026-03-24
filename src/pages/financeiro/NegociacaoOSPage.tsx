@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, HandshakeIcon, AlertCircle, CheckCircle2, ArrowLeft, Settings2, Banknote, ScanSearch } from "lucide-react";
+import { Loader2, Search, HandshakeIcon, AlertCircle, CheckCircle2, ArrowLeft, Settings2, Banknote, ScanSearch, ExternalLink } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import toast from "react-hot-toast";
@@ -20,6 +20,7 @@ interface ResidualItem {
   negociacao_origem_numero: number | null;
   observacao: string | null;
   created_at: string | null;
+  gc_recebimento_id: string | null;
 }
 
 interface OSItem {
@@ -546,6 +547,17 @@ export default function NegociacaoOSPage() {
                       <span className="text-sm text-muted-foreground">
                         Residual Neg. nº{r.negociacao_origem_numero ?? '—'}
                       </span>
+                      {r.gc_recebimento_id && (
+                        <a
+                          href={`https://gestaoclick.com/movimentacoes_financeiras/visualizar_recebimento/${r.gc_recebimento_id}?retorno=%2Fmovimentacoes_financeiras%2Findex_recebimento`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-yellow-500 hover:text-yellow-300"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
                     </div>
                     <span className={`text-sm font-semibold ${
                       selectedResidualIds.has(r.id) ? 'text-yellow-400' : 'text-muted-foreground'
