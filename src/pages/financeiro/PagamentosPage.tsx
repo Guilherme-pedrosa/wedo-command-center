@@ -134,7 +134,7 @@ export default function PagamentosPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("fin_pagamentos")
-        .select("*, fin_formas_pagamento:forma_pagamento_id(nome)")
+        .select("*, fin_formas_pagamento:forma_pagamento_id(nome), fin_plano_contas:plano_contas_id(nome)")
         .eq("data_vencimento", hoje)
         .neq("status", "cancelado");
       return data || [];
