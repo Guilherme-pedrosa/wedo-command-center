@@ -586,6 +586,7 @@ export default function PagamentosPage() {
                         <tr key={p.id} className="border-b border-border/30">
                           <td className="py-1">{p.nome_fornecedor || "—"}</td>
                           <td className="py-1 truncate max-w-[200px]">{p.descricao}</td>
+                          <td className="py-1 truncate max-w-[150px] text-muted-foreground">{p.fin_plano_contas?.nome || "—"}</td>
                           <td className="py-1 text-right font-medium">{formatCurrency(Number(p.valor))}</td>
                           <td className="py-1 text-center">{statusBadge(p)}</td>
                         </tr>
