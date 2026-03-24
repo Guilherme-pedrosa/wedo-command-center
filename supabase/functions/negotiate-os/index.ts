@@ -772,7 +772,7 @@ serve(async (req) => {
             const desiredDesc = currentDesc.toUpperCase().includes(negTag.toUpperCase())
               ? currentDesc
               : isPassive
-                ? `${negTag} - PASSIVO - OS ${os.codigo}`
+                ? `Passivo OS ${os.codigo} (negociação ${negociacao_numero})`
                 : `${negTag} - ${cleanedDesc || `OS ${os.codigo}`}`;
 
             const obsLine = isPassive
