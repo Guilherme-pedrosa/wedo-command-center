@@ -220,7 +220,7 @@ serve(async (req) => {
 
     // ─── EXECUTE ───────────────────────────────────────────
     if (body.action === "execute") {
-      const { os_ids, parcelas, dia_vencimento, mes_inicio, nome_cliente, cliente_gc_id } = body;
+      const { os_ids, parcelas, dia_vencimento, mes_inicio, nome_cliente, cliente_gc_id, situacao_ids } = body as any;
       const valoresParcelas = (body as any).valores_parcelas as number[] | undefined;
       const valorNegociado = (body as any).valor_negociado as number | undefined;
 
