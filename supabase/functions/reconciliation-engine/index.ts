@@ -802,6 +802,7 @@ serve(async (req) => {
             id: candidato.fin.id,
             valor: candidato.fin.valor,
             descricao: candidato.fin.descricao,
+            data_vencimento: candidato.fin.data_vencimento ?? null,
             nome: candidato.fin.nome_fornecedor ?? candidato.fin.nome_cliente ?? "—",
             rule,
           },
