@@ -1143,7 +1143,7 @@ export default function GruposReceberPage() {
                         {grupoItens?.map((i: any) => {
                           const rec = i.fin_recebimentos;
                           const osOriginal = i.os_codigo_original || rec?.os_codigo;
-                          const gcOsId = i.gc_os_id || rec?.gc_id;
+                          const osGcIdFromMap = osOriginal ? osIdMap[osOriginal] : null;
                           const gcRecebimentoUrl = rec?.gc_id ? `${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${rec.gc_id}?retorno=%2Fmovimentacoes_financeiras%2Findex_recebimento` : null;
 
                           return (
