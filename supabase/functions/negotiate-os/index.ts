@@ -1125,6 +1125,7 @@ serve(async (req) => {
         JSON.stringify({
           success: true,
           results: gcUpdateResults,
+          residual_results: residualResults,
           grupos_criados: grupoIds.length,
           grupo_ids: grupoIds,
           negociacao_numero,
