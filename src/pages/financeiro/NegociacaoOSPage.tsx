@@ -220,6 +220,7 @@ export default function NegociacaoOSPage() {
       setSelectedClient(null);
       setSelectedOSIds(new Set());
       setClientResiduais([]);
+      setSelectedResidualIds(new Set());
       return;
     }
     navigate(-1);
