@@ -704,11 +704,6 @@ serve(async (req) => {
             expectedByDueDate.set(residualDueDate, residualBucket);
           }
 
-          const normalizeMoney = (value: unknown): number => {
-            const parsed = Number.parseFloat(String(value ?? "0").replace(",", "."));
-            if (!Number.isFinite(parsed)) return 0;
-            return roundMoney(parsed);
-          };
 
           const codigoLower = os.codigo.toLowerCase();
           const rawList: Record<string, unknown>[] = [];
