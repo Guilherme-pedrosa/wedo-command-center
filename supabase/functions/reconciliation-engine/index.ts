@@ -885,6 +885,7 @@ serve(async (req) => {
               id: c.fin.id,
               valor: c.fin.valor,
               descricao: c.fin.descricao,
+              data_vencimento: c.fin.data_vencimento ?? null,
               nome: c.fin.nome_fornecedor ?? c.fin.nome_cliente ?? "—",
               doc: c.doc,
             })),
