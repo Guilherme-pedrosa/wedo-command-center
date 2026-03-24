@@ -993,6 +993,22 @@ export default function GruposReceberPage() {
                   </div>
                 )}
 
+                {/* Botão Atualizar Passivos - busca no GC e tageia */}
+                {selectedGrupo?.os_codigos?.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleTagPassivos}
+                    disabled={taggingPassivos}
+                    className="w-full"
+                  >
+                    {taggingPassivos
+                      ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      : <Banknote className="h-3.5 w-3.5 mr-1.5" />}
+                    Atualizar Passivos no GC
+                  </Button>
+                )}
+
                 {/* Passivos (Residuos) do cliente */}
                 {clientePassivos && clientePassivos.length > 0 && (
                   <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
