@@ -257,10 +257,12 @@ export default function NegociacaoOSPage() {
 
   const handleParcelaValueChange = (index: number, newValue: number) => {
     const updated = [...valoresParcelas];
-    updated[index] = Math.round(newValue * 100) / 100;
-    const remaining = valorNegociado - updated[index];
+    const clamped = Math.min(Math.max(0, newValue), valorNegociado);
+    updated[index] = Math.round(clamped * 100) / 100;
+    
     const othersCount = updated.length - 1;
-    if (othersCount > 0 && remaining >= 0) {
+    if (othersCount > 0) {
+      const remaining = Math.max(0, valorNegociado - updated[index]);
       const eachOther = Math.round((remaining / othersCount) * 100) / 100;
       for (let i = 0; i < updated.length; i++) {
         if (i !== index) updated[i] = eachOther;
@@ -268,8 +270,8 @@ export default function NegociacaoOSPage() {
       const totalNow = updated.reduce((a, b) => a + b, 0);
       const roundDiff = Math.round((valorNegociado - totalNow) * 100) / 100;
       if (roundDiff !== 0) {
-        const lastOther = index === updated.length - 1 ? updated.length - 2 : updated.length - 1;
-        updated[lastOther] = Math.round((updated[lastOther] + roundDiff) * 100) / 100;
+        const lastOtherIdx = index === updated.length - 1 ? 0 : updated.length - 1;
+        updated[lastOtherIdx] = Math.round((updated[lastOtherIdx] + roundDiff) * 100) / 100;
       }
     }
     setValoresParcelas(updated);
