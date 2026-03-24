@@ -295,6 +295,7 @@ export default function NegociacaoOSPage() {
           valor_residual: valorResidual > 0.01 ? valorResidual : 0,
           nome_cliente: selectedClient?.nome_cliente,
           cliente_gc_id: selectedClient?.cliente_id,
+          situacao_ids: selectedSituacoes,
         },
       });
 
