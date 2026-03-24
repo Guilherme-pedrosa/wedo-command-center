@@ -575,10 +575,29 @@ export default function NegociacaoOSPage() {
           {clientResiduais.length > 0 && (
             <Card className="border-yellow-500/30">
               <div className="px-4 py-3">
-                <p className="text-xs text-yellow-400 font-medium mb-2 flex items-center gap-1">
-                  <AlertCircle className="h-3 w-3" />
-                  Residuais disponíveis (Neg. anteriores)
-                </p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-yellow-400 font-medium flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    Residuais disponíveis (Neg. anteriores)
+                  </p>
+                  <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                    <Checkbox
+                      checked={clientResiduais.length > 0 && clientResiduais.every(r => selectedResidualIds.has(r.id))}
+                      onCheckedChange={(checked) => {
+                        setSelectedResidualIds(prev => {
+                          const next = new Set(prev);
+                          if (checked) {
+                            clientResiduais.forEach(r => next.add(r.id));
+                          } else {
+                            clientResiduais.forEach(r => next.delete(r.id));
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                    Selecionar todos
+                  </label>
+                </div>
                 {clientResiduais.map((r) => (
                   <div
                     key={r.id}
