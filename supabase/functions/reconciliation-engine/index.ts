@@ -941,6 +941,7 @@ serve(async (req) => {
                 id: candidatoUnico.fin.id,
                 valor: candidatoUnico.fin.valor,
                 descricao: candidatoUnico.fin.descricao,
+                data_vencimento: candidatoUnico.fin.data_vencimento ?? null,
                 nome: candidatoUnico.fin.nome_fornecedor ?? candidatoUnico.fin.nome_cliente ?? "—",
                 rule: ruleLabel,
               },
