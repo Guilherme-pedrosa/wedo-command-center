@@ -908,6 +908,54 @@ serve(async (req) => {
       }
 
       // ═══════════════════════════════════════════════════════════════
+      // 4c. FALLBACK: Persist passive data from calculated plans
+      //     (Step D may not find GC receivables due to timing)
+      // ═══════════════════════════════════════════════════════════════
+      for (const { os, plan } of successPlans) {
+        if (plan.residual <= 0.01) continue;
+
+        // Verificar se já foi salvo pelo Step 4b (via Step D match)
+        const alreadySaved = [...passiveReceivables.values()].some(
+          (p) => p.os_codigos.includes(os.codigo)
+        );
+        if (alreadySaved) {
+          console.log(`[negotiate-os] 4c: passivo OS ${os.codigo} já salvo pelo Step D`);
+          continue;
+        }
+
+        // Verificar se já existe por negociação + OS
+        const { data: existingByOS } = await supabase
+          .from("fin_residuos_negociacao")
+          .select("id")
+          .eq("negociacao_origem_numero", negociacao_numero)
+          .contains("os_codigos", [os.codigo])
+          .maybeSingle();
+
+        if (existingByOS?.id) {
+          console.log(`[negotiate-os] 4c: passivo OS ${os.codigo} já existe em fin_residuos`);
+          continue;
+        }
+
+        const { error: insertErr } = await supabase.from("fin_residuos_negociacao").insert({
+          cliente_gc_id: cliente_gc_id || os.cliente_id,
+          nome_cliente: os.nome_cliente || nome_cliente || "Cliente",
+          valor_residual: plan.residual,
+          negociacao_origem_numero: negociacao_numero,
+          gc_recebimento_id: null,
+          gc_codigo: null,
+          os_codigos: [os.codigo],
+          observacao: `Passivo calculado na negociação nº${negociacao_numero}\nOS ${os.codigo} — Valor: R$ ${plan.residual.toFixed(2)}\nVencimento previsto: ${residualDueDate}\nAguardando vinculação com financeiro GC`,
+          utilizado: false,
+        });
+
+        if (insertErr) {
+          console.error(`[negotiate-os] 4c insert error OS ${os.codigo}: ${insertErr.message}`);
+        } else {
+          console.log(`[negotiate-os] 4c: ✅ passivo OS ${os.codigo} R$ ${plan.residual.toFixed(2)} salvo (sem gc_id)`);
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════
       // 5. Link negotiated receivables to groups (best-effort after sync)
       // ═══════════════════════════════════════════════════════════════
       if (grupoIds.length > 0 && successPlans.length > 0) {
