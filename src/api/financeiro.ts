@@ -765,13 +765,20 @@ export async function baixarGrupoPagarNoGC(
   return { sucesso, falha };
 }
 
-// ─── Helpers: Map GC IDs to local UUIDs ─────────────────────────────
+// ─── Helpers: Map GC IDs to local UUIDs (cached per sync session) ────
+
+let _pcCcMapsCache: { pcMap: Record<string, string>; ccMap: Record<string, string>; fpMap: Record<string, string> } | null = null;
+let _pcCcMapsCacheTime = 0;
+const MAPS_CACHE_TTL = 60_000; // 1 minute
 
 async function buildPcCcMaps(): Promise<{
   pcMap: Record<string, string>;
   ccMap: Record<string, string>;
   fpMap: Record<string, string>;
 }> {
+  if (_pcCcMapsCache && Date.now() - _pcCcMapsCacheTime < MAPS_CACHE_TTL) {
+    return _pcCcMapsCache;
+  }
   const [{ data: pcs }, { data: ccs }, { data: fps }] = await Promise.all([
     supabase.from("fin_plano_contas").select("id, gc_id").not("gc_id", "is", null),
     supabase.from("fin_centros_custo").select("id, codigo").not("codigo", "is", null),
@@ -783,7 +790,9 @@ async function buildPcCcMaps(): Promise<{
   for (const cc of ccs ?? []) { if (cc.codigo) ccMap[cc.codigo] = cc.id; }
   const fpMap: Record<string, string> = {};
   for (const fp of fps ?? []) { if (fp.gc_id) fpMap[fp.gc_id] = fp.id; }
-  return { pcMap, ccMap, fpMap };
+  _pcCcMapsCache = { pcMap, ccMap, fpMap };
+  _pcCcMapsCacheTime = Date.now();
+  return _pcCcMapsCache;
 }
 
 // ─── Sync Service (GC → fin_* tables) ───────────────────────────────
