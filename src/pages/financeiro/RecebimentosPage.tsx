@@ -585,6 +585,7 @@ export default function RecebimentosPage() {
                 <SortableHeader label="OS" sortKey="os_codigo" currentSort={sort} onSort={handleSort} className="text-left" />
                 <SortableHeader label="Descrição" sortKey="descricao" currentSort={sort} onSort={handleSort} className="text-left" />
                 <SortableHeader label="Cliente" sortKey="nome_cliente" currentSort={sort} onSort={handleSort} className="text-left" />
+                <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">NF Vinculada</th>
                 <SortableHeader label="Valor" sortKey="valor" currentSort={sort} onSort={handleSort} className="text-right" />
                 <SortableHeader label="Vencimento" sortKey="data_vencimento" currentSort={sort} onSort={handleSort} className="text-left" />
                 <SortableHeader label="Status" sortKey="status" currentSort={sort} onSort={handleSort} className="text-center" />
