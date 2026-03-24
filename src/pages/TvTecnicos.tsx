@@ -185,41 +185,6 @@ export default function TvTecnicos() {
     };
   }, [month, qc, year]);
 
-  // Realtime refresh to keep the TV panel in sync without waiting for polling.
-  useEffect(() => {
-    const channel = supabase
-      .channel(`tv-tecnicos-refresh-${year}-${month}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'os_index' },
-        () => qc.invalidateQueries({ queryKey: ['os_index_tecnicos', year, month] })
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'fin_os_retornos' },
-        () => qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] })
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'fin_metas_tecnicos' },
-        () => qc.invalidateQueries({ queryKey: ['fin_metas_tecnicos'] })
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'fin_sync_log' },
-        () => qc.invalidateQueries({ queryKey: ['last_sync_os'] })
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'sync_log' },
-        () => qc.invalidateQueries({ queryKey: ['last_sync_os'] })
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [month, qc, year]);
 
   // Mutations
   const addRetorno = useMutation({
@@ -274,9 +239,11 @@ export default function TvTecnicos() {
     for (const os of osData) {
       const nomeCompleto = os.nome_vendedor?.trim().toUpperCase();
       if (!nomeCompleto) continue;
+      const valor = os.valor_total ?? 0;
+      // Skip OS with zero/null value — they have no financial data yet
+      if (valor === 0) continue;
       const primeiroNome = nomeCompleto.split(' ')[0];
       if (!vendedorMap[primeiroNome]) vendedorMap[primeiroNome] = { total: 0, osList: [] };
-      const valor = os.valor_total ?? 0;
       const retorno = retornoMap[os.os_codigo];
 
       if (retorno) {
