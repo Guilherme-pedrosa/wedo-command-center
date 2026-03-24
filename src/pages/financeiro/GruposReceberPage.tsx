@@ -1162,8 +1162,8 @@ export default function GruposReceberPage() {
                                 ) : rec?.gc_codigo || "—"}
                               </td>
                               <td className="p-2">
-                                  osOriginal ? (
-                                    osGcIdFromMap ? (
+                                {osOriginal ? (
+                                  osGcIdFromMap ? (
                                     <TooltipProvider>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
