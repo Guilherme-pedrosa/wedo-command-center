@@ -965,6 +965,25 @@ serve(async (req) => {
         }
       }
 
+      // Step 6: Marcar residuais utilizados
+      const residualIds: string[] = body.residual_ids || [];
+      if (residualIds.length > 0) {
+        const { error: residualUpdateError } = await supabase
+          .from("fin_residuos_negociacao")
+          .update({
+            utilizado: true,
+            utilizado_em: new Date().toISOString(),
+          })
+          .in("id", residualIds)
+          .eq("utilizado", false);
+
+        if (residualUpdateError) {
+          console.error(`[negotiate-os] Erro ao marcar residuais como utilizados: ${residualUpdateError.message}`);
+        } else {
+          console.log(`[negotiate-os] ${residualIds.length} residuais marcados como utilizados na Neg. ${negociacao_numero}`);
+        }
+      }
+
       const okCount = gcUpdateResults.filter((r) => r.status === "ok").length;
       const errCount = gcUpdateResults.filter((r) => r.status === "error").length;
 

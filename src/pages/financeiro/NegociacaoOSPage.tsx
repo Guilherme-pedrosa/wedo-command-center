@@ -83,6 +83,7 @@ export default function NegociacaoOSPage() {
 
   // Residuals
   const [clientResiduais, setClientResiduais] = useState<ResidualItem[]>([]);
+  const [selectedResidualIds, setSelectedResidualIds] = useState<Set<string>>(new Set());
 
   // Results
   const [results, setResults] = useState<NegotiateResult[] | null>(null);
@@ -202,6 +203,16 @@ export default function NegociacaoOSPage() {
       .eq("utilizado", false)
       .order("created_at", { ascending: false });
     setClientResiduais((data as ResidualItem[]) || []);
+    setSelectedResidualIds(new Set());
+  };
+
+  const toggleResidual = (id: string) => {
+    setSelectedResidualIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const handleBack = () => {
@@ -209,6 +220,7 @@ export default function NegociacaoOSPage() {
       setSelectedClient(null);
       setSelectedOSIds(new Set());
       setClientResiduais([]);
+      setSelectedResidualIds(new Set());
       return;
     }
     navigate(-1);
@@ -232,9 +244,13 @@ export default function NegociacaoOSPage() {
     }
   };
 
-  const selectedTotal = selectedClient?.os_list
+  const valorResiduaisSelecionados = clientResiduais
+    .filter(r => selectedResidualIds.has(r.id))
+    .reduce((sum, r) => sum + (r.valor_residual || 0), 0);
+
+  const selectedTotal = (selectedClient?.os_list
     .filter((os) => selectedOSIds.has(os.id))
-    .reduce((sum, os) => sum + os.valor_total, 0) || 0;
+    .reduce((sum, os) => sum + os.valor_total, 0) || 0) + valorResiduaisSelecionados;
 
   const valorParcela = parcelas > 0 ? valorNegociado / parcelas : 0;
   const valorResidual = Math.round((selectedTotal - valorNegociado) * 100) / 100;
@@ -296,6 +312,7 @@ export default function NegociacaoOSPage() {
           nome_cliente: selectedClient?.nome_cliente,
           cliente_gc_id: selectedClient?.cliente_id,
           situacao_ids: selectedSituacoes,
+          residual_ids: Array.from(selectedResidualIds),
         },
       });
 
@@ -506,26 +523,39 @@ export default function NegociacaoOSPage() {
             </Table>
           </Card>
 
-          {/* Residual values from previous negotiations */}
+          {/* Residual values from previous negotiations — selectable */}
           {clientResiduais.length > 0 && (
-            <div className="space-y-2">
-              {clientResiduais.map((r) => (
-                <div
-                  key={r.id}
-                  className="flex items-center justify-between rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3"
-                >
-                  <div className="flex items-center gap-2 text-sm">
-                    <Banknote className="h-4 w-4 text-yellow-500" />
-                    <span className="text-yellow-200">
-                      Valor residual{r.negociacao_origem_numero ? ` (Neg. nº${r.negociacao_origem_numero})` : ""}
+            <Card className="border-yellow-500/30">
+              <div className="px-4 py-3">
+                <p className="text-xs text-yellow-400 font-medium mb-2 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  Residuais disponíveis (Neg. anteriores)
+                </p>
+                {clientResiduais.map((r) => (
+                  <div
+                    key={r.id}
+                    className="flex items-center justify-between py-2 px-2 rounded hover:bg-muted/40 cursor-pointer"
+                    onClick={() => toggleResidual(r.id)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        checked={selectedResidualIds.has(r.id)}
+                        onCheckedChange={() => toggleResidual(r.id)}
+                      />
+                      <Banknote className="h-4 w-4 text-yellow-500" />
+                      <span className="text-sm text-muted-foreground">
+                        Residual Neg. nº{r.negociacao_origem_numero ?? '—'}
+                      </span>
+                    </div>
+                    <span className={`text-sm font-semibold ${
+                      selectedResidualIds.has(r.id) ? 'text-yellow-400' : 'text-muted-foreground'
+                    }`}>
+                      {formatCurrency(Number(r.valor_residual))}
                     </span>
                   </div>
-                  <span className="font-semibold text-yellow-400">
-                    {formatCurrency(Number(r.valor_residual))}
-                  </span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </Card>
           )}
         </div>
       )}
