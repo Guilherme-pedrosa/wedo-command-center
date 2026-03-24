@@ -585,6 +585,7 @@ export default function RecebimentosPage() {
                 <SortableHeader label="OS" sortKey="os_codigo" currentSort={sort} onSort={handleSort} className="text-left" />
                 <SortableHeader label="Descrição" sortKey="descricao" currentSort={sort} onSort={handleSort} className="text-left" />
                 <SortableHeader label="Cliente" sortKey="nome_cliente" currentSort={sort} onSort={handleSort} className="text-left" />
+                <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase">NF Vinculada</th>
                 <SortableHeader label="Valor" sortKey="valor" currentSort={sort} onSort={handleSort} className="text-right" />
                 <SortableHeader label="Vencimento" sortKey="data_vencimento" currentSort={sort} onSort={handleSort} className="text-left" />
                 <SortableHeader label="Status" sortKey="status" currentSort={sort} onSort={handleSort} className="text-center" />
@@ -596,9 +597,9 @@ export default function RecebimentosPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={12} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></td></tr>
+               <tr><td colSpan={13} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></td></tr>
               ) : paged.length === 0 ? (
-                <tr><td colSpan={12}><EmptyState icon={Receipt} title="Nenhum recebimento" description="Sincronize os dados do GC ou crie manualmente." action={{ label: "Sincronizar", onClick: () => setShowSyncDialog(true) }} /></td></tr>
+               <tr><td colSpan={13}><EmptyState icon={Receipt} title="Nenhum recebimento" description="Sincronize os dados do GC ou crie manualmente." action={{ label: "Sincronizar", onClick: () => setShowSyncDialog(true) }} /></td></tr>
               ) : paged.map((r: any) => (
                 <tr key={r.id} className="border-b border-border hover:bg-muted/30 transition-colors">
                   <td className="p-3">
@@ -628,6 +629,15 @@ export default function RecebimentosPage() {
                   </td>
                   <td className="p-3 text-foreground max-w-[200px] truncate">{r.descricao}</td>
                   <td className="p-3 text-foreground">{r.nome_cliente || "—"}</td>
+                  <td className="p-3 text-center">
+                    {r.nfe_numero ? (
+                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30 text-[10px]">
+                        <FileText className="h-3 w-3 mr-1" />NF {r.nfe_numero}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-[10px]">—</span>
+                    )}
+                  </td>
                   <td className="p-3 text-right font-semibold text-foreground">{formatCurrency(Number(r.valor))}</td>
                   <td className="p-3 text-foreground">{r.data_vencimento ? formatDate(r.data_vencimento) : "—"}</td>
                   <td className="p-3 text-center">{statusBadge(r)}</td>
