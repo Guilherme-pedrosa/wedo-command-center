@@ -1242,7 +1242,12 @@ serve(async (req) => {
           } catch (err) {
             console.error(`[negotiate-os] Step 6 exception residual ${residual.id}:`, (err as Error).message);
             residualResults.push({ id: residual.id, status: "error", error: (err as Error).message });
-          }
+      } else if (residualIds.length > 0) {
+        console.warn(`[negotiate-os] Step 6 SKIPPED: ${os_ids.length} OS com ${osOkCount} sucesso — residuais NÃO consumidos`);
+        for (const rId of residualIds) {
+          residualResults.push({ id: rId, status: "skipped", error: "Negociação das OS falhou — residuais preservados" });
+        }
+      }
         }
       }
 
