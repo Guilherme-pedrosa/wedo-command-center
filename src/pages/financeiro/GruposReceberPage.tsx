@@ -107,24 +107,16 @@ export default function GruposReceberPage() {
   const handleOpenGrupoRecebimentosGC = () => {
     if (!selectedGrupo) return;
 
-    // Usar a descrição real do primeiro recebimento do grupo (é o que foi gravado no GC)
-    const primeiroItem = grupoItens?.[0] as any;
-    const descReal = primeiroItem?.fin_recebimentos?.descricao;
-    
-    let searchTerm = descReal || '';
-    
-    if (!searchTerm) {
-      const negNum = selectedGrupo.negociacao_numero;
-      const nfNum = selectedGrupo.nfse_numero;
-      if (negNum && nfNum) {
-        searchTerm = `NEG${negNum} NF${nfNum}`;
-      } else if (negNum) {
-        searchTerm = `NEG${negNum}`;
-      } else if (nfNum) {
-        searchTerm = `NF${nfNum}`;
-      } else {
-        searchTerm = selectedGrupo.nome || '';
-      }
+    const nfNum = selectedGrupo.nfse_numero;
+    const negNum = selectedGrupo.negociacao_numero;
+
+    let searchTerm = '';
+    if (nfNum) {
+      searchTerm = `NF ${nfNum}`;
+    } else if (negNum) {
+      searchTerm = `NEG${negNum}`;
+    } else {
+      searchTerm = selectedGrupo.nome || '';
     }
 
     if (!searchTerm) {
@@ -138,12 +130,11 @@ export default function GruposReceberPage() {
     
     if (vencimento) {
       const d = new Date(vencimento + 'T12:00:00');
+      const dd = String(d.getDate()).padStart(2, '0');
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const yyyy = d.getFullYear();
-      // Filtrar pelo mês inteiro do vencimento
-      const lastDay = new Date(yyyy, d.getMonth() + 1, 0).getDate();
-      dataInicio = `01/${mm}/${yyyy}`;
-      dataFim = `${String(lastDay).padStart(2, '0')}/${mm}/${yyyy}`;
+      dataInicio = `${dd}/${mm}/${yyyy}`;
+      dataFim = `${dd}/${mm}/${yyyy}`;
     }
 
     const params = new URLSearchParams({
