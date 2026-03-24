@@ -629,6 +629,15 @@ export default function RecebimentosPage() {
                   </td>
                   <td className="p-3 text-foreground max-w-[200px] truncate">{r.descricao}</td>
                   <td className="p-3 text-foreground">{r.nome_cliente || "—"}</td>
+                  <td className="p-3 text-center">
+                    {r.nfe_numero ? (
+                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30 text-[10px]">
+                        <FileText className="h-3 w-3 mr-1" />NF {r.nfe_numero}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-[10px]">—</span>
+                    )}
+                  </td>
                   <td className="p-3 text-right font-semibold text-foreground">{formatCurrency(Number(r.valor))}</td>
                   <td className="p-3 text-foreground">{r.data_vencimento ? formatDate(r.data_vencimento) : "—"}</td>
                   <td className="p-3 text-center">{statusBadge(r)}</td>
