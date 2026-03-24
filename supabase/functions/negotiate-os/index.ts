@@ -1251,6 +1251,57 @@ serve(async (req) => {
         }
       }
 
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 6b: Atualizar grupo com valores dos residuais processados
+      // ═══════════════════════════════════════════════════════════════
+      if (grupoIds.length > 0 && residualResults.length > 0) {
+        const residuaisOK = residualResults.filter(r => r.status === "ok");
+
+        if (residuaisOK.length > 0 && shouldProcessResiduals) {
+          const residuaisSelecionadosOK = (await supabase
+            .from("fin_residuos_negociacao")
+            .select("id, valor_residual, os_codigos")
+            .in("id", residuaisOK.map(r => r.id))
+          ).data || [];
+
+          const valorResidualTotal = roundMoney(
+            residuaisSelecionadosOK.reduce((sum, r) => sum + (parseFloat(String(r.valor_residual)) || 0), 0)
+          );
+
+          const grupoId = grupoIds[0];
+
+          const { data: grupoAtual } = await supabase
+            .from("fin_grupos_receber")
+            .select("valor_total, itens_total, os_codigos, observacao")
+            .eq("id", grupoId)
+            .single();
+
+          if (grupoAtual) {
+            const novoValorTotal = roundMoney(
+              (parseFloat(String(grupoAtual.valor_total)) || 0) + valorResidualTotal
+            );
+
+            const osCodigosResiduais = residuaisSelecionadosOK
+              .flatMap(r => (r.os_codigos as string[]) || []);
+            const osCodigosAtuais = (grupoAtual.os_codigos as string[]) || [];
+            const todosOsCodigos = [...new Set([...osCodigosAtuais, ...osCodigosResiduais])];
+
+            await supabase
+              .from("fin_grupos_receber")
+              .update({
+                valor_total: novoValorTotal,
+                itens_total: (grupoAtual.itens_total || 0) + residuaisOK.length,
+                os_codigos: todosOsCodigos,
+                observacao: `${grupoAtual.observacao || ''}\nResiduais incluídos: ${residuaisOK.length} item(ns) — R$ ${valorResidualTotal.toFixed(2)}`.trim(),
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", grupoId);
+
+            console.log(`[negotiate-os] Step 6b: grupo ${grupoId} atualizado → R$ ${novoValorTotal.toFixed(2)} (${residuaisOK.length} residuais)`);
+          }
+        }
+      }
+
       const okCount = gcUpdateResults.filter((r) => r.status === "ok").length;
       const errCount = gcUpdateResults.filter((r) => r.status === "error").length;
 
