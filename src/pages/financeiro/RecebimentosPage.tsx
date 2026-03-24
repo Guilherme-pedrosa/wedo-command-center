@@ -24,7 +24,9 @@ import { cn } from "@/lib/utils";
 import {
   Receipt, Search, RefreshCw, Plus, Loader2, Zap, CalendarIcon,
   Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight, FileText, Lock, Camera, ExternalLink, Link2, X,
+  Download, FileSpreadsheet,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { SortableHeader, useSortConfig } from "@/components/financeiro/SortableHeader";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
