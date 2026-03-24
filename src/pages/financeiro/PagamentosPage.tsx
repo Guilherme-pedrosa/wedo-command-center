@@ -135,7 +135,8 @@ export default function PagamentosPage() {
       const { data } = await supabase
         .from("fin_pagamentos")
         .select("*, fin_formas_pagamento:forma_pagamento_id(nome)")
-        .eq("data_liquidacao", hoje);
+        .eq("data_vencimento", hoje)
+        .neq("status", "cancelado");
       return data || [];
     },
   });
