@@ -1168,7 +1168,7 @@ export default function GruposReceberPage() {
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <a 
-                                            href={`https://gestaoclick.com/ordens_servicos/visualizar/${gcOsId}`}
+                                            href={`${GC_BASE}/ordens_servicos/visualizar/${osGcIdFromMap}`}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="text-primary hover:underline flex items-center gap-1"
