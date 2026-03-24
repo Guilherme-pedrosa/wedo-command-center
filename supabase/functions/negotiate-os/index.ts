@@ -687,6 +687,24 @@ serve(async (req) => {
         return insertedLocal?.id ?? null;
       };
 
+      // Track already-processed GC receivable IDs to avoid duplicates across OS iterations
+      const processedRecIds = new Set<string>();
+
+      // Helper: extract OS code from receivable description (e.g. "Ordem de serviço de nº 9032")
+      const extractOsCodeFromDesc = (desc: string): string | null => {
+        // Match patterns: "nº XXXX", "OS XXXX", "os XXXX"
+        const patterns = [
+          /ordem de servi[çc]o de n[ºo°]\s*(\d+)/i,
+          /\bOS\s+(\d+)\b/i,
+          /n[ºo°]\s*(\d+)/i,
+        ];
+        for (const pattern of patterns) {
+          const match = desc.match(pattern);
+          if (match) return match[1];
+        }
+        return null;
+      };
+
       for (const { os, plan } of successPlans) {
         try {
           await new Promise((r) => setTimeout(r, 800));
@@ -744,6 +762,10 @@ serve(async (req) => {
 
           const matching = rawList.filter((item: any) => {
             const rec = item?.Recebimento || item?.recebimento || item;
+            const recId = String(rec?.id || "").trim();
+            // Skip already-processed receivables from previous OS iterations
+            if (processedRecIds.has(recId)) return false;
+
             const dueDate = String(rec?.data_vencimento || "").slice(0, 10);
             const desc = String(rec?.descricao || "").toLowerCase();
             const recValue = normalizeMoney(rec?.valor ?? rec?.valor_total);
@@ -764,12 +786,21 @@ serve(async (req) => {
           for (const item of matching) {
             const rec = item?.Recebimento || item?.recebimento || item;
             const recId = String(rec?.id || "").trim();
-            if (!recId) continue;
+            if (!recId || processedRecIds.has(recId)) continue;
+            processedRecIds.add(recId);
 
             const recValue = normalizeMoney(rec?.valor ?? rec?.valor_total);
             const dueDate = String(rec?.data_vencimento || "").slice(0, 10);
             const currentDesc = String(rec?.descricao || "").trim();
             const currentObs = String(rec?.observacoes || rec?.observacao || "").trim();
+
+            // Determine the actual OS code this receivable belongs to
+            // Extract from description first; fall back to current OS
+            const descOsCode = extractOsCodeFromDesc(currentDesc);
+            const actualOsCodigo = descOsCode && successPlans.some(({ os: o }) => o.codigo === descOsCode)
+              ? descOsCode
+              : os.codigo;
+
             // Detectar passivo por múltiplos critérios (GC não usa nossa descrição)
             const descUpper = currentDesc.toUpperCase();
             const isPassive = descUpper.includes("PASSIVO")
@@ -801,7 +832,7 @@ serve(async (req) => {
               desiredDesc = currentDesc;
             } else if (isPassive) {
               // Passivo: prefixar com tag, manter descrição original intacta
-              desiredDesc = `Passivo OS ${os.codigo} (negociação ${negociacao_numero}) - ${currentDesc}`;
+              desiredDesc = `Passivo OS ${actualOsCodigo} (negociação ${negociacao_numero}) - ${currentDesc}`;
             } else {
               // Parcela negociada: prefixar NEG tag, manter descrição original intacta
               desiredDesc = `${negTag} ${currentDesc}`;
@@ -833,7 +864,7 @@ serve(async (req) => {
               const putData = await putResp.json();
 
               if (putResp.ok || putData?.code === 200) {
-                console.log(`[negotiate-os] STEP D OK: ${recId} → "${desiredDesc}"`);
+                console.log(`[negotiate-os] STEP D OK: ${recId} → "${desiredDesc}" (OS ${actualOsCodigo})`);
               } else {
                 console.warn(`[negotiate-os] STEP D ERRO: ${recId}: ${putData?.data?.mensagem || putData?.message || putResp.status}`);
               }
@@ -844,11 +875,11 @@ serve(async (req) => {
               dueDate,
               desiredDesc,
               desiredObs,
-              osCodigo: os.codigo,
+              osCodigo: actualOsCodigo,
             });
 
             if (localReceivableId) {
-              const mapKey = buildReceivableKey(os.codigo, dueDate, recValue, isPassive ? "passive" : "neg");
+              const mapKey = buildReceivableKey(actualOsCodigo, dueDate, recValue, isPassive ? "passive" : "neg");
               linkedReceivableIds.set(mapKey, localReceivableId);
             }
 
@@ -860,8 +891,8 @@ serve(async (req) => {
                 negociacao_origem_numero: negociacao_numero,
                 gc_recebimento_id: recId,
                 gc_codigo: rec?.codigo ? String(rec.codigo) : null,
-                os_codigos: [os.codigo],
-                observacao: `Financeiro passivo da negociação nº${negociacao_numero}\nOS ${os.codigo}\nVencimento: ${residualDueDate}\nValor: R$ ${plan.residual.toFixed(2)}`,
+                os_codigos: [actualOsCodigo],
+                observacao: `Financeiro passivo da negociação nº${negociacao_numero}\nOS ${actualOsCodigo}\nVencimento: ${residualDueDate}\nValor: R$ ${plan.residual.toFixed(2)}`,
               });
             }
           }
@@ -869,7 +900,6 @@ serve(async (req) => {
           console.warn(`[negotiate-os] STEP D error (non-fatal): ${stepDErr.message}`);
         }
       }
-
       // ═══════════════════════════════════════════════════════════════
       // 4b. Persist passive receivables locally for future renegotiation
       // ═══════════════════════════════════════════════════════════════
