@@ -594,7 +594,7 @@ export default function PagamentosPage() {
                     </tbody>
                     <tfoot>
                       <tr className="font-semibold">
-                        <td colSpan={2} className="pt-1">Subtotal {forma}</td>
+                        <td colSpan={3} className="pt-1">Subtotal {forma}</td>
                         <td className="pt-1 text-right">{formatCurrency((items as any[]).reduce((s, p) => s + Number(p.valor || 0), 0))}</td>
                         <td></td>
                       </tr>
