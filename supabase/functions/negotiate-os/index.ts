@@ -881,6 +881,10 @@ serve(async (req) => {
       // ═══════════════════════════════════════════════════════════════
       if (grupoIds.length > 0 && successPlans.length > 0) {
         try {
+          // Wait for GC receivables to settle
+          console.log(`[negotiate-os] Waiting 3s for GC receivables to settle...`);
+          await new Promise((r) => setTimeout(r, 3000));
+
           for (let i = 0; i < grupoIds.length && i < parcelas; i++) {
             const grupoId = grupoIds[i];
             const vencimento = dueDates[i];
@@ -890,7 +894,48 @@ serve(async (req) => {
               if (valorParcela <= 0.01) continue;
 
               const mapKey = buildReceivableKey(os.codigo, vencimento, valorParcela, "neg");
-              const recebimentoId = linkedReceivableIds.get(mapKey);
+              let recebimentoId = linkedReceivableIds.get(mapKey);
+
+              // Fallback: search local DB if not found in Step D mapping
+              if (!recebimentoId) {
+                // Attempt 1: exact date match
+                const { data: recsExact } = await supabase
+                  .from("fin_recebimentos")
+                  .select("id, gc_codigo, valor, data_vencimento, os_codigo")
+                  .eq("os_codigo", os.codigo)
+                  .eq("liquidado", false)
+                  .is("grupo_id", null)
+                  .eq("data_vencimento", vencimento)
+                  .limit(5);
+
+                let recs = recsExact || [];
+
+                // Attempt 2: fallback by tag in description
+                if (recs.length === 0) {
+                  const { data: recsTag } = await supabase
+                    .from("fin_recebimentos")
+                    .select("id, gc_codigo, valor, data_vencimento, os_codigo, descricao")
+                    .eq("liquidado", false)
+                    .is("grupo_id", null)
+                    .ilike("descricao", `%${negTag}%`)
+                    .ilike("descricao", `%OS ${os.codigo}%`)
+                    .not("descricao", "ilike", "%PASSIVO%")
+                    .limit(10);
+
+                  recs = (recsTag || []).filter((r: any) => {
+                    const recDate = String(r.data_vencimento || "").slice(0, 10);
+                    return recDate === vencimento;
+                  });
+                }
+
+                // Find best match by value
+                const match = recs.find((r: any) => Math.abs(Number(r.valor) - valorParcela) <= 0.02);
+                if (match) {
+                  recebimentoId = match.id;
+                  console.log(`[negotiate-os] Step 5 fallback found: ${recebimentoId} for OS ${os.codigo}`);
+                }
+              }
+
               if (!recebimentoId) {
                 console.warn(`[negotiate-os] Grupo ${i + 1}: financeiro não encontrado para OS ${os.codigo} (${vencimento} / ${valorParcela.toFixed(2)})`);
                 continue;
