@@ -1057,12 +1057,12 @@ export default function GruposReceberPage() {
                       </Button>
                     </div>
                   </div>
-                  <div className="rounded-md border border-border overflow-hidden">
-                    <table className="w-full text-xs">
+                  <div className="rounded-md border border-border overflow-x-auto">
+                    <table className="w-full min-w-[760px] text-xs">
                       <thead className="bg-muted/50">
                         <tr>
-                          <th className="p-2 text-left">Recebimento GC</th>
-                          <th className="p-2 text-left">
+                          <th className="p-2 text-left whitespace-nowrap">Recebimento GC</th>
+                          <th className="p-2 text-left whitespace-nowrap">
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1074,10 +1074,10 @@ export default function GruposReceberPage() {
                               </Tooltip>
                             </TooltipProvider>
                           </th>
-                          <th className="p-2 text-left">Descrição</th>
-                          <th className="p-2 text-right">Valor</th>
-                          <th className="p-2 text-center">Pago</th>
-                          <th className="p-2 text-center">Baixa GC</th>
+                          <th className="p-2 text-left whitespace-nowrap">Descrição</th>
+                          <th className="p-2 text-right whitespace-nowrap">Valor</th>
+                          <th className="p-2 text-center whitespace-nowrap">Pago</th>
+                          <th className="p-2 text-center whitespace-nowrap">Baixa GC</th>
                         </tr>
                       </thead>
                       <tbody>
