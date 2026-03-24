@@ -120,10 +120,10 @@ export default function NegociacaoOSPage() {
           const valorTotal = osList.reduce((sum, os) => sum + os.valor_total, 0);
           return { ...c, os_list: osList, valor_total: valorTotal };
         })
-        .filter((c: ClientGroup) => c.os_list.length > 1 && c.valor_total > 0);
+        .filter((c: ClientGroup) => c.os_list.length >= 1 && c.valor_total > 0);
       setClients(groupedClients);
       if (groupedClients.length === 0) {
-        toast("Nenhum cliente com 2+ OS nas situações selecionadas", { icon: "ℹ️" });
+        toast("Nenhum cliente com OS nas situações selecionadas", { icon: "ℹ️" });
       }
     } catch (err) {
       toast.error(`Erro ao buscar OS: ${(err as Error).message}`);
