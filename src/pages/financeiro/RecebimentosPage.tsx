@@ -131,7 +131,30 @@ export default function RecebimentosPage() {
     },
   });
 
-  // Fechamento do dia query
+  // OS index lookup for links
+  const osCodes = useMemo(() => {
+    if (!recebimentos) return [];
+    const codes = new Set(recebimentos.map((r: any) => r.os_codigo).filter(Boolean));
+    return [...codes];
+  }, [recebimentos]);
+
+  const { data: osIdMap } = useQuery({
+    queryKey: ["os-index-map", osCodes],
+    enabled: osCodes.length > 0,
+    queryFn: async () => {
+      const map: Record<string, string> = {};
+      for (let i = 0; i < osCodes.length; i += 500) {
+        const batch = osCodes.slice(i, i + 500);
+        const { data } = await supabase
+          .from("os_index")
+          .select("os_id, os_codigo")
+          .in("os_codigo", batch);
+        (data || []).forEach((r: any) => { map[r.os_codigo] = r.os_id; });
+      }
+      return map;
+    },
+  });
+
   const { data: fechamentoItems, isLoading: loadingFechamento } = useQuery({
     queryKey: ["fin-recebimentos-fechamento", hoje],
     enabled: showFechamento,
