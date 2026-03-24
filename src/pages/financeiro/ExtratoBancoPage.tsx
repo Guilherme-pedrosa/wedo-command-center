@@ -1140,7 +1140,10 @@ export default function ExtratoBancoPage() {
                                   <Checkbox checked={selectedIds.has(l.id)} className="h-3.5 w-3.5" onClick={ev => ev.stopPropagation()} onCheckedChange={() => toggleSelected(l.id)} />
                                 )}
                                 <div className="flex-1 min-w-0">
-                                  <div className="font-medium">{l.descricao}</div>
+                                  <div className="font-medium">
+                                    {l.descricao}
+                                    {l._parcela && <Badge variant="outline" className="text-[9px] h-4 ml-1.5">Parcela {l._parcela}</Badge>}
+                                  </div>
                                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                                     <span className="font-bold text-primary">{formatCurrency(Number(l.valor))}</span>
                                     <span className="text-muted-foreground">{l.nome_cliente || l.nome_fornecedor}</span>
