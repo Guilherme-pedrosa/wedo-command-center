@@ -791,16 +791,20 @@ serve(async (req) => {
                 return false;
               })();
 
-            const cleanedDesc = currentDesc
-              .replace(/^\[?\s*neg[\s#\.\-]*\d+\]?\s*[-–—:]?\s*/i, "")
-              .replace(/^NEG\d+\s*[-–—:]?\s*/i, "")
-              .trim();
+            // NUNCA substituir a descrição original do GC!
+            // Apenas adicionar prefixo de tag se ainda não tiver
+            const alreadyTagged = currentDesc.toUpperCase().includes(negTag.toUpperCase());
 
-            const desiredDesc = currentDesc.toUpperCase().includes(negTag.toUpperCase())
-              ? currentDesc
-              : isPassive
-                ? `Passivo OS ${os.codigo} (negociação ${negociacao_numero})`
-                : `${negTag} - ${cleanedDesc || `OS ${os.codigo}`}`;
+            let desiredDesc: string;
+            if (alreadyTagged) {
+              desiredDesc = currentDesc;
+            } else if (isPassive) {
+              // Passivo: prefixar com tag, manter descrição original intacta
+              desiredDesc = `Passivo OS ${os.codigo} (negociação ${negociacao_numero}) - ${currentDesc}`;
+            } else {
+              // Parcela negociada: prefixar NEG tag, manter descrição original intacta
+              desiredDesc = `${negTag} ${currentDesc}`;
+            }
 
             const obsLine = isPassive
               ? `passivo da negociação nº${negociacao_numero}`
