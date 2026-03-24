@@ -772,10 +772,10 @@ serve(async (req) => {
             // Detectar passivo por múltiplos critérios (GC não usa nossa descrição)
             const descUpper = currentDesc.toUpperCase();
             const isPassive = descUpper.includes("PASSIVO")
-              // Valor bate com residual e data >= residualDueDate (tolerância de +/- 7 dias)
+              // Valor bate com residual e data próxima do residualDueDate (tolerância de +/- 35 dias — passivo fica ~30 dias depois)
               || (plan.residual > 0.01 
                   && Math.abs(plan.residual - recValue) <= 0.02
-                  && Math.abs(new Date(dueDate).getTime() - new Date(residualDueDate).getTime()) <= 7 * 86400000)
+                  && Math.abs(new Date(dueDate).getTime() - new Date(residualDueDate).getTime()) <= 35 * 86400000)
               // Valor bate com residual e NÃO bate com nenhuma parcela
               || (plan.residual > 0.01 
                   && Math.abs(plan.residual - recValue) <= 0.02 
