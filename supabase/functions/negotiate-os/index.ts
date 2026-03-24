@@ -1001,8 +1001,41 @@ serve(async (req) => {
               continue;
             }
 
-            // Step 6A: PUT no GC — atualizar vencimento + descrição do PASSIVO
-            const novoVencimento = dueDates[0]; // mesmo primeiro vencimento da negociação
+            // Step 6-GET: Buscar dados atuais do recebimento no GC (necessário para o PUT)
+            const getResp = await rateLimitedFetch(
+              `${GC_BASE_URL}/api/recebimentos/${residual.gc_recebimento_id}`,
+              { headers: gcHeaders }
+            );
+
+            if (!getResp.ok) {
+              console.error(`[negotiate-os] Step 6 GET falhou para residual ${residual.id}: HTTP ${getResp.status}`);
+              residualResults.push({
+                id: residual.id,
+                status: "error",
+                error: `GET recebimento falhou (${getResp.status})`,
+              });
+              continue;
+            }
+
+            const getBody = await getResp.json();
+            const recAtual = getBody?.data?.[0] || getBody?.data || getBody?.Recebimento || getBody;
+
+            if (!recAtual?.id) {
+              console.error(`[negotiate-os] Step 6: recebimento ${residual.gc_recebimento_id} não encontrado no GC`);
+              residualResults.push({
+                id: residual.id,
+                status: "error",
+                error: "Recebimento não encontrado no GC",
+              });
+              continue;
+            }
+
+            await new Promise((r) => setTimeout(r, MIN_DELAY_MS));
+
+            // Calcular novo vencimento (mesmo primeiro vencimento da negociação)
+            const novoVencimento = dueDates[0];
+
+            // Montar descrição da nova negociação
             const osRef = residual.os_codigos?.length
               ? residual.os_codigos.map((c: string) => `OS ${c}`).join(', ')
               : '';
@@ -1011,104 +1044,135 @@ serve(async (req) => {
               : '';
             const novaDescricao = `${negTag} - Parcela - ${osRef} ${negOrigem}`.trim();
 
-            // First GET the current receivable to preserve required fields
-            const getResp = await rateLimitedFetch(
-              `${GC_BASE_URL}/api/recebimentos/${residual.gc_recebimento_id}`,
-              { headers: gcHeaders }
-            );
-
-            let putPayload: Record<string, unknown> = {
-              data_vencimento: novoVencimento,
+            // Step 6A: PUT com todos os 7 campos obrigatórios do GC
+            const putPayload: Record<string, unknown> = {
+              // Campos que estamos ATUALIZANDO:
               descricao: novaDescricao,
+              data_vencimento: novoVencimento,
+              // Campos obrigatórios PRESERVADOS do GET:
+              plano_contas_id: recAtual.plano_contas_id,
+              forma_pagamento_id: recAtual.forma_pagamento_id,
+              conta_bancaria_id: recAtual.conta_bancaria_id,
+              valor: recAtual.valor,
+              data_competencia: recAtual.data_competencia || novoVencimento,
+              // Campos opcionais preservados para não perder dados:
+              observacoes: `${String(recAtual.observacoes || '')}\nIncluído na negociação nº${negociacao_numero}`.trim(),
+              cliente_id: recAtual.cliente_id,
+              nome_cliente: recAtual.nome_cliente,
+              entidade: recAtual.entidade || 'C',
+              centro_custo_id: recAtual.centro_custo_id,
             };
 
-            if (getResp.ok) {
-              const getData = await getResp.json();
-              const rec = getData?.data?.[0] || getData?.data || getData?.Recebimento || getData;
-              if (rec?.id) {
-                // Preserve required fields from existing record
-                putPayload = {
-                  ...putPayload,
-                  valor: rec.valor,
-                  plano_contas_id: rec.plano_contas_id,
-                  forma_pagamento_id: rec.forma_pagamento_id,
-                  conta_bancaria_id: rec.conta_bancaria_id,
-                  data_competencia: rec.data_competencia,
-                  observacoes: `${String(rec.observacoes || '')}\nnegociado nº${negociacao_numero}`.trim(),
-                };
-              }
-            }
-
-            const putResp = await rateLimitedFetch(
+            const stepResidualResp = await rateLimitedFetch(
               `${GC_BASE_URL}/api/recebimentos/${residual.gc_recebimento_id}`,
-              { method: "PUT", headers: gcHeaders, body: JSON.stringify(putPayload) }
+              {
+                method: "PUT",
+                headers: gcHeaders,
+                body: JSON.stringify(putPayload),
+              }
             );
-            const putText = await putResp.text();
 
-            if (!putResp.ok) {
-              let putData: any;
-              try { putData = JSON.parse(putText); } catch { putData = {}; }
-              if (putData?.code !== 200) {
-                console.error(`[negotiate-os] Step 6A falhou residual ${residual.id}: ${putText.slice(0, 300)}`);
-                residualResults.push({ id: residual.id, status: "error", error: `GC PUT falhou (${putResp.status}): ${putText.slice(0, 200)}` });
-                continue;
-              }
+            const stepResidualText = await stepResidualResp.text();
+            let stepResidualData: any;
+            try { stepResidualData = JSON.parse(stepResidualText); } catch { stepResidualData = {}; }
+
+            if (!stepResidualResp.ok && stepResidualData?.code !== 200) {
+              console.error(`[negotiate-os] Step 6A falhou para residual ${residual.id}: ${stepResidualText.slice(0, 300)}`);
+              residualResults.push({
+                id: residual.id,
+                status: "error",
+                error: `GC PUT falhou (${stepResidualResp.status}): ${stepResidualData?.data?.mensagem || stepResidualData?.message || stepResidualText.slice(0, 200)}`,
+              });
+              continue;
             }
 
-            console.log(`[negotiate-os] Step 6A OK: residual ${residual.id} vencimento → ${novoVencimento}`);
+            console.log(`[negotiate-os] Step 6A OK: residual ${residual.id} → "${novaDescricao}" venc. ${novoVencimento}`);
 
-            // Step 6B: Vincular ao grupo local (fin_grupo_receber_itens)
-            if (grupoIdForResidual) {
-              // Find or create local receivable for this GC record
-              const { data: localRec } = await supabase
+            await new Promise((r) => setTimeout(r, MIN_DELAY_MS));
+
+            // Step 6B: Upsert local em fin_recebimentos para vincular ao grupo
+            const localPayload = {
+              gc_id: String(recAtual.id),
+              gc_codigo: recAtual.codigo ? String(recAtual.codigo) : null,
+              gc_payload_raw: recAtual,
+              descricao: novaDescricao,
+              observacao: putPayload.observacoes as string,
+              os_codigo: residual.os_codigos?.[0] || null,
+              tipo: "os",
+              origem: "gc_os" as const,
+              valor: parseFloat(String(recAtual.valor || "0").replace(",", ".")) || 0,
+              cliente_gc_id: String(recAtual.cliente_id || cliente_gc_id || ""),
+              nome_cliente: String(recAtual.nome_cliente || nome_cliente || ""),
+              data_vencimento: novoVencimento,
+              data_competencia: recAtual.data_competencia || novoVencimento,
+              liquidado: String(recAtual.liquidado || "0") === "1",
+              status: (String(recAtual.liquidado || "0") === "1" ? "pago" : "pendente") as "pago" | "pendente",
+              last_synced_at: new Date().toISOString(),
+            };
+
+            // Check if already exists locally
+            const { data: existingLocal } = await supabase
+              .from("fin_recebimentos")
+              .select("id")
+              .eq("gc_id", String(recAtual.id))
+              .maybeSingle();
+
+            let localRecebimentoId: string | null = null;
+
+            if (existingLocal?.id) {
+              await supabase.from("fin_recebimentos").update(localPayload).eq("id", existingLocal.id);
+              localRecebimentoId = existingLocal.id;
+            } else {
+              const { data: inserted } = await supabase
                 .from("fin_recebimentos")
+                .insert(localPayload)
                 .select("id")
-                .eq("gc_id", residual.gc_recebimento_id)
-                .maybeSingle();
-
-              let localRecId = localRec?.id;
-
-              if (!localRecId) {
-                // Try by gc_codigo
-                const { data: localRec2 } = await supabase
-                  .from("fin_recebimentos")
-                  .select("id")
-                  .eq("gc_codigo", residual.gc_recebimento_id)
-                  .maybeSingle();
-                localRecId = localRec2?.id;
-              }
-
-              if (localRecId) {
-                await supabase.from("fin_grupo_receber_itens").insert({
-                  grupo_id: grupoIdForResidual,
-                  recebimento_id: localRecId,
-                  valor: residual.valor_residual,
-                  os_codigo_original: residual.os_codigos?.[0] || null,
-                  snapshot_valor: residual.valor_residual,
-                  snapshot_data: novoVencimento,
-                });
-
-                await supabase.from("fin_recebimentos")
-                  .update({ grupo_id: grupoIdForResidual, data_vencimento: novoVencimento, descricao: novaDescricao })
-                  .eq("id", localRecId);
-
-                console.log(`[negotiate-os] Step 6B: residual vinculado ao grupo ${grupoIdForResidual}`);
-              } else {
-                console.warn(`[negotiate-os] Step 6B: recebimento local não encontrado para gc_id=${residual.gc_recebimento_id}`);
-              }
+                .single();
+              localRecebimentoId = inserted?.id || null;
             }
 
-            // Step 6C: Marcar residual como utilizado
-            await supabase
+            // Vincular ao primeiro grupo da negociação (se existir)
+            if (localRecebimentoId && grupoIds.length > 0) {
+              await supabase
+                .from("fin_recebimentos")
+                .update({ grupo_id: grupoIds[0] })
+                .eq("id", localRecebimentoId);
+
+              await supabase.from("fin_grupo_receber_itens").insert({
+                grupo_id: grupoIds[0],
+                recebimento_id: localRecebimentoId,
+                valor: parseFloat(String(recAtual.valor || "0").replace(",", ".")) || 0,
+                os_codigo_original: residual.os_codigos?.[0] || null,
+                gc_os_id: null,
+                snapshot_valor: parseFloat(String(recAtual.valor || "0").replace(",", ".")) || 0,
+                snapshot_data: novoVencimento,
+              });
+
+              console.log(`[negotiate-os] Step 6B: residual ${residual.id} vinculado ao grupo ${grupoIds[0]}`);
+            }
+
+            // Step 6C: Marcar residual como utilizado no Supabase
+            const { error: updateError } = await supabase
               .from("fin_residuos_negociacao")
-              .update({ utilizado: true, utilizado_em: new Date().toISOString() })
+              .update({
+                utilizado: true,
+                utilizado_em: new Date().toISOString(),
+              })
               .eq("id", residual.id);
+
+            if (updateError) {
+              console.error(`[negotiate-os] Step 6C erro ao marcar utilizado: ${updateError.message}`);
+            }
 
             residualResults.push({ id: residual.id, status: "ok" });
             console.log(`[negotiate-os] Residual ${residual.id} processado com sucesso`);
           } catch (err) {
             console.error(`[negotiate-os] Step 6 exception residual ${residual.id}:`, (err as Error).message);
-            residualResults.push({ id: residual.id, status: "error", error: (err as Error).message });
+            residualResults.push({
+              id: residual.id,
+              status: "error",
+              error: (err as Error).message,
+            });
           }
         }
       }
