@@ -277,6 +277,28 @@ export default function ExtratoBancoPage() {
     else { setExpandedId(e.id); setExpandedItem(e); setSearchLanc(""); setMultiMode(false); setSelectedIds(new Set()); setTaxaAdiantamento(""); }
   };
 
+  // Enrich items with parcela info (e.g. "1/3") by grouping same-description items
+  const enrichWithParcela = (items: any[]) => {
+    const grouped: Record<string, any[]> = {};
+    for (const it of items) {
+      const key = it.descricao || "";
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(it);
+    }
+    // Sort each group by data_vencimento to assign parcela order
+    for (const key of Object.keys(grouped)) {
+      grouped[key].sort((a: any, b: any) => (a.data_vencimento || "").localeCompare(b.data_vencimento || ""));
+    }
+    return items.map((it: any) => {
+      const group = grouped[it.descricao || ""];
+      if (group && group.length > 1) {
+        const idx = group.findIndex((g: any) => g.id === it.id);
+        return { ...it, _parcela: `${idx + 1}/${group.length}` };
+      }
+      return it;
+    });
+  };
+
   // Searched lancamentos for expanded row
   const searchedLancamentos = useMemo(() => {
     if (!expandedId || !expandedItem) return { recebimentos: [], pagamentos: [] };
@@ -289,8 +311,8 @@ export default function ExtratoBancoPage() {
       if (!isNaN(numQ) && Math.abs(Number(l.valor) - numQ) < 0.01) return true;
       return fields.includes(q);
     };
-    if (isCredito) return { recebimentos: (recebimentosNL || []).filter(filterFn).slice(0, 50), pagamentos: [] };
-    return { recebimentos: [], pagamentos: (pagamentosNL || []).filter(filterFn).slice(0, 50) };
+    if (isCredito) return { recebimentos: enrichWithParcela((recebimentosNL || []).filter(filterFn).slice(0, 50)), pagamentos: [] };
+    return { recebimentos: [], pagamentos: enrichWithParcela((pagamentosNL || []).filter(filterFn).slice(0, 50)) };
   }, [expandedId, expandedItem, searchLanc, recebimentosNL, pagamentosNL]);
 
   // Multi-select: computed sum and diff
