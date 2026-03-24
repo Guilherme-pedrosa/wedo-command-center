@@ -614,17 +614,6 @@ export default function NegociacaoOSPage() {
                                   {idx < (r.os_codigos?.length ?? 0) - 1 ? ',' : ''}
                                 </span>
                                 );
-                              })}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="text-primary hover:underline inline-flex items-center gap-0.5"
-                                >
-                                  OS {code}
-                                  <ExternalLink className="h-2.5 w-2.5" />
-                                  {idx < (r.os_codigos?.length ?? 0) - 1 ? ',' : ''}
-                                </a>
-                              ))}
                             </span>
                           )}
                         </div>
