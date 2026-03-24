@@ -24,7 +24,9 @@ import { cn } from "@/lib/utils";
 import {
   Receipt, Search, RefreshCw, Plus, Loader2, Zap, CalendarIcon,
   Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight, FileText, Lock, Camera, ExternalLink, Link2, X,
+  Download, FileSpreadsheet,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { SortableHeader, useSortConfig } from "@/components/financeiro/SortableHeader";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
@@ -337,6 +339,73 @@ export default function RecebimentosPage() {
     }
   };
 
+  const getExportData = () => {
+    const source = selected.size > 0 ? selectedItems : filtered;
+    return source.map((r: any) => ({
+      "Cód GC": r.gc_codigo || "",
+      "OS": r.os_codigo || "",
+      "Descrição": r.descricao || "",
+      "Cliente": r.nome_cliente || "",
+      "Valor": Number(r.valor || 0),
+      "Vencimento": r.data_vencimento ? formatDate(r.data_vencimento) : "",
+      "Status": r.status || "",
+      "Liquidado": r.liquidado ? "Sim" : "Não",
+      "Data Liquidação": r.data_liquidacao ? formatDate(r.data_liquidacao) : "",
+      "Forma Pagamento": r.forma_pagamento_id || "",
+      "Origem": r.origem || "",
+      "NF": r.nfe_chave || "",
+    }));
+  };
+
+  const handleExportExcel = () => {
+    const data = getExportData();
+    if (!data.length) return toast.error("Nenhum dado para exportar");
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Recebimentos");
+    XLSX.writeFile(wb, `recebimentos_${format(new Date(), "yyyy-MM-dd")}.xlsx`);
+    toast.success("Excel exportado!");
+  };
+
+  const handleExportPDF = () => {
+    const data = getExportData();
+    if (!data.length) return toast.error("Nenhum dado para exportar");
+    const total = data.reduce((s, r) => s + Number(r.Valor || 0), 0);
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return toast.error("Popup bloqueado");
+    printWindow.document.write(`
+      <html><head><title>Recebimentos</title>
+      <style>
+        body { font-family: Arial, sans-serif; font-size: 11px; margin: 20px; color: #333; }
+        h1 { font-size: 16px; margin-bottom: 4px; }
+        .sub { font-size: 11px; color: #666; margin-bottom: 12px; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #1a1a2e; color: #fff; padding: 6px 8px; text-align: left; font-size: 10px; }
+        td { padding: 5px 8px; border-bottom: 1px solid #ddd; font-size: 10px; }
+        tr:nth-child(even) { background: #f9f9f9; }
+        .right { text-align: right; }
+        .total { font-weight: bold; background: #f0f0f0; }
+      </style></head><body>
+      <h1>Relatório de Recebimentos</h1>
+      <div class="sub">Gerado em ${format(new Date(), "dd/MM/yyyy HH:mm")} · ${data.length} registros · Total: ${formatCurrency(total)}</div>
+      <table>
+        <thead><tr>
+          <th>Cód GC</th><th>OS</th><th>Descrição</th><th>Cliente</th>
+          <th class="right">Valor</th><th>Vencimento</th><th>Status</th>
+        </tr></thead>
+        <tbody>
+          ${data.map(r => `<tr>
+            <td>${r["Cód GC"]}</td><td>${r.OS}</td><td>${r["Descrição"]}</td><td>${r.Cliente}</td>
+            <td class="right">${formatCurrency(r.Valor)}</td><td>${r.Vencimento}</td><td>${r.Status}</td>
+          </tr>`).join("")}
+          <tr class="total"><td colspan="4">Total</td><td class="right">${formatCurrency(total)}</td><td colspan="2"></td></tr>
+        </tbody>
+      </table></body></html>
+    `);
+    printWindow.document.close();
+    setTimeout(() => printWindow.print(), 500);
+  };
+
   const statusBadge = (r: any) => {
     const s = r.status;
     if (s === "pago") return <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30 text-[10px]">Pago</Badge>;
@@ -374,6 +443,14 @@ export default function RecebimentosPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={handleExportPDF} title="Exportar PDF">
+            <Download className="h-3.5 w-3.5 mr-1.5" />
+            PDF
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleExportExcel} title="Exportar Excel">
+            <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />
+            Excel
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setShowFechamento(true)}>
             <FileText className="h-3.5 w-3.5 mr-1.5" />
             Fechamento do Dia
