@@ -583,7 +583,6 @@ export default function NegociacaoOSPage() {
                           )}
                         </div>
                       </div>
-                      )}
                     </div>
                     <span className={`text-sm font-semibold ${
                       selectedResidualIds.has(r.id) ? 'text-yellow-400' : 'text-muted-foreground'
