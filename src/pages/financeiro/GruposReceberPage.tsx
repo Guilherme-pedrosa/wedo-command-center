@@ -132,11 +132,12 @@ export default function GruposReceberPage() {
     
     if (vencimento) {
       const d = new Date(vencimento + 'T12:00:00');
-      const dd = String(d.getDate()).padStart(2, '0');
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const yyyy = d.getFullYear();
-      dataInicio = `${dd}/${mm}/${yyyy}`;
-      dataFim = `${dd}/${mm}/${yyyy}`;
+      // Filtrar pelo mês inteiro do vencimento
+      const lastDay = new Date(yyyy, d.getMonth() + 1, 0).getDate();
+      dataInicio = `01/${mm}/${yyyy}`;
+      dataFim = `${String(lastDay).padStart(2, '0')}/${mm}/${yyyy}`;
     }
 
     const params = new URLSearchParams({
@@ -594,8 +595,17 @@ export default function GruposReceberPage() {
           if (!rec?.gc_id || !rec?.gc_payload_raw) { erros++; continue; }
 
           const descOriginal = rec.descricao || "";
-          const nfTag = `NF ${selectedGrupo.nfse_numero}`;
-          const novaDescricao = descOriginal.includes(nfTag) ? descOriginal : `${descOriginal} — ${nfTag}`;
+          const nfTag = `NF${selectedGrupo.nfse_numero}`;
+          // Inserir NF logo após o prefixo NEG para facilitar busca no GC
+          let novaDescricao = descOriginal;
+          if (!descOriginal.includes(nfTag)) {
+            const negMatch = descOriginal.match(/^(NEG\s*\d+)/i);
+            if (negMatch) {
+              novaDescricao = descOriginal.replace(negMatch[0], `${negMatch[0]} ${nfTag}`);
+            } else {
+              novaDescricao = `${nfTag} ${descOriginal}`;
+            }
+          }
           
           try {
             await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw, {
