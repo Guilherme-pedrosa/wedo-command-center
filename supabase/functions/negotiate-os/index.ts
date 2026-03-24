@@ -899,7 +899,7 @@ serve(async (req) => {
         } catch (stepDErr: any) {
           console.warn(`[negotiate-os] STEP D error (non-fatal): ${stepDErr.message}`);
         }
-
+      }
       // ═══════════════════════════════════════════════════════════════
       // 4b. Persist passive receivables locally for future renegotiation
       // ═══════════════════════════════════════════════════════════════
