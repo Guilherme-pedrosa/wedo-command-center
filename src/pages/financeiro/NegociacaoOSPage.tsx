@@ -593,10 +593,28 @@ export default function NegociacaoOSPage() {
                           )}
                           {r.os_codigos && r.os_codigos.length > 0 && (
                             <span className="text-xs text-muted-foreground/70 inline-flex items-center gap-1 flex-wrap">
-                              {r.os_codigos.map((code, idx) => (
+                              {r.os_codigos.map((code, idx) => {
+                                const osGcId = osCodeToIdMap[code];
+                                return osGcId ? (
                                 <a
                                   key={code}
-                                  href={`https://gestaoclick.com/ordens_servicos/visualizar/${code}`}
+                                  href={`https://gestaoclick.com/ordens_servicos/visualizar/${osGcId}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-primary hover:underline inline-flex items-center gap-0.5"
+                                >
+                                  OS {code}
+                                  <ExternalLink className="h-2.5 w-2.5" />
+                                  {idx < (r.os_codigos?.length ?? 0) - 1 ? ',' : ''}
+                                </a>
+                                ) : (
+                                <span key={code} className="text-muted-foreground inline-flex items-center gap-0.5">
+                                  OS {code}
+                                  {idx < (r.os_codigos?.length ?? 0) - 1 ? ',' : ''}
+                                </span>
+                                );
+                              })}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   onClick={(e) => e.stopPropagation()}
