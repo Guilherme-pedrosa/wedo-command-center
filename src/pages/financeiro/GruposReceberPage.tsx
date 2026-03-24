@@ -771,10 +771,14 @@ export default function GruposReceberPage() {
                 <td className="p-3 text-center text-xs">
                   <div className="flex flex-col items-center gap-0.5">
                     {g.negociacao_numero && (
-                      <span className="text-muted-foreground">
+                      <a
+                        href="/financeiro/negociacoes"
+                        onClick={(e) => { e.stopPropagation(); }}
+                        className="text-primary hover:underline cursor-pointer"
+                      >
                         Neg {g.negociacao_numero}
                         {g.nfse_numero ? ` - NF${g.nfse_numero}` : ''}
-                      </span>
+                      </a>
                     )}
                     {g.nfse_numero ? (
                       g.nfse_link ? (
