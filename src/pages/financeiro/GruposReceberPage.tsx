@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { addMonths, format as fnsFormat } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -107,21 +107,44 @@ export default function GruposReceberPage() {
   const handleOpenGrupoRecebimentosGC = () => {
     if (!selectedGrupo) return;
 
-    // Build a filtered search URL matching the group's NFS-e number or name
-    const nfseNumero = selectedGrupo.nfse_numero || '';
-    const searchTerm = nfseNumero ? `NF ${nfseNumero}` : selectedGrupo.nome || '';
+    const negNum = selectedGrupo.negociacao_numero;
+    const nfNum = selectedGrupo.nfse_numero;
     
+    let searchTerm = '';
+    if (negNum && nfNum) {
+      searchTerm = `NEG ${negNum} NF${nfNum}`;
+    } else if (negNum) {
+      searchTerm = `NEG ${negNum}`;
+    } else if (nfNum) {
+      searchTerm = `NF ${nfNum}`;
+    } else {
+      searchTerm = selectedGrupo.nome || '';
+    }
+
     if (!searchTerm) {
       toast.error("Esse grupo não tem informações suficientes para buscar no GC");
       return;
+    }
+
+    const vencimento = selectedGrupo.data_vencimento;
+    let dataInicio = '01/01/2020';
+    let dataFim = '31/12/2030';
+    
+    if (vencimento) {
+      const d = new Date(vencimento + 'T12:00:00');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yyyy = d.getFullYear();
+      dataInicio = `${dd}/${mm}/${yyyy}`;
+      dataFim = `${dd}/${mm}/${yyyy}`;
     }
 
     const params = new URLSearchParams({
       loja: '446246',
       'tipo-entidade': 'C',
       nome: searchTerm,
-      data_inicio: '01/01/2020',
-      data_fim: '31/12/2030',
+      data_inicio: dataInicio,
+      data_fim: dataFim,
       tipo: 'C',
       situacaoBuscaAvancada: 'true',
     });
@@ -164,6 +187,26 @@ export default function GruposReceberPage() {
   const [markingPassivo, setMarkingPassivo] = useState<string | null>(null);
   const [editValorCobrar, setEditValorCobrar] = useState<number | null>(null);
   const [editingItemValor, setEditingItemValor] = useState<string | null>(null);
+  const [osIdMap, setOsIdMap] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!selectedGrupo?.os_codigos?.length) {
+      setOsIdMap({});
+      return;
+    }
+    const fetchOsIds = async () => {
+      const { data } = await supabase
+        .from("os_index")
+        .select("os_id, os_codigo")
+        .in("os_codigo", selectedGrupo.os_codigos as string[]);
+      const map: Record<string, string> = {};
+      for (const r of (data || []) as { os_id: string; os_codigo: string }[]) {
+        if (!map[r.os_codigo]) map[r.os_codigo] = r.os_id;
+      }
+      setOsIdMap(map);
+    };
+    fetchOsIds();
+  }, [selectedGrupo?.id]);
 
   const canEditGroup = (g: any) => !g.nfse_numero && !g.gc_baixado && g.status !== "pago";
 
@@ -728,7 +771,10 @@ export default function GruposReceberPage() {
                 <td className="p-3 text-center text-xs">
                   <div className="flex flex-col items-center gap-0.5">
                     {g.negociacao_numero && (
-                      <span className="text-muted-foreground">Neg. nº{g.negociacao_numero}</span>
+                      <span className="text-muted-foreground">
+                        Neg {g.negociacao_numero}
+                        {g.nfse_numero ? ` - NF${g.nfse_numero}` : ''}
+                      </span>
                     )}
                     {g.nfse_numero ? (
                       g.nfse_link ? (
@@ -848,9 +894,24 @@ export default function GruposReceberPage() {
                     <div className="col-span-2">
                       <span className="text-muted-foreground">OS Vinculadas</span>
                       <div className="flex flex-wrap gap-1 mt-1">
-                        {(selectedGrupo.os_codigos as string[]).map((os: string) => (
-                          <Badge key={os} variant="outline" className="text-xs font-mono">{os}</Badge>
-                        ))}
+                        {(selectedGrupo.os_codigos as string[]).map((os: string) => {
+                          const osGcId = osIdMap[os];
+                          return osGcId ? (
+                            <a
+                              key={os}
+                              href={`${GC_BASE}/ordens_servicos/visualizar/${osGcId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex"
+                            >
+                              <Badge variant="outline" className="text-xs font-mono cursor-pointer hover:bg-primary/10 hover:border-primary/50">
+                                {os} <ExternalLink className="h-2.5 w-2.5 ml-1" />
+                              </Badge>
+                            </a>
+                          ) : (
+                            <Badge key={os} variant="outline" className="text-xs font-mono">{os}</Badge>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -1082,7 +1143,7 @@ export default function GruposReceberPage() {
                         {grupoItens?.map((i: any) => {
                           const rec = i.fin_recebimentos;
                           const osOriginal = i.os_codigo_original || rec?.os_codigo;
-                          const gcOsId = i.gc_os_id || rec?.gc_id;
+                          const osGcIdFromMap = osOriginal ? osIdMap[osOriginal] : null;
                           const gcRecebimentoUrl = rec?.gc_id ? `${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${rec.gc_id}?retorno=%2Fmovimentacoes_financeiras%2Findex_recebimento` : null;
 
                           return (
@@ -1102,12 +1163,12 @@ export default function GruposReceberPage() {
                               </td>
                               <td className="p-2">
                                 {osOriginal ? (
-                                  gcOsId ? (
+                                  osGcIdFromMap ? (
                                     <TooltipProvider>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <a 
-                                            href={`https://gestaoclick.com/ordens_servicos/visualizar/${gcOsId}`}
+                                            href={`${GC_BASE}/ordens_servicos/visualizar/${osGcIdFromMap}`}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="text-primary hover:underline flex items-center gap-1"

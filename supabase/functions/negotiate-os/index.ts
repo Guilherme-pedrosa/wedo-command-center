@@ -416,7 +416,7 @@ serve(async (req) => {
             ? [...pagamentosNegociados, { pagamento: {
                 data_vencimento: residualDueDate,
                 valor: valorOSResidual.toFixed(2),
-                descricao: `${negTag} - PASSIVO - OS ${os.codigo}`,
+                descricao: `Passivo OS ${os.codigo} (negociação ${negociacao_numero})`,
                 ...(formaPagamentoId ? { forma_pagamento_id: formaPagamentoId } : {}),
                 ...(nomeFormaPagamento ? { nome_forma_pagamento: nomeFormaPagamento } : {}),
                 ...(planoContasId ? { plano_contas_id: planoContasId, categoria_id: planoContasId } : {}),
@@ -772,7 +772,7 @@ serve(async (req) => {
             const desiredDesc = currentDesc.toUpperCase().includes(negTag.toUpperCase())
               ? currentDesc
               : isPassive
-                ? `${negTag} - PASSIVO - OS ${os.codigo}`
+                ? `Passivo OS ${os.codigo} (negociação ${negociacao_numero})`
                 : `${negTag} - ${cleanedDesc || `OS ${os.codigo}`}`;
 
             const obsLine = isPassive
@@ -1003,10 +1003,13 @@ serve(async (req) => {
 
             // Step 6A: PUT no GC — atualizar vencimento + descrição do PASSIVO
             const novoVencimento = dueDates[0]; // mesmo primeiro vencimento da negociação
-            const osDescricao = residual.os_codigos?.length
-              ? residual.os_codigos.map(c => `OS ${c}`).join(', ')
+            const osRef = residual.os_codigos?.length
+              ? residual.os_codigos.map((c: string) => `OS ${c}`).join(', ')
               : '';
-            const novaDescricao = `${negTag} - PASSIVO - ${osDescricao}`.trim();
+            const negOrigem = residual.negociacao_origem_numero
+              ? `ex-Neg.${residual.negociacao_origem_numero}`
+              : '';
+            const novaDescricao = `${negTag} - Parcela - ${osRef} ${negOrigem}`.trim();
 
             // First GET the current receivable to preserve required fields
             const getResp = await rateLimitedFetch(
