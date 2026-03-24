@@ -112,11 +112,11 @@ export default function GruposReceberPage() {
     
     let searchTerm = '';
     if (negNum && nfNum) {
-      searchTerm = `NEG ${negNum} NF${nfNum}`;
+      searchTerm = `NEG${negNum} NF${nfNum}`;
     } else if (negNum) {
-      searchTerm = `NEG ${negNum}`;
+      searchTerm = `NEG${negNum}`;
     } else if (nfNum) {
-      searchTerm = `NF ${nfNum}`;
+      searchTerm = `NF${nfNum}`;
     } else {
       searchTerm = selectedGrupo.nome || '';
     }
