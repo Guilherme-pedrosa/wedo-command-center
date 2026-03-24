@@ -764,6 +764,7 @@ export default function ExtratoBancoPage() {
                       <div>
                         <span className="font-medium">{r.melhor.descricao}</span>
                         <span className="ml-2 font-bold text-primary">{formatCurrency(Number(r.melhor.valor))}</span>
+                        {r.melhor.data_vencimento && <span className="ml-2 text-muted-foreground">{format(new Date(r.melhor.data_vencimento + "T12:00:00"), "dd/MM")}</span>}
                         <span className="ml-2 text-muted-foreground">{r.melhor.nome}</span>
                         {r.melhor.rule && <Badge variant="outline" className="text-[8px] ml-2">{ruleLabels[r.melhor.rule] || r.melhor.rule}</Badge>}
                       </div>
