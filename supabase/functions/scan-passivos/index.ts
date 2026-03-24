@@ -114,9 +114,10 @@ serve(async (req) => {
         const nomeCliente = String(rec?.nome_cliente || "").trim();
         const codigo = rec?.codigo ? String(rec.codigo) : null;
 
-        // Extract NEG number from description like "NEG17 - PASSIVO - OS 8903"
+        // Extract NEG number from description (supports both formats)
         let negNumero: number | null = null;
-        const negMatch = descricao.match(/NEG\s*(\d+)/i);
+        const negMatch = descricao.match(/NEG\s*(\d+)/i)
+          || descricao.match(/negocia[çc][ãa]o\s+(\d+)/i);
         if (negMatch) negNumero = parseInt(negMatch[1], 10);
 
         // Extract OS codes from description

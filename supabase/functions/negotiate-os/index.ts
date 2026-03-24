@@ -1003,10 +1003,13 @@ serve(async (req) => {
 
             // Step 6A: PUT no GC — atualizar vencimento + descrição do PASSIVO
             const novoVencimento = dueDates[0]; // mesmo primeiro vencimento da negociação
-            const osDescricao = residual.os_codigos?.length
-              ? residual.os_codigos.map(c => `OS ${c}`).join(', ')
+            const osRef = residual.os_codigos?.length
+              ? residual.os_codigos.map((c: string) => `OS ${c}`).join(', ')
               : '';
-            const novaDescricao = `${negTag} - PASSIVO - ${osDescricao}`.trim();
+            const negOrigem = residual.negociacao_origem_numero
+              ? `ex-Neg.${residual.negociacao_origem_numero}`
+              : '';
+            const novaDescricao = `${negTag} - Parcela - ${osRef} ${negOrigem}`.trim();
 
             // First GET the current receivable to preserve required fields
             const getResp = await rateLimitedFetch(

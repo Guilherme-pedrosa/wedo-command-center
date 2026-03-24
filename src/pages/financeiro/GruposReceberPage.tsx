@@ -751,7 +751,10 @@ export default function GruposReceberPage() {
                 <td className="p-3 text-center text-xs">
                   <div className="flex flex-col items-center gap-0.5">
                     {g.negociacao_numero && (
-                      <span className="text-muted-foreground">Neg. nº{g.negociacao_numero}</span>
+                      <span className="text-muted-foreground">
+                        Neg {g.negociacao_numero}
+                        {g.nfse_numero ? ` - NF${g.nfse_numero}` : ''}
+                      </span>
                     )}
                     {g.nfse_numero ? (
                       g.nfse_link ? (
