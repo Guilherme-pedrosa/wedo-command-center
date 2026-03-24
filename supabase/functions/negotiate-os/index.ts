@@ -711,9 +711,9 @@ serve(async (req) => {
           let totalPages = 1;
 
           while (page <= totalPages) {
-            // Estender data_fim em 7 dias para cobrir variação do GC
+            // Estender data_fim em 35 dias para cobrir passivo (~30 dias após última parcela)
             const extendedEnd = new Date(`${residualDueDate}T00:00:00Z`);
-            extendedEnd.setUTCDate(extendedEnd.getUTCDate() + 7);
+            extendedEnd.setUTCDate(extendedEnd.getUTCDate() + 35);
             const dataFimExtended = extendedEnd.toISOString().slice(0, 10);
 
             const searchParams = new URLSearchParams({
@@ -772,10 +772,10 @@ serve(async (req) => {
             // Detectar passivo por múltiplos critérios (GC não usa nossa descrição)
             const descUpper = currentDesc.toUpperCase();
             const isPassive = descUpper.includes("PASSIVO")
-              // Valor bate com residual e data >= residualDueDate (tolerância de +/- 7 dias)
+              // Valor bate com residual e data próxima do residualDueDate (tolerância de +/- 35 dias — passivo fica ~30 dias depois)
               || (plan.residual > 0.01 
                   && Math.abs(plan.residual - recValue) <= 0.02
-                  && Math.abs(new Date(dueDate).getTime() - new Date(residualDueDate).getTime()) <= 7 * 86400000)
+                  && Math.abs(new Date(dueDate).getTime() - new Date(residualDueDate).getTime()) <= 35 * 86400000)
               // Valor bate com residual e NÃO bate com nenhuma parcela
               || (plan.residual > 0.01 
                   && Math.abs(plan.residual - recValue) <= 0.02 
