@@ -171,6 +171,10 @@ serve(async (req) => {
         continue;
       }
 
+      const descricaoNormalizada = p.descricao.toUpperCase().includes("PASSIVO")
+        ? p.descricao
+        : `Passivo ${p.descricao}`;
+
       const { error } = await supabase.from("fin_residuos_negociacao").insert({
         cliente_gc_id: p.cliente_id,
         nome_cliente: p.nome_cliente,
@@ -179,7 +183,7 @@ serve(async (req) => {
         gc_recebimento_id: p.gc_recebimento_id,
         gc_codigo: p.gc_codigo,
         os_codigos: p.os_codigos,
-        observacao: `Importado via scan — ${p.descricao}\nVencimento: ${p.data_vencimento}`,
+        observacao: `Importado via scan — ${descricaoNormalizada}\nVencimento: ${p.data_vencimento}`,
         utilizado: false,
       });
 
