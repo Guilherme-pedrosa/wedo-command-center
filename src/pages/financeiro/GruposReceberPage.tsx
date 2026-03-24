@@ -107,18 +107,24 @@ export default function GruposReceberPage() {
   const handleOpenGrupoRecebimentosGC = () => {
     if (!selectedGrupo) return;
 
-    const negNum = selectedGrupo.negociacao_numero;
-    const nfNum = selectedGrupo.nfse_numero;
+    // Usar a descrição real do primeiro recebimento do grupo (é o que foi gravado no GC)
+    const primeiroItem = grupoItens?.[0] as any;
+    const descReal = primeiroItem?.fin_recebimentos?.descricao;
     
-    let searchTerm = '';
-    if (negNum && nfNum) {
-      searchTerm = `NEG${negNum} NF${nfNum}`;
-    } else if (negNum) {
-      searchTerm = `NEG${negNum}`;
-    } else if (nfNum) {
-      searchTerm = `NF${nfNum}`;
-    } else {
-      searchTerm = selectedGrupo.nome || '';
+    let searchTerm = descReal || '';
+    
+    if (!searchTerm) {
+      const negNum = selectedGrupo.negociacao_numero;
+      const nfNum = selectedGrupo.nfse_numero;
+      if (negNum && nfNum) {
+        searchTerm = `NEG${negNum} NF${nfNum}`;
+      } else if (negNum) {
+        searchTerm = `NEG${negNum}`;
+      } else if (nfNum) {
+        searchTerm = `NF${nfNum}`;
+      } else {
+        searchTerm = selectedGrupo.nome || '';
+      }
     }
 
     if (!searchTerm) {
