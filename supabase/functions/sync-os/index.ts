@@ -180,14 +180,57 @@ serve(async (req) => {
 
         // Batch map records
         const batch = [];
+        const zeroValueIds: string[] = [];
         for (const os of records) {
           totalFetched++;
           const nomeSituacao = String(os.nome_situacao || "");
           statusCounts[nomeSituacao] = (statusCounts[nomeSituacao] || 0) + 1;
 
           const mapped = mapOsRecord(os);
-          if (mapped) batch.push(mapped);
-          else errors++;
+          if (mapped) {
+            batch.push(mapped);
+            // Track zero-value OS for individual detail fetch
+            if (!mapped.valor_total || mapped.valor_total === 0) {
+              zeroValueIds.push(String(os.id));
+            }
+          } else {
+            errors++;
+          }
+        }
+
+        // Fetch individual details for zero-value OS to get real values
+        for (const osId of zeroValueIds) {
+          try {
+            const detailUrl = `${GC_BASE_URL}/api/ordens_servicos/${osId}`;
+            const detailRes = await rateLimitedFetch(detailUrl, { headers: gcHeaders });
+            if (detailRes.status === 429) {
+              await new Promise((r) => setTimeout(r, 2000));
+              const retryRes = await rateLimitedFetch(detailUrl, { headers: gcHeaders });
+              if (retryRes.ok) {
+                const detailData = await retryRes.json();
+                const osDetail = detailData?.data || detailData;
+                const computedVal = computeValorFromPayload(osDetail);
+                if (computedVal > 0) {
+                  const idx = batch.findIndex(b => b.os_id === osId);
+                  if (idx >= 0) {
+                    batch[idx].valor_total = computedVal;
+                  }
+                }
+              }
+            } else if (detailRes.ok) {
+              const detailData = await detailRes.json();
+              const osDetail = detailData?.data || detailData;
+              const computedVal = computeValorFromPayload(osDetail);
+              if (computedVal > 0) {
+                const idx = batch.findIndex(b => b.os_id === osId);
+                if (idx >= 0) {
+                  batch[idx].valor_total = computedVal;
+                }
+              }
+            }
+          } catch (e) {
+            console.warn(`[sync-os] Failed to fetch detail for OS ${osId}: ${(e as Error).message}`);
+          }
         }
 
         // Batch upsert (up to 100 at once)
