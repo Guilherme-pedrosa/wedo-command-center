@@ -203,6 +203,16 @@ export default function NegociacaoOSPage() {
       .eq("utilizado", false)
       .order("created_at", { ascending: false });
     setClientResiduais((data as ResidualItem[]) || []);
+    setSelectedResidualIds(new Set());
+  };
+
+  const toggleResidual = (id: string) => {
+    setSelectedResidualIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const handleBack = () => {
