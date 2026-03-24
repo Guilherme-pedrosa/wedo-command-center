@@ -522,26 +522,39 @@ export default function NegociacaoOSPage() {
             </Table>
           </Card>
 
-          {/* Residual values from previous negotiations */}
+          {/* Residual values from previous negotiations — selectable */}
           {clientResiduais.length > 0 && (
-            <div className="space-y-2">
-              {clientResiduais.map((r) => (
-                <div
-                  key={r.id}
-                  className="flex items-center justify-between rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3"
-                >
-                  <div className="flex items-center gap-2 text-sm">
-                    <Banknote className="h-4 w-4 text-yellow-500" />
-                    <span className="text-yellow-200">
-                      Valor residual{r.negociacao_origem_numero ? ` (Neg. nº${r.negociacao_origem_numero})` : ""}
+            <Card className="border-yellow-500/30">
+              <div className="px-4 py-3">
+                <p className="text-xs text-yellow-400 font-medium mb-2 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  Residuais disponíveis (Neg. anteriores)
+                </p>
+                {clientResiduais.map((r) => (
+                  <div
+                    key={r.id}
+                    className="flex items-center justify-between py-2 px-2 rounded hover:bg-muted/40 cursor-pointer"
+                    onClick={() => toggleResidual(r.id)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        checked={selectedResidualIds.has(r.id)}
+                        onCheckedChange={() => toggleResidual(r.id)}
+                      />
+                      <Banknote className="h-4 w-4 text-yellow-500" />
+                      <span className="text-sm text-muted-foreground">
+                        Residual Neg. nº{r.negociacao_origem_numero ?? '—'}
+                      </span>
+                    </div>
+                    <span className={`text-sm font-semibold ${
+                      selectedResidualIds.has(r.id) ? 'text-yellow-400' : 'text-muted-foreground'
+                    }`}>
+                      {formatCurrency(Number(r.valor_residual))}
                     </span>
                   </div>
-                  <span className="font-semibold text-yellow-400">
-                    {formatCurrency(Number(r.valor_residual))}
-                  </span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </Card>
           )}
         </div>
       )}
