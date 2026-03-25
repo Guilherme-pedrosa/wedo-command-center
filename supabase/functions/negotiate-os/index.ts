@@ -58,7 +58,7 @@ function extractNestedMoney(value: unknown): number {
   );
 }
 
-function computePreciseLineTotalCents(value: unknown): number {
+function computePreciseLineTotal(value: unknown): number {
   if (!value || typeof value !== "object") return 0;
   const record = value as Record<string, unknown>;
 
@@ -76,7 +76,7 @@ function computePreciseLineTotalCents(value: unknown): number {
       ? bruto * (descontoPercentual / 100)
       : 0;
 
-  return moneyToCents(bruto - desconto);
+  return bruto - desconto;
 }
 
 function unwrapNestedItem(item: unknown, keys: string[]): Record<string, unknown> {
@@ -102,24 +102,27 @@ function computeOsTotalsFromPayload(os: Record<string, unknown>) {
   const produtos = Array.isArray(os.produtos) ? os.produtos : [];
 
   let itensArredondadosCents = 0;
-  let itensPrecisosCents = 0;
+  let itensPrecisosRawTotal = 0;
 
   for (const item of servicos) {
     const nested = unwrapNestedItem(item, ["servico"]);
     itensArredondadosCents += extractNestedMoney(nested);
-    itensPrecisosCents += computePreciseLineTotalCents(nested);
+    itensPrecisosRawTotal += computePreciseLineTotal(nested);
   }
 
   for (const item of produtos) {
     const nested = unwrapNestedItem(item, ["produto"]);
     itensArredondadosCents += extractNestedMoney(nested);
-    itensPrecisosCents += computePreciseLineTotalCents(nested);
+    itensPrecisosRawTotal += computePreciseLineTotal(nested);
   }
+
+  itensPrecisosRawTotal += parseDecimal(os.valor_frete ?? 0);
+  itensPrecisosRawTotal -= parseDecimal(os.desconto ?? 0);
 
   return {
     pagamentosCents,
     itensArredondadosCents,
-    itensPrecisosCents,
+    itensPrecisosCents: moneyToCents(itensPrecisosRawTotal),
   };
 }
 
