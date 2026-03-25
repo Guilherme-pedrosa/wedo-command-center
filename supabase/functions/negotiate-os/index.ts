@@ -28,10 +28,18 @@ function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+function parseDecimal(value: unknown): number {
+  const normalized = String(value ?? "0")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/\.(?=\d{3}(?:\D|$))/g, "")
+    .replace(",", ".");
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function moneyToCents(value: unknown): number {
-  const parsed = Number.parseFloat(String(value ?? "0").replace(",", "."));
-  if (!Number.isFinite(parsed)) return 0;
-  return Math.round(parsed * 100);
+  return Math.round(parseDecimal(value) * 100);
 }
 
 function centsToMoney(cents: number): number {
@@ -50,41 +58,81 @@ function extractNestedMoney(value: unknown): number {
   );
 }
 
-function computeOsTotalFromPayload(os: Record<string, unknown>): number {
+function computePreciseLineTotal(value: unknown): number {
+  if (!value || typeof value !== "object") return 0;
+  const record = value as Record<string, unknown>;
+
+  const quantidade = parseDecimal(record.quantidade ?? 1);
+  const valorUnitario = parseDecimal(
+    record.valor_venda ?? record.valor ?? record.valor_total ?? record.total ?? 0
+  );
+  const descontoValor = parseDecimal(record.desconto_valor ?? 0);
+  const descontoPercentual = parseDecimal(record.desconto_porcentagem ?? 0);
+
+  const bruto = quantidade * valorUnitario;
+  const desconto = descontoValor > 0
+    ? descontoValor
+    : descontoPercentual > 0
+      ? bruto * (descontoPercentual / 100)
+      : 0;
+
+  return bruto - desconto;
+}
+
+function unwrapNestedItem(item: unknown, keys: string[]): Record<string, unknown> {
+  if (!item || typeof item !== "object") return {};
+
+  const wrapper = item as Record<string, unknown>;
+  for (const key of keys) {
+    const nested = wrapper[key];
+    if (nested && typeof nested === "object") return nested as Record<string, unknown>;
+  }
+
+  return wrapper;
+}
+
+function computeOsTotalsFromPayload(os: Record<string, unknown>) {
   const pagamentos = Array.isArray(os.pagamentos) ? os.pagamentos : [];
-  const pagamentosTotal = pagamentos.reduce((sum, item) => {
-    if (!item || typeof item !== "object") return sum;
-    const wrapper = item as Record<string, unknown>;
-    const pagamento = (wrapper.pagamento && typeof wrapper.pagamento === "object")
-      ? wrapper.pagamento
-      : (wrapper.Pagamento && typeof wrapper.Pagamento === "object")
-        ? wrapper.Pagamento
-        : wrapper;
+  const pagamentosCents = pagamentos.reduce((sum, item) => {
+    const pagamento = unwrapNestedItem(item, ["pagamento", "Pagamento"]);
     return sum + extractNestedMoney(pagamento);
   }, 0);
-  if (pagamentosTotal > 0) return centsToMoney(pagamentosTotal);
 
   const servicos = Array.isArray(os.servicos) ? os.servicos : [];
   const produtos = Array.isArray(os.produtos) ? os.produtos : [];
 
-  const itensTotal = [...servicos, ...produtos].reduce((sum, item) => {
-    if (!item || typeof item !== "object") return sum;
-    const wrapper = item as Record<string, unknown>;
-    const nested = (wrapper.servico && typeof wrapper.servico === "object")
-      ? wrapper.servico
-      : (wrapper.produto && typeof wrapper.produto === "object")
-        ? wrapper.produto
-        : item;
-    return sum + extractNestedMoney(nested);
-  }, 0);
+  let itensArredondadosCents = 0;
+  let itensPrecisosRawTotal = 0;
 
-  return centsToMoney(itensTotal);
+  for (const item of servicos) {
+    const nested = unwrapNestedItem(item, ["servico"]);
+    itensArredondadosCents += extractNestedMoney(nested);
+    itensPrecisosRawTotal += computePreciseLineTotal(nested);
+  }
+
+  for (const item of produtos) {
+    const nested = unwrapNestedItem(item, ["produto"]);
+    itensArredondadosCents += extractNestedMoney(nested);
+    itensPrecisosRawTotal += computePreciseLineTotal(nested);
+  }
+
+  itensPrecisosRawTotal += parseDecimal(os.valor_frete ?? 0);
+  itensPrecisosRawTotal -= parseDecimal(os.desconto ?? 0);
+
+  return {
+    pagamentosCents,
+    itensArredondadosCents,
+    itensPrecisosCents: moneyToCents(itensPrecisosRawTotal),
+  };
 }
 
 function resolveOsTotal(os: Record<string, unknown>): number {
-  const payloadTotalCents = moneyToCents(computeOsTotalFromPayload(os));
+  const { pagamentosCents, itensArredondadosCents, itensPrecisosCents } = computeOsTotalsFromPayload(os);
   const headerTotalCents = moneyToCents(os.valor_total);
-  if (payloadTotalCents > 0) return centsToMoney(payloadTotalCents);
+
+  if (itensPrecisosCents > 0) return centsToMoney(itensPrecisosCents);
+  if (itensArredondadosCents > 0) return centsToMoney(itensArredondadosCents);
+  if (pagamentosCents > 0) return centsToMoney(pagamentosCents);
   return centsToMoney(headerTotalCents);
 }
 
@@ -337,11 +385,7 @@ serve(async (req) => {
       const negociacao_numero = negNumErr ? Date.now() : (negNumData as number);
       console.log(`[negotiate-os] Negociação nº${negociacao_numero}`);
 
-      const normalizeMoney = (value: unknown): number => {
-        const parsed = Number.parseFloat(String(value ?? "0").replace(",", "."));
-        if (!Number.isFinite(parsed)) return 0;
-        return roundMoney(parsed);
-      };
+      const normalizeMoney = (value: unknown): number => centsToMoney(moneyToCents(value));
 
       // Generate due dates
       const [startYear, startMonth] = mes_inicio.split("-").map(Number);
@@ -393,16 +437,25 @@ serve(async (req) => {
 
           const osData = await osResp.json();
           const os = osData?.data || osData;
-          const valorTotal = resolveOsTotal((os && typeof os === "object" ? os : {}) as Record<string, unknown>);
+          const osRecord = (os && typeof os === "object" ? os : {}) as Record<string, unknown>;
+          const valorTotal = resolveOsTotal(osRecord);
 
           if (valorTotal <= 0) {
             gcUpdateResults.push({ os_id: osId, status: "error", error: "Valor total = 0" });
             continue;
           }
 
-          const headerTotal = centsToMoney(moneyToCents(os.valor_total));
-          if (Math.abs(valorTotal - headerTotal) >= 0.01) {
-            console.log(`[negotiate-os] OS ${osId}: total ajustado de ${headerTotal.toFixed(2)} para ${valorTotal.toFixed(2)} com base no payload`);
+          const { pagamentosCents, itensArredondadosCents, itensPrecisosCents } = computeOsTotalsFromPayload(osRecord);
+          const headerTotal = centsToMoney(moneyToCents(osRecord.valor_total));
+          const valorTotalCents = moneyToCents(valorTotal);
+          if (
+            valorTotalCents !== moneyToCents(headerTotal)
+            || (pagamentosCents > 0 && valorTotalCents !== pagamentosCents)
+            || (itensArredondadosCents > 0 && valorTotalCents !== itensArredondadosCents)
+          ) {
+            console.log(
+              `[negotiate-os] OS ${osId}: total ERP=${valorTotal.toFixed(2)} (header=${headerTotal.toFixed(2)}, pagamentos=${centsToMoney(pagamentosCents).toFixed(2)}, itens=${centsToMoney(itensArredondadosCents).toFixed(2)}, itens_precisos=${centsToMoney(itensPrecisosCents).toFixed(2)})`
+            );
           }
 
           const nomeEquipamento = extractEquipamentoNome(os.equipamentos) || extractText(os.descricao) || extractText(os.observacoes);
@@ -417,7 +470,7 @@ serve(async (req) => {
             valor_total: valorTotal,
             nome_cliente: String(os.nome_cliente || nome_cliente || ""),
             nome_equipamento: nomeEquipamento,
-            raw: (os && typeof os === "object" ? os : {}) as Record<string, unknown>,
+            raw: osRecord,
           });
         } catch (err) {
           gcUpdateResults.push({ os_id: osId, status: "error", error: (err as Error).message });
