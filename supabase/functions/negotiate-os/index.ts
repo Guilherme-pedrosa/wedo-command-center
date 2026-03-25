@@ -24,6 +24,102 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
   return fetch(url, options);
 }
 
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function moneyToCents(value: unknown): number {
+  const parsed = Number.parseFloat(String(value ?? "0").replace(",", "."));
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.round(parsed * 100);
+}
+
+function centsToMoney(cents: number): number {
+  return roundMoney(cents / 100);
+}
+
+function extractNestedMoney(value: unknown): number {
+  if (!value || typeof value !== "object") return 0;
+  const record = value as Record<string, unknown>;
+  return moneyToCents(
+    record.valor ??
+    record.valor_total ??
+    record.total ??
+    record.valor_liquido ??
+    0
+  );
+}
+
+function computeOsTotalFromPayload(os: Record<string, unknown>): number {
+  const pagamentos = Array.isArray(os.pagamentos) ? os.pagamentos : [];
+  const pagamentosTotal = pagamentos.reduce((sum, item) => {
+    if (!item || typeof item !== "object") return sum;
+    const wrapper = item as Record<string, unknown>;
+    const pagamento = (wrapper.pagamento && typeof wrapper.pagamento === "object")
+      ? wrapper.pagamento
+      : (wrapper.Pagamento && typeof wrapper.Pagamento === "object")
+        ? wrapper.Pagamento
+        : wrapper;
+    return sum + extractNestedMoney(pagamento);
+  }, 0);
+  if (pagamentosTotal > 0) return centsToMoney(pagamentosTotal);
+
+  const servicos = Array.isArray(os.servicos) ? os.servicos : [];
+  const produtos = Array.isArray(os.produtos) ? os.produtos : [];
+
+  const itensTotal = [...servicos, ...produtos].reduce((sum, item) => {
+    if (!item || typeof item !== "object") return sum;
+    const wrapper = item as Record<string, unknown>;
+    const nested = (wrapper.servico && typeof wrapper.servico === "object")
+      ? wrapper.servico
+      : (wrapper.produto && typeof wrapper.produto === "object")
+        ? wrapper.produto
+        : item;
+    return sum + extractNestedMoney(nested);
+  }, 0);
+
+  return centsToMoney(itensTotal);
+}
+
+function resolveOsTotal(os: Record<string, unknown>): number {
+  const payloadTotalCents = moneyToCents(computeOsTotalFromPayload(os));
+  const headerTotalCents = moneyToCents(os.valor_total);
+  if (payloadTotalCents > 0) return centsToMoney(payloadTotalCents);
+  return centsToMoney(headerTotalCents);
+}
+
+function splitEvenlyCents(totalCents: number, parts: number): number[] {
+  if (parts <= 0) return [];
+  const base = Math.floor(totalCents / parts);
+  const remainder = totalCents - (base * parts);
+  return Array.from({ length: parts }, (_, index) =>
+    index === parts - 1 ? base + remainder : base
+  );
+}
+
+function allocateProportionallyCents(totalCents: number, weights: number[]): number[] {
+  if (weights.length === 0) return [];
+
+  const sanitized = weights.map((weight) => Math.max(0, Math.trunc(weight)));
+  const totalWeight = sanitized.reduce((sum, weight) => sum + weight, 0);
+  if (totalWeight <= 0) return splitEvenlyCents(totalCents, weights.length);
+
+  const rawAllocations = sanitized.map((weight) => (totalCents * weight) / totalWeight);
+  const allocations = rawAllocations.map((value) => Math.floor(value));
+  let remainder = totalCents - allocations.reduce((sum, value) => sum + value, 0);
+
+  const order = rawAllocations
+    .map((value, index) => ({ index, fraction: value - allocations[index], weight: sanitized[index] }))
+    .sort((a, b) => b.fraction - a.fraction || b.weight - a.weight || a.index - b.index);
+
+  for (let cursor = 0; remainder > 0; cursor += 1) {
+    allocations[order[cursor % order.length].index] += 1;
+    remainder -= 1;
+  }
+
+  return allocations;
+}
+
 function extractText(value: unknown): string {
   if (typeof value === "string") return value.trim();
   if (typeof value === "number") return String(value);
@@ -241,7 +337,6 @@ serve(async (req) => {
       const negociacao_numero = negNumErr ? Date.now() : (negNumData as number);
       console.log(`[negotiate-os] Negociação nº${negociacao_numero}`);
 
-      const roundMoney = (value: number) => Math.round(value * 100) / 100;
       const normalizeMoney = (value: unknown): number => {
         const parsed = Number.parseFloat(String(value ?? "0").replace(",", "."));
         if (!Number.isFinite(parsed)) return 0;
@@ -298,11 +393,16 @@ serve(async (req) => {
 
           const osData = await osResp.json();
           const os = osData?.data || osData;
-          const valorTotal = parseFloat(String(os.valor_total || "0")) || 0;
+          const valorTotal = resolveOsTotal((os && typeof os === "object" ? os : {}) as Record<string, unknown>);
 
           if (valorTotal <= 0) {
             gcUpdateResults.push({ os_id: osId, status: "error", error: "Valor total = 0" });
             continue;
+          }
+
+          const headerTotal = centsToMoney(moneyToCents(os.valor_total));
+          if (Math.abs(valorTotal - headerTotal) >= 0.01) {
+            console.log(`[negotiate-os] OS ${osId}: total ajustado de ${headerTotal.toFixed(2)} para ${valorTotal.toFixed(2)} com base no payload`);
           }
 
           const nomeEquipamento = extractEquipamentoNome(os.equipamentos) || extractText(os.descricao) || extractText(os.observacoes);
@@ -323,6 +423,39 @@ serve(async (req) => {
           gcUpdateResults.push({ os_id: osId, status: "error", error: (err as Error).message });
         }
       }
+
+      const totalOriginalCents = osDetails.reduce((sum, item) => sum + moneyToCents(item.valor_total), 0);
+      const requestedNegotiatedCents = moneyToCents(valorNegociado);
+      const targetNegotiatedCents = requestedNegotiatedCents > 0 && requestedNegotiatedCents < totalOriginalCents
+        ? requestedNegotiatedCents
+        : totalOriginalCents;
+      const customParcelWeightsCents = useCustomValues && valoresParcelas
+        ? valoresParcelas.map((value: number) => moneyToCents(value))
+        : null;
+      const negotiatedAllocations = targetNegotiatedCents < totalOriginalCents
+        ? allocateProportionallyCents(targetNegotiatedCents, osDetails.map((item) => moneyToCents(item.valor_total)))
+        : osDetails.map((item) => moneyToCents(item.valor_total));
+      const negotiatedCentsByOs = new Map<string, number>(
+        osDetails.map((item, index) => [item.id, negotiatedAllocations[index] ?? moneyToCents(item.valor_total)])
+      );
+
+      const buildPlanForOS = (osId: string, osValorTotal: number) => {
+        const osTotalCents = moneyToCents(osValorTotal);
+        const negotiatedCents = Math.min(negotiatedCentsByOs.get(osId) ?? osTotalCents, osTotalCents);
+        const residualCents = Math.max(0, osTotalCents - negotiatedCents);
+        const parcelCents = customParcelWeightsCents
+          ? allocateProportionallyCents(negotiatedCents, customParcelWeightsCents)
+          : splitEvenlyCents(negotiatedCents, parcelas);
+
+        return {
+          negotiatedCents,
+          residualCents,
+          parcelCents,
+          negotiatedTotal: centsToMoney(negotiatedCents),
+          residual: centsToMoney(residualCents),
+          parcelValues: parcelCents.map(centsToMoney),
+        };
+      };
 
       // 2. Steps A → B → C for each OS
       const passthroughKeys = [
@@ -368,26 +501,12 @@ serve(async (req) => {
           // ── STEP B ──
           console.log(`[negotiate-os] STEP B: OS ${os.id} → ${parcelas} parcelas + passivo`);
 
-          const totalOriginal = osDetails.reduce((s, o) => s + o.valor_total, 0);
-          const osRatio = totalOriginal > 0 ? os.valor_total / totalOriginal : 1 / osDetails.length;
-          const valorOSNegociado = valorNegociado && valorNegociado < totalOriginal
-            ? roundMoney(valorNegociado * osRatio)
-            : os.valor_total;
-          const valorOSResidual = roundMoney(os.valor_total - valorOSNegociado);
-
-          let osParcelaValues: number[];
-          if (useCustomValues && valoresParcelas) {
-            const totalCustom = valoresParcelas.reduce((a: number, b: number) => a + b, 0);
-            osParcelaValues = valoresParcelas.map((v: number) => roundMoney((v / totalCustom) * valorOSNegociado));
-            const roundDiff = roundMoney(valorOSNegociado - osParcelaValues.reduce((a, b) => a + b, 0));
-            if (roundDiff !== 0) osParcelaValues[osParcelaValues.length - 1] = roundMoney(osParcelaValues[osParcelaValues.length - 1] + roundDiff);
-          } else {
-            const valorParcelaOS = Math.floor((valorOSNegociado / parcelas) * 100) / 100;
-            const valorUltimaOS = roundMoney(valorOSNegociado - valorParcelaOS * (parcelas - 1));
-            osParcelaValues = Array.from({ length: parcelas }, (_, i) =>
-              i === parcelas - 1 ? valorUltimaOS : valorParcelaOS
-            );
-          }
+          const plan = buildPlanForOS(os.id, os.valor_total);
+          const valorOSNegociado = plan.negotiatedTotal;
+          const valorOSResidual = plan.residual;
+          const osParcelaValues = plan.parcelValues;
+          const valorOSResidualCents = plan.residualCents;
+          const osTotalCents = moneyToCents(os.valor_total);
 
           console.log(`[negotiate-os] OS ${os.id}: original=${os.valor_total}, negociado=${valorOSNegociado}, passivo=${valorOSResidual}`);
 
@@ -418,7 +537,7 @@ serve(async (req) => {
             return { pagamento };
           });
 
-          const pagamentosComPassivo = valorOSResidual > 0.01
+          const pagamentosComPassivo = valorOSResidualCents > 0
             ? [...pagamentosNegociados, { pagamento: {
                 data_vencimento: residualDueDate,
                 valor: valorOSResidual.toFixed(2),
@@ -433,14 +552,13 @@ serve(async (req) => {
           // ── FIX: Ensure sum of pagamentos exactly matches os.valor_total to avoid GC 404 ──
           {
             const allPags = pagamentosComPassivo.map(p => p.pagamento);
-            const sumPags = allPags.reduce((s, p) => s + parseFloat(String(p.valor)), 0);
-            const diff = roundMoney(os.valor_total - sumPags);
-            if (diff !== 0 && Math.abs(diff) <= 0.05) {
-              // Adjust last payment to absorb rounding difference
+            const sumPagsCents = allPags.reduce((sum, pagamento) => sum + moneyToCents(pagamento.valor), 0);
+            const diffCents = osTotalCents - sumPagsCents;
+            if (diffCents !== 0) {
               const lastPag = allPags[allPags.length - 1];
-              const adjustedVal = roundMoney(parseFloat(String(lastPag.valor)) + diff);
+              const adjustedVal = centsToMoney(moneyToCents(lastPag.valor) + diffCents);
               lastPag.valor = adjustedVal.toFixed(2);
-              console.log(`[negotiate-os] Rounding fix: adjusted last payment by ${diff} for OS ${os.id}`);
+              console.log(`[negotiate-os] Rounding fix: adjusted last payment by ${(diffCents / 100).toFixed(2)} for OS ${os.id}`);
             }
           }
 
@@ -533,34 +651,7 @@ serve(async (req) => {
         gcUpdateResults.find((r) => r.os_id === os.id && r.status === "ok")
       );
 
-      const buildPlanForOS = (osValorTotal: number) => {
-        const totalOriginalAll = osDetails.reduce((sum, item) => sum + item.valor_total, 0);
-        const osRatio = totalOriginalAll > 0 ? osValorTotal / totalOriginalAll : 1 / Math.max(osDetails.length, 1);
-        const negotiatedTotal = valorNegociado && valorNegociado < totalOriginalAll
-          ? roundMoney(valorNegociado * osRatio)
-          : osValorTotal;
-
-        let parcelValues: number[];
-        if (useCustomValues && valoresParcelas) {
-          const totalCustom = valoresParcelas.reduce((a: number, b: number) => a + b, 0);
-          parcelValues = valoresParcelas.map((value: number) => roundMoney((value / totalCustom) * negotiatedTotal));
-          const parcelDiff = roundMoney(negotiatedTotal - parcelValues.reduce((a, b) => a + b, 0));
-          if (parcelDiff !== 0 && parcelValues.length > 0) {
-            parcelValues[parcelValues.length - 1] = roundMoney(parcelValues[parcelValues.length - 1] + parcelDiff);
-          }
-        } else {
-          const baseParcel = Math.floor((negotiatedTotal / parcelas) * 100) / 100;
-          const lastParcel = roundMoney(negotiatedTotal - baseParcel * (parcelas - 1));
-          parcelValues = Array.from({ length: parcelas }, (_, index) =>
-            index === parcelas - 1 ? lastParcel : baseParcel
-          );
-        }
-
-        const residual = roundMoney(osValorTotal - negotiatedTotal);
-        return { negotiatedTotal, residual, parcelValues };
-      };
-
-      const successPlans = successOS.map((os) => ({ os, plan: buildPlanForOS(os.valor_total) }));
+      const successPlans = successOS.map((os) => ({ os, plan: buildPlanForOS(os.id, os.valor_total) }));
       const totalNegotiatedSuccess = roundMoney(successPlans.reduce((sum, item) => sum + item.plan.negotiatedTotal, 0));
       const totalResidualSuccess = roundMoney(successPlans.reduce((sum, item) => sum + item.plan.residual, 0));
       const grupoIds: string[] = [];
