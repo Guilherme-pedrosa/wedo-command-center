@@ -63,11 +63,17 @@ function computePreciseLineTotal(value: unknown): number {
   const record = value as Record<string, unknown>;
 
   const quantidade = parseDecimal(record.quantidade ?? 1);
-  const valorUnitario = parseDecimal(
-    record.valor_venda ?? record.valor ?? record.valor_total ?? record.total ?? 0
-  );
   const descontoValor = parseDecimal(record.desconto_valor ?? 0);
   const descontoPercentual = parseDecimal(record.desconto_porcentagem ?? 0);
+
+  const totalExplicito = parseDecimal(record.valor_total ?? record.total ?? 0);
+  if (totalExplicito > 0) {
+    return totalExplicito;
+  }
+
+  const valorUnitario = parseDecimal(
+    record.valor ?? record.valor_venda ?? record.valor_unitario ?? 0
+  );
 
   const bruto = quantidade * valorUnitario;
   const desconto = descontoValor > 0
@@ -126,14 +132,84 @@ function computeOsTotalsFromPayload(os: Record<string, unknown>) {
   };
 }
 
+function centsWithinTolerance(a: number, b: number, toleranceCents = 2): boolean {
+  return Math.abs(a - b) <= toleranceCents;
+}
+
+function chooseBestOsTotalCents(options: {
+  headerTotalCents: number;
+  pagamentosCents: number;
+  itensArredondadosCents: number;
+  itensPrecisosCents: number;
+}): number {
+  const primaryCandidates = [
+    { label: "pagamentos", cents: options.pagamentosCents, priority: 3 },
+    { label: "header", cents: options.headerTotalCents, priority: 2 },
+    { label: "itens", cents: options.itensArredondadosCents, priority: 1 },
+  ].filter((candidate) => candidate.cents > 0);
+
+  if (primaryCandidates.length === 0) {
+    return options.itensPrecisosCents > 0 ? options.itensPrecisosCents : 0;
+  }
+
+  const bestCandidate = primaryCandidates.reduce((best, current) => {
+    const currentMatches = primaryCandidates.reduce(
+      (sum, candidate) => sum + (centsWithinTolerance(candidate.cents, current.cents) ? 1 : 0),
+      0,
+    );
+    const bestMatches = primaryCandidates.reduce(
+      (sum, candidate) => sum + (centsWithinTolerance(candidate.cents, best.cents) ? 1 : 0),
+      0,
+    );
+
+    if (currentMatches !== bestMatches) {
+      return currentMatches > bestMatches ? current : best;
+    }
+
+    const currentDistance = primaryCandidates.reduce(
+      (sum, candidate) => sum + Math.abs(candidate.cents - current.cents),
+      0,
+    );
+    const bestDistance = primaryCandidates.reduce(
+      (sum, candidate) => sum + Math.abs(candidate.cents - best.cents),
+      0,
+    );
+
+    if (currentDistance !== bestDistance) {
+      return currentDistance < bestDistance ? current : best;
+    }
+
+    return current.priority > best.priority ? current : best;
+  });
+
+  const preciseLooksSane = options.itensPrecisosCents > 0 && primaryCandidates.some((candidate) =>
+    centsWithinTolerance(candidate.cents, options.itensPrecisosCents, 5)
+  );
+
+  if (options.itensPrecisosCents > 0 && !preciseLooksSane) {
+    const ratio = bestCandidate.cents > 0
+      ? Number((options.itensPrecisosCents / bestCandidate.cents).toFixed(2))
+      : 0;
+    console.log(
+      `[negotiate-os] Ignorando itens_precisos suspeito: ${centsToMoney(options.itensPrecisosCents).toFixed(2)} vs ${bestCandidate.label}=${centsToMoney(bestCandidate.cents).toFixed(2)} (ratio=${ratio})`,
+    );
+  }
+
+  return preciseLooksSane ? options.itensPrecisosCents : bestCandidate.cents;
+}
+
 function resolveOsTotal(os: Record<string, unknown>): number {
   const { pagamentosCents, itensArredondadosCents, itensPrecisosCents } = computeOsTotalsFromPayload(os);
   const headerTotalCents = moneyToCents(os.valor_total);
 
-  if (itensPrecisosCents > 0) return centsToMoney(itensPrecisosCents);
-  if (itensArredondadosCents > 0) return centsToMoney(itensArredondadosCents);
-  if (pagamentosCents > 0) return centsToMoney(pagamentosCents);
-  return centsToMoney(headerTotalCents);
+  return centsToMoney(
+    chooseBestOsTotalCents({
+      headerTotalCents,
+      pagamentosCents,
+      itensArredondadosCents,
+      itensPrecisosCents,
+    }),
+  );
 }
 
 function splitEvenlyCents(totalCents: number, parts: number): number[] {
