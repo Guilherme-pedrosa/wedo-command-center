@@ -56,6 +56,15 @@ interface GCSituacao {
 const CONFIG_KEY = "negociacao_situacao_ids";
 const DEFAULT_SITUACAO = "7116099"; // Executado - Ag Negociação Financeira
 
+const toCents = (value: number) => Math.round((Number.isFinite(value) ? value : 0) * 100);
+const fromCents = (value: number) => value / 100;
+const splitEvenlyCents = (totalCents: number, parts: number) => {
+  if (parts <= 0) return [];
+  const base = Math.floor(totalCents / parts);
+  const remainder = totalCents - base * parts;
+  return Array.from({ length: parts }, (_, index) => (index === parts - 1 ? base + remainder : base));
+};
+
 export default function NegociacaoOSPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -268,12 +277,14 @@ export default function NegociacaoOSPage() {
     .filter(r => selectedResidualIds.has(r.id))
     .reduce((sum, r) => sum + (r.valor_residual || 0), 0);
 
-  const selectedTotal = (selectedClient?.os_list
+  const selectedTotalCents = (selectedClient?.os_list
     .filter((os) => selectedOSIds.has(os.id))
-    .reduce((sum, os) => sum + os.valor_total, 0) || 0) + valorResiduaisSelecionados;
+    .reduce((sum, os) => sum + toCents(os.valor_total), 0) || 0) + toCents(valorResiduaisSelecionados);
+  const selectedTotal = fromCents(selectedTotalCents);
 
-  const valorParcela = parcelas > 0 ? valorNegociado / parcelas : 0;
-  const valorResidual = Math.round((selectedTotal - valorNegociado) * 100) / 100;
+  const valorNegociadoCents = toCents(valorNegociado);
+  const valorParcela = parcelas > 0 ? fromCents(Math.floor(valorNegociadoCents / parcelas)) : 0;
+  const valorResidual = fromCents(Math.max(0, selectedTotalCents - valorNegociadoCents));
 
   // Reset valorNegociado when selectedTotal changes
   useEffect(() => {
@@ -282,35 +293,34 @@ export default function NegociacaoOSPage() {
 
   // Initialize parcela values when params change
   useEffect(() => {
-    if (parcelas > 0 && valorNegociado > 0) {
-      const base = Math.round((valorNegociado / parcelas) * 100) / 100;
-      const arr = Array(parcelas).fill(base);
-      const diff = Math.round((valorNegociado - arr.reduce((a: number, b: number) => a + b, 0)) * 100) / 100;
-      arr[arr.length - 1] = Math.round((arr[arr.length - 1] + diff) * 100) / 100;
-      setValoresParcelas(arr);
+    if (parcelas > 0 && valorNegociadoCents > 0) {
+      setValoresParcelas(splitEvenlyCents(valorNegociadoCents, parcelas).map(fromCents));
+    } else if (parcelas > 0) {
+      setValoresParcelas(Array(parcelas).fill(0));
     }
-  }, [parcelas, valorNegociado]);
+  }, [parcelas, valorNegociadoCents]);
 
   const handleParcelaValueChange = (index: number, newValue: number) => {
-    const updated = [...valoresParcelas];
-    const clamped = Math.min(Math.max(0, newValue), valorNegociado);
-    updated[index] = Math.round(clamped * 100) / 100;
-    
-    const othersCount = updated.length - 1;
-    if (othersCount > 0) {
-      const remaining = Math.max(0, valorNegociado - updated[index]);
-      const eachOther = Math.round((remaining / othersCount) * 100) / 100;
-      for (let i = 0; i < updated.length; i++) {
-        if (i !== index) updated[i] = eachOther;
-      }
-      const totalNow = updated.reduce((a, b) => a + b, 0);
-      const roundDiff = Math.round((valorNegociado - totalNow) * 100) / 100;
-      if (roundDiff !== 0) {
-        const lastOtherIdx = index === updated.length - 1 ? 0 : updated.length - 1;
-        updated[lastOtherIdx] = Math.round((updated[lastOtherIdx] + roundDiff) * 100) / 100;
-      }
+    const updatedCents = valoresParcelas.map(toCents);
+    const clamped = Math.min(Math.max(0, toCents(newValue)), valorNegociadoCents);
+    updatedCents[index] = clamped;
+
+    const others = updatedCents.map((_, i) => i).filter((i) => i !== index);
+    if (others.length > 0) {
+      const remaining = Math.max(0, valorNegociadoCents - clamped);
+      const redistributed = splitEvenlyCents(remaining, others.length);
+      others.forEach((otherIndex, position) => {
+        updatedCents[otherIndex] = redistributed[position] ?? 0;
+      });
     }
-    setValoresParcelas(updated);
+
+    const diff = valorNegociadoCents - updatedCents.reduce((sum, value) => sum + value, 0);
+    if (diff !== 0) {
+      const adjustIndex = index === updatedCents.length - 1 ? 0 : updatedCents.length - 1;
+      updatedCents[adjustIndex] = Math.max(0, updatedCents[adjustIndex] + diff);
+    }
+
+    setValoresParcelas(updatedCents.map(fromCents));
   };
 
   const handleExecute = async () => {
