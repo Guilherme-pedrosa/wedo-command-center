@@ -595,7 +595,7 @@ serve(async (req) => {
             try {
               await rateLimitedFetch(
                 `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
-                { method: "PUT", headers: gcHeaders, body: JSON.stringify({ ...basePayload, situacao_id: situacaoIds?.[0] || SITUACAO_ORIGEM }) }
+                { method: "PUT", headers: gcHeaders, body: JSON.stringify({ ...basePayload, situacao_id: situacao_ids?.[0] || SITUACAO_ORIGEM }) }
               );
               console.log(`[negotiate-os] Step A reverted for OS ${os.id}`);
             } catch { /* best-effort revert */ }
