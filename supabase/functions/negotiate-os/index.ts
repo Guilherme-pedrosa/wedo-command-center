@@ -332,6 +332,37 @@ serve(async (req) => {
     );
 
     const body: NegotiateRequest = await req.json();
+    const authHeader = req.headers.get("Authorization");
+    let actingGcUserId: string | null = null;
+
+    if (authHeader) {
+      try {
+        const callerClient = createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_ANON_KEY")!,
+          { global: { headers: { Authorization: authHeader } } }
+        );
+
+        const { data: { user } } = await callerClient.auth.getUser();
+        if (user) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("gc_codigo")
+            .eq("id", user.id)
+            .maybeSingle();
+
+          const gcCodigo = String(profile?.gc_codigo ?? "").trim();
+          if (gcCodigo) {
+            actingGcUserId = gcCodigo;
+            console.log(`[negotiate-os] usando usuario_id GC ${actingGcUserId} do usuário autenticado`);
+          } else {
+            console.warn(`[negotiate-os] usuário ${user.id} sem gc_codigo; mantendo usuário padrão do GC`);
+          }
+        }
+      } catch (authErr) {
+        console.warn(`[negotiate-os] falha ao resolver gc_codigo do usuário autenticado: ${(authErr as Error).message}`);
+      }
+    }
 
     // ─── LIST ──────────────────────────────────────────────
     if (body.action === "list") {
@@ -611,6 +642,9 @@ serve(async (req) => {
             if (key === "forma_pagamento_id" && String(rawValue).trim() === "") continue;
             basePayload[key] = rawValue;
           }
+          if (actingGcUserId) {
+            basePayload.usuario_id = actingGcUserId;
+          }
 
           // ── STEP A ──
           console.log(`[negotiate-os] STEP A: OS ${os.id} → intermediário`);
@@ -754,6 +788,9 @@ serve(async (req) => {
             if (val === undefined || val === null) continue;
             if (key === "forma_pagamento_id" && String(val).trim() === "") continue;
             stepCPayload[key] = val;
+          }
+          if (actingGcUserId) {
+            stepCPayload.usuario_id = actingGcUserId;
           }
 
           const stepCResp = await rateLimitedFetch(
