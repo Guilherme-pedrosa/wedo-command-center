@@ -531,7 +531,11 @@ export default function NegociacaoOSPage() {
                 {selectedOSIds.size} selecionada(s) · {formatCurrency(selectedTotal)}
                 {selectedClient && (
                   <span className="ml-1 text-muted-foreground/60">
-                    / Total: {formatCurrency(selectedClient.valor_total)}
+                    / OS: {formatCurrency(selectedClient.valor_total)}
+                    {clientResiduais.length > 0 && (
+                      <> + Passivos: {formatCurrency(clientResiduais.reduce((s, r) => s + (Number(r.valor_residual) || 0), 0))}
+                       = {formatCurrency(selectedClient.valor_total + clientResiduais.reduce((s, r) => s + (Number(r.valor_residual) || 0), 0))}</>
+                    )}
                   </span>
                 )}
               </span>
