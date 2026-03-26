@@ -684,6 +684,29 @@ serve(async (req) => {
           console.log(`[negotiate-os] STEP A OK: OS ${os.id}`);
           await new Promise((r) => setTimeout(r, 500));
 
+          // ── GET REFRESH após Step A: capturar valor_total que o GC usa na validação ──
+          let gcValidationCents = os.header_valor_total_cents; // fallback = valor do GET inicial
+          try {
+            const refreshAfterAResp = await rateLimitedFetch(
+              `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
+              { headers: gcHeaders }
+            );
+            if (refreshAfterAResp.ok) {
+              const refreshAfterAData = await refreshAfterAResp.json();
+              const refreshedRaw = refreshAfterAData?.data || refreshAfterAData;
+              const refreshedHeaderCents = moneyToCents(refreshedRaw?.valor_total);
+              if (refreshedHeaderCents > 0) {
+                gcValidationCents = refreshedHeaderCents;
+                console.log(
+                  `[negotiate-os] GET refresh pós Step A: valor_total=${centsToMoney(refreshedHeaderCents).toFixed(2)} (antes=${centsToMoney(os.header_valor_total_cents).toFixed(2)})`
+                );
+              }
+            }
+          } catch {
+            console.warn(`[negotiate-os] GET refresh pós Step A falhou para OS ${os.id}, usando header original`);
+          }
+          // ── FIM GET REFRESH ──
+
           // ── STEP B ──
           console.log(`[negotiate-os] STEP B: OS ${os.id} → ${parcelas} parcelas + passivo`);
 
