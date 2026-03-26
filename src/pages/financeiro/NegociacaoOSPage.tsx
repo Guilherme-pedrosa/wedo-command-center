@@ -281,6 +281,9 @@ export default function NegociacaoOSPage() {
     .filter((os) => selectedOSIds.has(os.id))
     .reduce((sum, os) => sum + toCents(os.valor_total), 0) || 0) + toCents(valorResiduaisSelecionados);
   const selectedTotal = fromCents(selectedTotalCents);
+  const selectedOsCodeMap = Object.fromEntries(
+    (selectedClient?.os_list || []).map((os) => [os.id, os.codigo])
+  ) as Record<string, string>;
 
   const valorNegociadoCents = toCents(valorNegociado);
   const valorParcela = parcelas > 0 ? fromCents(Math.floor(valorNegociadoCents / parcelas)) : 0;
@@ -347,7 +350,10 @@ export default function NegociacaoOSPage() {
       });
 
       if (error) throw error;
-      setResults(data.results || []);
+      setResults((data.results || []).map((result: NegotiateResult) => ({
+        ...result,
+        os_id: selectedOsCodeMap[result.os_id] || result.os_id,
+      })));
 
       const ok = data.summary?.ok || 0;
       const errs = data.summary?.errors || 0;
