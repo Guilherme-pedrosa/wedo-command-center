@@ -798,14 +798,41 @@ serve(async (req) => {
           // Extra delay after Step A to let GC settle
           await new Promise((r) => setTimeout(r, 1000));
 
-          const stepBResp = await rateLimitedFetch(
+          let stepBResp = await rateLimitedFetch(
             `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
             { method: "PUT", headers: gcHeaders, body: JSON.stringify(stepBPayload) }
           );
-          const stepBText = await stepBResp.text();
+          let stepBText = await stepBResp.text();
           let stepBData: any;
           try { stepBData = JSON.parse(stepBText); } catch { stepBData = {}; }
           console.log(`[negotiate-os] STEP B response ${stepBResp.status}: ${stepBText.slice(0, 500)}`);
+
+          // ── RETRY: se GC diz "faltando X.XX", ajustar última parcela e tentar novamente ──
+          if (!stepBResp.ok && stepBData?.code !== 200) {
+            const faltandoMatch = stepBText.match(/faltando\s+([\d,.]+)/i);
+            if (faltandoMatch) {
+              const missingCents = moneyToCents(faltandoMatch[1]);
+              if (missingCents > 0 && missingCents <= 10) { // até R$ 0,10 de ajuste
+                const allPagsRetry = pagamentosComPassivo.map(p => p.pagamento);
+                const lastPagRetry = allPagsRetry[allPagsRetry.length - 1];
+                const oldVal = lastPagRetry.valor;
+                lastPagRetry.valor = centsToMoney(moneyToCents(lastPagRetry.valor) + missingCents).toFixed(2);
+                console.log(
+                  `[negotiate-os] STEP B retry: faltando ${centsToMoney(missingCents).toFixed(2)}, ajustando última parcela ${oldVal} → ${lastPagRetry.valor}`
+                );
+                stepBPayload.pagamentos = pagamentosComPassivo;
+                await new Promise((r) => setTimeout(r, 500));
+                stepBResp = await rateLimitedFetch(
+                  `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
+                  { method: "PUT", headers: gcHeaders, body: JSON.stringify(stepBPayload) }
+                );
+                stepBText = await stepBResp.text();
+                try { stepBData = JSON.parse(stepBText); } catch { stepBData = {}; }
+                console.log(`[negotiate-os] STEP B retry response ${stepBResp.status}: ${stepBText.slice(0, 500)}`);
+              }
+            }
+          }
+
           if (!stepBResp.ok && stepBData?.code !== 200) {
             gcUpdateResults.push({ os_id: os.id, status: "error", error: `Step B failed: ${stepBData?.message || stepBResp.status} - ${stepBText.slice(0, 200)}` });
             // Revert Step A: restore original situation
