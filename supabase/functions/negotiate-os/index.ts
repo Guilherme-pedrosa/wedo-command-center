@@ -534,6 +534,7 @@ serve(async (req) => {
         cliente_id: string;
         data: string;
         valor_total: number;
+        header_valor_total_cents: number;
         nome_cliente: string;
         nome_equipamento: string;
         raw: Record<string, unknown>;
