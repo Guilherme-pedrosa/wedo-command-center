@@ -579,6 +579,7 @@ serve(async (req) => {
           const nomeEquipamento = extractEquipamentoNome(os.equipamentos) || extractText(os.descricao) || extractText(os.observacoes);
           const dataBaseOS = String(os.data || os.data_saida || os.data_entrada || new Date().toISOString().slice(0, 10));
 
+          const rawHeaderTotalCents = moneyToCents(osRecord.valor_total);
           osDetails.push({
             id: osId,
             codigo: String(os.codigo || ""),
@@ -586,6 +587,7 @@ serve(async (req) => {
             cliente_id: String(os.cliente_id || ""),
             data: dataBaseOS,
             valor_total: valorTotal,
+            header_valor_total_cents: rawHeaderTotalCents,
             nome_cliente: String(os.nome_cliente || nome_cliente || ""),
             nome_equipamento: nomeEquipamento,
             raw: osRecord,
