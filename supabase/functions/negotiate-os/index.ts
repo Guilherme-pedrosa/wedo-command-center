@@ -765,10 +765,8 @@ serve(async (req) => {
             const allPags = pagamentosComPassivo.map(p => p.pagamento);
             const sumPagsCents = allPags.reduce((sum, pagamento) => sum + moneyToCents(pagamento.valor), 0);
 
-            // Usar header bruto do GC; fallback para osTotalCents se header = 0
-            const gcExpectedCents = os.header_valor_total_cents > 0
-              ? os.header_valor_total_cents
-              : osTotalCents;
+            // Usar valor refreshed pós Step A; fallback para osTotalCents se = 0
+            const gcExpectedCents = gcValidationCents > 0 ? gcValidationCents : osTotalCents;
 
             const diffCents = gcExpectedCents - sumPagsCents;
             if (diffCents !== 0) {
