@@ -599,7 +599,7 @@ export default function NegociacaoOSPage() {
                     </p>
                     <span className="text-xs font-semibold text-yellow-400/80">
                       Total: {formatCurrency(clientResiduais.reduce((sum, r) => sum + (Number(r.valor_residual) || 0), 0))}
-                      {selectedResidualIds.size > 0 && selectedResidualIds.size < clientResiduais.length && (
+                      {selectedResidualIds.size > 0 && (
                         <span className="ml-1 text-muted-foreground">
                           (selecionados: {formatCurrency(valorResiduaisSelecionados)})
                         </span>
