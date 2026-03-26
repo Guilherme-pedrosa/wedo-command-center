@@ -534,6 +534,7 @@ serve(async (req) => {
         cliente_id: string;
         data: string;
         valor_total: number;
+        header_valor_total_cents: number;
         nome_cliente: string;
         nome_equipamento: string;
         raw: Record<string, unknown>;
@@ -578,6 +579,7 @@ serve(async (req) => {
           const nomeEquipamento = extractEquipamentoNome(os.equipamentos) || extractText(os.descricao) || extractText(os.observacoes);
           const dataBaseOS = String(os.data || os.data_saida || os.data_entrada || new Date().toISOString().slice(0, 10));
 
+          const rawHeaderTotalCents = moneyToCents(osRecord.valor_total);
           osDetails.push({
             id: osId,
             codigo: String(os.codigo || ""),
@@ -585,6 +587,7 @@ serve(async (req) => {
             cliente_id: String(os.cliente_id || ""),
             data: dataBaseOS,
             valor_total: valorTotal,
+            header_valor_total_cents: rawHeaderTotalCents,
             nome_cliente: String(os.nome_cliente || nome_cliente || ""),
             nome_equipamento: nomeEquipamento,
             raw: osRecord,
@@ -732,16 +735,26 @@ serve(async (req) => {
               } }]
             : pagamentosNegociados;
 
-          // ── FIX: Ensure sum of pagamentos exactly matches os.valor_total to avoid GC 404 ──
+          // ── FIX: Ensure sum of pagamentos matches GC header total (not resolveOsTotal) ──
+          // O GC valida internamente contra o total dos itens, que pode diferir ±1 centavo
+          // dos pagamentos anteriores que resolveOsTotal prioriza (prioridade 3).
           {
             const allPags = pagamentosComPassivo.map(p => p.pagamento);
             const sumPagsCents = allPags.reduce((sum, pagamento) => sum + moneyToCents(pagamento.valor), 0);
-            const diffCents = osTotalCents - sumPagsCents;
+
+            // Usar header bruto do GC; fallback para osTotalCents se header = 0
+            const gcExpectedCents = os.header_valor_total_cents > 0
+              ? os.header_valor_total_cents
+              : osTotalCents;
+
+            const diffCents = gcExpectedCents - sumPagsCents;
             if (diffCents !== 0) {
               const lastPag = allPags[allPags.length - 1];
               const adjustedVal = centsToMoney(moneyToCents(lastPag.valor) + diffCents);
               lastPag.valor = adjustedVal.toFixed(2);
-              console.log(`[negotiate-os] Rounding fix: adjusted last payment by ${(diffCents / 100).toFixed(2)} for OS ${os.id}`);
+              console.log(
+                `[negotiate-os] Rounding fix: OS ${os.id} soma=${centsToMoney(sumPagsCents).toFixed(2)} gcHeader=${centsToMoney(gcExpectedCents).toFixed(2)} diff=${(diffCents/100).toFixed(2)} ajustando última parcela`
+              );
             }
           }
 
