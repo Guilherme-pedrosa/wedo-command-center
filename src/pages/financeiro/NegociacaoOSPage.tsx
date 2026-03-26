@@ -529,6 +529,11 @@ export default function NegociacaoOSPage() {
             <div className="flex items-center gap-3">
               <span className="text-sm text-muted-foreground">
                 {selectedOSIds.size} selecionada(s) · {formatCurrency(selectedTotal)}
+                {selectedClient && (
+                  <span className="ml-1 text-muted-foreground/60">
+                    / Total: {formatCurrency(selectedClient.valor_total)}
+                  </span>
+                )}
               </span>
               <Button
                 onClick={() => setShowNegotiate(true)}
