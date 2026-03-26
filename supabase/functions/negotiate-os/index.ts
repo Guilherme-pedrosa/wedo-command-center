@@ -67,9 +67,6 @@ function computePreciseLineTotal(value: unknown): number {
   const descontoPercentual = parseDecimal(record.desconto_porcentagem ?? 0);
 
   const totalExplicito = parseDecimal(record.valor_total ?? record.total ?? 0);
-  if (totalExplicito > 0) {
-    return totalExplicito;
-  }
 
   const valorUnitario = parseDecimal(
     record.valor ?? record.valor_venda ?? record.valor_unitario ?? 0
@@ -82,7 +79,20 @@ function computePreciseLineTotal(value: unknown): number {
       ? bruto * (descontoPercentual / 100)
       : 0;
 
-  return bruto - desconto;
+  const totalCalculado = bruto - desconto;
+
+  if (totalExplicito <= 0) {
+    return totalCalculado;
+  }
+
+  // O GC valida o total do pedido pela precisão interna dos itens em alguns cenários.
+  // Quando o total explícito do item diverge só por centavos/fracionamento, usamos o cálculo
+  // bruto - desconto para evitar o erro “faltando 0.01” no update das parcelas.
+  if (Math.abs(totalCalculado - totalExplicito) <= 0.02) {
+    return totalCalculado;
+  }
+
+  return totalExplicito;
 }
 
 function unwrapNestedItem(item: unknown, keys: string[]): Record<string, unknown> {
@@ -586,9 +596,19 @@ serve(async (req) => {
 
       const totalOriginalCents = osDetails.reduce((sum, item) => sum + moneyToCents(item.valor_total), 0);
       const requestedNegotiatedCents = moneyToCents(valorNegociado);
-      const targetNegotiatedCents = requestedNegotiatedCents > 0 && requestedNegotiatedCents < totalOriginalCents
-        ? requestedNegotiatedCents
-        : totalOriginalCents;
+      const isNearExactTotal = requestedNegotiatedCents > 0
+        && Math.abs(requestedNegotiatedCents - totalOriginalCents) <= 2;
+      const targetNegotiatedCents = requestedNegotiatedCents <= 0
+        ? totalOriginalCents
+        : isNearExactTotal
+          ? totalOriginalCents
+          : Math.min(requestedNegotiatedCents, totalOriginalCents);
+
+      if (isNearExactTotal && requestedNegotiatedCents !== totalOriginalCents) {
+        console.log(
+          `[negotiate-os] Ajustando valor negociado para total preciso: solicitado=${centsToMoney(requestedNegotiatedCents).toFixed(2)} total_real=${centsToMoney(totalOriginalCents).toFixed(2)}`,
+        );
+      }
       const customParcelWeightsCents = useCustomValues && valoresParcelas
         ? valoresParcelas.map((value: number) => moneyToCents(value))
         : null;
