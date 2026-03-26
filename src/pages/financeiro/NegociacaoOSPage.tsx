@@ -592,10 +592,20 @@ export default function NegociacaoOSPage() {
             <Card className="border-yellow-500/30">
               <div className="px-4 py-3">
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs text-yellow-400 font-medium flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    Residuais disponíveis (Neg. anteriores)
-                  </p>
+                  <div className="flex items-center gap-3">
+                    <p className="text-xs text-yellow-400 font-medium flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      Residuais disponíveis (Neg. anteriores)
+                    </p>
+                    <span className="text-xs font-semibold text-yellow-400/80">
+                      Total: {formatCurrency(clientResiduais.reduce((sum, r) => sum + (Number(r.valor_residual) || 0), 0))}
+                      {selectedResidualIds.size > 0 && selectedResidualIds.size < clientResiduais.length && (
+                        <span className="ml-1 text-muted-foreground">
+                          (selecionados: {formatCurrency(valorResiduaisSelecionados)})
+                        </span>
+                      )}
+                    </span>
+                  </div>
                   <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground">
                     <Checkbox
                       checked={clientResiduais.length > 0 && clientResiduais.every(r => selectedResidualIds.has(r.id))}
