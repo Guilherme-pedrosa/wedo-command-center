@@ -350,7 +350,10 @@ export default function NegociacaoOSPage() {
       });
 
       if (error) throw error;
-      setResults(data.results || []);
+      setResults((data.results || []).map((result: NegotiateResult) => ({
+        ...result,
+        os_id: selectedOsCodeMap[result.os_id] || result.os_id,
+      })));
 
       const ok = data.summary?.ok || 0;
       const errs = data.summary?.errors || 0;
