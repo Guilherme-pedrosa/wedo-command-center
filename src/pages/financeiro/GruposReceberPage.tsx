@@ -155,6 +155,8 @@ export default function GruposReceberPage() {
     );
   };
 
+  const [searchFilter, setSearchFilter] = useState("");
+  const [conciliadoFilter, setConciliadoFilter] = useState("todos");
   const [statusFilter, setStatusFilter] = useState("todos");
   const [selectedGrupo, setSelectedGrupo] = useState<any>(null);
   const [showBaixa, setShowBaixa] = useState(false);
@@ -710,6 +712,20 @@ export default function GruposReceberPage() {
           <p className="text-sm text-muted-foreground">Grupos de recebimentos para cobrança</p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Buscar nome, cliente, OS..."
+              value={searchFilter}
+              onChange={e => setSearchFilter(e.target.value)}
+              className="pl-8 h-9 w-[240px]"
+            />
+            {searchFilter && (
+              <button onClick={() => setSearchFilter("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
           <SearchableSelect
             value={statusFilter}
             onValueChange={v => setStatusFilter(v || "todos")}
@@ -723,7 +739,19 @@ export default function GruposReceberPage() {
             ]}
             placeholder="Filtrar status"
             searchPlaceholder="Buscar status..."
-            className="w-[180px] h-9"
+            className="w-[150px] h-9"
+          />
+          <SearchableSelect
+            value={conciliadoFilter}
+            onValueChange={v => setConciliadoFilter(v || "todos")}
+            options={[
+              { value: "todos", label: "Todos" },
+              { value: "sim", label: "Conciliado" },
+              { value: "nao", label: "Não conciliado" },
+            ]}
+            placeholder="Conciliado"
+            searchPlaceholder="Buscar..."
+            className="w-[160px] h-9"
           />
           <Button size="sm" variant="outline" onClick={handleScanPassivos} disabled={scanningPassivos}>
             {scanningPassivos ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ScanSearch className="h-3.5 w-3.5 mr-1.5" />}
@@ -760,7 +788,23 @@ export default function GruposReceberPage() {
               <tr><td colSpan={11} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
             ) : !grupos?.length ? (
               <tr><td colSpan={11}><EmptyState icon={Layers} title="Nenhum grupo" description="Crie grupos na tela de recebimentos." /></td></tr>
-            ) : grupos.map((g: any) => (
+            ) : (() => {
+              const term = searchFilter.toLowerCase().trim();
+              const filtered = grupos.filter((g: any) => {
+                if (conciliadoFilter === "sim" && !g.inter_pago_em) return false;
+                if (conciliadoFilter === "nao" && g.inter_pago_em) return false;
+                if (!term) return true;
+                const nome = (g.nome || "").toLowerCase();
+                const cliente = (g.nome_cliente || "").toLowerCase();
+                const osCodes = ((g.os_codigos as string[]) || []).join(" ").toLowerCase();
+                const neg = g.negociacao_numero ? `neg ${g.negociacao_numero}` : "";
+                const nfse = g.nfse_numero || "";
+                return nome.includes(term) || cliente.includes(term) || osCodes.includes(term) || neg.includes(term) || nfse.includes(term);
+              });
+              if (!filtered.length) return (
+                <tr><td colSpan={11} className="p-8 text-center text-muted-foreground">Nenhum grupo encontrado com os filtros aplicados</td></tr>
+              );
+              return filtered.map((g: any) => (
               <tr key={g.id} className="border-b border-border hover:bg-muted/30">
                 <td className="p-3 font-medium text-foreground">{g.nome}</td>
                 <td className="p-3 text-foreground">{g.nome_cliente || "—"}</td>
@@ -858,7 +902,8 @@ export default function GruposReceberPage() {
                   </div>
                 </td>
               </tr>
-            ))}
+            ));
+            })()}
           </tbody>
         </table>
       </div>
