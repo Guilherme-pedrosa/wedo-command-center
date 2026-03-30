@@ -364,15 +364,15 @@ export const useMetasResultados = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, gcRecebimentos, gcPagamentos, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, planoContasMap, uuidToGcId, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, gcRecebimentos, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, planoContasMap, uuidToGcId, centrosCustoMap]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
   const refetch = useCallback(() => {
-    refetchRec(); refetchPag(); refetchGcRec(); refetchGcPag(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo();
-  }, [refetchRec, refetchPag, refetchGcRec, refetchGcPag, refetchOS, refetchVendas, refetchCompras, refetchAuvo]);
+    refetchRec(); refetchPag(); refetchGcRec(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo();
+  }, [refetchRec, refetchPag, refetchGcRec, refetchOS, refetchVendas, refetchCompras, refetchAuvo]);
 
-  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingGcRec || loadingGcPag || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
+  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingGcRec || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
 
   return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, dataUpdatedAt: osDataUpdatedAt };
 };
