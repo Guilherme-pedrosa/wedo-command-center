@@ -103,7 +103,7 @@ export default function AdminUsuarios() {
   if (authLoading) return <div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>;
   if (!isAdmin) return <Navigate to="/" replace />;
 
-  // UserFormFields moved outside component to avoid remounting
+  
 
   return (
     <div className="space-y-6">
