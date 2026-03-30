@@ -102,8 +102,48 @@ export default function AdminUsuarios() {
 
   if (authLoading) return <div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>;
   if (!isAdmin) return <Navigate to="/" replace />;
+const UserFormFields = ({ values, onChange, showEmail = false, showPassword = true, passwordRequired = false }: any) => (
+  <>
+    <div className="space-y-2">
+      <Label>Nome *</Label>
+      <Input value={values.nome} onChange={(e) => onChange({ ...values, nome: e.target.value })} required />
+    </div>
+    {showEmail && (
+      <div className="space-y-2">
+        <Label>Email *</Label>
+        <Input type="email" value={values.email} onChange={(e) => onChange({ ...values, email: e.target.value })} required />
+      </div>
+    )}
+    {showPassword && (
+      <div className="space-y-2">
+        <Label>{passwordRequired ? "Senha *" : "Nova Senha (deixe vazio para manter)"}</Label>
+        <Input type="password" value={values.password} onChange={(e) => onChange({ ...values, password: e.target.value })} {...(passwordRequired ? { required: true, minLength: 6 } : {})} />
+      </div>
+    )}
+    <div className="grid grid-cols-2 gap-4">
+      <div className="space-y-2">
+        <Label>Código GC</Label>
+        <Input value={values.gc_codigo} onChange={(e) => onChange({ ...values, gc_codigo: e.target.value })} />
+      </div>
+      <div className="space-y-2">
+        <Label>Código AUVO</Label>
+        <Input value={values.auvo_codigo} onChange={(e) => onChange({ ...values, auvo_codigo: e.target.value })} />
+      </div>
+    </div>
+    <div className="space-y-2">
+      <Label>Perfil</Label>
+      <Select value={values.role} onValueChange={(v) => onChange({ ...values, role: v })}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="user">Usuário</SelectItem>
+          <SelectItem value="admin">Administrador</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  </>
+);
 
-  
+
 
   return (
     <div className="space-y-6">
