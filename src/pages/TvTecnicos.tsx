@@ -234,6 +234,9 @@ export default function TvTecnicos() {
 
   // Aggregate results with retorno logic
   const resultados = useMemo(() => {
+    // Normalize accents for matching (e.g. ROMÁRIO → ROMARIO)
+    const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
     const vendedorMap: Record<string, { total: number; osList: { codigo: string; valor: number; isRetorno?: boolean; retornoFrom?: string }[] }> = {};
 
     for (const os of osData) {
@@ -242,7 +245,8 @@ export default function TvTecnicos() {
       const valor = os.valor_total ?? 0;
       // Skip OS with zero/null value — they have no financial data yet
       if (valor === 0) continue;
-      const primeiroNome = nomeCompleto.split(' ')[0];
+      const primeiroNome = norm(nomeCompleto.split(' ')[0]);
+
       if (!vendedorMap[primeiroNome]) vendedorMap[primeiroNome] = { total: 0, osList: [] };
       const retorno = retornoMap[os.os_codigo];
 
@@ -250,7 +254,7 @@ export default function TvTecnicos() {
         // This OS is marked as retorno — show strikethrough, don't count value
         vendedorMap[primeiroNome].osList.push({ codigo: os.os_codigo, valor, isRetorno: true });
         // Add value to the retorno technician
-        const tecRetorno = retorno.tecnico_retorno.trim().toUpperCase();
+        const tecRetorno = norm(retorno.tecnico_retorno.trim().toUpperCase());
         if (!vendedorMap[tecRetorno]) vendedorMap[tecRetorno] = { total: 0, osList: [] };
         vendedorMap[tecRetorno].total += valor;
         vendedorMap[tecRetorno].osList.push({ codigo: os.os_codigo, valor, retornoFrom: primeiroNome });
@@ -261,7 +265,7 @@ export default function TvTecnicos() {
     }
 
     return metas.map(m => {
-      const nomeUpper = m.nome_tecnico.trim().toUpperCase();
+      const nomeUpper = norm(m.nome_tecnico.trim().toUpperCase());
       const info = vendedorMap[nomeUpper] || { total: 0, osList: [] };
       const meta = m.meta_faturamento;
       const pct = meta > 0 ? info.total / meta : 0;
