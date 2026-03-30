@@ -155,6 +155,8 @@ export default function GruposReceberPage() {
     );
   };
 
+  const [searchFilter, setSearchFilter] = useState("");
+  const [conciliadoFilter, setConciliadoFilter] = useState("todos");
   const [statusFilter, setStatusFilter] = useState("todos");
   const [selectedGrupo, setSelectedGrupo] = useState<any>(null);
   const [showBaixa, setShowBaixa] = useState(false);
