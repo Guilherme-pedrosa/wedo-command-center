@@ -348,17 +348,9 @@ export const useMetasResultados = (year: number, month: number) => {
               .filter(e => auvoTypeIds.includes(e.type_id))
               .reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
             realizado += auvoSum * (link.peso || 1);
-          } else if (gcId) {
-            const centroCodigo = centroUuid ? centrosCustoMap[centroUuid] : null;
-            const source = meta.categoria === 'receita' ? gcRecebimentos : gcPagamentos;
-            const soma = source
-              .filter(r =>
-                r.plano_contas_id === gcId &&
-                (centroCodigo === null || centroCodigo === undefined || !r.centro_custo_id || r.centro_custo_id === centroCodigo)
-              )
-              .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
-            realizado += soma * (link.peso || 1);
           } else {
+            // Always use fin_pagamentos/fin_recebimentos (contas a pagar/receber)
+            // instead of gc_pagamentos/gc_recebimentos to avoid mixing with compras
             const source = meta.categoria === 'receita' ? recebimentos : pagamentos;
             const soma = source
               .filter(r =>
