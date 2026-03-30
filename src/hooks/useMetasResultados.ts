@@ -248,18 +248,6 @@ export const useMetasResultados = (year: number, month: number) => {
     },
   });
 
-  const { data: gcPagamentos = [], isLoading: loadingGcPag, refetch: refetchGcPag } = useQuery({
-    queryKey: ['gc_pagamentos_metas', start, end],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('gc_pagamentos')
-        .select('gc_id, gc_codigo, descricao, valor, plano_contas_id, centro_custo_id, data_vencimento, liquidado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
-      if (error) throw error;
-      return data as { gc_id: string; gc_codigo: string; descricao: string | null; valor: number; plano_contas_id: string | null; centro_custo_id: string | null; data_vencimento: string | null; liquidado: boolean }[];
-    },
-  });
 
   const execTotal = useMemo(() => {
     const receitaFinanceiraGcIds = ['27867721', '27867722'];
@@ -325,14 +313,13 @@ export const useMetasResultados = (year: number, month: number) => {
         realizado = comprasFinalizadas.reduce((acc, c) => acc + (c.valor_total ?? 0), 0);
         if (realizado === 0 && comprasFinalizadas.length === 0) {
           for (const link of links) {
-            const gcId = uuidToGcId[link.plano_contas_id];
-            if (gcId) {
-              const soma = gcPagamentos
-                .filter(r => r.plano_contas_id === gcId &&
-                  (link.centro_custo_id === null || !r.centro_custo_id || r.centro_custo_id === link.centro_custo_id))
-                .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
-              realizado += soma * (link.peso || 1);
-            }
+            const planoUuid = link.plano_contas_id;
+            const centroUuid = link.centro_custo_id || null;
+            const soma = pagamentos
+              .filter(r => r.plano_contas_id === planoUuid &&
+                (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
+              .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
+            realizado += soma * (link.peso || 1);
           }
         }
       }
@@ -348,17 +335,9 @@ export const useMetasResultados = (year: number, month: number) => {
               .filter(e => auvoTypeIds.includes(e.type_id))
               .reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
             realizado += auvoSum * (link.peso || 1);
-          } else if (gcId) {
-            const centroCodigo = centroUuid ? centrosCustoMap[centroUuid] : null;
-            const source = meta.categoria === 'receita' ? gcRecebimentos : gcPagamentos;
-            const soma = source
-              .filter(r =>
-                r.plano_contas_id === gcId &&
-                (centroCodigo === null || centroCodigo === undefined || !r.centro_custo_id || r.centro_custo_id === centroCodigo)
-              )
-              .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
-            realizado += soma * (link.peso || 1);
           } else {
+            // Always use fin_pagamentos/fin_recebimentos (contas a pagar/receber)
+            // instead of gc_pagamentos/gc_recebimentos to avoid mixing with compras
             const source = meta.categoria === 'receita' ? recebimentos : pagamentos;
             const soma = source
               .filter(r =>
@@ -385,15 +364,15 @@ export const useMetasResultados = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, gcRecebimentos, gcPagamentos, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, planoContasMap, uuidToGcId, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, gcRecebimentos, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, planoContasMap, uuidToGcId, centrosCustoMap]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
   const refetch = useCallback(() => {
-    refetchRec(); refetchPag(); refetchGcRec(); refetchGcPag(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo();
-  }, [refetchRec, refetchPag, refetchGcRec, refetchGcPag, refetchOS, refetchVendas, refetchCompras, refetchAuvo]);
+    refetchRec(); refetchPag(); refetchGcRec(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo();
+  }, [refetchRec, refetchPag, refetchGcRec, refetchOS, refetchVendas, refetchCompras, refetchAuvo]);
 
-  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingGcRec || loadingGcPag || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
+  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingGcRec || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
 
   return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, dataUpdatedAt: osDataUpdatedAt };
 };
