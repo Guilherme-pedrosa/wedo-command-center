@@ -750,6 +750,7 @@ export default function GruposReceberPage() {
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Neg./NFS-e</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Itens</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Status</th>
+              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Conciliado</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Baixa GC</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Ações</th>
             </tr>
