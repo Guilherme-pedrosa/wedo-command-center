@@ -712,6 +712,20 @@ export default function GruposReceberPage() {
           <p className="text-sm text-muted-foreground">Grupos de recebimentos para cobrança</p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Buscar nome, cliente, OS..."
+              value={searchFilter}
+              onChange={e => setSearchFilter(e.target.value)}
+              className="pl-8 h-9 w-[240px]"
+            />
+            {searchFilter && (
+              <button onClick={() => setSearchFilter("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
           <SearchableSelect
             value={statusFilter}
             onValueChange={v => setStatusFilter(v || "todos")}
@@ -725,7 +739,19 @@ export default function GruposReceberPage() {
             ]}
             placeholder="Filtrar status"
             searchPlaceholder="Buscar status..."
-            className="w-[180px] h-9"
+            className="w-[150px] h-9"
+          />
+          <SearchableSelect
+            value={conciliadoFilter}
+            onValueChange={v => setConciliadoFilter(v || "todos")}
+            options={[
+              { value: "todos", label: "Todos" },
+              { value: "sim", label: "Conciliado" },
+              { value: "nao", label: "Não conciliado" },
+            ]}
+            placeholder="Conciliado"
+            searchPlaceholder="Buscar..."
+            className="w-[160px] h-9"
           />
           <Button size="sm" variant="outline" onClick={handleScanPassivos} disabled={scanningPassivos}>
             {scanningPassivos ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ScanSearch className="h-3.5 w-3.5 mr-1.5" />}
