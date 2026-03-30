@@ -750,15 +750,16 @@ export default function GruposReceberPage() {
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Neg./NFS-e</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Itens</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Status</th>
+              <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Conciliado</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Baixa GC</th>
               <th className="p-3 text-center text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Ações</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={10} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
+              <tr><td colSpan={11} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
             ) : !grupos?.length ? (
-              <tr><td colSpan={10}><EmptyState icon={Layers} title="Nenhum grupo" description="Crie grupos na tela de recebimentos." /></td></tr>
+              <tr><td colSpan={11}><EmptyState icon={Layers} title="Nenhum grupo" description="Crie grupos na tela de recebimentos." /></td></tr>
             ) : grupos.map((g: any) => (
               <tr key={g.id} className="border-b border-border hover:bg-muted/30">
                 <td className="p-3 font-medium text-foreground">{g.nome}</td>
@@ -801,6 +802,16 @@ export default function GruposReceberPage() {
                 </td>
                 <td className="p-3 text-center text-xs">{g.itens_baixados ?? 0}/{g.itens_total ?? 0}</td>
                 <td className="p-3 text-center">{statusBadge(g.status)}</td>
+                <td className="p-3 text-center">
+                  {g.inter_pago_em ? (
+                    <span className="text-emerald-500 text-[10px] flex items-center gap-1 justify-center">
+                      <CheckCircle className="h-3 w-3" />
+                      {formatDate(g.inter_pago_em)}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground text-[10px]">—</span>
+                  )}
+                </td>
                 <td className="p-3 text-center">
                   {g.gc_baixado ? (
                     <span className="text-emerald-500 text-[10px]">✅ {g.gc_baixado_em ? formatDate(g.gc_baixado_em) : ""}</span>
