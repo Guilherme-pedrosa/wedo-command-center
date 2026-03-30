@@ -325,14 +325,13 @@ export const useMetasResultados = (year: number, month: number) => {
         realizado = comprasFinalizadas.reduce((acc, c) => acc + (c.valor_total ?? 0), 0);
         if (realizado === 0 && comprasFinalizadas.length === 0) {
           for (const link of links) {
-            const gcId = uuidToGcId[link.plano_contas_id];
-            if (gcId) {
-              const soma = gcPagamentos
-                .filter(r => r.plano_contas_id === gcId &&
-                  (link.centro_custo_id === null || !r.centro_custo_id || r.centro_custo_id === link.centro_custo_id))
-                .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
-              realizado += soma * (link.peso || 1);
-            }
+            const planoUuid = link.plano_contas_id;
+            const centroUuid = link.centro_custo_id || null;
+            const soma = pagamentos
+              .filter(r => r.plano_contas_id === planoUuid &&
+                (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
+              .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
+            realizado += soma * (link.peso || 1);
           }
         }
       }
