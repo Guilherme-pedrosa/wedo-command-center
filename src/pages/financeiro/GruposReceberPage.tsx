@@ -803,6 +803,16 @@ export default function GruposReceberPage() {
                 <td className="p-3 text-center text-xs">{g.itens_baixados ?? 0}/{g.itens_total ?? 0}</td>
                 <td className="p-3 text-center">{statusBadge(g.status)}</td>
                 <td className="p-3 text-center">
+                  {g.inter_pago_em ? (
+                    <span className="text-emerald-500 text-[10px] flex items-center gap-1 justify-center">
+                      <CheckCircle className="h-3 w-3" />
+                      {formatDate(g.inter_pago_em)}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground text-[10px]">—</span>
+                  )}
+                </td>
+                <td className="p-3 text-center">
                   {g.gc_baixado ? (
                     <span className="text-emerald-500 text-[10px]">✅ {g.gc_baixado_em ? formatDate(g.gc_baixado_em) : ""}</span>
                   ) : g.inter_pago_em && !g.gc_baixado ? (
