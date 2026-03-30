@@ -902,7 +902,8 @@ export default function GruposReceberPage() {
                   </div>
                 </td>
               </tr>
-            ))}
+            ));
+            })()}
           </tbody>
         </table>
       </div>
