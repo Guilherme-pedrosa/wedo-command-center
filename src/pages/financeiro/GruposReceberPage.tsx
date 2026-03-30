@@ -788,7 +788,23 @@ export default function GruposReceberPage() {
               <tr><td colSpan={11} className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></td></tr>
             ) : !grupos?.length ? (
               <tr><td colSpan={11}><EmptyState icon={Layers} title="Nenhum grupo" description="Crie grupos na tela de recebimentos." /></td></tr>
-            ) : grupos.map((g: any) => (
+            ) : (() => {
+              const term = searchFilter.toLowerCase().trim();
+              const filtered = grupos.filter((g: any) => {
+                if (conciliadoFilter === "sim" && !g.inter_pago_em) return false;
+                if (conciliadoFilter === "nao" && g.inter_pago_em) return false;
+                if (!term) return true;
+                const nome = (g.nome || "").toLowerCase();
+                const cliente = (g.nome_cliente || "").toLowerCase();
+                const osCodes = ((g.os_codigos as string[]) || []).join(" ").toLowerCase();
+                const neg = g.negociacao_numero ? `neg ${g.negociacao_numero}` : "";
+                const nfse = g.nfse_numero || "";
+                return nome.includes(term) || cliente.includes(term) || osCodes.includes(term) || neg.includes(term) || nfse.includes(term);
+              });
+              if (!filtered.length) return (
+                <tr><td colSpan={11} className="p-8 text-center text-muted-foreground">Nenhum grupo encontrado com os filtros aplicados</td></tr>
+              );
+              return filtered.map((g: any) => (
               <tr key={g.id} className="border-b border-border hover:bg-muted/30">
                 <td className="p-3 font-medium text-foreground">{g.nome}</td>
                 <td className="p-3 text-foreground">{g.nome_cliente || "—"}</td>
