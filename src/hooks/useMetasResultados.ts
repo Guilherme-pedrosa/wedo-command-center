@@ -248,18 +248,6 @@ export const useMetasResultados = (year: number, month: number) => {
     },
   });
 
-  const { data: gcPagamentos = [], isLoading: loadingGcPag, refetch: refetchGcPag } = useQuery({
-    queryKey: ['gc_pagamentos_metas', start, end],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('gc_pagamentos')
-        .select('gc_id, gc_codigo, descricao, valor, plano_contas_id, centro_custo_id, data_vencimento, liquidado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
-      if (error) throw error;
-      return data as { gc_id: string; gc_codigo: string; descricao: string | null; valor: number; plano_contas_id: string | null; centro_custo_id: string | null; data_vencimento: string | null; liquidado: boolean }[];
-    },
-  });
 
   const execTotal = useMemo(() => {
     const receitaFinanceiraGcIds = ['27867721', '27867722'];
