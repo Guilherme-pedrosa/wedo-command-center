@@ -59,31 +59,9 @@ serve(async (req) => {
       situacaoId = body?.situacao_id ?? null;
     } catch { /* no body */ }
 
-    // Step 1: Fetch all situações and find target ones
-    // tipo_lancamento 1 = finalizado, 3 = comprado/ag chegada — both represent real purchases
-    let situacaoIds: string[] = situacaoId ? [situacaoId] : [];
-    if (situacaoIds.length === 0) {
-      console.log("[sync-compras] Fetching situacoes_compras...");
-      const sitResp = await rateLimitedFetch(
-        `${GC_BASE_URL}/api/situacoes_compras`,
-        { headers: gcHeaders }
-      );
-      if (sitResp.ok) {
-        const sitData = await sitResp.json();
-        const rawSituacoes = sitData?.data?.data ?? sitData?.data;
-        const situacoes = Array.isArray(rawSituacoes) ? rawSituacoes : [];
-        for (const sit of situacoes) {
-          const tipoLanc = String(sit.tipo_lancamento || "0");
-          // tipo_lancamento "1" (finalizado) or "3" (comprado) = effective purchases
-          if (tipoLanc === "1" || tipoLanc === "3") {
-            situacaoIds.push(String(sit.id));
-            console.log(`[sync-compras] Found situacao: ${sit.nome} (id=${sit.id}, tipo_lancamento=${tipoLanc})`);
-          }
-        }
-      } else {
-        console.error(`[sync-compras] Failed to fetch situacoes_compras: ${sitResp.status}`);
-      }
-    }
+    // Step 1: Use hardcoded situação IDs for purchases
+    let situacaoIds: string[] = situacaoId ? [situacaoId] : ["1675083", "1675070"];
+    console.log(`[sync-compras] Using situacaoIds: ${situacaoIds.join(", ")}`);
 
     if (situacaoIds.length === 0) {
       return new Response(
