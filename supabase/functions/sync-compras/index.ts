@@ -60,6 +60,7 @@ serve(async (req) => {
     } catch { /* no body */ }
 
     // Step 1: Fetch all situações and find target ones
+    // tipo_lancamento 1 = finalizado, 3 = comprado/ag chegada — both represent real purchases
     let situacaoIds: string[] = situacaoId ? [situacaoId] : [];
     if (situacaoIds.length === 0) {
       console.log("[sync-compras] Fetching situacoes_compras...");
@@ -69,15 +70,14 @@ serve(async (req) => {
       );
       if (sitResp.ok) {
         const sitData = await sitResp.json();
-        const situacoes = Array.isArray(sitData?.data) ? sitData.data : [];
+        const rawSituacoes = sitData?.data?.data ?? sitData?.data;
+        const situacoes = Array.isArray(rawSituacoes) ? rawSituacoes : [];
         for (const sit of situacoes) {
-          const nome = String(sit.nome || "").toLowerCase().trim();
-          if (
-            (nome.includes("finalizado") && nome.includes("mercadoria chegou")) ||
-            (nome.includes("comprado") && nome.includes("ag chegada"))
-          ) {
+          const tipoLanc = String(sit.tipo_lancamento || "0");
+          // tipo_lancamento "1" (finalizado) or "3" (comprado) = effective purchases
+          if (tipoLanc === "1" || tipoLanc === "3") {
             situacaoIds.push(String(sit.id));
-            console.log(`[sync-compras] Found situacao: ${sit.nome} (id=${sit.id})`);
+            console.log(`[sync-compras] Found situacao: ${sit.nome} (id=${sit.id}, tipo_lancamento=${tipoLanc})`);
           }
         }
       } else {
