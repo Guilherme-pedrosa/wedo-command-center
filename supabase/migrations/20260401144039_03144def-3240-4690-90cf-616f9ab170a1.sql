@@ -1,0 +1,1 @@
+UPDATE os_index SET valor_deslocamento = 0 WHERE valor_deslocamento = -0.001;
