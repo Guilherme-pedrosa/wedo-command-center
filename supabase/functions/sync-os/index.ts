@@ -201,7 +201,7 @@ serve(async (req) => {
 
         // Batch map records
         const batch = [];
-        const zeroValueIds: string[] = [];
+        const allOsIds: string[] = [];
         for (const os of records) {
           totalFetched++;
           const nomeSituacao = String(os.nome_situacao || "");
@@ -210,44 +210,34 @@ serve(async (req) => {
           const mapped = mapOsRecord(os);
           if (mapped) {
             batch.push(mapped);
-            // Track zero-value OS for individual detail fetch
-            if (!mapped.valor_total || mapped.valor_total === 0) {
-              zeroValueIds.push(String(os.id));
-            }
+            allOsIds.push(String(os.id));
           } else {
             errors++;
           }
         }
 
-        // Fetch individual details for zero-value OS to get real values
-        for (const osId of zeroValueIds) {
+        // Fetch individual details for ALL OS to get servicos (needed for deslocamento calc)
+        for (const osId of allOsIds) {
           try {
             const detailUrl = `${GC_BASE_URL}/api/ordens_servicos/${osId}`;
-            const detailRes = await rateLimitedFetch(detailUrl, { headers: gcHeaders });
+            let detailRes = await rateLimitedFetch(detailUrl, { headers: gcHeaders });
             if (detailRes.status === 429) {
               await new Promise((r) => setTimeout(r, 2000));
-              const retryRes = await rateLimitedFetch(detailUrl, { headers: gcHeaders });
-              if (retryRes.ok) {
-                const detailData = await retryRes.json();
-                const osDetail = detailData?.data || detailData;
-                const computedVal = computeValorFromPayload(osDetail);
-                if (computedVal > 0) {
-                  const idx = batch.findIndex(b => b.os_id === osId);
-                  if (idx >= 0) {
-                    batch[idx].valor_total = computedVal;
-                    batch[idx].valor_deslocamento = computeDeslocamento(osDetail);
-                  }
-                }
-              }
-            } else if (detailRes.ok) {
+              detailRes = await rateLimitedFetch(detailUrl, { headers: gcHeaders });
+            }
+            if (detailRes.ok) {
               const detailData = await detailRes.json();
               const osDetail = detailData?.data || detailData;
-              const computedVal = computeValorFromPayload(osDetail);
-              if (computedVal > 0) {
-                const idx = batch.findIndex(b => b.os_id === osId);
-                if (idx >= 0) {
-                  batch[idx].valor_total = computedVal;
-                  batch[idx].valor_deslocamento = computeDeslocamento(osDetail);
+              const idx = batch.findIndex(b => b.os_id === osId);
+              if (idx >= 0) {
+                // Always compute deslocamento from detail payload
+                batch[idx].valor_deslocamento = computeDeslocamento(osDetail);
+                // Fix zero-value OS from listing
+                if (!batch[idx].valor_total || batch[idx].valor_total === 0) {
+                  const computedVal = computeValorFromPayload(osDetail);
+                  if (computedVal > 0) {
+                    batch[idx].valor_total = computedVal;
+                  }
                 }
               }
             }
