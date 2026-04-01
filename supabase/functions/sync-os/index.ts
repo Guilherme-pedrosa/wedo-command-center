@@ -230,8 +230,13 @@ serve(async (req) => {
               const osDetail = detailData?.data || detailData;
               const idx = batch.findIndex(b => b.os_id === osId);
               if (idx >= 0) {
-                // Always compute deslocamento from detail payload
-                batch[idx].valor_deslocamento = computeDeslocamento(osDetail);
+                const desloc = computeDeslocamento(osDetail);
+                // Debug: log first OS with servicos to verify structure
+                if (totalFetched <= 3) {
+                  const servicos = osDetail.servicos as Array<unknown> | undefined;
+                  console.log(`[sync-os] DEBUG OS ${osId}: servicos=${JSON.stringify(servicos?.slice(0,2))}, desloc=${desloc}`);
+                }
+                batch[idx].valor_deslocamento = desloc;
                 // Fix zero-value OS from listing
                 if (!batch[idx].valor_total || batch[idx].valor_total === 0) {
                   const computedVal = computeValorFromPayload(osDetail);
