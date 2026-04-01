@@ -40,13 +40,15 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
 }
 
 function computeDeslocamento(os: Record<string, unknown>): number {
-  const servicos = os.servicos as Array<{ servico?: { codigo?: string; id?: string; valor_total?: string } }> | undefined;
+  const servicos = os.servicos as Array<{ servico?: { codigo?: string; id?: string; servico_id?: string; valor_total?: string } }> | undefined;
   if (!Array.isArray(servicos)) return 0;
   let total = 0;
   for (const s of servicos) {
     const srv = s?.servico;
     if (!srv) continue;
-    if (String(srv.codigo || "") === DESLOCAMENTO_SERVICO_CODIGO || String(srv.id || "") === DESLOCAMENTO_SERVICO_ID) {
+    const srvId = String(srv.servico_id || srv.id || "");
+    const srvCodigo = String(srv.codigo || "");
+    if (srvCodigo === DESLOCAMENTO_SERVICO_CODIGO || srvId === DESLOCAMENTO_SERVICO_ID) {
       total += parseFloat(String(srv.valor_total || "0")) || 0;
     }
   }
