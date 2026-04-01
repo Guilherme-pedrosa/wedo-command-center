@@ -216,42 +216,8 @@ serve(async (req) => {
           }
         }
 
-        // Fetch individual details for ALL OS to get servicos (needed for deslocamento calc)
-        for (const osId of allOsIds) {
-          try {
-            const detailUrl = `${GC_BASE_URL}/api/ordens_servicos/${osId}`;
-            let detailRes = await rateLimitedFetch(detailUrl, { headers: gcHeaders });
-            if (detailRes.status === 429) {
-              await new Promise((r) => setTimeout(r, 2000));
-              detailRes = await rateLimitedFetch(detailUrl, { headers: gcHeaders });
-            }
-            if (detailRes.ok) {
-              const detailData = await detailRes.json();
-              const osDetail = detailData?.data || detailData;
-              const idx = batch.findIndex(b => b.os_id === osId);
-              if (idx >= 0) {
-                const desloc = computeDeslocamento(osDetail);
-                // Debug: log first OS with servicos to verify structure
-                if (totalFetched <= 3) {
-                  const servicos = osDetail.servicos as Array<unknown> | undefined;
-                  console.log(`[sync-os] DEBUG OS ${osId}: servicos=${JSON.stringify(servicos?.slice(0,2))}, desloc=${desloc}`);
-                }
-                batch[idx].valor_deslocamento = desloc;
-                // Fix zero-value OS from listing
-                if (!batch[idx].valor_total || batch[idx].valor_total === 0) {
-                  const computedVal = computeValorFromPayload(osDetail);
-                  if (computedVal > 0) {
-                    batch[idx].valor_total = computedVal;
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            console.warn(`[sync-os] Failed to fetch detail for OS ${osId}: ${(e as Error).message}`);
-          }
-        }
-
         // Batch upsert (up to 100 at once)
+        // Note: individual detail fetching (for deslocamento) is handled by sync-os-details function
         if (batch.length > 0) {
           const { error: upsertErr, count } = await supabase
             .from("os_index")
