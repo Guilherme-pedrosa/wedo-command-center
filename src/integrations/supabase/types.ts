@@ -2687,6 +2687,7 @@ export type Database = {
           os_codigo: string
           os_id: string
           todos_orcs: string[] | null
+          valor_deslocamento: number | null
           valor_pecas: number | null
           valor_servicos: number | null
           valor_total: number | null
@@ -2704,6 +2705,7 @@ export type Database = {
           os_codigo: string
           os_id: string
           todos_orcs?: string[] | null
+          valor_deslocamento?: number | null
           valor_pecas?: number | null
           valor_servicos?: number | null
           valor_total?: number | null
@@ -2721,6 +2723,7 @@ export type Database = {
           os_codigo?: string
           os_id?: string
           todos_orcs?: string[] | null
+          valor_deslocamento?: number | null
           valor_pecas?: number | null
           valor_servicos?: number | null
           valor_total?: number | null
