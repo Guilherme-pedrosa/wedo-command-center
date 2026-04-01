@@ -284,16 +284,6 @@ export const useMetasResultados = (year: number, month: number) => {
         realizado = osExecutadas
           .filter(os => os.nome_situacao === 'EXECUTADO - FECHADO CHAMADO')
           .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
-        if (realizado === 0 && osExecutadas.length === 0) {
-          for (const link of links) {
-            const planoUuid = link.plano_contas_id;
-            const centroUuid = link.centro_custo_id || null;
-            const soma = recebimentos
-              .filter(r => r.plano_contas_id === planoUuid && (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
-              .reduce((acc, r) => acc + (r.valor || 0), 0);
-            realizado += soma * (link.peso || 1);
-          }
-        }
       }
       else if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto') || nome.includes('peça'))) {
         realizado = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
