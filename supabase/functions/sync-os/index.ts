@@ -12,6 +12,10 @@ const MIN_DELAY_MS = 350;
 let lastCallTime = 0;
 
 // All EXECUTADO situation IDs from GestãoClick
+// Deslocamento service to exclude from technician metrics
+const DESLOCAMENTO_SERVICO_CODIGO = "2094836555801";
+const DESLOCAMENTO_SERVICO_ID = "66773231";
+
 const EXECUTADO_SITUACAO_IDS = [
   "7261986",  // EXECUTADO POR CONTRATO
   "7116099",  // EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA
