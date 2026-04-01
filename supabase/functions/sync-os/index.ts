@@ -247,6 +247,7 @@ serve(async (req) => {
                 const idx = batch.findIndex(b => b.os_id === osId);
                 if (idx >= 0) {
                   batch[idx].valor_total = computedVal;
+                  batch[idx].valor_deslocamento = computeDeslocamento(osDetail);
                 }
               }
             }
