@@ -142,8 +142,8 @@ export const useMetasResultados = (year: number, month: number) => {
         .from('fin_recebimentos')
         .select('plano_contas_id, centro_custo_id, valor, status')
         .neq('status', 'cancelado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
+        .gte('data_competencia', start)
+        .lte('data_competencia', end);
       if (error) throw error;
       return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
     },
