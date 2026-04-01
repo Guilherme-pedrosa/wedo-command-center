@@ -39,6 +39,20 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
   return fetch(url, options);
 }
 
+function computeDeslocamento(os: Record<string, unknown>): number {
+  const servicos = os.servicos as Array<{ servico?: { codigo?: string; id?: string; valor_total?: string } }> | undefined;
+  if (!Array.isArray(servicos)) return 0;
+  let total = 0;
+  for (const s of servicos) {
+    const srv = s?.servico;
+    if (!srv) continue;
+    if (String(srv.codigo || "") === DESLOCAMENTO_SERVICO_CODIGO || String(srv.id || "") === DESLOCAMENTO_SERVICO_ID) {
+      total += parseFloat(String(srv.valor_total || "0")) || 0;
+    }
+  }
+  return total;
+}
+
 function computeValorFromPayload(os: Record<string, unknown>): number {
   // Try pagamentos array first (most reliable — represents actual invoiced value)
   const pagamentos = os.pagamentos as Array<{ pagamento?: { valor?: string } }> | undefined;
