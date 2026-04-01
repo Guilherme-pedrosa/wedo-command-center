@@ -242,9 +242,11 @@ export default function TvTecnicos() {
     for (const os of osData) {
       const nomeCompleto = os.nome_vendedor?.trim().toUpperCase();
       if (!nomeCompleto) continue;
-      const valor = os.valor_total ?? 0;
+      const valorBruto = os.valor_total ?? 0;
+      const deslocamento = (os as any).valor_deslocamento ?? 0;
+      const valor = valorBruto - deslocamento;
       // Skip OS with zero/null value — they have no financial data yet
-      if (valor === 0) continue;
+      if (valor <= 0) continue;
       const primeiroNome = norm(nomeCompleto.split(' ')[0]);
 
       if (!vendedorMap[primeiroNome]) vendedorMap[primeiroNome] = { total: 0, osList: [] };
