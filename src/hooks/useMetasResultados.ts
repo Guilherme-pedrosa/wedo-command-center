@@ -234,6 +234,7 @@ export const useMetasResultados = (year: number, month: number) => {
     },
   });
 
+  // gc_recebimentos filtrado por competência (para categorias gerais)
   const { data: gcRecebimentos = [], isLoading: loadingGcRec, refetch: refetchGcRec } = useQuery({
     queryKey: ['gc_recebimentos_metas', start, end],
     queryFn: async () => {
@@ -247,16 +248,29 @@ export const useMetasResultados = (year: number, month: number) => {
     },
   });
 
+  // Contratos PCM: filtrar por data_vencimento (quando o dinheiro entra)
+  const PCM_PLANO_IDS = ['27867721', '27867722'];
+  const { data: gcRecPCM = [], isLoading: loadingGcPCM, refetch: refetchGcPCM } = useQuery({
+    queryKey: ['gc_recebimentos_pcm', start, end],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('gc_recebimentos')
+        .select('gc_id, gc_codigo, descricao, valor, plano_contas_id, centro_custo_id, data_vencimento, liquidado')
+        .in('plano_contas_id', PCM_PLANO_IDS)
+        .gte('data_vencimento', start)
+        .lte('data_vencimento', end);
+      if (error) throw error;
+      return data as { gc_id: string; gc_codigo: string; descricao: string | null; valor: number; plano_contas_id: string | null; centro_custo_id: string | null; data_vencimento: string | null; liquidado: boolean }[];
+    },
+  });
 
   const execTotal = useMemo(() => {
-    const receitaFinanceiraGcIds = ['27867721', '27867722'];
     const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
     const vendasTotal = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
-    const recFinanceiro = gcRecebimentos
-      .filter(r => r.plano_contas_id && receitaFinanceiraGcIds.includes(r.plano_contas_id))
-      .reduce((acc, r) => acc + (r.valor || 0), 0);
+    // PCM usa vencimento, não competência
+    const recFinanceiro = gcRecPCM.reduce((acc, r) => acc + (r.valor || 0), 0);
     return osTotal + vendasTotal + recFinanceiro;
-  }, [gcRecebimentos, osExecutadas, vendasConcretizadas]);
+  }, [gcRecPCM, osExecutadas, vendasConcretizadas]);
 
   const metasComResultado = useMemo((): MetaComResultado[] => {
     return metas.map(meta => {
@@ -265,7 +279,7 @@ export const useMetasResultados = (year: number, month: number) => {
       const nome = meta.nome.toLowerCase();
 
       if (meta.categoria === 'receita' && (nome.includes('contrato') || nome.includes('pcm'))) {
-        realizado = gcRecebimentos
+        realizado = gcRecPCM
           .filter(r => r.plano_contas_id === '27867721')
           .reduce((acc, r) => acc + (r.valor || 0), 0);
       }
@@ -332,15 +346,15 @@ export const useMetasResultados = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, gcRecebimentos, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, planoContasMap, uuidToGcId, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, planoContasMap, uuidToGcId, centrosCustoMap]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
   const refetch = useCallback(() => {
-    refetchRec(); refetchPag(); refetchGcRec(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo();
-  }, [refetchRec, refetchPag, refetchGcRec, refetchOS, refetchVendas, refetchCompras, refetchAuvo]);
+    refetchRec(); refetchPag(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo();
+  }, [refetchRec, refetchPag, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchAuvo]);
 
-  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingGcRec || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
+  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
 
   return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, dataUpdatedAt: osDataUpdatedAt };
 };
