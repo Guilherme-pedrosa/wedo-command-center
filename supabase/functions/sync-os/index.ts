@@ -109,6 +109,8 @@ function mapOsRecord(os: Record<string, unknown>) {
     }
   }
 
+  const valorDeslocamento = computeDeslocamento(os);
+
   return {
     os_id: osId,
     os_codigo: osCodigo,
@@ -120,6 +122,7 @@ function mapOsRecord(os: Record<string, unknown>) {
     valor_total: valorTotal || null,
     valor_servicos: valorServicos || null,
     valor_pecas: valorProdutos || null,
+    valor_deslocamento: valorDeslocamento || 0,
     numero_os: osCodigo,
     built_at: new Date().toISOString(),
   };
