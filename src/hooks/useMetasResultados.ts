@@ -290,17 +290,6 @@ export const useMetasResultados = (year: number, month: number) => {
       }
       else if (meta.categoria === 'custo_variavel' && (nome.includes('peça') || nome.includes('estoque'))) {
         realizado = comprasFinalizadas.reduce((acc, c) => acc + (c.valor_total ?? 0), 0);
-        if (realizado === 0 && comprasFinalizadas.length === 0) {
-          for (const link of links) {
-            const planoUuid = link.plano_contas_id;
-            const centroUuid = link.centro_custo_id || null;
-            const soma = pagamentos
-              .filter(r => r.plano_contas_id === planoUuid &&
-                (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
-              .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
-            realizado += soma * (link.peso || 1);
-          }
-        }
       }
       else {
         for (const link of links) {
