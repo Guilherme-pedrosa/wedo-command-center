@@ -1,0 +1,1 @@
+ALTER TABLE public.os_index ADD COLUMN IF NOT EXISTS valor_deslocamento numeric DEFAULT 0;

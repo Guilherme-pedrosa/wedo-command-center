@@ -12,6 +12,10 @@ const MIN_DELAY_MS = 350;
 let lastCallTime = 0;
 
 // All EXECUTADO situation IDs from GestãoClick
+// Deslocamento service to exclude from technician metrics
+const DESLOCAMENTO_SERVICO_CODIGO = "2094836555801";
+const DESLOCAMENTO_SERVICO_ID = "66773231";
+
 const EXECUTADO_SITUACAO_IDS = [
   "7261986",  // EXECUTADO POR CONTRATO
   "7116099",  // EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA
@@ -33,6 +37,20 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
   }
   lastCallTime = Date.now();
   return fetch(url, options);
+}
+
+function computeDeslocamento(os: Record<string, unknown>): number {
+  const servicos = os.servicos as Array<{ servico?: { codigo?: string; id?: string; valor_total?: string } }> | undefined;
+  if (!Array.isArray(servicos)) return 0;
+  let total = 0;
+  for (const s of servicos) {
+    const srv = s?.servico;
+    if (!srv) continue;
+    if (String(srv.codigo || "") === DESLOCAMENTO_SERVICO_CODIGO || String(srv.id || "") === DESLOCAMENTO_SERVICO_ID) {
+      total += parseFloat(String(srv.valor_total || "0")) || 0;
+    }
+  }
+  return total;
 }
 
 function computeValorFromPayload(os: Record<string, unknown>): number {
@@ -91,6 +109,8 @@ function mapOsRecord(os: Record<string, unknown>) {
     }
   }
 
+  const valorDeslocamento = computeDeslocamento(os);
+
   return {
     os_id: osId,
     os_codigo: osCodigo,
@@ -102,6 +122,7 @@ function mapOsRecord(os: Record<string, unknown>) {
     valor_total: valorTotal || null,
     valor_servicos: valorServicos || null,
     valor_pecas: valorProdutos || null,
+    valor_deslocamento: valorDeslocamento || 0,
     numero_os: osCodigo,
     built_at: new Date().toISOString(),
   };
@@ -214,6 +235,7 @@ serve(async (req) => {
                   const idx = batch.findIndex(b => b.os_id === osId);
                   if (idx >= 0) {
                     batch[idx].valor_total = computedVal;
+                    batch[idx].valor_deslocamento = computeDeslocamento(osDetail);
                   }
                 }
               }
@@ -225,6 +247,7 @@ serve(async (req) => {
                 const idx = batch.findIndex(b => b.os_id === osId);
                 if (idx >= 0) {
                   batch[idx].valor_total = computedVal;
+                  batch[idx].valor_deslocamento = computeDeslocamento(osDetail);
                 }
               }
             }

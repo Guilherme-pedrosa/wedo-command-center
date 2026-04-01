@@ -13,7 +13,7 @@ const formatBRL = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
 interface TecnicoMeta { nome_tecnico: string; meta_faturamento: number; }
-interface OsRow { nome_vendedor: string | null; valor_total: number | null; os_codigo: string; nome_situacao: string | null; }
+interface OsRow { nome_vendedor: string | null; valor_total: number | null; valor_deslocamento: number | null; os_codigo: string; nome_situacao: string | null; }
 
 const OS_EXECUTADOS_STATUS = [
   'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
@@ -88,7 +88,7 @@ export default function TvTecnicos() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('os_index')
-        .select('nome_vendedor, valor_total, os_codigo, nome_situacao')
+        .select('nome_vendedor, valor_total, valor_deslocamento, os_codigo, nome_situacao')
         .in('nome_situacao', OS_EXECUTADOS_STATUS)
         .gte('data_saida', start)
         .lte('data_saida', end);
@@ -242,9 +242,11 @@ export default function TvTecnicos() {
     for (const os of osData) {
       const nomeCompleto = os.nome_vendedor?.trim().toUpperCase();
       if (!nomeCompleto) continue;
-      const valor = os.valor_total ?? 0;
+      const valorBruto = os.valor_total ?? 0;
+      const deslocamento = os.valor_deslocamento ?? 0;
+      const valor = valorBruto - deslocamento;
       // Skip OS with zero/null value — they have no financial data yet
-      if (valor === 0) continue;
+      if (valor <= 0) continue;
       const primeiroNome = norm(nomeCompleto.split(' ')[0]);
 
       if (!vendedorMap[primeiroNome]) vendedorMap[primeiroNome] = { total: 0, osList: [] };
