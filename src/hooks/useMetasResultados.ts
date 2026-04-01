@@ -142,8 +142,8 @@ export const useMetasResultados = (year: number, month: number) => {
         .from('fin_recebimentos')
         .select('plano_contas_id, centro_custo_id, valor, status')
         .neq('status', 'cancelado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
+        .gte('data_competencia', start)
+        .lte('data_competencia', end);
       if (error) throw error;
       return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
     },
@@ -156,8 +156,8 @@ export const useMetasResultados = (year: number, month: number) => {
         .from('fin_pagamentos')
         .select('plano_contas_id, centro_custo_id, valor, status, data_liquidacao')
         .neq('status', 'cancelado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
+        .gte('data_competencia', start)
+        .lte('data_competencia', end);
       if (error) throw error;
       return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null }[];
     },
@@ -240,8 +240,8 @@ export const useMetasResultados = (year: number, month: number) => {
       const { data, error } = await supabase
         .from('gc_recebimentos')
         .select('gc_id, gc_codigo, descricao, valor, plano_contas_id, centro_custo_id, data_vencimento, liquidado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
+        .gte('data_competencia', start)
+        .lte('data_competencia', end);
       if (error) throw error;
       return data as { gc_id: string; gc_codigo: string; descricao: string | null; valor: number; plano_contas_id: string | null; centro_custo_id: string | null; data_vencimento: string | null; liquidado: boolean }[];
     },
@@ -290,17 +290,6 @@ export const useMetasResultados = (year: number, month: number) => {
       }
       else if (meta.categoria === 'custo_variavel' && (nome.includes('peça') || nome.includes('estoque'))) {
         realizado = comprasFinalizadas.reduce((acc, c) => acc + (c.valor_total ?? 0), 0);
-        if (realizado === 0 && comprasFinalizadas.length === 0) {
-          for (const link of links) {
-            const planoUuid = link.plano_contas_id;
-            const centroUuid = link.centro_custo_id || null;
-            const soma = pagamentos
-              .filter(r => r.plano_contas_id === planoUuid &&
-                (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid))
-              .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
-            realizado += soma * (link.peso || 1);
-          }
-        }
       }
       else {
         for (const link of links) {
