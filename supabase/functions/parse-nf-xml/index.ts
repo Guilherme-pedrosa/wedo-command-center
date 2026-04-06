@@ -241,15 +241,17 @@ serve(async (req) => {
         if (rec?.nome_cliente) nomesGrupo.add(rec.nome_cliente.toLowerCase().trim());
       }
 
+      const normalize = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
       const nfDoc = (nf.dest_cnpj || nf.dest_cpf).replace(/[^\d]/g, "");
-      const nfNome = nf.dest_razao.toLowerCase().trim();
+      const nfNome = normalize(nf.dest_razao);
+      const nomesGrupoNorm = new Set([...nomesGrupo].map(normalize));
 
       if (nfDoc && docsGrupo.size > 0) {
         if (!docsGrupo.has(nfDoc)) {
           erros.push(`CNPJ/CPF do destinatário da NF (${nfDoc}) não confere com nenhum cliente do grupo`);
         }
-      } else if (nfNome && nomesGrupo.size > 0) {
-        const nomeConfere = [...nomesGrupo].some(n => n.includes(nfNome) || nfNome.includes(n));
+      } else if (nfNome && nomesGrupoNorm.size > 0) {
+        const nomeConfere = [...nomesGrupoNorm].some(n => n.includes(nfNome) || nfNome.includes(n));
         if (!nomeConfere) {
           erros.push(`Destinatário da NF ("${nf.dest_razao}") não confere com o cliente do grupo ("${grupo.nome_cliente || "—"}")`);
         }
