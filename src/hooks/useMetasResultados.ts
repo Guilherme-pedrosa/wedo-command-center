@@ -264,11 +264,12 @@ export const useMetasResultados = (year: number, month: number) => {
     },
   });
 
-  // Faturamento Executado = OS executadas (TODAS, incluindo Ecolab/Fechado Chamado)
-  //                       + Vendas (PCM Mercadoria) + Contratos PCM
-  // Ecolab (FECHADO CHAMADO) é receita separada de "Execução + Coifa", mas entra no faturamento total
+  // Faturamento Executado = OS Execução+Coifa (SEM Ecolab/Fechado Chamado) + Vendas + PCM
+  // Ecolab é tratado como indicador isolado, NÃO entra no faturamento total
   const execTotal = useMemo(() => {
-    const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
+    const osTotal = osExecutadas
+      .filter(os => os.nome_situacao !== 'EXECUTADO - FECHADO CHAMADO')
+      .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
     const vendasTotal = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
     const recFinanceiro = gcRecPCM.reduce((acc, r) => acc + (r.valor || 0), 0);
     return osTotal + vendasTotal + recFinanceiro;
