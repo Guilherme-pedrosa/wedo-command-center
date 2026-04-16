@@ -272,6 +272,22 @@ export const useMetasResultados = (year: number, month: number) => {
     return osTotal + vendasTotal + recFinanceiro;
   }, [gcRecPCM, osExecutadas, vendasConcretizadas]);
 
+  // Base de comissões: Ecolab/Chamados + Execução Serviços/Coifas
+  const baseComissoes = useMemo(() => {
+    const EXEC_SERVICO_STATUS = [
+      'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
+      'EXECUTADO - AGUARDANDO PAGAMENTO',
+      'EXECUTADO - FINANCEIRO SEPARADO',
+      'EXECUTADO COM NOTA EMITIDA',
+    ];
+    return osExecutadas
+      .filter(os =>
+        os.nome_situacao === 'EXECUTADO - FECHADO CHAMADO' ||
+        EXEC_SERVICO_STATUS.includes(os.nome_situacao ?? '')
+      )
+      .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
+  }, [osExecutadas]);
+
   const metasComResultado = useMemo((): MetaComResultado[] => {
     return metas.map(meta => {
       const links = mapeamentos.filter(m => m.meta_id === meta.id);
