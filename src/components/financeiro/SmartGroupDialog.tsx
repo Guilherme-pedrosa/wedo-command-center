@@ -220,7 +220,7 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
           // e registra o resíduo localmente (igual negotiate-os)
           const updateData: Record<string, any> = { grupo_id: (grupo as any).id };
           if (vencGrupo) updateData.data_vencimento = vencGrupo;
-          await supabase.from("fin_recebimentos").update(updateData).eq("id", r.id);
+          await supabase.from("fin_recebimentos").update(updateData as any).eq("id", r.id);
 
           if (vencGrupo && r.gc_id && r.gc_payload_raw) {
             try {
@@ -242,7 +242,7 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
         } else {
           const updateData: Record<string, any> = { grupo_id: (grupo as any).id };
           if (vencGrupo) updateData.data_vencimento = vencGrupo;
-          await supabase.from("fin_recebimentos").update(updateData).eq("id", r.id);
+          await supabase.from("fin_recebimentos").update(updateData as any).eq("id", r.id);
 
           if (vencGrupo && r.gc_id && r.gc_payload_raw) {
             try {

@@ -281,7 +281,7 @@ export default function RecebimentosPage() {
       await supabase.from("fin_grupo_receber_itens").insert(grupoItens);
       const updateData: Record<string, any> = { grupo_id: (grupo as any).id };
       if (groupDate) updateData.data_vencimento = format(groupDate, "yyyy-MM-dd");
-      await supabase.from("fin_recebimentos").update(updateData).in("id", items.map((r: any) => r.id));
+      await supabase.from("fin_recebimentos").update(updateData as any).in("id", items.map((r: any) => r.id));
 
       // Sync vencimento pro GC automaticamente
       if (groupDate) {
