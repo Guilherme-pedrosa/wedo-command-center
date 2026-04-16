@@ -272,6 +272,22 @@ export const useMetasResultados = (year: number, month: number) => {
     return osTotal + vendasTotal + recFinanceiro;
   }, [gcRecPCM, osExecutadas, vendasConcretizadas]);
 
+  // Base de comissões: Ecolab/Chamados + Execução Serviços/Coifas
+  const baseComissoes = useMemo(() => {
+    const EXEC_SERVICO_STATUS = [
+      'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
+      'EXECUTADO - AGUARDANDO PAGAMENTO',
+      'EXECUTADO - FINANCEIRO SEPARADO',
+      'EXECUTADO COM NOTA EMITIDA',
+    ];
+    return osExecutadas
+      .filter(os =>
+        os.nome_situacao === 'EXECUTADO - FECHADO CHAMADO' ||
+        EXEC_SERVICO_STATUS.includes(os.nome_situacao ?? '')
+      )
+      .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
+  }, [osExecutadas]);
+
   const metasComResultado = useMemo((): MetaComResultado[] => {
     return metas.map(meta => {
       const links = mapeamentos.filter(m => m.meta_id === meta.id);
@@ -332,10 +348,14 @@ export const useMetasResultados = (year: number, month: number) => {
         }
       }
 
+      // Base do percentual: Comissões/Premiações usa base específica (Ecolab + Execução Serviços/Coifas)
+      const isComissao = nome.includes('comiss') || nome.includes('premia');
+      const basePercentual = isComissao ? baseComissoes : execTotal;
+
       const meta_calculada =
         meta.tipo_meta === 'absoluto'
           ? (meta.meta_valor || 0)
-          : (meta.meta_percentual || 0) * execTotal;
+          : (meta.meta_percentual || 0) * basePercentual;
 
       const delta = realizado - meta_calculada;
       const pct_faturamento = execTotal > 0 ? realizado / execTotal : 0;
@@ -346,7 +366,7 @@ export const useMetasResultados = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, planoContasMap, uuidToGcId, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, planoContasMap, uuidToGcId, centrosCustoMap]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
