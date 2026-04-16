@@ -348,10 +348,14 @@ export const useMetasResultados = (year: number, month: number) => {
         }
       }
 
+      // Base do percentual: Comissões/Premiações usa base específica (Ecolab + Execução Serviços/Coifas)
+      const isComissao = nome.includes('comiss') || nome.includes('premia');
+      const basePercentual = isComissao ? baseComissoes : execTotal;
+
       const meta_calculada =
         meta.tipo_meta === 'absoluto'
           ? (meta.meta_valor || 0)
-          : (meta.meta_percentual || 0) * execTotal;
+          : (meta.meta_percentual || 0) * basePercentual;
 
       const delta = realizado - meta_calculada;
       const pct_faturamento = execTotal > 0 ? realizado / execTotal : 0;
@@ -362,7 +366,7 @@ export const useMetasResultados = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, planoContasMap, uuidToGcId, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, planoContasMap, uuidToGcId, centrosCustoMap]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
