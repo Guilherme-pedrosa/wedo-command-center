@@ -451,7 +451,7 @@ export async function resyncRecebimentoFromGC(gcId: string, osCodigo?: string | 
 
   const { error } = await supabase
     .from("fin_recebimentos")
-    .update(updateFields)
+    .update(updateFields as any)
     .eq("gc_id", gcId);
 
   if (error) {

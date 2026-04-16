@@ -215,7 +215,7 @@ export default function ConciliacaoHistoricoPage() {
 
     const { error } = await supabase
       .from("fin_extrato_inter")
-      .update(updatePayload)
+      .update(updatePayload as any)
       .eq("id", vinculandoItem.id);
 
     if (!error) {
