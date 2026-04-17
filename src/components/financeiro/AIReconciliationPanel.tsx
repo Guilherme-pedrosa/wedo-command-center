@@ -103,8 +103,8 @@ export default function AIReconciliationPanel({ onVincular, extratoIds }: Props)
       >
         <div className="flex items-center gap-2">
           <Brain className="h-4 w-4 text-primary" />
-          <h3 className="text-sm font-semibold">Assistente IA — Conciliação</h3>
-          <Badge variant="outline" className="text-[10px] border-primary/30 text-primary">GPT-5</Badge>
+          <h3 className="text-sm font-semibold">ARGUS-FIN Pro — Conciliação Total</h3>
+          <Badge variant="outline" className="text-[10px] border-primary/30 text-primary">Gemini 2.5 Pro</Badge>
         </div>
         {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
       </div>
