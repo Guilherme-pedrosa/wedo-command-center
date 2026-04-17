@@ -140,9 +140,10 @@ async function baixarNoGC(
     plano_contas_id: payloadRaw.plano_contas_id,
     forma_pagamento_id: payloadRaw.forma_pagamento_id,
     conta_bancaria_id: payloadRaw.conta_bancaria_id,
-    // GC API: liquidado deve ser "pg" (Confirmado), "ab" (Aberto) ou "at" (Atraso).
-    // Enviar "1" faz o GC ignorar a data_liquidacao e gravar a data atual.
-    liquidado: "pg",
+    // GC API PUT: liquidado deve ser "1" (inteiro como string). Os códigos "pg"/"ab"/"at"
+    // são apenas para FILTROS no GET — no PUT a API rejeita com "campo (baixado) não é inteiro".
+    // A data_liquidacao é respeitada quando enviada explicitamente junto.
+    liquidado: "1",
     data_liquidacao: dataLiquidacao,
     observacao: obsFinal,
   };
