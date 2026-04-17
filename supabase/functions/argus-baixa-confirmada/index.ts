@@ -133,7 +133,9 @@ async function baixarNoGC(
     plano_contas_id: payloadRaw.plano_contas_id,
     forma_pagamento_id: payloadRaw.forma_pagamento_id,
     conta_bancaria_id: payloadRaw.conta_bancaria_id,
-    liquidado: "1",
+    // GC API: liquidado deve ser "pg" (Confirmado), "ab" (Aberto) ou "at" (Atraso).
+    // Enviar "1" faz o GC ignorar a data_liquidacao e gravar a data atual.
+    liquidado: "pg",
     data_liquidacao: dataLiquidacao,
     observacao: obsFinal,
   };
