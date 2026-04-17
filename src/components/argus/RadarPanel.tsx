@@ -101,6 +101,21 @@ export function RadarPanel() {
         </Card>
       </div>
 
+      {/* Briefing IA Gemini Pro */}
+      {briefingIA && (
+        <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              Briefing Executivo IA · Gemini 2.5 Pro
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs whitespace-pre-wrap leading-relaxed">{briefingIA}</div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Alertas por Severidade</CardTitle>

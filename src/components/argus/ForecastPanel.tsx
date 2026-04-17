@@ -102,6 +102,21 @@ export function ForecastPanel() {
         </Card>
       </div>
 
+      {/* Briefing IA Gemini Pro */}
+      {data?.briefing_ia && (
+        <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              Análise Estratégica IA · Gemini 2.5 Pro
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs whitespace-pre-wrap leading-relaxed">{data.briefing_ia}</div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Bar chart - simple visual */}
       {semanas.length > 0 && (
         <Card>
