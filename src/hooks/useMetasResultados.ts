@@ -163,6 +163,30 @@ export const useMetasResultados = (year: number, month: number) => {
     },
   });
 
+  // Pagamentos filtrados por DATA DE COMPETÊNCIA (para Comissões/Premiações e Despesas com Veículos).
+  // Esses custos devem refletir o mês de competência, não o vencimento.
+  const { data: pagamentosCompetencia = [], isLoading: loadingPagComp, refetch: refetchPagComp } = useQuery({
+    queryKey: ['fin_pagamentos_metas_competencia', start, end],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('fin_pagamentos')
+        .select('plano_contas_id, centro_custo_id, valor, status')
+        .neq('status', 'cancelado')
+        .gte('data_competencia', start)
+        .lte('data_competencia', end);
+      if (error) throw error;
+      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
+    },
+  });
+
+  // Plano de contas (UUIDs) que devem ser apurados por COMPETÊNCIA em vez de vencimento.
+  // - COMISSÕES E BONIFICAÇÕES (28054594) → Comissões e Premiações (Técnicos)
+  // - Despesas com veículos (28034468) → Manutenção Veículos
+  const PLANOS_POR_COMPETENCIA = new Set([
+    'e7299b90-98d2-4d7a-a04c-78ba40cc847a',
+    'ee7cc5fe-77d4-403f-a321-0cb57c14d370',
+  ]);
+
   // Espelha EXATAMENTE o "Relatório de Ordens de Serviços" do GestãoClick:
   // só esses 4 status entram em Execução + Coifas. FECHADO CHAMADO é Ecolab (separado).
   const OS_EXECUTADOS_STATUS = [
