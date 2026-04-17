@@ -298,13 +298,19 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
   return { ...link, ok: true, gc_id: lanc.gc_id };
 }
 
-async function buscarPendentes(): Promise<LinkInput[]> {
-  const { data: extratosRecentes } = await supabase
+async function buscarPendentes(dataInicio?: string, dataFim?: string): Promise<LinkInput[]> {
+  // dataInicio/dataFim em yyyy-mm-dd. Default: a partir do CUTOFF_DATE.
+  const inicio = dataInicio && dataInicio >= CUTOFF_DATE ? dataInicio : CUTOFF_DATE;
+  let q = supabase
     .from("fin_extrato_inter")
     .select("id, data_hora")
-    .gte("data_hora", `${CUTOFF_DATE}T00:00:00+00:00`)
+    .gte("data_hora", `${inicio}T00:00:00+00:00`)
     .eq("reconciliado", true)
     .limit(5000);
+  if (dataFim) {
+    q = q.lte("data_hora", `${dataFim}T23:59:59+00:00`);
+  }
+  const { data: extratosRecentes } = await q;
 
   const extratoIds = Array.from(new Set((extratosRecentes || []).map((e: any) => e.id).filter(Boolean)));
   if (extratoIds.length === 0) return [];
@@ -364,7 +370,9 @@ Deno.serve(async (req) => {
 
     let alvos: LinkInput[] = [];
     if (mode === "auto") {
-      alvos = await buscarPendentes();
+      const dataInicio = typeof body.dataInicio === "string" ? body.dataInicio : undefined;
+      const dataFim = typeof body.dataFim === "string" ? body.dataFim : undefined;
+      alvos = await buscarPendentes(dataInicio, dataFim);
     } else if (Array.isArray(body.links)) {
       alvos = body.links.filter((l: any) => l?.lancamento_id && l?.tabela);
     }
