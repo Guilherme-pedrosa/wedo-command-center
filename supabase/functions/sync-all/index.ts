@@ -883,7 +883,9 @@ serve(async (req) => {
       // Registros locais que sumiram da API são marcados como 'cancelado' (soft-delete).
       let recCancelled = 0;
       let recCancelledIds: string[] = [];
-      try {
+      if (recRecords.length === 0) {
+        console.warn(`[sync-all] ⚠️ Recebimentos: API retornou 0 registros — pulando reconciliação por segurança.`);
+      } else try {
         const apiGcIds = new Set(recRecords.map((r: any) => String(r.id)));
         const { data: localRecs } = await supabase
           .from("fin_recebimentos")
