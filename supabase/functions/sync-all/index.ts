@@ -960,11 +960,12 @@ serve(async (req) => {
         gc_upserted: gcRecUpserted,
         fin_upserted: finRecUpserted,
         cancelled_orphans: recCancelled,
+        gc_deleted_orphans: gcRecDeleted,
         errors: recErrors,
         error_messages: [...recErrorMessages],
         duration_ms: Date.now() - recStart,
       };
-      console.log(`[sync-all] Recebimentos done: ${recRecords.length} fetched, gc=${gcRecUpserted}, fin=${finRecUpserted}, orphans=${recCancelled} (${Date.now() - recStart}ms)`);
+      console.log(`[sync-all] Recebimentos done: ${recRecords.length} fetched, gc=${gcRecUpserted}, fin=${finRecUpserted}, fin_orphans=${recCancelled}, gc_orphans=${gcRecDeleted} (${Date.now() - recStart}ms)`);
     } catch (err) {
       results.recebimentos = { status: "error", error: (err as Error).message, duration_ms: Date.now() - recStart };
       console.error(`[sync-all] recebimentos error: ${(err as Error).message}`);
