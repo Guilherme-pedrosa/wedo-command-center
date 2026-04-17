@@ -38,6 +38,15 @@ interface LinkInput {
   tabela: string; // "fin_pagamentos" | "fin_recebimentos"
 }
 
+interface ExtratoInfo {
+  data: string;
+  valor: number | null;
+  descricao: string | null;
+  contraparte: string | null;
+  tipo: string | null;
+  end_to_end_id: string | null;
+}
+
 interface BaixaResult {
   lancamento_id: string;
   tabela: string;
