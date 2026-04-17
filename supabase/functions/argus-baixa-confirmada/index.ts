@@ -64,7 +64,10 @@ async function baixarNoGC(
   payloadRaw: Record<string, unknown>,
   dataLiquidacao: string
 ): Promise<{ ok: boolean; erro?: string }> {
-  // Monta payload com 7 campos obrigatórios + liquidado/data_liquidacao + situacao_id
+  // Monta payload com 7 campos obrigatórios + liquidado/data_liquidacao
+  // Nota: PUT /pagamentos e /recebimentos do GC NÃO aceitam 'situacao_id'
+  // (esse campo só existe em vendas/OS/orçamentos). A marcação "Confirmado Argus"
+  // fica apenas no estado local (gc_baixado=true + log).
   const payload: Record<string, unknown> = {
     descricao: payloadRaw.descricao ?? "",
     data_vencimento: payloadRaw.data_vencimento,
@@ -75,7 +78,6 @@ async function baixarNoGC(
     conta_bancaria_id: payloadRaw.conta_bancaria_id,
     liquidado: "1",
     data_liquidacao: dataLiquidacao,
-    situacao_id: SITUACAO_CONFIRMADO_ARGUS,
   };
 
   // Campos opcionais
@@ -209,7 +211,7 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
     tipo: "argus_baixa_confirmada",
     referencia_id: lanc.gc_id,
     status: "success",
-    payload: { tabela, lancamento_id: link.lancamento_id, data_liquidacao: dataLiq, situacao_id: SITUACAO_CONFIRMADO_ARGUS },
+    payload: { tabela, lancamento_id: link.lancamento_id, data_liquidacao: dataLiq },
   });
 
   return { ...link, ok: true, gc_id: lanc.gc_id };
