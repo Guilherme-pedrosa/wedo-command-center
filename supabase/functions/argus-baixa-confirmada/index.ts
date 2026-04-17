@@ -133,14 +133,26 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
   }
 
   // Buscar data do extrato vinculado (a mais recente, caso N:N)
+  // Aceita tanto "fin_pagamentos"/"fin_recebimentos" quanto sem prefixo (legado)
+  const tabelaShort = tabela.replace(/^fin_/, "");
   const { data: vinculos } = await supabase
     .from("fin_extrato_lancamentos")
-    .select("extrato_id, fin_extrato_inter:extrato_id(data_hora)")
+    .select("extrato_id, tabela")
     .eq("lancamento_id", link.lancamento_id)
-    .eq("tabela", tabela);
+    .in("tabela", [tabela, tabelaShort]);
 
-  const datas = (vinculos || [])
-    .map((v: any) => dateOnly(v.fin_extrato_inter?.data_hora))
+  const extratoIds = Array.from(new Set((vinculos || []).map((v: any) => v.extrato_id).filter(Boolean)));
+  if (extratoIds.length === 0) {
+    return { ...link, ok: false, erro: "Sem extrato vinculado" };
+  }
+
+  const { data: extratos } = await supabase
+    .from("fin_extrato_inter")
+    .select("id, data_hora")
+    .in("id", extratoIds);
+
+  const datas = (extratos || [])
+    .map((e: any) => dateOnly(e.data_hora))
     .filter((d: string | null): d is string => !!d);
 
   if (datas.length === 0) {
@@ -219,14 +231,27 @@ async function buscarPendentes(): Promise<LinkInput[]> {
       const chunk = ids.slice(i, i + chunkSize);
       const { data: links } = await supabase
         .from("fin_extrato_lancamentos")
-        .select("lancamento_id, tabela, fin_extrato_inter:extrato_id(data_hora)")
+        .select("lancamento_id, tabela, extrato_id")
         .in("lancamento_id", chunk);
 
+      const linksRel = ((links || []) as any[]).filter((l) => normalizeTabela(l.tabela) === tabela);
+      const extIds = Array.from(new Set(linksRel.map((l) => l.extrato_id).filter(Boolean)));
+      if (extIds.length === 0) continue;
+
+      const { data: extratos } = await supabase
+        .from("fin_extrato_inter")
+        .select("id, data_hora")
+        .in("id", extIds);
+
+      const dataMap: Record<string, string> = {};
+      for (const e of (extratos || []) as any[]) {
+        const d = dateOnly(e.data_hora);
+        if (d) dataMap[e.id] = d;
+      }
+
       const seen = new Set<string>();
-      for (const l of (links || []) as any[]) {
-        const tab = normalizeTabela(l.tabela);
-        if (tab !== tabela) continue;
-        const d = dateOnly(l.fin_extrato_inter?.data_hora);
+      for (const l of linksRel) {
+        const d = dataMap[l.extrato_id];
         if (!d || d < CUTOFF_DATE) continue;
         const k = `${tabela}|${l.lancamento_id}`;
         if (seen.has(k)) continue;
