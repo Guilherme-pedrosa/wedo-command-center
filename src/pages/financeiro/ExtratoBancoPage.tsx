@@ -417,6 +417,13 @@ export default function ExtratoBancoPage() {
       const now = new Date().toISOString();
       const table = selectedLanc._tipo === "receber" ? "fin_recebimentos" : "fin_pagamentos";
       const tabela = selectedLanc._tipo === "receber" ? "recebimentos" : "pagamentos";
+      // Guarda: nunca vincular financeiro cancelado
+      const { data: chk } = await supabase.from(table).select("status").eq("id", selectedLanc.id).maybeSingle();
+      if (chk?.status === "cancelado") {
+        toast.error("Este financeiro está cancelado no GC e não pode ser vinculado.");
+        setLinking(false);
+        return;
+      }
       await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: selectedLanc.id, reconciliado_em: now, reconciliation_rule: "MANUAL" }).eq("id", selectedExtrato.id);
       await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", selectedLanc.id);
       await supabase.from("fin_extrato_lancamentos").upsert({ extrato_id: selectedExtrato.id, lancamento_id: selectedLanc.id, tabela, valor_alocado: Number(selectedLanc.valor), reconciliation_rule: "MANUAL" }, { onConflict: "extrato_id,lancamento_id,tabela" });
