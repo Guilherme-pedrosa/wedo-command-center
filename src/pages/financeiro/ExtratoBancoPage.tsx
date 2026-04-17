@@ -488,6 +488,13 @@ export default function ExtratoBancoPage() {
       const now = new Date().toISOString();
       const table = candidato.lancamento_tipo === "recebimento" ? "fin_recebimentos" : "fin_pagamentos";
       const tabela = candidato.lancamento_tipo === "recebimento" ? "recebimentos" : "pagamentos";
+      // Guarda: nunca vincular financeiro cancelado
+      const { data: chk } = await supabase.from(table).select("status").eq("id", candidato.lancamento_id).maybeSingle();
+      if (chk?.status === "cancelado") {
+        toast.error("Este financeiro está cancelado no GC e não pode ser vinculado.");
+        setAiVinculando(null);
+        return;
+      }
       await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: candidato.lancamento_id, reconciliado_em: now, reconciliation_rule: "AI_GPT5" }).eq("id", extratoId);
       await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", candidato.lancamento_id);
       await supabase.from("fin_extrato_lancamentos").upsert({ extrato_id: extratoId, lancamento_id: candidato.lancamento_id, tabela, valor_alocado: candidato.valor_lancamento, reconciliation_rule: "AI_GPT5" }, { onConflict: "extrato_id,lancamento_id,tabela" });
@@ -506,6 +513,13 @@ export default function ExtratoBancoPage() {
       const now = new Date().toISOString();
       const table = sug.lancamento_tipo === "recebimento" ? "fin_recebimentos" : "fin_pagamentos";
       const tabela = sug.lancamento_tipo === "recebimento" ? "recebimentos" : "pagamentos";
+      // Guarda: nunca vincular financeiro cancelado
+      const { data: chk } = await supabase.from(table).select("status").eq("id", sug.lancamento_id).maybeSingle();
+      if (chk?.status === "cancelado") {
+        toast.error("Este financeiro está cancelado no GC e não pode ser vinculado.");
+        setSugVinculando(null);
+        return;
+      }
       await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: sug.lancamento_id, reconciliado_em: now, reconciliation_rule: "SUGESTAO_ACEITA" }).eq("id", extratoId);
       await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", sug.lancamento_id);
       await supabase.from("fin_extrato_lancamentos").upsert({ extrato_id: extratoId, lancamento_id: sug.lancamento_id, tabela, valor_alocado: sug.valor, reconciliation_rule: "SUGESTAO_ACEITA" }, { onConflict: "extrato_id,lancamento_id,tabela" });
