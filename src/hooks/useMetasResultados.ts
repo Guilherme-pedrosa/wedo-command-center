@@ -187,16 +187,20 @@ export const useMetasResultados = (year: number, month: number) => {
     },
   });
 
+  // Vendas: somente Concretizada (situacao_id = 7063585) entra no faturamento.
+  // Mantemos no banco vendas Canceladas/Outras pra rastreabilidade, mas filtramos aqui.
+  const VENDAS_SITUACAO_CONCRETIZADA = '7063585';
   const { data: vendasConcretizadas = [], isLoading: loadingVendas, refetch: refetchVendas } = useQuery({
     queryKey: ['gc_vendas_metas', start, end],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('gc_vendas')
-        .select('gc_id, codigo, nome_cliente, nome_situacao, valor_total, data')
+        .select('gc_id, codigo, nome_cliente, nome_situacao, situacao_id, valor_total, data')
+        .eq('situacao_id', VENDAS_SITUACAO_CONCRETIZADA)
         .gte('data', start)
         .lte('data', end);
       if (error) throw error;
-      return data as { gc_id: string; codigo: string; nome_cliente: string | null; nome_situacao: string | null; valor_total: number | null; data: string | null }[];
+      return data as { gc_id: string; codigo: string; nome_cliente: string | null; nome_situacao: string | null; situacao_id: string | null; valor_total: number | null; data: string | null }[];
     },
   });
 
