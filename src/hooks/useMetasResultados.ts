@@ -252,7 +252,8 @@ export const useMetasResultados = (year: number, month: number) => {
     },
   });
 
-  // Contratos PCM: filtrar por data_vencimento (quando o dinheiro entra)
+  // Contratos PCM: APENAS Confirmado / Confirmado Manual (liquidado=true).
+  // Atrasado/Em Aberto NÃO entra (cliente pode cancelar antes de pagar).
   const PCM_PLANO_IDS = ['27867721', '27867722'];
   const { data: gcRecPCM = [], isLoading: loadingGcPCM, refetch: refetchGcPCM } = useQuery({
     queryKey: ['gc_recebimentos_pcm', start, end],
@@ -261,6 +262,7 @@ export const useMetasResultados = (year: number, month: number) => {
         .from('gc_recebimentos')
         .select('gc_id, gc_codigo, descricao, valor, plano_contas_id, centro_custo_id, data_vencimento, liquidado')
         .in('plano_contas_id', PCM_PLANO_IDS)
+        .eq('liquidado', true)
         .gte('data_vencimento', start)
         .lte('data_vencimento', end);
       if (error) throw error;
