@@ -203,6 +203,48 @@ export default function ExtratoBancoPage() {
     },
   });
 
+  // GC baixa status por extrato — agrega info dos lançamentos vinculados
+  const { data: gcBaixaMap } = useQuery({
+    queryKey: ["extrato-gc-baixa", queryDateFrom, queryDateTo],
+    queryFn: async () => {
+      const extratoIds = (extrato || []).filter((e: any) => e.reconciliado).map((e: any) => e.id);
+      if (!extratoIds.length) return {} as Record<string, "all" | "partial" | "none">;
+
+      const { data: links } = await supabase
+        .from("fin_extrato_lancamentos")
+        .select("extrato_id, lancamento_id, tabela")
+        .in("extrato_id", extratoIds);
+
+      if (!links?.length) return {};
+
+      const recIds = links.filter((l: any) => l.tabela === "recebimentos").map((l: any) => l.lancamento_id);
+      const pagIds = links.filter((l: any) => l.tabela === "pagamentos").map((l: any) => l.lancamento_id);
+
+      const [recRes, pagRes] = await Promise.all([
+        recIds.length ? supabase.from("fin_recebimentos").select("id, gc_baixado, gc_baixado_em").in("id", recIds) : Promise.resolve({ data: [] as any[] }),
+        pagIds.length ? supabase.from("fin_pagamentos").select("id, gc_baixado, gc_baixado_em").in("id", pagIds) : Promise.resolve({ data: [] as any[] }),
+      ]);
+
+      const baixaById: Record<string, { baixado: boolean; em: string | null }> = {};
+      for (const r of (recRes.data || [])) baixaById[`r:${r.id}`] = { baixado: !!r.gc_baixado, em: r.gc_baixado_em };
+      for (const p of (pagRes.data || [])) baixaById[`p:${p.id}`] = { baixado: !!p.gc_baixado, em: p.gc_baixado_em };
+
+      const result: Record<string, { status: "all" | "partial" | "none"; em: string | null }> = {};
+      for (const eid of extratoIds) {
+        const linkedHere = links.filter((l: any) => l.extrato_id === eid);
+        if (!linkedHere.length) continue;
+        const flags = linkedHere.map((l: any) => baixaById[`${l.tabela === "recebimentos" ? "r" : "p"}:${l.lancamento_id}`]).filter(Boolean);
+        if (!flags.length) continue;
+        const baixados = flags.filter(f => f.baixado);
+        const ems = baixados.map(f => f.em).filter(Boolean).sort();
+        const status: "all" | "partial" | "none" = baixados.length === flags.length ? "all" : baixados.length === 0 ? "none" : "partial";
+        result[eid] = { status, em: ems[ems.length - 1] || null };
+      }
+      return result as any;
+    },
+    enabled: !!extrato?.length,
+  });
+
   const filtered = useMemo(() => {
     return (extrato || []).filter((e: any) => {
       if (tipoFilter !== "todos" && e.tipo !== tipoFilter) return false;
@@ -226,6 +268,7 @@ export default function ExtratoBancoPage() {
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["extrato-unified"] });
+    queryClient.invalidateQueries({ queryKey: ["extrato-gc-baixa"] });
     queryClient.invalidateQueries({ queryKey: ["conc-recebimentos"] });
     queryClient.invalidateQueries({ queryKey: ["conc-pagamentos"] });
   };
@@ -989,24 +1032,46 @@ export default function ExtratoBancoPage() {
                         {e.cpf_cnpj && <span className="text-[10px] text-muted-foreground ml-2">{e.cpf_cnpj}</span>}
                       </div>
                       <div className="text-muted-foreground truncate text-xs px-2" title={e.descricao}>{e.descricao || "—"}</div>
-                      <div className="text-center flex items-center justify-center gap-1">
-                        {isReconciled && (
-                          <>
-                            <span className="text-green-500 text-sm">✅</span>
-                            <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/30">
-                              {ruleLabels[e.reconciliation_rule] || e.reconciliation_rule || "OK"}
-                            </Badge>
-                          </>
+                      <div className="text-center flex flex-col items-center justify-center gap-0.5">
+                        <div className="flex items-center justify-center gap-1">
+                          {isReconciled && (
+                            <>
+                              <span className="text-green-500 text-sm">✅</span>
+                              <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/30">
+                                {ruleLabels[e.reconciliation_rule] || e.reconciliation_rule || "OK"}
+                              </Badge>
+                            </>
+                          )}
+                          {isException && (
+                            <>
+                              <span className="text-yellow-500 text-sm">⚠️</span>
+                              <Badge variant="outline" className="text-[9px] bg-yellow-500/10 text-yellow-600 border-yellow-500/30">
+                                {ruleLabels[e.reconciliation_rule] || e.reconciliation_rule}
+                              </Badge>
+                            </>
+                          )}
+                          {isPending && <span className="text-red-500 text-sm">❌</span>}
+                        </div>
+                        {isReconciled && gcBaixaMap?.[e.id] && (
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "text-[8px] px-1.5 py-0 h-4 gap-1",
+                              gcBaixaMap[e.id].status === "all" && "bg-emerald-500/10 text-emerald-500 border-emerald-500/30",
+                              gcBaixaMap[e.id].status === "partial" && "bg-amber-500/10 text-amber-600 border-amber-500/30",
+                              gcBaixaMap[e.id].status === "none" && "bg-muted/50 text-muted-foreground border-border",
+                            )}
+                            title={
+                              gcBaixaMap[e.id].status === "all"
+                                ? `Baixado no GestãoClick${gcBaixaMap[e.id].em ? ` em ${formatDateTime(gcBaixaMap[e.id].em)}` : ""}`
+                                : gcBaixaMap[e.id].status === "partial"
+                                ? "Baixa parcial no GestãoClick"
+                                : "Ainda não baixado no GestãoClick"
+                            }
+                          >
+                            {gcBaixaMap[e.id].status === "all" ? "GC ✓" : gcBaixaMap[e.id].status === "partial" ? "GC ½" : "GC ⏳"}
+                          </Badge>
                         )}
-                        {isException && (
-                          <>
-                            <span className="text-yellow-500 text-sm">⚠️</span>
-                            <Badge variant="outline" className="text-[9px] bg-yellow-500/10 text-yellow-600 border-yellow-500/30">
-                              {ruleLabels[e.reconciliation_rule] || e.reconciliation_rule}
-                            </Badge>
-                          </>
-                        )}
-                        {isPending && <span className="text-red-500 text-sm">❌</span>}
                       </div>
                       <div className="flex items-center justify-center gap-1">
                         {isReconciled && (
