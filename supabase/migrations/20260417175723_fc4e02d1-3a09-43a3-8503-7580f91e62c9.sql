@@ -1,0 +1,1 @@
+UPDATE fin_pagamentos SET gc_baixado = false, gc_baixado_em = NULL WHERE id = '3d2c0f8d-a365-4495-ae6d-340a3ae10492'::uuid;
