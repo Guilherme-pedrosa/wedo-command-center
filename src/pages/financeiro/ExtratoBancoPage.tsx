@@ -1227,6 +1227,25 @@ export default function ExtratoBancoPage() {
                     ) : "—"
                   } />
                   <DetailRow label="Conciliado em" value={detailItem.reconciliado_em ? formatDateTime(detailItem.reconciliado_em) : "—"} />
+                  {(() => {
+                    const soma = detailLancs.reduce((s: number, l: any) => s + Math.abs(Number(l._valor_alocado ?? l.valor ?? 0)), 0);
+                    const extVal = Math.abs(Number(detailItem.valor || 0));
+                    const diff = extVal - soma;
+                    return (
+                      <>
+                        <DetailRow label={`Soma Vinculada (${detailLancs.length} ${detailLancs.length === 1 ? "item" : "itens"})`} value={
+                          <span className="font-semibold text-foreground">{formatCurrency(soma)}</span>
+                        } />
+                        {Math.abs(diff) > 0.01 && (
+                          <DetailRow label="Diferença" value={
+                            <span className={diff > 0 ? "text-amber-500 font-medium" : "text-destructive font-medium"}>
+                              {formatCurrency(diff)} {diff > 0 ? "(taxa/juros)" : "(excedente)"}
+                            </span>
+                          } />
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
 
