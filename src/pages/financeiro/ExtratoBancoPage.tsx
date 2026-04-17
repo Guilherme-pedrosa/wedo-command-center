@@ -1038,46 +1038,52 @@ export default function ExtratoBancoPage() {
                         {e.cpf_cnpj && <span className="text-[10px] text-muted-foreground ml-2">{e.cpf_cnpj}</span>}
                       </div>
                       <div className="text-muted-foreground truncate text-xs px-2" title={e.descricao}>{e.descricao || "—"}</div>
-                      <div className="text-center flex flex-col items-center justify-center gap-0.5">
-                        <div className="flex items-center justify-center gap-1">
-                          {isReconciled && (
-                            <>
-                              <span className="text-green-500 text-sm">✅</span>
-                              <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/30">
-                                {ruleLabels[e.reconciliation_rule] || e.reconciliation_rule || "OK"}
+                      <div className="text-center flex flex-wrap items-center justify-center gap-1">
+                        {isReconciled && (
+                          <>
+                            <span className="text-green-500 text-sm leading-none">✅</span>
+                            <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/30">
+                              {ruleLabels[e.reconciliation_rule] || e.reconciliation_rule || "OK"}
+                            </Badge>
+                            {gcBaixaMap?.[e.id] ? (
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "text-[9px] font-semibold",
+                                  gcBaixaMap[e.id].status === "all" && "bg-emerald-500/15 text-emerald-500 border-emerald-500/40",
+                                  gcBaixaMap[e.id].status === "partial" && "bg-amber-500/15 text-amber-600 border-amber-500/40",
+                                  gcBaixaMap[e.id].status === "none" && "bg-muted text-muted-foreground border-border",
+                                )}
+                                title={
+                                  gcBaixaMap[e.id].status === "all"
+                                    ? `Baixado no GestãoClick${gcBaixaMap[e.id].em ? ` em ${formatDateTime(gcBaixaMap[e.id].em)}` : ""}`
+                                    : gcBaixaMap[e.id].status === "partial"
+                                    ? "Baixa parcial no GestãoClick"
+                                    : "Ainda não baixado no GestãoClick"
+                                }
+                              >
+                                {gcBaixaMap[e.id].status === "all"
+                                  ? "✓ Baixado GC"
+                                  : gcBaixaMap[e.id].status === "partial"
+                                  ? "½ GC parcial"
+                                  : "⏳ Pend. GC"}
                               </Badge>
-                            </>
-                          )}
-                          {isException && (
-                            <>
-                              <span className="text-yellow-500 text-sm">⚠️</span>
-                              <Badge variant="outline" className="text-[9px] bg-yellow-500/10 text-yellow-600 border-yellow-500/30">
-                                {ruleLabels[e.reconciliation_rule] || e.reconciliation_rule}
+                            ) : (
+                              <Badge variant="outline" className="text-[9px] bg-muted text-muted-foreground border-border" title="Sem informação de baixa GC">
+                                ⏳ GC?
                               </Badge>
-                            </>
-                          )}
-                          {isPending && <span className="text-red-500 text-sm">❌</span>}
-                        </div>
-                        {isReconciled && gcBaixaMap?.[e.id] && (
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-[8px] px-1.5 py-0 h-4 gap-1",
-                              gcBaixaMap[e.id].status === "all" && "bg-emerald-500/10 text-emerald-500 border-emerald-500/30",
-                              gcBaixaMap[e.id].status === "partial" && "bg-amber-500/10 text-amber-600 border-amber-500/30",
-                              gcBaixaMap[e.id].status === "none" && "bg-muted/50 text-muted-foreground border-border",
                             )}
-                            title={
-                              gcBaixaMap[e.id].status === "all"
-                                ? `Baixado no GestãoClick${gcBaixaMap[e.id].em ? ` em ${formatDateTime(gcBaixaMap[e.id].em)}` : ""}`
-                                : gcBaixaMap[e.id].status === "partial"
-                                ? "Baixa parcial no GestãoClick"
-                                : "Ainda não baixado no GestãoClick"
-                            }
-                          >
-                            {gcBaixaMap[e.id].status === "all" ? "GC ✓" : gcBaixaMap[e.id].status === "partial" ? "GC ½" : "GC ⏳"}
-                          </Badge>
+                          </>
                         )}
+                        {isException && (
+                          <>
+                            <span className="text-yellow-500 text-sm leading-none">⚠️</span>
+                            <Badge variant="outline" className="text-[9px] bg-yellow-500/10 text-yellow-600 border-yellow-500/30">
+                              {ruleLabels[e.reconciliation_rule] || e.reconciliation_rule}
+                            </Badge>
+                          </>
+                        )}
+                        {isPending && <span className="text-red-500 text-sm leading-none">❌</span>}
                       </div>
                       <div className="flex items-center justify-center gap-1">
                         {isReconciled && (
