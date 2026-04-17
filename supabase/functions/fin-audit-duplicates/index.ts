@@ -155,10 +155,10 @@ Deno.serve(async (req) => {
     let achadosIA: Achado[] = [];
 
     if (LOVABLE_API_KEY && pagamentos.length > 0) {
-      // Amostra: até 100 pagamentos pra IA (evita estouro de contexto)
+      // Amostra: até 250 pagamentos pra Gemini Pro (contexto longo permite)
       const amostra = pagamentos
         .filter(p => !plano_filter || p.plano_nome?.toLowerCase().includes(plano_filter.toLowerCase()))
-        .slice(0, 100)
+        .slice(0, 250)
         .map(p => ({
           id: p.id,
           desc: p.descricao,
@@ -205,7 +205,7 @@ Retorne APENAS JSON válido no formato:
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
+            model: "google/gemini-2.5-pro",
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt },

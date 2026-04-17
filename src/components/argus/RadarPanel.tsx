@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, CheckCircle, Clock, DollarSign, RefreshCw, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle, Clock, DollarSign, RefreshCw, Loader2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
@@ -20,6 +20,7 @@ const SEV_ICON_COLOR: Record<string, string> = {
 export function RadarPanel() {
   const qc = useQueryClient();
   const [running, setRunning] = useState(false);
+  const [briefingIA, setBriefingIA] = useState<string | null>(null);
 
   const { data: alertas = [], refetch } = useQuery({
     queryKey: ["fin_alertas"],
@@ -51,6 +52,7 @@ export function RadarPanel() {
       toast.success(
         `Radar concluído: ${data.alertas_criados} alertas, ${data.tarefas_criadas} tarefas`
       );
+      setBriefingIA(data.briefing_ia || null);
       refetch();
       qc.invalidateQueries({ queryKey: ["fin_tarefas"] });
       qc.invalidateQueries({ queryKey: ["fin_agent_runs"] });
@@ -100,6 +102,21 @@ export function RadarPanel() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Briefing IA Gemini Pro */}
+      {briefingIA && (
+        <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              Briefing Executivo IA · Gemini 2.5 Pro
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs whitespace-pre-wrap leading-relaxed">{briefingIA}</div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

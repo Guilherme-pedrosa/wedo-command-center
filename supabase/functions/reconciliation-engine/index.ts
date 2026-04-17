@@ -1145,8 +1145,63 @@ serve(async (req) => {
       }
     }
 
+    // ═══════════════════════════════════════════
+    // CAMADA IA HÍBRIDA — Gemini 2.5 Pro analisa órfãos
+    // ═══════════════════════════════════════════
+    let analiseIA = "";
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const orfaos = unmatchedItems.filter((u: any) => !u.sugestoes?.length && !u.sugestao_nn);
+
+    if (LOVABLE_API_KEY && (orfaos.length > 0 || reviewItems.length > 5)) {
+      try {
+        const amostraOrfaos = orfaos.slice(0, 30).map((u: any) => ({
+          id: u.extrato_id,
+          desc: u.descricao_extrato,
+          contraparte: u.contrapartida,
+          doc: u.cpf_cnpj,
+          valor: u.valor,
+          tipo: u.tipo,
+          data: u.data_hora?.substring(0, 10),
+        }));
+
+        const prompt = `Você é o ARGUS-FIN, especialista em conciliação bancária da WeDo. O motor SQL processou o extrato e ${orfaos.length} transações ficaram SEM nenhum candidato no ERP.
+
+Estatísticas: ${stats.auto} auto-conciliadas, ${stats.review} pra revisão, ${stats.unmatched} órfãs.
+
+Top órfãs (sem match SQL):
+${amostraOrfaos.map((o, i) => `${i + 1}. [${o.tipo}] ${o.data} | ${o.contraparte || "?"} (${o.doc || "sem CNPJ"}) | R$ ${Math.abs(Number(o.valor)).toFixed(2)} | "${o.desc}"`).join("\n")}
+
+Tarefa em até 8 linhas:
+1. 🔴 PADRÃO MAIS PERIGOSO (recebimentos órfãos = receita não contabilizada? débitos órfãos = pagamento sem registro?)
+2. 📊 Detecte CONTRAPARTES recorrentes (3+ transações órfãs do mesmo nome/CNPJ → cadastro faltando)
+3. 💡 3 AÇÕES práticas: o que cadastrar, criar como lançamento, ou investigar primeiro
+4. ⚠️ Riscos fiscais (receita sem NF? despesa sem nota?)
+Use R$. Tom de auditor sênior, direto.`;
+
+        const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-pro",
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: 1000,
+          }),
+        });
+
+        if (aiResp.ok) {
+          const data = await aiResp.json();
+          analiseIA = data.choices?.[0]?.message?.content || "";
+        }
+      } catch (e) {
+        console.error("Erro IA reconciliation:", e);
+      }
+    }
+
     return new Response(
-      JSON.stringify({ success: true, stats, review: reviewItems, unmatched: unmatchedItems }),
+      JSON.stringify({ success: true, stats, review: reviewItems, unmatched: unmatchedItems, analise_ia: analiseIA || null }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: any) {

@@ -317,6 +317,67 @@ Deno.serve(async (req) => {
   }
 
   // ═══════════════════════════════════════════
+  // 7) ANÁLISE IA (Gemini Pro) — narrativa estratégica
+  // ═══════════════════════════════════════════
+  let analiseIA = "";
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  if (LOVABLE_API_KEY && alertasCriados > 0) {
+    try {
+      const { data: alertasHoje } = await supabase
+        .from("fin_alertas")
+        .select("tipo, severidade, titulo, descricao, valor_impacto")
+        .gte("created_at", new Date(startTime).toISOString())
+        .order("valor_impacto", { ascending: false })
+        .limit(50);
+
+      if (alertasHoje && alertasHoje.length > 0) {
+        const prompt = `Você é o ARGUS, CFO virtual da WeDo. O Radar diário detectou ${alertasHoje.length} alertas hoje.
+
+Alertas (top por impacto):
+${alertasHoje.map((a, i) => `${i + 1}. [${a.severidade.toUpperCase()}] ${a.titulo} — R$ ${Number(a.valor_impacto).toFixed(2)} | ${a.descricao}`).join("\n")}
+
+Tarefa: Em até 6 linhas, escreva um briefing executivo:
+- Risco TOP 1 (qual alerta priorizar HOJE e por quê)
+- Padrão detectado (concentração de fornecedor? cliente reincidente? semana crítica?)
+- 2 ações práticas para o time financeiro AGORA
+Seja direto, use R$ e %. Não repita os títulos dos alertas.`;
+
+        const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-pro",
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: 800,
+          }),
+        });
+
+        if (aiResp.ok) {
+          const data = await aiResp.json();
+          analiseIA = data.choices?.[0]?.message?.content || "";
+
+          // Salva como sinal/alerta informativo
+          if (analiseIA) {
+            await supabase.from("fin_model_signals").insert({
+              tipo: "radar_ia_briefing",
+              entidade_tipo: "radar",
+              entidade_id: today,
+              metadata: { briefing: analiseIA, alertas_analisados: alertasHoje.length },
+              confianca: 0.9,
+              periodo: today,
+            });
+          }
+        }
+      }
+    } catch (e: any) {
+      erros.push(`IA Radar: ${e.message}`);
+    }
+  }
+
+  // ═══════════════════════════════════════════
   // LOG DA EXECUÇÃO
   // ═══════════════════════════════════════════
   const duracao = Date.now() - startTime;
@@ -325,7 +386,9 @@ Deno.serve(async (req) => {
   await supabase.from("fin_agent_runs").insert({
     tipo: "radar-daily",
     status,
-    resumo: `${alertasCriados} alertas, ${tarefasCriadas} tarefas criadas`,
+    resumo: analiseIA
+      ? `${alertasCriados} alertas, ${tarefasCriadas} tarefas | IA: ${analiseIA.slice(0, 200)}...`
+      : `${alertasCriados} alertas, ${tarefasCriadas} tarefas criadas`,
     duracao_ms: duracao,
     alertas_criados: alertasCriados,
     tarefas_criadas: tarefasCriadas,
@@ -340,6 +403,7 @@ Deno.serve(async (req) => {
       alertas_criados: alertasCriados,
       tarefas_criadas: tarefasCriadas,
       duracao_ms: duracao,
+      briefing_ia: analiseIA || null,
       erros,
     }),
     { headers: { ...corsHeaders, "Content-Type": "application/json" } }

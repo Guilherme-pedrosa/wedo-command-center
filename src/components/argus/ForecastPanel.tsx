@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Loader2, RefreshCw, AlertTriangle } from "lucide-react";
+import { TrendingUp, TrendingDown, Loader2, RefreshCw, AlertTriangle, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
@@ -40,6 +40,7 @@ export function ForecastPanel() {
         saldo_inicial: number;
         semanas: ForecastWeek[];
         semanas_risco: any[];
+        briefing_ia?: string | null;
       };
     },
     staleTime: 10 * 60 * 1000,
@@ -100,6 +101,21 @@ export function ForecastPanel() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Briefing IA Gemini Pro */}
+      {data?.briefing_ia && (
+        <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              Análise Estratégica IA · Gemini 2.5 Pro
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs whitespace-pre-wrap leading-relaxed">{data.briefing_ia}</div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Bar chart - simple visual */}
       {semanas.length > 0 && (
