@@ -1359,6 +1359,16 @@ export default function ExtratoBancoPage() {
                         <DetailRow label="Cód GC" value={lanc.gc_codigo || "—"} mono />
                         <DetailRow label="Descrição" value={lanc.descricao} />
                         <DetailRow label={lanc._tabela === "fin_recebimentos" ? "Cliente" : "Fornecedor"} value={lanc.nome_cliente || lanc.nome_fornecedor || "—"} />
+                        <DetailRow
+                          label="NF"
+                          value={
+                            lanc.nf_numero
+                              ? lanc.nf_numero
+                              : lanc.nfe_chave
+                                ? <span className="font-mono text-xs break-all">{lanc.nfe_chave}</span>
+                                : "—"
+                          }
+                        />
                         <DetailRow label="Valor" value={formatCurrency(Number(lanc.valor || 0))} bold />
                         <DetailRow label="Valor Alocado" value={lanc._valor_alocado ? formatCurrency(Number(lanc._valor_alocado)) : "—"} />
                         <DetailRow label="Vencimento" value={lanc.data_vencimento ? formatDate(lanc.data_vencimento) : "—"} />
