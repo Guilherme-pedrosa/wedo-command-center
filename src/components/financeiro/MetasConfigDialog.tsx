@@ -435,10 +435,10 @@ export default function MetasConfigDialog({ open, onOpenChange }: Props) {
                       const sl = hasSpecialLogic(editingMeta);
                       if (sl.special) {
                         return (
-                          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 space-y-1">
+                          <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-foreground space-y-1">
                             <div className="font-semibold">Cálculo automático (lógica especial)</div>
                             <div>Esta meta é apurada por uma fonte específica e <strong>não usa</strong> o vínculo de Plano de Contas. Por isso, a edição dos mapeamentos foi desabilitada para evitar configuração incorreta.</div>
-                            <div className="text-amber-800/80">Fonte: {sl.reason}</div>
+                            <div className="text-muted-foreground">Fonte: {sl.reason}</div>
                           </div>
                         );
                       }
