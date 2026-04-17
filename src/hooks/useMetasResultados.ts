@@ -135,51 +135,31 @@ export const useMetasResultados = (year: number, month: number) => {
     staleTime: 10 * 60 * 1000,
   });
 
-  // REGRA DE APURAÇÃO (alinhado ao GestãoClick):
-  // - Lançamento PAGO/LIQUIDADO  → entra no mês da data_liquidacao
-  // - Lançamento EM ABERTO       → entra no mês da data_competencia (fallback: data_vencimento)
-  // Para isso buscamos um range amplo (3 meses pra trás) e filtramos no client.
-  const wideStart = (() => {
-    const d = new Date(year, month - 4, 1); // 3 meses antes do início
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-  })();
-
-  const inPeriod = (dateStr: string | null | undefined) => {
-    if (!dateStr) return false;
-    return dateStr >= start && dateStr <= end;
-  };
-
-  const isLiquidado = (status: string | null, liquidado?: boolean) =>
-    liquidado === true || status === 'pago' || status === 'liquidado';
-
-  const effectiveDate = (row: { status: string | null; liquidado?: boolean; data_liquidacao: string | null; data_competencia: string | null; data_vencimento: string | null }) => {
-    if (isLiquidado(row.status, row.liquidado) && row.data_liquidacao) return row.data_liquidacao;
-    return row.data_competencia || row.data_vencimento;
-  };
-
   const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec } = useQuery({
-    queryKey: ['fin_recebimentos_metas', wideStart, end],
+    queryKey: ['fin_recebimentos_metas', start, end],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fin_recebimentos')
-        .select('plano_contas_id, centro_custo_id, valor, status, liquidado, data_liquidacao, data_competencia, data_vencimento')
+        .select('plano_contas_id, centro_custo_id, valor, status')
         .neq('status', 'cancelado')
-        .or(`and(data_vencimento.gte.${wideStart},data_vencimento.lte.${end}),and(data_liquidacao.gte.${start},data_liquidacao.lte.${end})`);
+        .gte('data_vencimento', start)
+        .lte('data_vencimento', end);
       if (error) throw error;
-      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; liquidado: boolean | null; data_liquidacao: string | null; data_competencia: string | null; data_vencimento: string | null }[];
+      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
     },
   });
 
   const { data: pagamentos = [], isLoading: loadingPag, refetch: refetchPag } = useQuery({
-    queryKey: ['fin_pagamentos_metas', wideStart, end],
+    queryKey: ['fin_pagamentos_metas', start, end],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fin_pagamentos')
-        .select('plano_contas_id, centro_custo_id, valor, status, liquidado, data_liquidacao, data_competencia, data_vencimento')
+        .select('plano_contas_id, centro_custo_id, valor, status, data_liquidacao')
         .neq('status', 'cancelado')
-        .or(`and(data_vencimento.gte.${wideStart},data_vencimento.lte.${end}),and(data_liquidacao.gte.${start},data_liquidacao.lte.${end})`);
+        .gte('data_vencimento', start)
+        .lte('data_vencimento', end);
       if (error) throw error;
-      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; liquidado: boolean | null; data_liquidacao: string | null; data_competencia: string | null; data_vencimento: string | null }[];
+      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null }[];
     },
   });
 
@@ -363,8 +343,7 @@ export const useMetasResultados = (year: number, month: number) => {
             const soma = source
               .filter(r =>
                 r.plano_contas_id === planoUuid &&
-                (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid) &&
-                inPeriod(effectiveDate(r))
+                (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
               )
               .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
             realizado += soma * (link.peso || 1);
