@@ -61,7 +61,10 @@ serve(async (req) => {
       }
     } catch { /* no body */ }
 
-    // Step 1: If no situacao_ids provided, fetch all situações de vendas and find Concretizado + Venda Futura
+    // Step 1: If no situacao_ids provided, fetch ALL situações de vendas.
+    // IMPORTANTE: precisamos sincronizar TODAS as situações (incluindo Cancelada) pra
+    // que vendas que mudam de status no GC sejam atualizadas no banco — caso contrário
+    // uma venda que vira "Cancelada" continua fossilizada como "Concretizada" aqui.
     if (situacaoIds.length === 0) {
       console.log("[sync-vendas] Fetching situacoes_vendas...");
       const sitResp = await rateLimitedFetch(
@@ -72,12 +75,8 @@ serve(async (req) => {
         const sitData = await sitResp.json();
         const situacoes = Array.isArray(sitData?.data) ? sitData.data : [];
         for (const sit of situacoes) {
-          const nome = String(sit.nome || "").toLowerCase().trim();
-          // Somente "Concretizado" (exato) e "Venda Futura" — NÃO incluir "Concretizado Peças Reserva" etc.
-          if (nome === "concretizado" || nome === "concretizada" || nome === "venda futura") {
-            situacaoIds.push(String(sit.id));
-            console.log(`[sync-vendas] Found situacao: ${sit.nome} (id=${sit.id})`);
-          }
+          situacaoIds.push(String(sit.id));
+          console.log(`[sync-vendas] Including situacao: ${sit.nome} (id=${sit.id})`);
         }
       } else {
         console.error(`[sync-vendas] Failed to fetch situacoes_vendas: ${sitResp.status}`);
@@ -86,7 +85,7 @@ serve(async (req) => {
 
     if (situacaoIds.length === 0) {
       return new Response(
-        JSON.stringify({ error: "No matching situacao_ids found for Concretizado/Venda Futura" }),
+        JSON.stringify({ error: "No situacao_ids found in GC" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -147,7 +146,7 @@ serve(async (req) => {
             nome_cliente: String(venda.nome_cliente || venda.cliente_nome || "") || null,
             cliente_id: String(venda.cliente_id || venda.cliente_codigo || "") || null,
             nome_situacao: String(venda.nome_situacao || venda.situacao_nome || ""),
-            situacao_id: sitId,
+            situacao_id: String(venda.situacao_id || sitId),
             data: dataVenda,
             valor_total: parseFloat(String(venda.valor_total || "0")) || null,
             valor_produtos: parseFloat(String(venda.valor_produtos || "0")) || null,

@@ -1,0 +1,1 @@
+UPDATE gc_vendas SET situacao_id = 'cancelada-manual', nome_situacao = 'Cancelada - Devolução de Ferramenta' WHERE codigo = '2235' AND data = '2026-03-06';
