@@ -188,12 +188,15 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
   // Buscar registro local
   const { data: lanc, error: lancErr } = await supabase
     .from(tabela)
-    .select("id, gc_id, gc_payload_raw, gc_baixado, liquidado")
+    .select("id, gc_id, gc_payload_raw, gc_baixado, liquidado, status")
     .eq("id", link.lancamento_id)
     .maybeSingle();
 
   if (lancErr || !lanc) {
     return { ...link, ok: false, erro: lancErr?.message || "Lançamento não encontrado" };
+  }
+  if (String(lanc.status || "").toLowerCase() === "cancelado") {
+    return { ...link, ok: false, erro: "Lançamento cancelado (skip)", gc_id: lanc.gc_id ?? undefined };
   }
   if (!lanc.gc_id || !lanc.gc_payload_raw) {
     return { ...link, ok: false, erro: "Sem gc_id ou payload" };
@@ -302,9 +305,10 @@ async function buscarPendentes(): Promise<LinkInput[]> {
     // Pega IDs de lançamentos NÃO baixados
     const { data: pendentes } = await supabase
       .from(tabela)
-      .select("id")
+      .select("id, status")
       .eq("gc_baixado", false)
-      .not("gc_id", "is", null);
+      .not("gc_id", "is", null)
+      .neq("status", "cancelado");
 
     const ids = (pendentes || []).map((r: any) => r.id);
     if (ids.length === 0) continue;
