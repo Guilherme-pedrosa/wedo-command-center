@@ -33,6 +33,11 @@ const gcHeaders = {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+function isLiquidadoGC(value: unknown): boolean {
+  const normalized = String(value ?? "").toLowerCase().trim();
+  return value === true || value === 1 || normalized === "1" || normalized === "pg" || normalized === "pago" || normalized === "liquidado" || normalized === "baixado";
+}
+
 interface LinkInput {
   lancamento_id: string;
   tabela: string; // "fin_pagamentos" | "fin_recebimentos"
@@ -140,10 +145,7 @@ async function baixarNoGC(
     plano_contas_id: payloadRaw.plano_contas_id,
     forma_pagamento_id: payloadRaw.forma_pagamento_id,
     conta_bancaria_id: payloadRaw.conta_bancaria_id,
-    // GC API PUT: liquidado deve ser "1" (inteiro como string). Os códigos "pg"/"ab"/"at"
-    // são apenas para FILTROS no GET — no PUT a API rejeita com "campo (baixado) não é inteiro".
-    // A data_liquidacao é respeitada quando enviada explicitamente junto.
-    liquidado: "1",
+    liquidado: "pg",
     data_liquidacao: dataLiquidacao,
     observacao: obsFinal,
   };
@@ -297,57 +299,59 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
 }
 
 async function buscarPendentes(): Promise<LinkInput[]> {
-  // Vínculos cujo extrato é >= CUTOFF_DATE e cujo lançamento ainda não foi baixado no GC
-  // Busca em duas etapas (pagamentos e recebimentos) pra evitar joins complicados.
-  const out: LinkInput[] = [];
+  const { data: extratosRecentes } = await supabase
+    .from("fin_extrato_inter")
+    .select("id, data_hora")
+    .gte("data_hora", `${CUTOFF_DATE}T00:00:00+00:00`)
+    .eq("reconciliado", true)
+    .limit(5000);
 
-  for (const tabela of ["fin_pagamentos", "fin_recebimentos"] as const) {
-    // Pega IDs de lançamentos NÃO baixados
-    const { data: pendentes } = await supabase
-      .from(tabela)
-      .select("id, status")
-      .eq("gc_baixado", false)
-      .not("gc_id", "is", null)
-      .neq("status", "cancelado");
+  const extratoIds = Array.from(new Set((extratosRecentes || []).map((e: any) => e.id).filter(Boolean)));
+  if (extratoIds.length === 0) return [];
 
-    const ids = (pendentes || []).map((r: any) => r.id);
-    if (ids.length === 0) continue;
+  const { data: links } = await supabase
+    .from("fin_extrato_lancamentos")
+    .select("extrato_id, lancamento_id, tabela")
+    .in("extrato_id", extratoIds)
+    .limit(10000);
 
-    // Buscar vínculos em chunks
-    const chunkSize = 200;
-    for (let i = 0; i < ids.length; i += chunkSize) {
-      const chunk = ids.slice(i, i + chunkSize);
-      const { data: links } = await supabase
-        .from("fin_extrato_lancamentos")
-        .select("lancamento_id, tabela, extrato_id")
-        .in("lancamento_id", chunk);
+  const linksNorm = ((links || []) as any[])
+    .map((l) => ({ ...l, tabela: normalizeTabela(l.tabela) }))
+    .filter((l) => l.tabela && l.lancamento_id);
 
-      const linksRel = ((links || []) as any[]).filter((l) => normalizeTabela(l.tabela) === tabela);
-      const extIds = Array.from(new Set(linksRel.map((l) => l.extrato_id).filter(Boolean)));
-      if (extIds.length === 0) continue;
+  const byTabela = {
+    fin_pagamentos: Array.from(new Set(linksNorm.filter((l) => l.tabela === "fin_pagamentos").map((l) => l.lancamento_id))),
+    fin_recebimentos: Array.from(new Set(linksNorm.filter((l) => l.tabela === "fin_recebimentos").map((l) => l.lancamento_id))),
+  };
 
-      const { data: extratos } = await supabase
-        .from("fin_extrato_inter")
-        .select("id, data_hora")
-        .in("id", extIds);
+  const [pagRes, recRes] = await Promise.all([
+    byTabela.fin_pagamentos.length
+      ? supabase.from("fin_pagamentos").select("id, status, gc_baixado, gc_id, liquidado").in("id", byTabela.fin_pagamentos)
+      : Promise.resolve({ data: [] as any[] }),
+    byTabela.fin_recebimentos.length
+      ? supabase.from("fin_recebimentos").select("id, status, gc_baixado, gc_id, liquidado").in("id", byTabela.fin_recebimentos)
+      : Promise.resolve({ data: [] as any[] }),
+  ]);
 
-      const dataMap: Record<string, string> = {};
-      for (const e of (extratos || []) as any[]) {
-        const d = dateOnly(e.data_hora);
-        if (d) dataMap[e.id] = d;
-      }
-
-      const seen = new Set<string>();
-      for (const l of linksRel) {
-        const d = dataMap[l.extrato_id];
-        if (!d || d < CUTOFF_DATE) continue;
-        const k = `${tabela}|${l.lancamento_id}`;
-        if (seen.has(k)) continue;
-        seen.add(k);
-        out.push({ lancamento_id: l.lancamento_id, tabela });
-      }
-    }
+  const valid = new Set<string>();
+  for (const row of (pagRes.data || []) as any[]) {
+    if (!row.gc_id || row.gc_baixado || isLiquidadoGC(row.liquidado) || String(row.status || "").toLowerCase() === "cancelado") continue;
+    valid.add(`fin_pagamentos|${row.id}`);
   }
+  for (const row of (recRes.data || []) as any[]) {
+    if (!row.gc_id || row.gc_baixado || isLiquidadoGC(row.liquidado) || String(row.status || "").toLowerCase() === "cancelado") continue;
+    valid.add(`fin_recebimentos|${row.id}`);
+  }
+
+  const out: LinkInput[] = [];
+  const seen = new Set<string>();
+  for (const link of linksNorm) {
+    const key = `${link.tabela}|${link.lancamento_id}`;
+    if (!valid.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ lancamento_id: link.lancamento_id, tabela: link.tabela });
+  }
+
   return out;
 }
 

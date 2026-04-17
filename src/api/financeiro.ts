@@ -98,6 +98,11 @@ export function inferirOrigem(
 
 type FinLancamentoStatus = "pendente" | "pago" | "vencido" | "cancelado";
 
+function isLiquidadoGC(value: unknown): boolean {
+  const normalized = String(value ?? "").toLowerCase().trim();
+  return value === true || value === 1 || normalized === "1" || normalized === "pg" || normalized === "pago" || normalized === "liquidado" || normalized === "baixado";
+}
+
 function coerceLancamentoStatus(value: unknown, fallback: FinLancamentoStatus = "pendente"): FinLancamentoStatus {
   const normalized = String(value ?? "").toLowerCase().trim();
 
@@ -117,7 +122,7 @@ function coerceLancamentoStatus(value: unknown, fallback: FinLancamentoStatus = 
 
 function normalizeLancamentoStatus(item: Record<string, any>): FinLancamentoStatus {
   const rawStatus = String(item.status || item.situacao || item.nome_situacao || item.status_pagamento || "").toLowerCase().trim();
-  const liquidado = item.liquidado === "1" || item.liquidado === 1 || item.liquidado === true;
+  const liquidado = isLiquidadoGC(item.liquidado);
 
   if (liquidado) return "pago";
 
@@ -271,7 +276,7 @@ export async function baixarRecebimentoGC(
   const hoje = new Date().toISOString().split("T")[0];
   const payload = {
     ...gcPayloadRaw,
-    liquidado: "1",
+    liquidado: "pg",
     data_liquidacao: dataLiquidacao || hoje,
   };
 
@@ -580,7 +585,7 @@ export async function baixarPagamentoGC(
   const hoje = new Date().toISOString().split("T")[0];
   const payload = {
     ...gcPayloadRaw,
-    liquidado: "1",
+    liquidado: "pg",
     data_liquidacao: dataLiquidacao || hoje,
   };
 
@@ -1088,7 +1093,7 @@ export async function syncRecebimentosGC(
         data_vencimento: raw.data_vencimento || null,
         data_competencia: raw.data_competencia || null,
         data_liquidacao: raw.data_liquidacao || null,
-        liquidado: raw.liquidado === "1",
+        liquidado: isLiquidadoGC(raw.liquidado),
         status: normalizeLancamentoStatus(raw),
         last_synced_at: new Date().toISOString(),
       }));
@@ -1180,7 +1185,7 @@ export async function syncPagamentosGC(
         data_vencimento: raw.data_vencimento || null,
         data_competencia: raw.data_competencia || null,
         data_liquidacao: raw.data_liquidacao || null,
-        liquidado: raw.liquidado === "1",
+        liquidado: isLiquidadoGC(raw.liquidado),
         status: normalizeLancamentoStatus(raw),
         last_synced_at: new Date().toISOString(),
       }));
