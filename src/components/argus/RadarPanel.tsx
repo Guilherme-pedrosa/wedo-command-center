@@ -20,6 +20,7 @@ const SEV_ICON_COLOR: Record<string, string> = {
 export function RadarPanel() {
   const qc = useQueryClient();
   const [running, setRunning] = useState(false);
+  const [briefingIA, setBriefingIA] = useState<string | null>(null);
 
   const { data: alertas = [], refetch } = useQuery({
     queryKey: ["fin_alertas"],
@@ -51,6 +52,7 @@ export function RadarPanel() {
       toast.success(
         `Radar concluído: ${data.alertas_criados} alertas, ${data.tarefas_criadas} tarefas`
       );
+      setBriefingIA(data.briefing_ia || null);
       refetch();
       qc.invalidateQueries({ queryKey: ["fin_tarefas"] });
       qc.invalidateQueries({ queryKey: ["fin_agent_runs"] });
