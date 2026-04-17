@@ -60,6 +60,14 @@ function dataProxima(a: string, b: string, dias = 3): boolean {
   return Math.abs(new Date(a).getTime() - new Date(b).getTime()) <= dias * 86400000;
 }
 
+// HARD CAP: nunca casar extrato com lançamento se a diferença for > 60 dias.
+// Evita matches absurdos (ex: extrato Abr/2026 com recebimento Dez/2025).
+const MAX_GAP_DIAS = 60;
+function dentroJanelaMaxima(extDate: string, finDate: string): boolean {
+  if (!extDate || !finDate) return false;
+  return Math.abs(new Date(extDate).getTime() - new Date(finDate).getTime()) <= MAX_GAP_DIAS * 86400000;
+}
+
 function isFinSettled(fin: any): boolean {
   return fin?.liquidado === true
     || fin?.pago_sistema === true
