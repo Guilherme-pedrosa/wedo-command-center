@@ -55,17 +55,59 @@ function valorTolerancia(a: number, b: number, pct = 2): boolean {
   return Math.abs(a - b) / Math.max(a, b) <= pct / 100;
 }
 
+function parseDate(dateStr: string | null | undefined): Date | null {
+  if (!dateStr) return null;
+
+  const normalized = String(dateStr).trim();
+  if (!normalized) return null;
+
+  const iso = normalized.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const year = Number(iso[1]);
+    const month = Number(iso[2]);
+    const day = Number(iso[3]);
+    const result = new Date(Date.UTC(year, month - 1, day));
+    if (result.getUTCFullYear() !== year || result.getUTCMonth() !== month - 1 || result.getUTCDate() !== day) return null;
+    return result;
+  }
+
+  const dmy = normalized.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    let year = Number(dmy[3]);
+    if (year < 100) year += 2000;
+    const result = new Date(Date.UTC(year, month - 1, day));
+    if (result.getUTCFullYear() !== year || result.getUTCMonth() !== month - 1 || result.getUTCDate() !== day) return null;
+    return result;
+  }
+
+  return null;
+}
+
+function dateDistanceMs(a: string | null | undefined, b: string | null | undefined): number | null {
+  const da = parseDate(a);
+  const db = parseDate(b);
+  if (!da || !db) return null;
+  return Math.abs(da.getTime() - db.getTime());
+}
+
+function daysBetweenDates(a: string | null | undefined, b: string | null | undefined): number | null {
+  const diff = dateDistanceMs(a, b);
+  return diff == null ? null : diff / 86400000;
+}
+
 function dataProxima(a: string, b: string, dias = 3): boolean {
-  if (!a || !b) return false;
-  return Math.abs(new Date(a).getTime() - new Date(b).getTime()) <= dias * 86400000;
+  const diff = dateDistanceMs(a, b);
+  return diff !== null && diff <= dias * 86400000;
 }
 
 // HARD CAP: nunca casar extrato com lançamento se a diferença for > 60 dias.
 // Evita matches absurdos (ex: extrato Abr/2026 com recebimento Dez/2025).
 const MAX_GAP_DIAS = 60;
 function dentroJanelaMaxima(extDate: string, finDate: string): boolean {
-  if (!extDate || !finDate) return false;
-  return Math.abs(new Date(extDate).getTime() - new Date(finDate).getTime()) <= MAX_GAP_DIAS * 86400000;
+  const diffDays = daysBetweenDates(extDate, finDate);
+  return diffDays !== null && diffDays <= MAX_GAP_DIAS;
 }
 
 function isFinSettled(fin: any): boolean {
@@ -229,8 +271,8 @@ function aplicarRegras(
           return { rule: "CNPJ_VALOR_DATA_EXATO", candidato: byNome[0], auto: true };
       }
       const sorted = [...matches0].sort((a, b) => {
-        const da = Math.abs(new Date(getFinMatchDate(a.fin)).getTime() - new Date(extDate).getTime());
-        const db = Math.abs(new Date(getFinMatchDate(b.fin)).getTime() - new Date(extDate).getTime());
+        const da = dateDistanceMs(getFinMatchDate(a.fin), extDate) ?? Number.POSITIVE_INFINITY;
+        const db = dateDistanceMs(getFinMatchDate(b.fin), extDate) ?? Number.POSITIVE_INFINITY;
         return da - db;
       });
       return { rule: "CNPJ_VALOR_DATA_EXATO", candidato: sorted[0], auto: true };
@@ -340,13 +382,13 @@ function aplicarRegras(
       }
       // TIEBREAKER 4: Closest date
       const sorted = [...matches].sort((a, b) => {
-        const da = Math.abs(new Date(getFinMatchDate(a.fin)).getTime() - new Date(extDate).getTime());
-        const db = Math.abs(new Date(getFinMatchDate(b.fin)).getTime() - new Date(extDate).getTime());
+        const da = dateDistanceMs(getFinMatchDate(a.fin), extDate) ?? Number.POSITIVE_INFINITY;
+        const db = dateDistanceMs(getFinMatchDate(b.fin), extDate) ?? Number.POSITIVE_INFINITY;
         return da - db;
       });
       const gap = sorted.length >= 2
-        ? Math.abs(new Date(getFinMatchDate(sorted[1].fin)).getTime() - new Date(extDate).getTime())
-          - Math.abs(new Date(getFinMatchDate(sorted[0].fin)).getTime() - new Date(extDate).getTime())
+        ? (dateDistanceMs(getFinMatchDate(sorted[1].fin), extDate) ?? Number.POSITIVE_INFINITY)
+          - (dateDistanceMs(getFinMatchDate(sorted[0].fin), extDate) ?? Number.POSITIVE_INFINITY)
         : 0;
       const bestNome = sorted[0].nome;
       const bestDoc = sorted[0].doc;
@@ -592,9 +634,7 @@ function tentarSomaParcelas(
       const docOk = Boolean(extDoc && finDoc && docMatches(extDoc, finDoc));
       const nomeScore = extNome && finNome ? nomeSimilarScore(extNome, finNome) : 0;
       const nomeOk = extNome && finNome ? nomeForteMatch(extNome, finNome) : false;
-      const dateDiff = finDate && extDate
-        ? Math.abs(new Date(finDate).getTime() - new Date(extDate).getTime())
-        : 0;
+      const dateDiff = dateDistanceMs(finDate, extDate) ?? Number.POSITIVE_INFINITY;
 
       return { fin, docOk, nomeOk, nomeScore, dateDiff, finDate };
     })
@@ -854,7 +894,13 @@ serve(async (req) => {
         // Check for collisions (multiple with same valor)
         const extValor = Math.abs(Number(ext.valor));
         const extNomeCheck = ext.nome_contraparte ?? ext.contrapartida ?? "";
-        const mesmoValor = candidatos.filter(c => valorExato(extValor, Number(c.fin.valor)));
+        const extDateCheck = ext.data_hora?.substring(0, 10) ?? "";
+        const mesmoValor = candidatos.filter(c => {
+          if (!valorExato(extValor, Number(c.fin.valor))) return false;
+          if (!extDateCheck) return true;
+          const finDate = getFinMatchDate(c.fin);
+          return Boolean(finDate && dentroJanelaMaxima(extDateCheck, finDate));
+        });
 
         // When extract has a name, REQUIRE identidade forte — never show unrelated names
         let candidatosEfetivos = mesmoValor;
@@ -1062,8 +1108,8 @@ serve(async (req) => {
                 // Sort: CNPJ match first, then by date proximity, then value desc
                 candidatosNn.sort((a: any, b: any) => {
                   if (a.docOk !== b.docOk) return Number(b.docOk) - Number(a.docOk);
-                  const da = a.finDate ? Math.abs(new Date(a.finDate).getTime() - new Date(extDateApprox).getTime()) : 999e9;
-                  const db = b.finDate ? Math.abs(new Date(b.finDate).getTime() - new Date(extDateApprox).getTime()) : 999e9;
+                  const da = dateDistanceMs(a.finDate, extDateApprox) ?? Number.POSITIVE_INFINITY;
+                  const db = dateDistanceMs(b.finDate, extDateApprox) ?? Number.POSITIVE_INFINITY;
                   if (da !== db) return da - db;
                   return b.finValor - a.finValor;
                 });
@@ -1133,6 +1179,9 @@ serve(async (req) => {
                   const docMatch = Boolean(extDocApprox && finDoc && docMatches(extDocApprox, finDoc));
                   const nomeMatch = Boolean(extNomeApprox && finNome && nomeForteMatch(extNomeApprox, finNome));
                   if (!docMatch && !nomeMatch) return null;
+                  if (extDateApprox) {
+                    if (!finDate || !dentroJanelaMaxima(extDateApprox, finDate)) return null;
+                  }
 
                   let score = 0;
                   const evidencias: string[] = [];
@@ -1146,8 +1195,8 @@ serve(async (req) => {
                   if (docMatch) { score += 30; evidencias.push("CNPJ match"); }
                   if (nomeMatch) { score += 20; evidencias.push("Nome forte"); }
                   
-                  if (finDate && extDateApprox) {
-                    const daysDiff = Math.abs(new Date(extDateApprox).getTime() - new Date(finDate).getTime()) / 86400000;
+                  const daysDiff = daysBetweenDates(extDateApprox, finDate);
+                  if (daysDiff != null) {
                     if (daysDiff <= 5) { score += 10; evidencias.push(`Data ±${Math.round(daysDiff)}d`); }
                     else if (daysDiff <= 30) { score += 5; evidencias.push(`Data ±${Math.round(daysDiff)}d`); }
                   }
