@@ -181,10 +181,8 @@ export const useMetasResultados = (year: number, month: number) => {
 
   // Plano de contas (UUIDs) que devem ser apurados por COMPETÊNCIA em vez de vencimento.
   // - COMISSÕES E BONIFICAÇÕES (28054594) → Comissões e Premiações (Técnicos)
-  // - Despesas com veículos (28034468) → Manutenção Veículos
   const PLANOS_POR_COMPETENCIA = new Set([
     'e7299b90-98d2-4d7a-a04c-78ba40cc847a',
-    'ee7cc5fe-77d4-403f-a321-0cb57c14d370',
   ]);
 
   // Espelha EXATAMENTE o "Relatório de Ordens de Serviços" do GestãoClick:
