@@ -363,7 +363,8 @@ export const useMetasResultados = (year: number, month: number) => {
             const soma = source
               .filter(r =>
                 r.plano_contas_id === planoUuid &&
-                (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
+                (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid) &&
+                inPeriod(effectiveDate(r))
               )
               .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
             realizado += soma * (link.peso || 1);
