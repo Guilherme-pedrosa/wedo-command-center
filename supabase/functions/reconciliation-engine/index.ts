@@ -60,6 +60,14 @@ function dataProxima(a: string, b: string, dias = 3): boolean {
   return Math.abs(new Date(a).getTime() - new Date(b).getTime()) <= dias * 86400000;
 }
 
+// HARD CAP: nunca casar extrato com lançamento se a diferença for > 60 dias.
+// Evita matches absurdos (ex: extrato Abr/2026 com recebimento Dez/2025).
+const MAX_GAP_DIAS = 60;
+function dentroJanelaMaxima(extDate: string, finDate: string): boolean {
+  if (!extDate || !finDate) return false;
+  return Math.abs(new Date(extDate).getTime() - new Date(finDate).getTime()) <= MAX_GAP_DIAS * 86400000;
+}
+
 function isFinSettled(fin: any): boolean {
   return fin?.liquidado === true
     || fin?.pago_sistema === true
@@ -181,7 +189,7 @@ interface Candidato {
 
 function aplicarRegras(
   ext: any,
-  candidatos: Candidato[]
+  candidatosRaw: Candidato[]
 ): { rule: MatchRule | null; candidato: Candidato | null; auto: boolean } {
 
   const extValor = Math.abs(Number(ext.valor));
@@ -189,6 +197,17 @@ function aplicarRegras(
   const extPix   = (ext.chave_pix ?? "").trim().toLowerCase();
   const extDate  = ext.data_hora?.substring(0, 10) ?? "";
   const extNome  = ext.nome_contraparte ?? ext.contrapartida ?? "";
+
+  // HARD CAP global: descarta qualquer candidato cujo lançamento esteja a mais
+  // de MAX_GAP_DIAS (60) da data do extrato. Evita matches absurdos entre meses
+  // muito distantes (ex.: extrato de Abril vinculando lançamento de Dezembro).
+  const candidatos = extDate
+    ? candidatosRaw.filter(c => {
+        const finDate = getFinMatchDate(c.fin);
+        if (!finDate) return false;
+        return dentroJanelaMaxima(extDate, finDate);
+      })
+    : candidatosRaw;
 
   // Regra 0: CNPJ/CPF + valor exato + data ±3 dias → auto-baixa máxima confiança
   if (extDoc && extDate) {
@@ -581,7 +600,8 @@ function tentarSomaParcelas(
     })
     .filter(({ docOk, nomeOk, finDate }) => {
       if (!docOk && !nomeOk) return false;
-      if (!finDate || !extDate) return true;
+      if (!finDate || !extDate) return false; // sem data, fora — hard cap exige data
+      if (!dentroJanelaMaxima(extDate, finDate)) return false; // HARD CAP 60d
       return dataProxima(extDate, finDate, janelaDias);
     });
 
@@ -1030,7 +1050,9 @@ serve(async (req) => {
                   const nScore = extNomeApprox ? nomeSimilarScore(extNomeApprox, finNome) : 0;
                   const nomeOk = extNomeApprox ? nomeForteMatch(extNomeApprox, finNome) : false;
                   if (!docOk && !nomeOk) return null;
-                  if (finDate && extDateApprox && !dataProxima(extDateApprox, finDate, janelaNn)) return null;
+                  if (!finDate || !extDateApprox) return null; // hard cap exige datas
+                  if (!dentroJanelaMaxima(extDateApprox, finDate)) return null; // HARD CAP 60d
+                  if (!dataProxima(extDateApprox, finDate, janelaNn)) return null;
                   if (finValor <= 0) return null;
                   return { fin, finValor, finNome, finDate, finDoc, docOk, nomeOk, nScore, status: fin.status };
                 })
