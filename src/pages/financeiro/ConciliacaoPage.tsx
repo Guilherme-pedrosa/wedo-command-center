@@ -205,6 +205,7 @@ export default function ConciliacaoPage() {
     queryClient.invalidateQueries({ queryKey: ["conc-extrato"] });
     queryClient.invalidateQueries({ queryKey: ["conc-recebimentos"] });
     queryClient.invalidateQueries({ queryKey: ["conc-pagamentos"] });
+    queryClient.invalidateQueries({ queryKey: ["conc-linked-ids"] });
   };
 
   const handleFetchInter = async () => {
