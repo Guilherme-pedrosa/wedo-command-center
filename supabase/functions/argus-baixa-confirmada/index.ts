@@ -64,10 +64,11 @@ async function baixarNoGC(
   payloadRaw: Record<string, unknown>,
   dataLiquidacao: string
 ): Promise<{ ok: boolean; erro?: string }> {
-  // Monta payload com 7 campos obrigatórios + liquidado/data_liquidacao
-  // Nota: PUT /pagamentos e /recebimentos do GC NÃO aceitam 'situacao_id'
-  // (esse campo só existe em vendas/OS/orçamentos). A marcação "Confirmado Argus"
-  // fica apenas no estado local (gc_baixado=true + log).
+  // PUT /pagamentos e /recebimentos do GC NÃO suportam situacao_id
+  // (testado em 2026-04-17: enviar 949476 retorna "Erro ao salvar dados").
+  // O endpoint "Alterar situação" do GC (do print do usuário) é um endpoint
+  // interno não exposto na API pública. Por isso baixamos só com liquidado=1.
+  // A marcação "Confirmado Argus" fica no estado local (gc_baixado=true + log).
   const payload: Record<string, unknown> = {
     descricao: payloadRaw.descricao ?? "",
     data_vencimento: payloadRaw.data_vencimento,
