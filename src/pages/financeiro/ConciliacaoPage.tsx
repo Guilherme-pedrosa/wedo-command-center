@@ -145,7 +145,23 @@ export default function ConciliacaoPage() {
     },
   });
 
-
+  // IDs de lançamentos já vinculados a algum extrato — devem sumir das sugestões
+  const { data: linkedIds } = useQuery({
+    queryKey: ["conc-linked-ids"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("fin_extrato_lancamentos")
+        .select("lancamento_id, tabela");
+      const recebSet = new Set<string>();
+      const pagSet = new Set<string>();
+      (data || []).forEach((row: any) => {
+        const tab = String(row.tabela || "").replace(/^fin_/, "");
+        if (tab === "recebimentos") recebSet.add(row.lancamento_id);
+        else if (tab === "pagamentos") pagSet.add(row.lancamento_id);
+      });
+      return { recebSet, pagSet };
+    },
+  });
 
   const handleSelectExtrato = (e: any) => {
     if (expandedExtrato === e.id) {
@@ -163,6 +179,8 @@ export default function ConciliacaoPage() {
     if (!expandedExtrato || !selectedExtrato) return { recebimentos: [], pagamentos: [] };
     const isCredito = selectedExtrato.tipo === "CREDITO";
     const q = searchLanc.toLowerCase().trim();
+    const recebLinked = linkedIds?.recebSet ?? new Set<string>();
+    const pagLinked = linkedIds?.pagSet ?? new Set<string>();
 
     const filterFn = (l: any) => {
       if (!q) return true;
@@ -175,11 +193,13 @@ export default function ConciliacaoPage() {
     };
 
     if (isCredito) {
-      return { recebimentos: (recebimentosNL || []).filter(filterFn).slice(0, 50), pagamentos: [] };
+      const list = (recebimentosNL || []).filter((r: any) => !recebLinked.has(r.id)).filter(filterFn).slice(0, 50);
+      return { recebimentos: list, pagamentos: [] };
     } else {
-      return { recebimentos: [], pagamentos: (pagamentosNL || []).filter(filterFn).slice(0, 50) };
+      const list = (pagamentosNL || []).filter((p: any) => !pagLinked.has(p.id)).filter(filterFn).slice(0, 50);
+      return { recebimentos: [], pagamentos: list };
     }
-  }, [expandedExtrato, selectedExtrato, searchLanc, recebimentosNL, pagamentosNL]);
+  }, [expandedExtrato, selectedExtrato, searchLanc, recebimentosNL, pagamentosNL, linkedIds]);
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["conc-extrato"] });
