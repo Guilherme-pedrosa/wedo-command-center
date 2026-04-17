@@ -185,7 +185,7 @@ function aplicarRegras(
 ): { rule: MatchRule | null; candidato: Candidato | null; auto: boolean } {
 
   const extValor = Math.abs(Number(ext.valor));
-  const extDoc   = cleanDoc(ext.cpf_cnpj);
+  const extDoc   = extDocBeneficiario(ext);
   const extPix   = (ext.chave_pix ?? "").trim().toLowerCase();
   const extDate  = ext.data_hora?.substring(0, 10) ?? "";
   const extNome  = ext.nome_contraparte ?? ext.contrapartida ?? "";
@@ -839,7 +839,7 @@ serve(async (req) => {
         // When extract has a name, REQUIRE identidade forte — never show unrelated names
         let candidatosEfetivos = mesmoValor;
         if (extNomeCheck) {
-          const extDoc = cleanDoc(ext.cpf_cnpj);
+          const extDoc = extDocBeneficiario(ext);
           const extPix = (ext.chave_pix ?? "").trim().toLowerCase();
           // Keep only candidates with strong identity (doc, PIX, or nome forte)
           const comIdentidade = mesmoValor.filter(c => {
@@ -855,7 +855,7 @@ serve(async (req) => {
 
         if (candidatosEfetivos.length > 1) {
           // Try to resolve collision by document
-          const extDoc = cleanDoc(ext.cpf_cnpj);
+          const extDoc = extDocBeneficiario(ext);
           if (extDoc) {
             const withDoc = candidatosEfetivos.filter(c => {
               const fDocDirect = cleanDoc(c.fin.recipient_document);
@@ -918,7 +918,7 @@ serve(async (req) => {
           const candidatoUnico = candidatosEfetivos[0];
           const finDate = getFinMatchDate(candidatoUnico.fin);
           const extDate = ext.data_hora?.substring(0, 10) ?? "";
-          const extDoc = cleanDoc(ext.cpf_cnpj);
+          const extDoc = extDocBeneficiario(ext);
           const extPix = (ext.chave_pix ?? "").trim().toLowerCase();
           const pixClean = extPix.replace(/\D/g, "");
           const nomeMatch = Boolean(extNomeCheck && nomeForteMatch(extNomeCheck, candidatoUnico.nome));
@@ -978,7 +978,7 @@ serve(async (req) => {
           // Pool is already unified (pendentes + já pagos), just try SOMA_PARCELAS
           const extValorSoma = Math.abs(Number(ext.valor));
           const extNomeSoma = ext.nome_contraparte ?? ext.contrapartida ?? "";
-          const extDocSoma = cleanDoc(ext.cpf_cnpj);
+          const extDocSoma = extDocBeneficiario(ext);
           const extDateSoma = ext.data_hora?.substring(0, 10) ?? "";
           const isDebitoSoma = ext.tipo === "DEBITO";
 
@@ -1004,7 +1004,7 @@ serve(async (req) => {
           } else {
               stats.unmatched++;
               const extValorApprox = Math.abs(Number(ext.valor));
-              const extDocApprox = cleanDoc(ext.cpf_cnpj);
+              const extDocApprox = extDocBeneficiario(ext);
               const extNomeApprox = ext.nome_contraparte ?? ext.contrapartida ?? "";
               const isDebitoApprox = ext.tipo === "DEBITO";
               const extDateApprox = ext.data_hora?.substring(0, 10) ?? "";
