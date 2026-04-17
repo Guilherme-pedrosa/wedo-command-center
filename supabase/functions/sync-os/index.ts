@@ -103,13 +103,9 @@ function mapOsRecord(os: Record<string, unknown>) {
     const match = rawDataSaida.match(/^(\d{4}-\d{2}-\d{2})/);
     if (match) dataSaida = match[1];
   }
-  if (!dataSaida) {
-    const fallback = String(os.modificado_em || os.data_entrada || "");
-    if (fallback) {
-      const match = fallback.match(/^(\d{4}-\d{2}-\d{2})/);
-      if (match) dataSaida = match[1];
-    }
-  }
+  // Resultados operacionais must use the real execution خروج date only.
+  // Falling back to modification/entry dates pulls OS into the wrong month
+  // and inflates Execução + Coifas vs. the GestãoClick report.
 
   const valorDeslocamento = computeDeslocamento(os);
 
