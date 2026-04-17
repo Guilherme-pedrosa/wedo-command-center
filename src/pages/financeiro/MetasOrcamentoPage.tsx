@@ -9,7 +9,7 @@ import {
   Target, TrendingUp, TrendingDown, AlertTriangle,
   RefreshCw, DollarSign, Percent, BarChart3, Loader2, Settings
 } from 'lucide-react';
-import { syncVendas, syncCompras, syncAuvoExpenses, syncOS, syncRecebimentos, syncPagamentos } from '@/api/syncService';
+import { supabase } from '@/integrations/supabase/client';
 import toast from 'react-hot-toast';
 import MetasConfigDialog from '@/components/financeiro/MetasConfigDialog';
 import AnaliseIAMetas from '@/components/financeiro/AnaliseIAMetas';
@@ -91,54 +91,28 @@ export default function MetasOrcamentoPage() {
   const handleSyncAll = useCallback(async () => {
     setSyncingAll(true);
     const { start, end } = getPeriodRange(selectedYear, selectedMonth);
-    let ok = 0;
-    let fail = 0;
-    const details: string[] = [];
 
     try {
-      await syncOS();
-      ok++;
-    } catch (_e) { fail++; }
+      const { data, error } = await supabase.functions.invoke('sync-all', {
+        body: {
+          data_inicio: start,
+          data_fim: end,
+        },
+      });
 
-    try {
-      const resVendas = await syncVendas(start, end);
-      ok += resVendas.upserted;
-    } catch (_e) { fail++; }
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      if (data?.skipped) throw new Error(data.reason || 'Sincronização ignorada');
 
-    try {
-      const resCompras = await syncCompras(start, end);
-      ok += resCompras.upserted;
-    } catch (_e) { fail++; }
-
-    try {
-      const resAuvo = await syncAuvoExpenses(selectedMonth, selectedYear);
-      ok += resAuvo.synced;
-      const bt = resAuvo.by_type;
-      if (bt['48782']) details.push(`Combustível R$ ${(bt['48782'].total || 0).toFixed(2)}`);
-      if (bt['48784']) details.push(`Hospedagem R$ ${(bt['48784'].total || 0).toFixed(2)}`);
-      if (bt['49032']) details.push(`Pedágio R$ ${(bt['49032'].total || 0).toFixed(2)}`);
-    } catch (_e) { fail++; }
-
-    // Sync GC Recebimentos + Pagamentos (with date filter for selected period)
-    const dateFilter = { dataInicio: start, dataFim: end };
-    try {
-      const resRec = await syncRecebimentos(undefined, dateFilter);
-      ok += resRec.importados;
-    } catch (_e) { fail++; }
-
-    try {
-      const resPag = await syncPagamentos(undefined, dateFilter);
-      ok += resPag.importados;
-    } catch (_e) { fail++; }
-
-    if (fail === 0) {
-      const auvoInfo = details.length > 0 ? ` | Auvo: ${details.join(', ')}` : '';
-      toast.success(`Tudo sincronizado: ${ok} registros${auvoInfo}`);
-    } else {
-      toast.error(`Sincronização parcial: ${ok} registros ok, ${fail} erros`);
+      const recOrphans = Number(data?.results?.recebimentos?.cancelled_orphans || 0);
+      const pagOrphans = Number(data?.results?.pagamentos?.cancelled_orphans || 0);
+      toast.success(`Sincronizado ${start}→${end} · removidos ${recOrphans + pagOrphans} órfãos`);
+    } catch (e: any) {
+      toast.error(e.message || 'Erro ao sincronizar período');
+    } finally {
+      refetch();
+      setSyncingAll(false);
     }
-    refetch();
-    setSyncingAll(false);
   }, [selectedYear, selectedMonth, refetch]);
 
   const receitas       = metasComResultado.filter(m => m.categoria === 'receita');
