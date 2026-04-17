@@ -12,6 +12,7 @@ import {
 import { syncVendas, syncCompras, syncAuvoExpenses, syncOS, syncRecebimentos, syncPagamentos } from '@/api/syncService';
 import toast from 'react-hot-toast';
 import MetasConfigDialog from '@/components/financeiro/MetasConfigDialog';
+import AnaliseIAMetas from '@/components/financeiro/AnaliseIAMetas';
 import {
   useMetasResultados, formatBRL, formatPct, statusBadge,
   getPeriodRange, MetaComResultado
@@ -286,6 +287,16 @@ export default function MetasOrcamentoPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* PAINEL ANÁLISE IA */}
+      <AnaliseIAMetas
+        ano={selectedYear}
+        mes={selectedMonth}
+        execTotal={execTotal}
+        margemLiquida={margemLiquida}
+        totalCustos={totalCustos}
+        metas={metasComResultado}
+      />
 
       {/* SEÇÃO RECEITAS */}
       <Card>
