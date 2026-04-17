@@ -13,8 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { EmptyState } from "@/components/EmptyState";
 import { formatCurrency, formatDateTime, formatDate } from "@/lib/format";
-import { buscarExtratoInter, extrairNomeDaDescricao } from "@/api/financeiro";
-import { syncRecebimentos, syncPagamentos } from "@/api/syncService";
+import { buscarExtratoInter, extrairNomeDaDescricao, syncFinanceiroFullSweep } from "@/api/financeiro";
 import {
   Building2, RefreshCw, Loader2, CalendarIcon, Download, CloudDownload,
   Wand2, Brain, ArrowLeftRight, CheckCircle, ChevronDown, ChevronUp,
@@ -292,8 +291,8 @@ export default function ExtratoBancoPage() {
   const handleSyncGC = async () => {
     setSyncingGC(true);
     try {
-      const [r, p] = await Promise.all([syncRecebimentos(), syncPagamentos()]);
-      toast.success(`GC sincronizado: ${r.importados} receb., ${p.importados} pagam.`);
+      const result = await syncFinanceiroFullSweep();
+      toast.success(`GC sincronizado: ${result.importados} registros varridos.`);
       invalidateAll();
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao sincronizar GC"); }
     finally { setSyncingGC(false); }

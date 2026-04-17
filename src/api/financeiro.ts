@@ -95,6 +95,46 @@ export function inferirOrigem(
   if (/contrato/i.test(descricao)) return "gc_contrato";
   return "outro";
 }
+
+type FinLancamentoStatus = "pendente" | "pago" | "vencido" | "cancelado";
+
+function coerceLancamentoStatus(value: unknown, fallback: FinLancamentoStatus = "pendente"): FinLancamentoStatus {
+  const normalized = String(value ?? "").toLowerCase().trim();
+
+  if (["liquidado", "pago", "paga", "baixado", "recebido", "quitado"].includes(normalized)) {
+    return "pago";
+  }
+
+  if (["cancelado", "cancelada", "cancelar"].includes(normalized)) {
+    return "cancelado";
+  }
+
+  if (normalized === "vencido") return "vencido";
+  if (normalized === "pendente") return "pendente";
+
+  return fallback;
+}
+
+function normalizeLancamentoStatus(item: Record<string, any>): FinLancamentoStatus {
+  const rawStatus = String(item.status || item.situacao || item.nome_situacao || item.status_pagamento || "").toLowerCase().trim();
+  const liquidado = item.liquidado === "1" || item.liquidado === 1 || item.liquidado === true;
+
+  if (liquidado) return "pago";
+
+  const coerced = coerceLancamentoStatus(rawStatus);
+  if (coerced !== "pendente" || rawStatus === "pendente") return coerced;
+
+  const dataVencimento = item.data_vencimento ? new Date(item.data_vencimento) : null;
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  if (dataVencimento && !Number.isNaN(dataVencimento.getTime())) {
+    dataVencimento.setHours(0, 0, 0, 0);
+    if (dataVencimento < hoje) return "vencido";
+  }
+
+  return "pendente";
+}
 /**
  * Extrai o nome do remetente/destinatário da descrição do extrato Inter.
  */
@@ -807,6 +847,82 @@ export interface SyncDateFilter {
 
 export type SyncScope = "recebimentos" | "pagamentos" | "ambos";
 
+async function resetExtratosByLancamentos(
+  lancamentoIds: string[],
+  tabelas: string[]
+): Promise<number> {
+  if (!lancamentoIds.length || !tabelas.length) return 0;
+
+  const [{ data: links }, { data: primaryExtratos }] = await Promise.all([
+    supabase
+      .from("fin_extrato_lancamentos" as any)
+      .select("extrato_id")
+      .in("lancamento_id", lancamentoIds)
+      .in("tabela", tabelas) as any,
+    supabase
+      .from("fin_extrato_inter" as any)
+      .select("id")
+      .in("lancamento_id", lancamentoIds) as any,
+  ]);
+
+  const extratoIds = Array.from(new Set([
+    ...((links ?? []) as any[]).map((row: any) => row.extrato_id).filter(Boolean),
+    ...((primaryExtratos ?? []) as any[]).map((row: any) => row.id).filter(Boolean),
+  ]));
+
+  if (!extratoIds.length) return 0;
+
+  await supabase.from("fin_extrato_lancamentos" as any).delete().in("extrato_id", extratoIds);
+  await supabase.from("fin_extrato_inter" as any).update({
+    reconciliado: false,
+    reconciliado_em: null,
+    reconciliation_rule: null,
+    lancamento_id: null,
+  } as any).in("id", extratoIds);
+
+  return extratoIds.length;
+}
+
+async function buildFullSweepFilters(): Promise<SyncDateFilter> {
+  const today = fnsFormat(new Date(), "yyyy-MM-dd");
+  const fallbackStart = `${new Date().getFullYear() - 2}-01-01`;
+
+  const [recRes, pagRes] = await Promise.all([
+    supabase
+      .from("fin_recebimentos" as any)
+      .select("data_vencimento")
+      .not("gc_id", "is", null)
+      .order("data_vencimento", { ascending: true })
+      .limit(1),
+    supabase
+      .from("fin_pagamentos" as any)
+      .select("data_vencimento")
+      .not("gc_id", "is", null)
+      .order("data_vencimento", { ascending: true })
+      .limit(1),
+  ]);
+
+  const candidates = [
+    ...((recRes.data ?? []) as any[]).map((row: any) => row.data_vencimento).filter(Boolean),
+    ...((pagRes.data ?? []) as any[]).map((row: any) => row.data_vencimento).filter(Boolean),
+  ].sort();
+
+  return {
+    dataInicio: candidates[0] ?? fallbackStart,
+    dataFim: today,
+    incluirLiquidados: true,
+  };
+}
+
+export async function syncFinanceiroFullSweep(
+  onProgress?: (atual: number, total: number) => void,
+  onStep?: (etapa: string) => void,
+  scope: SyncScope = "ambos"
+): Promise<{ importados: number; atualizados: number; erros: number }> {
+  const filtros = await buildFullSweepFilters();
+  return syncByMonthChunks(filtros, onProgress, onStep, scope);
+}
+
 export async function syncByMonthChunks(
   filtros: SyncDateFilter,
   onProgress?: (atual: number, total: number) => void,
@@ -903,18 +1019,9 @@ export async function syncRecebimentosGC(
   let atualizados = 0;
   let erros = 0;
 
-  // Fetch locally cancelled gc_ids to skip them during upsert
-  const { data: cancelledRecs } = await supabase
-    .from("fin_recebimentos" as any)
-    .select("gc_id")
-    .eq("status", "cancelado")
-    .not("gc_id", "is", null) as any;
-  const cancelledRecGcIds = new Set((cancelledRecs ?? []).map((r: any) => r.gc_id));
-
   const batchSize = 50;
   for (let i = 0; i < raws.length; i += batchSize) {
     const batch = raws.slice(i, i + batchSize)
-      .filter((raw) => !cancelledRecGcIds.has(raw.id)) // Skip cancelled
       .map((raw) => ({
         gc_id: raw.id,
         gc_codigo: raw.codigo,
@@ -933,7 +1040,7 @@ export async function syncRecebimentosGC(
         data_competencia: raw.data_competencia || null,
         data_liquidacao: raw.data_liquidacao || null,
         liquidado: raw.liquidado === "1",
-        status: raw.liquidado === "1" ? "pago" : "pendente",
+        status: normalizeLancamentoStatus(raw),
         last_synced_at: new Date().toISOString(),
       }));
 
@@ -950,46 +1057,38 @@ export async function syncRecebimentosGC(
     }
   }
 
+  let orphansRemoved = 0;
+  let extratosResetados = 0;
+
   // ── Cleanup: remove local records whose gc_id no longer exists in GC ──
   if (raws.length > 0 && filtros?.dataInicio && filtros?.dataFim) {
     const gcIdsFromGC = new Set(raws.map((r) => String(r.id)));
 
-    // Fetch local records in the same date range that have a gc_id
     const { data: localRecs } = await supabase
       .from("fin_recebimentos" as any)
-      .select("id, gc_id, grupo_id, status")
+      .select("id, gc_id")
       .gte("data_vencimento", filtros.dataInicio)
       .lte("data_vencimento", filtros.dataFim)
       .not("gc_id", "is", null) as any;
 
     const orphans = (localRecs ?? []).filter(
-      (r: any) =>
-        r.gc_id &&
-        !gcIdsFromGC.has(String(r.gc_id)) &&
-        r.status !== "cancelado"
+      (r: any) => r.gc_id && !gcIdsFromGC.has(String(r.gc_id))
     );
 
     if (orphans.length > 0) {
       const orphanIds = orphans.map((o: any) => o.id);
-      // Remove group item references first
-      await supabase
-        .from("fin_grupo_receber_itens" as any)
-        .delete()
-        .in("recebimento_id", orphanIds);
-      // Delete the orphaned local records
-      await supabase
-        .from("fin_recebimentos" as any)
-        .delete()
-        .in("id", orphanIds);
-
-      console.log(`[syncRecebimentosGC] Removed ${orphans.length} orphaned local records not found in GC`);
+      extratosResetados = await resetExtratosByLancamentos(orphanIds, ["recebimentos", "fin_recebimentos"]);
+      await supabase.from("fin_grupo_receber_itens" as any).delete().in("recebimento_id", orphanIds);
+      await supabase.from("fin_recebimentos" as any).delete().in("id", orphanIds);
+      orphansRemoved = orphanIds.length;
+      console.log(`[syncRecebimentosGC] Removed ${orphansRemoved} orphaned local records not found in GC; reset ${extratosResetados} extratos`);
     }
   }
 
   await supabase.from("fin_sync_log" as any).insert({
     tipo: "gc_import_recebimentos",
     status: erros === 0 ? "success" : "partial",
-    resposta: { importados, atualizados, erros, total: raws.length, orphans_removed: 0 },
+    resposta: { importados, atualizados, erros, total: raws.length, orphans_removed: orphansRemoved, extratos_resetados: extratosResetados },
     duracao_ms: Date.now() - inicio,
   });
 
@@ -1012,18 +1111,9 @@ export async function syncPagamentosGC(
   let atualizados = 0;
   let erros = 0;
 
-  // Fetch locally cancelled gc_ids to skip them during upsert
-  const { data: cancelledPags } = await supabase
-    .from("fin_pagamentos" as any)
-    .select("gc_id")
-    .eq("status", "cancelado")
-    .not("gc_id", "is", null) as any;
-  const cancelledPagGcIds = new Set((cancelledPags ?? []).map((p: any) => p.gc_id));
-
   const batchSize = 50;
   for (let i = 0; i < raws.length; i += batchSize) {
     const batch = raws.slice(i, i + batchSize)
-      .filter((raw) => !cancelledPagGcIds.has(raw.id)) // Skip cancelled
       .map((raw) => ({
         gc_id: raw.id,
         gc_codigo: raw.codigo,
@@ -1042,7 +1132,7 @@ export async function syncPagamentosGC(
         data_competencia: raw.data_competencia || null,
         data_liquidacao: raw.data_liquidacao || null,
         liquidado: raw.liquidado === "1",
-        status: raw.liquidado === "1" ? "pago" : "pendente",
+        status: normalizeLancamentoStatus(raw),
         last_synced_at: new Date().toISOString(),
       }));
 
@@ -1059,25 +1149,30 @@ export async function syncPagamentosGC(
     }
   }
 
+  let orphansRemoved = 0;
+  let extratosResetados = 0;
+
   // Backfill recipient_document from fin_fornecedores (batched)
   // ── Cleanup: remove local pagamentos whose gc_id no longer exists in GC ──
   if (raws.length > 0 && filtros?.dataInicio && filtros?.dataFim) {
     const gcIdsFromGC = new Set(raws.map((r) => String(r.id)));
     const { data: localPags } = await supabase
       .from("fin_pagamentos" as any)
-      .select("id, gc_id, grupo_id, status")
+      .select("id, gc_id")
       .gte("data_vencimento", filtros.dataInicio)
       .lte("data_vencimento", filtros.dataFim)
       .not("gc_id", "is", null) as any;
 
     const orphans = (localPags ?? []).filter(
-      (r: any) => r.gc_id && !gcIdsFromGC.has(String(r.gc_id)) && r.status !== "cancelado"
+      (r: any) => r.gc_id && !gcIdsFromGC.has(String(r.gc_id))
     );
     if (orphans.length > 0) {
       const orphanIds = orphans.map((o: any) => o.id);
+      extratosResetados = await resetExtratosByLancamentos(orphanIds, ["pagamentos", "fin_pagamentos"]);
       await supabase.from("fin_grupo_pagar_itens" as any).delete().in("pagamento_id", orphanIds);
       await supabase.from("fin_pagamentos" as any).delete().in("id", orphanIds);
-      console.log(`[syncPagamentosGC] Removed ${orphans.length} orphaned local pagamentos not found in GC`);
+      orphansRemoved = orphanIds.length;
+      console.log(`[syncPagamentosGC] Removed ${orphansRemoved} orphaned local pagamentos not found in GC; reset ${extratosResetados} extratos`);
     }
   }
 
@@ -1122,7 +1217,7 @@ export async function syncPagamentosGC(
   await supabase.from("fin_sync_log" as any).insert({
     tipo: "gc_import_pagamentos",
     status: erros === 0 ? "success" : "partial",
-    resposta: { importados, atualizados, erros, total: raws.length },
+    resposta: { importados, atualizados, erros, total: raws.length, orphans_removed: orphansRemoved, extratos_resetados: extratosResetados },
     duracao_ms: Date.now() - inicio,
   });
 
