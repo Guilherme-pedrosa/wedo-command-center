@@ -880,13 +880,17 @@ serve(async (req) => {
 
       // ── Reconciliação: detectar cancelamentos/exclusões ──
       // Compara gc_ids da API com os existentes no banco para a mesma janela.
-      // Registros locais que sumiram da API são marcados como 'cancelado' (soft-delete).
+      // - fin_recebimentos: marca como 'cancelado' (soft-delete, preserva histórico/RLS).
+      // - gc_recebimentos: DELETA (tabela espelho da API, sem campo status).
       let recCancelled = 0;
+      let gcRecDeleted = 0;
       let recCancelledIds: string[] = [];
       if (recRecords.length === 0) {
         console.warn(`[sync-all] ⚠️ Recebimentos: API retornou 0 registros — pulando reconciliação por segurança.`);
       } else try {
         const apiGcIds = new Set(recRecords.map((r: any) => String(r.id)));
+
+        // 1. fin_recebimentos: soft-delete
         const { data: localRecs } = await supabase
           .from("fin_recebimentos")
           .select("id, gc_id, gc_codigo, valor, data_vencimento, nome_cliente, status")
@@ -908,12 +912,39 @@ serve(async (req) => {
             })
             .in("id", recCancelledIds);
           if (cancelErr) {
-            console.error(`[sync-all] reconcile recebimentos error: ${cancelErr.message}`);
-            recErrorMessages.add(`reconcile: ${cancelErr.message}`);
+            console.error(`[sync-all] reconcile fin_recebimentos error: ${cancelErr.message}`);
+            recErrorMessages.add(`reconcile fin: ${cancelErr.message}`);
           } else {
             recCancelled = orphans.length;
-            console.log(`[sync-all] 🧹 Recebimentos: ${recCancelled} órfãos marcados como cancelado`);
+            console.log(`[sync-all] 🧹 fin_recebimentos: ${recCancelled} órfãos marcados como cancelado`);
             for (const o of orphans.slice(0, 20)) {
+              console.log(`  ↳ gc_id=${o.gc_id} cod=${o.gc_codigo} cli=${o.nome_cliente} venc=${o.data_vencimento} val=${o.valor}`);
+            }
+          }
+        }
+
+        // 2. gc_recebimentos: hard-delete (espelho da API)
+        const { data: localGcRecs } = await supabase
+          .from("gc_recebimentos")
+          .select("id, gc_id, gc_codigo, valor, data_vencimento, nome_cliente")
+          .not("gc_id", "is", null)
+          .gte("data_vencimento", dataInicio)
+          .lte("data_vencimento", dataFim);
+
+        const gcOrphans = (localGcRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
+        if (gcOrphans.length > 0) {
+          const gcOrphanIds = gcOrphans.map((o: any) => o.id);
+          const { error: delErr } = await supabase
+            .from("gc_recebimentos")
+            .delete()
+            .in("id", gcOrphanIds);
+          if (delErr) {
+            console.error(`[sync-all] delete gc_recebimentos error: ${delErr.message}`);
+            recErrorMessages.add(`delete gc: ${delErr.message}`);
+          } else {
+            gcRecDeleted = gcOrphans.length;
+            console.log(`[sync-all] 🗑️ gc_recebimentos: ${gcRecDeleted} órfãos deletados`);
+            for (const o of gcOrphans.slice(0, 20)) {
               console.log(`  ↳ gc_id=${o.gc_id} cod=${o.gc_codigo} cli=${o.nome_cliente} venc=${o.data_vencimento} val=${o.valor}`);
             }
           }
