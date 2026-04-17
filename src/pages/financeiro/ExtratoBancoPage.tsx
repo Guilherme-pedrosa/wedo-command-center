@@ -268,6 +268,7 @@ export default function ExtratoBancoPage() {
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["extrato-unified"] });
+    queryClient.invalidateQueries({ queryKey: ["extrato-gc-baixa"] });
     queryClient.invalidateQueries({ queryKey: ["conc-recebimentos"] });
     queryClient.invalidateQueries({ queryKey: ["conc-pagamentos"] });
   };
