@@ -878,16 +878,62 @@ serve(async (req) => {
         }
       }
 
+      // ── Reconciliação: detectar cancelamentos/exclusões ──
+      // Compara gc_ids da API com os existentes no banco para a mesma janela.
+      // Registros locais que sumiram da API são marcados como 'cancelado' (soft-delete).
+      let recCancelled = 0;
+      let recCancelledIds: string[] = [];
+      if (recRecords.length === 0) {
+        console.warn(`[sync-all] ⚠️ Recebimentos: API retornou 0 registros — pulando reconciliação por segurança.`);
+      } else try {
+        const apiGcIds = new Set(recRecords.map((r: any) => String(r.id)));
+        const { data: localRecs } = await supabase
+          .from("fin_recebimentos")
+          .select("id, gc_id, gc_codigo, valor, data_vencimento, nome_cliente, status")
+          .not("gc_id", "is", null)
+          .gte("data_vencimento", dataInicio)
+          .lte("data_vencimento", dataFim)
+          .neq("status", "cancelado");
+
+        const orphans = (localRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
+        if (orphans.length > 0) {
+          recCancelledIds = orphans.map((o: any) => o.id);
+          const { error: cancelErr } = await supabase
+            .from("fin_recebimentos")
+            .update({
+              status: "cancelado",
+              liquidado: false,
+              observacao: `Cancelado automaticamente em ${new Date().toISOString()} — ausente da API GestãoClick na sincronização da janela ${dataInicio}→${dataFim}.`,
+              last_synced_at: new Date().toISOString(),
+            })
+            .in("id", recCancelledIds);
+          if (cancelErr) {
+            console.error(`[sync-all] reconcile recebimentos error: ${cancelErr.message}`);
+            recErrorMessages.add(`reconcile: ${cancelErr.message}`);
+          } else {
+            recCancelled = orphans.length;
+            console.log(`[sync-all] 🧹 Recebimentos: ${recCancelled} órfãos marcados como cancelado`);
+            for (const o of orphans.slice(0, 20)) {
+              console.log(`  ↳ gc_id=${o.gc_id} cod=${o.gc_codigo} cli=${o.nome_cliente} venc=${o.data_vencimento} val=${o.valor}`);
+            }
+          }
+        }
+      } catch (recErr) {
+        console.error(`[sync-all] reconcile recebimentos exception:`, recErr);
+        recErrorMessages.add(`reconcile: ${(recErr as Error).message}`);
+      }
+
       results.recebimentos = {
         status: recErrors > 0 ? "partial" : "ok",
         fetched: recRecords.length,
         gc_upserted: gcRecUpserted,
         fin_upserted: finRecUpserted,
+        cancelled_orphans: recCancelled,
         errors: recErrors,
         error_messages: [...recErrorMessages],
         duration_ms: Date.now() - recStart,
       };
-      console.log(`[sync-all] Recebimentos done: ${recRecords.length} fetched, gc=${gcRecUpserted}, fin=${finRecUpserted} (${Date.now() - recStart}ms)`);
+      console.log(`[sync-all] Recebimentos done: ${recRecords.length} fetched, gc=${gcRecUpserted}, fin=${finRecUpserted}, orphans=${recCancelled} (${Date.now() - recStart}ms)`);
     } catch (err) {
       results.recebimentos = { status: "error", error: (err as Error).message, duration_ms: Date.now() - recStart };
       console.error(`[sync-all] recebimentos error: ${(err as Error).message}`);
@@ -1005,16 +1051,59 @@ serve(async (req) => {
         console.error("[sync-all] Backfill recipient_document error:", e);
       }
 
+      // ── Reconciliação: detectar cancelamentos/exclusões ──
+      let pagCancelled = 0;
+      if (pagRecords.length === 0) {
+        console.warn(`[sync-all] ⚠️ Pagamentos: API retornou 0 registros — pulando reconciliação por segurança.`);
+      } else try {
+        const apiGcIds = new Set(pagRecords.map((r: any) => String(r.id)));
+        const { data: localPags } = await supabase
+          .from("fin_pagamentos")
+          .select("id, gc_id, gc_codigo, valor, data_vencimento, nome_fornecedor, status")
+          .not("gc_id", "is", null)
+          .gte("data_vencimento", dataInicio)
+          .lte("data_vencimento", dataFim)
+          .neq("status", "cancelado");
+
+        const orphans = (localPags ?? []).filter((p: any) => !apiGcIds.has(String(p.gc_id)));
+        if (orphans.length > 0) {
+          const orphanIds = orphans.map((o: any) => o.id);
+          const { error: cancelErr } = await supabase
+            .from("fin_pagamentos")
+            .update({
+              status: "cancelado",
+              liquidado: false,
+              observacao: `Cancelado automaticamente em ${new Date().toISOString()} — ausente da API GestãoClick na sincronização da janela ${dataInicio}→${dataFim}.`,
+              last_synced_at: new Date().toISOString(),
+            })
+            .in("id", orphanIds);
+          if (cancelErr) {
+            console.error(`[sync-all] reconcile pagamentos error: ${cancelErr.message}`);
+            pagErrorMessages.add(`reconcile: ${cancelErr.message}`);
+          } else {
+            pagCancelled = orphans.length;
+            console.log(`[sync-all] 🧹 Pagamentos: ${pagCancelled} órfãos marcados como cancelado`);
+            for (const o of orphans.slice(0, 20)) {
+              console.log(`  ↳ gc_id=${o.gc_id} cod=${o.gc_codigo} forn=${o.nome_fornecedor} venc=${o.data_vencimento} val=${o.valor}`);
+            }
+          }
+        }
+      } catch (pagErr) {
+        console.error(`[sync-all] reconcile pagamentos exception:`, pagErr);
+        pagErrorMessages.add(`reconcile: ${(pagErr as Error).message}`);
+      }
+
       results.pagamentos = {
         status: pagErrors > 0 ? "partial" : "ok",
         fetched: pagRecords.length,
         gc_upserted: gcPagUpserted,
         fin_upserted: finPagUpserted,
+        cancelled_orphans: pagCancelled,
         errors: pagErrors,
         error_messages: [...pagErrorMessages],
         duration_ms: Date.now() - pagStart,
       };
-      console.log(`[sync-all] Pagamentos done: ${pagRecords.length} fetched, gc=${gcPagUpserted}, fin=${finPagUpserted} (${Date.now() - pagStart}ms)`);
+      console.log(`[sync-all] Pagamentos done: ${pagRecords.length} fetched, gc=${gcPagUpserted}, fin=${finPagUpserted}, orphans=${pagCancelled} (${Date.now() - pagStart}ms)`);
     } catch (err) {
       results.pagamentos = { status: "error", error: (err as Error).message, duration_ms: Date.now() - pagStart };
       console.error(`[sync-all] pagamentos error: ${(err as Error).message}`);
