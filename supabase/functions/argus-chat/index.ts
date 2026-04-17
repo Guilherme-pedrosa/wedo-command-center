@@ -270,9 +270,9 @@ ${contextBlock}`;
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.5-pro",
         messages: aiMessages,
-        max_tokens: 2000,
+        max_tokens: 4000,
       }),
     });
 
