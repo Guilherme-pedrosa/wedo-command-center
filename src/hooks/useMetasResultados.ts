@@ -163,14 +163,14 @@ export const useMetasResultados = (year: number, month: number) => {
     },
   });
 
+  // Espelha EXATAMENTE o "Relatório de Ordens de Serviços" do GestãoClick:
+  // só esses 4 status entram em Execução + Coifas. FECHADO CHAMADO é Ecolab (separado).
   const OS_EXECUTADOS_STATUS = [
     'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
     'EXECUTADO - AGUARDANDO PAGAMENTO',
     'EXECUTADO COM NOTA EMITIDA',
     'EXECUTADO - FINANCEIRO SEPARADO',
-    'EXECUTADO - CIGAM',
-    'EXECUTADO POR CONTRATO',
-    'EXECUTADO - FECHADO CHAMADO',
+    'EXECUTADO - FECHADO CHAMADO', // mantido só pra base de comissões / Ecolab
   ];
 
   const { data: osExecutadas = [], isLoading: loadingOS, refetch: refetchOS, dataUpdatedAt: osDataUpdatedAt } = useQuery({
