@@ -62,9 +62,16 @@ function normalizeTabela(t: string): "fin_pagamentos" | "fin_recebimentos" | nul
   return null;
 }
 
+// Converte ISO UTC para data (yyyy-mm-dd) no fuso de Brasília (UTC-3).
+// Crítico: substring(0,10) direto do UTC retorna o dia errado para horários após 21:00 BRT.
+// Ex.: 2026-04-17T00:00:20Z = 2026-04-16 21:00:20 BRT → deve retornar "2026-04-16".
 function dateOnly(iso: string | null | undefined): string | null {
   if (!iso) return null;
-  return iso.substring(0, 10);
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso.substring(0, 10);
+  // Subtrai 3h (BRT = UTC-3) e extrai a data em UTC
+  const brt = new Date(d.getTime() - 3 * 60 * 60 * 1000);
+  return brt.toISOString().substring(0, 10);
 }
 
 function fmtBR(iso: string): string {
@@ -133,9 +140,10 @@ async function baixarNoGC(
     plano_contas_id: payloadRaw.plano_contas_id,
     forma_pagamento_id: payloadRaw.forma_pagamento_id,
     conta_bancaria_id: payloadRaw.conta_bancaria_id,
-    // GC API: liquidado deve ser "pg" (Confirmado), "ab" (Aberto) ou "at" (Atraso).
-    // Enviar "1" faz o GC ignorar a data_liquidacao e gravar a data atual.
-    liquidado: "pg",
+    // GC API PUT: liquidado deve ser "1" (inteiro como string). Os códigos "pg"/"ab"/"at"
+    // são apenas para FILTROS no GET — no PUT a API rejeita com "campo (baixado) não é inteiro".
+    // A data_liquidacao é respeitada quando enviada explicitamente junto.
+    liquidado: "1",
     data_liquidacao: dataLiquidacao,
     observacao: obsFinal,
   };
