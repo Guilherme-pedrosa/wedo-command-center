@@ -292,7 +292,16 @@ export default function ExtratoBancoPage() {
     setSyncingGC(true);
     try {
       const result = await syncFinanceiroFullSweep();
-      toast.success(`GC sincronizado: ${result.importados} registros varridos.`);
+      const baixa = result.baixaGC;
+
+      if (baixa?.ok) {
+        toast.success(`GC sincronizado. Baixa automática: ${baixa.sucesso}/${baixa.processados}.`);
+      } else if (baixa) {
+        toast.error(`GC sincronizado, mas a baixa automática falhou${baixa.error ? `: ${baixa.error}` : "."}`);
+      } else {
+        toast.success(`GC sincronizado: ${result.importados} registros varridos.`);
+      }
+
       invalidateAll();
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao sincronizar GC"); }
     finally { setSyncingGC(false); }
@@ -1454,7 +1463,7 @@ export default function ExtratoBancoPage() {
 }
 
 // ── Helper component ──
-function DetailRow({ label, value, mono, bold, small }: { label: string; value: any; mono?: boolean; bold?: boolean; small?: boolean }) {
+const DetailRow = ({ label, value, mono, bold, small }: { label: string; value: any; mono?: boolean; bold?: boolean; small?: boolean }) => {
   if (!value && value !== 0) return null;
   return (
     <div className="grid grid-cols-3 gap-2">
@@ -1464,4 +1473,4 @@ function DetailRow({ label, value, mono, bold, small }: { label: string; value: 
       </span>
     </div>
   );
-}
+};

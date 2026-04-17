@@ -847,6 +847,19 @@ export interface SyncDateFilter {
 
 export type SyncScope = "recebimentos" | "pagamentos" | "ambos";
 
+export interface SyncFinanceiroResult {
+  importados: number;
+  atualizados: number;
+  erros: number;
+  baixaGC?: {
+    ok: boolean;
+    processados: number;
+    sucesso: number;
+    falha: number;
+    error?: string;
+  };
+}
+
 async function resetExtratosByLancamentos(
   lancamentoIds: string[],
   tabelas: string[]
@@ -918,7 +931,7 @@ export async function syncFinanceiroFullSweep(
   onProgress?: (atual: number, total: number) => void,
   onStep?: (etapa: string) => void,
   scope: SyncScope = "ambos"
-): Promise<{ importados: number; atualizados: number; erros: number }> {
+): Promise<SyncFinanceiroResult> {
   const filtros = await buildFullSweepFilters();
   return syncByMonthChunks(filtros, onProgress, onStep, scope);
 }
@@ -928,7 +941,7 @@ export async function syncByMonthChunks(
   onProgress?: (atual: number, total: number) => void,
   onStep?: (etapa: string) => void,
   scope: SyncScope = "ambos"
-): Promise<{ importados: number; atualizados: number; erros: number }> {
+): Promise<SyncFinanceiroResult> {
   const start = new Date((filtros.dataInicio || fnsFormat(new Date(), "yyyy-MM-dd")) + "T00:00:00");
   const end = new Date((filtros.dataFim || fnsFormat(new Date(), "yyyy-MM-dd")) + "T23:59:59");
 
@@ -945,7 +958,7 @@ export async function syncByMonthChunks(
     cursor = startOfMonth(addMonths(cursor, 1));
   }
 
-  const totals = { importados: 0, atualizados: 0, erros: 0 };
+  const totals: SyncFinanceiroResult = { importados: 0, atualizados: 0, erros: 0 };
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
@@ -986,18 +999,54 @@ export async function syncByMonthChunks(
     }
   }
 
-  // Após sincronizar, dispara baixa automática dos conciliados (fire-and-forget)
   try {
     onStep?.("Baixando conciliados no GC...");
-    const { supabase } = await import("@/integrations/supabase/client");
-    supabase.functions.invoke("argus-baixa-confirmada", { body: { mode: "auto" } })
-      .then(({ data, error }) => {
-        if (error) console.warn("[syncByMonthChunks] argus-baixa-confirmada falhou:", error.message);
-        else console.log("[syncByMonthChunks] argus-baixa-confirmada:", data);
-      })
-      .catch((e) => console.warn("[syncByMonthChunks] argus-baixa-confirmada erro:", e));
+    const { data, error } = await supabase.functions.invoke("argus-baixa-confirmada", {
+      body: { mode: "auto" },
+    });
+
+    if (error) {
+      totals.baixaGC = {
+        ok: false,
+        processados: 0,
+        sucesso: 0,
+        falha: 0,
+        error: error.message,
+      };
+      totals.erros += 1;
+      console.warn("[syncByMonthChunks] argus-baixa-confirmada falhou:", error.message);
+    } else {
+      const processados = Number(data?.processados ?? 0);
+      const sucesso = Number(data?.sucesso ?? 0);
+      const falha = Number(data?.falha ?? 0);
+      const errorMessage = data?.error ? String(data.error) : undefined;
+
+      totals.baixaGC = {
+        ok: !errorMessage && falha === 0,
+        processados,
+        sucesso,
+        falha,
+        error: errorMessage,
+      };
+
+      if (falha > 0 || errorMessage) {
+        totals.erros += falha > 0 ? falha : 1;
+        console.warn("[syncByMonthChunks] argus-baixa-confirmada retornou falhas:", data);
+      } else {
+        console.log("[syncByMonthChunks] argus-baixa-confirmada:", data);
+      }
+    }
   } catch (e) {
-    console.warn("[syncByMonthChunks] não conseguiu disparar baixa:", e);
+    const message = e instanceof Error ? e.message : String(e);
+    totals.baixaGC = {
+      ok: false,
+      processados: 0,
+      sucesso: 0,
+      falha: 0,
+      error: message,
+    };
+    totals.erros += 1;
+    console.warn("[syncByMonthChunks] não conseguiu executar baixa:", e);
   }
 
   return totals;
