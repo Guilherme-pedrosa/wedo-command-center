@@ -431,67 +431,83 @@ export default function MetasConfigDialog({ open, onOpenChange }: Props) {
 
                   {/* Mapeamentos */}
                   <div className="pt-2 border-t">
-                    <div className="flex items-center justify-between mb-2">
-                      <Label className="text-xs font-semibold">Planos de Conta Vinculados</Label>
-                      <Button size="sm" variant="outline" onClick={handleAddMapping} className="h-6 text-xs px-2">
-                        <Plus className="h-3 w-3 mr-1" /> Adicionar
-                      </Button>
-                    </div>
-                    <div className="space-y-2">
-                      {editingMaps.map((map, idx) => (
-                        <div key={map.id} className="flex items-start gap-1 p-2 rounded bg-muted/50 border text-xs">
-                          <div className="flex-1 space-y-1.5">
-                            <div>
-                              <Label className="text-[10px] text-muted-foreground">Plano de Contas</Label>
-                              <Select
-                                value={map.plano_contas_id}
-                                onValueChange={v => {
-                                  const plano = planos.find(p => p.id === v);
-                                  setEditingMaps(prev => prev.map((m, i) => i === idx ? { ...m, plano_contas_id: v, nome_plano: plano?.nome || null } : m));
-                                }}
-                              >
-                                <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                                <SelectContent>
-                                  {planos.map(p => (
-                                    <SelectItem key={p.id} value={p.id} className="text-xs">{p.nome}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div>
-                              <Label className="text-[10px] text-muted-foreground">Centro de Custo</Label>
-                              <Select
-                                value={map.centro_custo_id || '__none__'}
-                                onValueChange={v => {
-                                  const val = v === '__none__' ? null : v;
-                                  const centro = centros.find(c => c.id === val);
-                                  setEditingMaps(prev => prev.map((m, i) => i === idx ? { ...m, centro_custo_id: val, nome_centro_custo: centro?.nome || null } : m));
-                                }}
-                              >
-                                <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Todos" /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="__none__" className="text-xs">Todos</SelectItem>
-                                  {centros.map(c => (
-                                    <SelectItem key={c.id} value={c.id} className="text-xs">{c.nome}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div>
-                              <Label className="text-[10px] text-muted-foreground">Peso</Label>
-                              <Input type="number" step="0.1" className="h-7 text-xs w-20" value={map.peso}
-                                onChange={e => setEditingMaps(prev => prev.map((m, i) => i === idx ? { ...m, peso: parseFloat(e.target.value) || 1 } : m))} />
-                            </div>
+                    {(() => {
+                      const sl = hasSpecialLogic(editingMeta);
+                      if (sl.special) {
+                        return (
+                          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 space-y-1">
+                            <div className="font-semibold">Cálculo automático (lógica especial)</div>
+                            <div>Esta meta é apurada por uma fonte específica e <strong>não usa</strong> o vínculo de Plano de Contas. Por isso, a edição dos mapeamentos foi desabilitada para evitar configuração incorreta.</div>
+                            <div className="text-amber-800/80">Fonte: {sl.reason}</div>
                           </div>
-                          <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0 mt-4" onClick={() => handleRemoveMapping(idx)}>
-                            <X className="h-3 w-3 text-destructive" />
-                          </Button>
-                        </div>
-                      ))}
-                      {editingMaps.length === 0 && (
-                        <p className="text-xs text-muted-foreground italic">Nenhum plano vinculado. Adicione para calcular o realizado.</p>
-                      )}
-                    </div>
+                        );
+                      }
+                      return (
+                        <>
+                          <div className="flex items-center justify-between mb-2">
+                            <Label className="text-xs font-semibold">Planos de Conta Vinculados</Label>
+                            <Button size="sm" variant="outline" onClick={handleAddMapping} className="h-6 text-xs px-2">
+                              <Plus className="h-3 w-3 mr-1" /> Adicionar
+                            </Button>
+                          </div>
+                          <div className="space-y-2">
+                            {editingMaps.map((map, idx) => (
+                              <div key={map.id} className="flex items-start gap-1 p-2 rounded bg-muted/50 border text-xs">
+                                <div className="flex-1 space-y-1.5">
+                                  <div>
+                                    <Label className="text-[10px] text-muted-foreground">Plano de Contas</Label>
+                                    <Select
+                                      value={map.plano_contas_id}
+                                      onValueChange={v => {
+                                        const plano = planos.find(p => p.id === v);
+                                        setEditingMaps(prev => prev.map((m, i) => i === idx ? { ...m, plano_contas_id: v, nome_plano: plano?.nome || null } : m));
+                                      }}
+                                    >
+                                      <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                                      <SelectContent>
+                                        {planos.map(p => (
+                                          <SelectItem key={p.id} value={p.id} className="text-xs">{p.nome}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div>
+                                    <Label className="text-[10px] text-muted-foreground">Centro de Custo</Label>
+                                    <Select
+                                      value={map.centro_custo_id || '__none__'}
+                                      onValueChange={v => {
+                                        const val = v === '__none__' ? null : v;
+                                        const centro = centros.find(c => c.id === val);
+                                        setEditingMaps(prev => prev.map((m, i) => i === idx ? { ...m, centro_custo_id: val, nome_centro_custo: centro?.nome || null } : m));
+                                      }}
+                                    >
+                                      <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Todos" /></SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="__none__" className="text-xs">Todos</SelectItem>
+                                        {centros.map(c => (
+                                          <SelectItem key={c.id} value={c.id} className="text-xs">{c.nome}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div>
+                                    <Label className="text-[10px] text-muted-foreground">Peso</Label>
+                                    <Input type="number" step="0.1" className="h-7 text-xs w-20" value={map.peso}
+                                      onChange={e => setEditingMaps(prev => prev.map((m, i) => i === idx ? { ...m, peso: parseFloat(e.target.value) || 1 } : m))} />
+                                  </div>
+                                </div>
+                                <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0 mt-4" onClick={() => handleRemoveMapping(idx)}>
+                                  <X className="h-3 w-3 text-destructive" />
+                                </Button>
+                              </div>
+                            ))}
+                            {editingMaps.length === 0 && (
+                              <p className="text-xs text-muted-foreground italic">Nenhum plano vinculado. Adicione para calcular o realizado.</p>
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
 
                   <div className="flex gap-2 pt-3 sticky bottom-0 bg-background pb-2">
