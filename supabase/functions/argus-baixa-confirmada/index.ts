@@ -67,6 +67,46 @@ function dateOnly(iso: string | null | undefined): string | null {
   return iso.substring(0, 10);
 }
 
+function fmtBR(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+}
+
+function fmtMoney(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "—";
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function montarObservacaoArgus(extratos: ExtratoInfo[], dataLiq: string): string {
+  const agora = new Date().toISOString();
+  const linhas: string[] = [
+    `[Argus] Baixa automática conciliada com extrato bancário`,
+    `Data da liquidação: ${fmtBR(dataLiq)}`,
+    `Conciliado em: ${fmtBR(agora)} via Argus Finance OS`,
+  ];
+  if (extratos.length === 0) {
+    return linhas.join("\n");
+  }
+  if (extratos.length === 1) {
+    const e = extratos[0];
+    linhas.push("");
+    linhas.push(`Extrato vinculado:`);
+    linhas.push(`• ${fmtBR(e.data)} — ${fmtMoney(e.valor)}${e.tipo ? ` (${e.tipo})` : ""}`);
+    if (e.contraparte) linhas.push(`• Contraparte: ${e.contraparte}`);
+    if (e.descricao) linhas.push(`• Histórico: ${e.descricao.substring(0, 200)}`);
+    if (e.end_to_end_id) linhas.push(`• E2E: ${e.end_to_end_id}`);
+  } else {
+    linhas.push("");
+    linhas.push(`Extratos vinculados (${extratos.length}):`);
+    for (const e of extratos) {
+      const partes = [`${fmtBR(e.data)} — ${fmtMoney(e.valor)}`];
+      if (e.contraparte) partes.push(e.contraparte);
+      linhas.push(`• ${partes.join(" — ")}`);
+    }
+  }
+  return linhas.join("\n");
+}
+
 async function baixarNoGC(
   endpoint: "recebimentos" | "pagamentos",
   gcId: string,
