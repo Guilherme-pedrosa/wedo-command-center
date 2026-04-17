@@ -163,6 +163,30 @@ export const useMetasResultados = (year: number, month: number) => {
     },
   });
 
+  // Pagamentos filtrados por DATA DE COMPETÊNCIA (para Comissões/Premiações e Despesas com Veículos).
+  // Esses custos devem refletir o mês de competência, não o vencimento.
+  const { data: pagamentosCompetencia = [], isLoading: loadingPagComp, refetch: refetchPagComp } = useQuery({
+    queryKey: ['fin_pagamentos_metas_competencia', start, end],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('fin_pagamentos')
+        .select('plano_contas_id, centro_custo_id, valor, status')
+        .neq('status', 'cancelado')
+        .gte('data_competencia', start)
+        .lte('data_competencia', end);
+      if (error) throw error;
+      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
+    },
+  });
+
+  // Plano de contas (UUIDs) que devem ser apurados por COMPETÊNCIA em vez de vencimento.
+  // - COMISSÕES E BONIFICAÇÕES (28054594) → Comissões e Premiações (Técnicos)
+  // - Despesas com veículos (28034468) → Manutenção Veículos
+  const PLANOS_POR_COMPETENCIA = new Set([
+    'e7299b90-98d2-4d7a-a04c-78ba40cc847a',
+    'ee7cc5fe-77d4-403f-a321-0cb57c14d370',
+  ]);
+
   // Espelha EXATAMENTE o "Relatório de Ordens de Serviços" do GestãoClick:
   // só esses 4 status entram em Execução + Coifas. FECHADO CHAMADO é Ecolab (separado).
   const OS_EXECUTADOS_STATUS = [
@@ -344,8 +368,13 @@ export const useMetasResultados = (year: number, month: number) => {
             realizado += auvoSum * (link.peso || 1);
           } else {
             // Always use fin_pagamentos/fin_recebimentos (contas a pagar/receber)
-            // instead of gc_pagamentos/gc_recebimentos to avoid mixing with compras
-            const source = meta.categoria === 'receita' ? recebimentos : pagamentos;
+            // instead of gc_pagamentos/gc_recebimentos to avoid mixing with compras.
+            // Para planos marcados como "por competência", usa pagamentosCompetencia.
+            const usaCompetencia =
+              meta.categoria !== 'receita' && PLANOS_POR_COMPETENCIA.has(planoUuid);
+            const source = meta.categoria === 'receita'
+              ? recebimentos
+              : (usaCompetencia ? pagamentosCompetencia : pagamentos);
             const soma = source
               .filter(r =>
                 r.plano_contas_id === planoUuid &&
@@ -390,15 +419,15 @@ export const useMetasResultados = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, planoContasMap, uuidToGcId, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, planoContasMap, uuidToGcId, centrosCustoMap]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
   const refetch = useCallback(() => {
-    refetchRec(); refetchPag(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo();
-  }, [refetchRec, refetchPag, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchAuvo]);
+    refetchRec(); refetchPag(); refetchPagComp(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo();
+  }, [refetchRec, refetchPag, refetchPagComp, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchAuvo]);
 
-  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
+  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
 
   return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, dataUpdatedAt: osDataUpdatedAt };
 };
