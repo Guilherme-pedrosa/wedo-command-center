@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Loader2, RefreshCw, AlertTriangle } from "lucide-react";
+import { TrendingUp, TrendingDown, Loader2, RefreshCw, AlertTriangle, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
@@ -40,6 +40,7 @@ export function ForecastPanel() {
         saldo_inicial: number;
         semanas: ForecastWeek[];
         semanas_risco: any[];
+        briefing_ia?: string | null;
       };
     },
     staleTime: 10 * 60 * 1000,

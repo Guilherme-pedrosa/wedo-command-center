@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, CheckCircle, Clock, DollarSign, RefreshCw, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle, Clock, DollarSign, RefreshCw, Loader2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
