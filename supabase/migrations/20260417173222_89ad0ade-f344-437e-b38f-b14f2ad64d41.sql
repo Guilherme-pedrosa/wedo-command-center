@@ -1,0 +1,2 @@
+UPDATE fin_recebimentos SET gc_baixado = false WHERE gc_baixado = true AND gc_baixado_em >= '2026-04-17'::timestamp;
+UPDATE fin_pagamentos SET gc_baixado = false WHERE gc_baixado = true AND gc_baixado_em >= '2026-04-17'::timestamp;
