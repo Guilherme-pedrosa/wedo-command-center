@@ -18,8 +18,9 @@ import {
   Building2, RefreshCw, Loader2, CalendarIcon, Download, CloudDownload,
   Wand2, Brain, ArrowLeftRight, CheckCircle, ChevronDown, ChevronUp,
   Search, X, ExternalLink, Hash, FileText, Send, Sparkles, Zap,
-  AlertTriangle, MessageSquare, Banknote, Link2, Undo2, Eye,
+  AlertTriangle, MessageSquare, Banknote, Link2, Undo2, Eye, CloudUpload,
 } from "lucide-react";
+import { BaixarGCDialog } from "@/components/financeiro/BaixarGCDialog";
 import { format, subDays, subMonths, startOfMonth, endOfMonth, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -83,6 +84,7 @@ export default function ExtratoBancoPage() {
   const [dateTo, setDateTo] = useState(endOfMonth(new Date()));
   const [fetching, setFetching] = useState(false);
   const [syncingGC, setSyncingGC] = useState(false);
+  const [baixarGCOpen, setBaixarGCOpen] = useState(false);
   const [autoRunning, setAutoRunning] = useState(false);
   const [tipoFilter, setTipoFilter] = useState("todos");
   const [reconcFilter, setReconcFilter] = useState("todos");
@@ -692,6 +694,9 @@ export default function ExtratoBancoPage() {
           </Popover>
           <Button onClick={handleSyncGC} disabled={syncingGC} variant="outline" size="sm" className="gap-1.5">
             {syncingGC ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CloudDownload className="h-3.5 w-3.5" />}Sincronizar GC
+          </Button>
+          <Button onClick={() => setBaixarGCOpen(true)} variant="outline" size="sm" className="gap-1.5">
+            <CloudUpload className="h-3.5 w-3.5" />Baixar no GC
           </Button>
           <Button onClick={handleAutoReconcile} disabled={autoRunning} variant="outline" size="sm" className="gap-1.5">
             {autoRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}Conciliação Auto
@@ -1458,6 +1463,8 @@ export default function ExtratoBancoPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BaixarGCDialog open={baixarGCOpen} onOpenChange={setBaixarGCOpen} onDone={invalidateAll} />
     </div>
   );
 }
