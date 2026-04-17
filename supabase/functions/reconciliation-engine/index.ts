@@ -16,6 +16,28 @@ function cleanDoc(d: string | null | undefined): string {
   return (d ?? "").replace(/\D/g, "");
 }
 
+// CNPJs da própria empresa (WD Comércio + filiais).
+// O Inter às vezes grava o CNPJ do PAGADOR (você) no campo cpf_cnpj do extrato em vez do BENEFICIÁRIO.
+// Quando isso acontece, o motor deve ignorar esse doc e cair pra match por nome+valor.
+const OWN_CNPJS_RAIZ = new Set<string>([
+  "43572954", // WD Comércio
+]);
+
+function isOwnCnpj(d: string | null | undefined): boolean {
+  const c = cleanDoc(d);
+  if (c.length < 8) return false;
+  return OWN_CNPJS_RAIZ.has(c.substring(0, 8));
+}
+
+/** Retorna o cpf_cnpj do extrato APENAS se não for da própria empresa.
+ *  Em débitos, o Inter pode gravar o CNPJ do pagador (nós) — nesse caso ignoramos. */
+function extDocBeneficiario(ext: any): string {
+  const raw = cleanDoc(ext?.cpf_cnpj);
+  if (!raw) return "";
+  if (isOwnCnpj(raw)) return ""; // ignora — não é o doc do beneficiário/contraparte
+  return raw;
+}
+
 function docMatches(a: string | null | undefined, b: string | null | undefined): boolean {
   const ca = cleanDoc(a);
   const cb = cleanDoc(b);
