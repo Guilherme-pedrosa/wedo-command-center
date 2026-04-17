@@ -71,13 +71,20 @@ async function baixarNoGC(
   endpoint: "recebimentos" | "pagamentos",
   gcId: string,
   payloadRaw: Record<string, unknown>,
-  dataLiquidacao: string
+  dataLiquidacao: string,
+  extratos: ExtratoInfo[]
 ): Promise<{ ok: boolean; erro?: string }> {
   // PUT /pagamentos e /recebimentos do GC NÃO suportam situacao_id
   // (testado em 2026-04-17: enviar 949476 retorna "Erro ao salvar dados").
-  // O endpoint "Alterar situação" do GC (do print do usuário) é um endpoint
-  // interno não exposto na API pública. Por isso baixamos só com liquidado=1.
-  // A marcação "Confirmado Argus" fica no estado local (gc_baixado=true + log).
+  // Como compensação, adicionamos a marca "Confirmado pelo Argus" no campo
+  // `observacao` (Informações complementares na UI do GC) com detalhes da
+  // sincronização (data, valor, contraparte do extrato).
+  const obsArgus = montarObservacaoArgus(extratos, dataLiquidacao);
+  const obsOriginal = (payloadRaw.observacao as string | undefined)?.trim() || "";
+  const obsFinal = obsOriginal && !obsOriginal.includes("[Argus]")
+    ? `${obsOriginal}\n\n${obsArgus}`
+    : obsArgus;
+
   const payload: Record<string, unknown> = {
     descricao: payloadRaw.descricao ?? "",
     data_vencimento: payloadRaw.data_vencimento,
@@ -88,6 +95,7 @@ async function baixarNoGC(
     conta_bancaria_id: payloadRaw.conta_bancaria_id,
     liquidado: "1",
     data_liquidacao: dataLiquidacao,
+    observacao: obsFinal,
   };
 
   // Campos opcionais
