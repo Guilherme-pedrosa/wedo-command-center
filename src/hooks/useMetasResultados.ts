@@ -135,31 +135,32 @@ export const useMetasResultados = (year: number, month: number) => {
     staleTime: 10 * 60 * 1000,
   });
 
+  // Para dados financeiros vindos do GC, usamos data_competencia
+  // (regime de competência) em vez de data_vencimento. Fallback para
+  // data_vencimento quando a competência não está preenchida.
   const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec } = useQuery({
-    queryKey: ['fin_recebimentos_metas', start, end],
+    queryKey: ['fin_recebimentos_metas_competencia', start, end],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fin_recebimentos')
-        .select('plano_contas_id, centro_custo_id, valor, status')
+        .select('plano_contas_id, centro_custo_id, valor, status, data_competencia, data_vencimento')
         .neq('status', 'cancelado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
+        .or(`and(data_competencia.gte.${start},data_competencia.lte.${end}),and(data_competencia.is.null,data_vencimento.gte.${start},data_vencimento.lte.${end})`);
       if (error) throw error;
-      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
+      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_competencia: string | null; data_vencimento: string | null }[];
     },
   });
 
   const { data: pagamentos = [], isLoading: loadingPag, refetch: refetchPag } = useQuery({
-    queryKey: ['fin_pagamentos_metas', start, end],
+    queryKey: ['fin_pagamentos_metas_competencia', start, end],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fin_pagamentos')
-        .select('plano_contas_id, centro_custo_id, valor, status, data_liquidacao')
+        .select('plano_contas_id, centro_custo_id, valor, status, data_liquidacao, data_competencia, data_vencimento')
         .neq('status', 'cancelado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
+        .or(`and(data_competencia.gte.${start},data_competencia.lte.${end}),and(data_competencia.is.null,data_vencimento.gte.${start},data_vencimento.lte.${end})`);
       if (error) throw error;
-      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null }[];
+      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null; data_competencia: string | null; data_vencimento: string | null }[];
     },
   });
 
