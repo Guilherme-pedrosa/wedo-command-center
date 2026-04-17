@@ -211,7 +211,7 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
     tipo: "argus_baixa_confirmada",
     referencia_id: lanc.gc_id,
     status: "success",
-    payload: { tabela, lancamento_id: link.lancamento_id, data_liquidacao: dataLiq, situacao_id: SITUACAO_CONFIRMADO_ARGUS },
+    payload: { tabela, lancamento_id: link.lancamento_id, data_liquidacao: dataLiq },
   });
 
   return { ...link, ok: true, gc_id: lanc.gc_id };
