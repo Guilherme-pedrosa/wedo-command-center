@@ -64,6 +64,29 @@ const categoriaColor: Record<string, string> = {
   custo_fixo: 'bg-red-100 text-red-800 border-red-200',
 };
 
+// Metas com lógica de cálculo especial (hardcoded em useMetasResultados.ts).
+// Para essas metas, o vínculo com plano de contas é IGNORADO no cálculo —
+// portanto bloqueamos a edição dos mapeamentos pra evitar configuração enganosa.
+// Mantém-se editáveis: nome, categoria, tipo de meta, valor/percentual, ativo.
+const hasSpecialLogic = (meta: Pick<Meta, 'nome' | 'categoria'>): { special: boolean; reason?: string } => {
+  const nome = (meta.nome || '').toLowerCase();
+  if (meta.categoria === 'receita') {
+    if (nome.includes('contrato') || nome.includes('pcm'))
+      return { special: true, reason: 'Puxa de gc_recebimentos PCM (planos 27867721/27867722) liquidados.' };
+    if (nome.includes('at') || nome.includes('coifa') || nome.includes('higienização') || nome.includes('higienizacao'))
+      return { special: true, reason: 'Puxa de os_index com status EXECUTADO (Serviços + Coifas).' };
+    if (nome.includes('ecolab') || nome.includes('chamado'))
+      return { special: true, reason: 'Puxa de os_index com status EXECUTADO - FECHADO CHAMADO.' };
+    if (nome.includes('venda') || nome.includes('produto') || nome.includes('peça') || nome.includes('peca'))
+      return { special: true, reason: 'Puxa de gc_vendas com situação Concretizada.' };
+  }
+  if (meta.categoria === 'custo_variavel' && (nome.includes('peça') || nome.includes('peca') || nome.includes('estoque')))
+    return { special: true, reason: 'Puxa de gc_compras finalizadas (mercadoria chegou).' };
+  if (nome.includes('comiss') || nome.includes('premia'))
+    return { special: true, reason: 'Apurado por data de competência (plano COMISSÕES E BONIFICAÇÕES).' };
+  return { special: false };
+};
+
 export default function MetasConfigDialog({ open, onOpenChange }: Props) {
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
