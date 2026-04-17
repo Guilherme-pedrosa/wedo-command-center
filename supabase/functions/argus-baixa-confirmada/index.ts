@@ -38,6 +38,15 @@ interface LinkInput {
   tabela: string; // "fin_pagamentos" | "fin_recebimentos"
 }
 
+interface ExtratoInfo {
+  data: string;
+  valor: number | null;
+  descricao: string | null;
+  contraparte: string | null;
+  tipo: string | null;
+  end_to_end_id: string | null;
+}
+
 interface BaixaResult {
   lancamento_id: string;
   tabela: string;
@@ -58,17 +67,64 @@ function dateOnly(iso: string | null | undefined): string | null {
   return iso.substring(0, 10);
 }
 
+function fmtBR(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+}
+
+function fmtMoney(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "—";
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function montarObservacaoArgus(extratos: ExtratoInfo[], dataLiq: string): string {
+  const agora = new Date().toISOString();
+  const linhas: string[] = [
+    `[Argus] Baixa automática conciliada com extrato bancário`,
+    `Data da liquidação: ${fmtBR(dataLiq)}`,
+    `Conciliado em: ${fmtBR(agora)} via Argus Finance OS`,
+  ];
+  if (extratos.length === 0) {
+    return linhas.join("\n");
+  }
+  if (extratos.length === 1) {
+    const e = extratos[0];
+    linhas.push("");
+    linhas.push(`Extrato vinculado:`);
+    linhas.push(`• ${fmtBR(e.data)} — ${fmtMoney(e.valor)}${e.tipo ? ` (${e.tipo})` : ""}`);
+    if (e.contraparte) linhas.push(`• Contraparte: ${e.contraparte}`);
+    if (e.descricao) linhas.push(`• Histórico: ${e.descricao.substring(0, 200)}`);
+    if (e.end_to_end_id) linhas.push(`• E2E: ${e.end_to_end_id}`);
+  } else {
+    linhas.push("");
+    linhas.push(`Extratos vinculados (${extratos.length}):`);
+    for (const e of extratos) {
+      const partes = [`${fmtBR(e.data)} — ${fmtMoney(e.valor)}`];
+      if (e.contraparte) partes.push(e.contraparte);
+      linhas.push(`• ${partes.join(" — ")}`);
+    }
+  }
+  return linhas.join("\n");
+}
+
 async function baixarNoGC(
   endpoint: "recebimentos" | "pagamentos",
   gcId: string,
   payloadRaw: Record<string, unknown>,
-  dataLiquidacao: string
+  dataLiquidacao: string,
+  extratos: ExtratoInfo[]
 ): Promise<{ ok: boolean; erro?: string }> {
   // PUT /pagamentos e /recebimentos do GC NÃO suportam situacao_id
   // (testado em 2026-04-17: enviar 949476 retorna "Erro ao salvar dados").
-  // O endpoint "Alterar situação" do GC (do print do usuário) é um endpoint
-  // interno não exposto na API pública. Por isso baixamos só com liquidado=1.
-  // A marcação "Confirmado Argus" fica no estado local (gc_baixado=true + log).
+  // Como compensação, adicionamos a marca "Confirmado pelo Argus" no campo
+  // `observacao` (Informações complementares na UI do GC) com detalhes da
+  // sincronização (data, valor, contraparte do extrato).
+  const obsArgus = montarObservacaoArgus(extratos, dataLiquidacao);
+  const obsOriginal = (payloadRaw.observacao as string | undefined)?.trim() || "";
+  const obsFinal = obsOriginal && !obsOriginal.includes("[Argus]")
+    ? `${obsOriginal}\n\n${obsArgus}`
+    : obsArgus;
+
   const payload: Record<string, unknown> = {
     descricao: payloadRaw.descricao ?? "",
     data_vencimento: payloadRaw.data_vencimento,
@@ -79,6 +135,7 @@ async function baixarNoGC(
     conta_bancaria_id: payloadRaw.conta_bancaria_id,
     liquidado: "1",
     data_liquidacao: dataLiquidacao,
+    observacao: obsFinal,
   };
 
   // Campos opcionais
@@ -157,20 +214,27 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
 
   const { data: extratos } = await supabase
     .from("fin_extrato_inter")
-    .select("id, data_hora")
+    .select("id, data_hora, valor, descricao, nome_contraparte, tipo, tipo_transacao, end_to_end_id")
     .in("id", extratoIds);
 
-  const datas = (extratos || [])
-    .map((e: any) => dateOnly(e.data_hora))
-    .filter((d: string | null): d is string => !!d);
+  const extratosNorm: ExtratoInfo[] = ((extratos || []) as any[])
+    .map((e) => ({
+      data: dateOnly(e.data_hora) || "",
+      valor: e.valor != null ? Number(e.valor) : null,
+      descricao: e.descricao || null,
+      contraparte: e.nome_contraparte || null,
+      tipo: e.tipo_transacao || e.tipo || null,
+      end_to_end_id: e.end_to_end_id || null,
+    }))
+    .filter((e) => !!e.data)
+    .sort((a, b) => a.data.localeCompare(b.data));
 
-  if (datas.length === 0) {
+  if (extratosNorm.length === 0) {
     return { ...link, ok: false, erro: "Sem extrato vinculado" };
   }
 
   // Maior data (última liquidação)
-  datas.sort();
-  const dataLiq = datas[datas.length - 1];
+  const dataLiq = extratosNorm[extratosNorm.length - 1].data;
 
   if (dataLiq < CUTOFF_DATE) {
     return { ...link, ok: false, erro: `Antes do cutoff ${CUTOFF_DATE}` };
@@ -181,7 +245,8 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
     endpoint,
     lanc.gc_id,
     lanc.gc_payload_raw as Record<string, unknown>,
-    dataLiq
+    dataLiq,
+    extratosNorm
   );
 
   if (!result.ok) {
