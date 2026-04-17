@@ -600,7 +600,8 @@ function tentarSomaParcelas(
     })
     .filter(({ docOk, nomeOk, finDate }) => {
       if (!docOk && !nomeOk) return false;
-      if (!finDate || !extDate) return true;
+      if (!finDate || !extDate) return false; // sem data, fora — hard cap exige data
+      if (!dentroJanelaMaxima(extDate, finDate)) return false; // HARD CAP 60d
       return dataProxima(extDate, finDate, janelaDias);
     });
 
