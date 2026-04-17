@@ -386,7 +386,9 @@ Seja direto, use R$ e %. Não repita os títulos dos alertas.`;
   await supabase.from("fin_agent_runs").insert({
     tipo: "radar-daily",
     status,
-    resumo: `${alertasCriados} alertas, ${tarefasCriadas} tarefas criadas`,
+    resumo: analiseIA
+      ? `${alertasCriados} alertas, ${tarefasCriadas} tarefas | IA: ${analiseIA.slice(0, 200)}...`
+      : `${alertasCriados} alertas, ${tarefasCriadas} tarefas criadas`,
     duracao_ms: duracao,
     alertas_criados: alertasCriados,
     tarefas_criadas: tarefasCriadas,
@@ -401,6 +403,7 @@ Seja direto, use R$ e %. Não repita os títulos dos alertas.`;
       alertas_criados: alertasCriados,
       tarefas_criadas: tarefasCriadas,
       duracao_ms: duracao,
+      briefing_ia: analiseIA || null,
       erros,
     }),
     { headers: { ...corsHeaders, "Content-Type": "application/json" } }
