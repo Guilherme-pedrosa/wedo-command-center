@@ -331,19 +331,45 @@ export default function ConciliacaoPage() {
       {/* AI Reconciliation Panel */}
       <AIReconciliationPanel
         onVincular={async (extratoId, lancamentoId, tipo) => {
-          const table = tipo === "recebimento" ? "fin_recebimentos" : "fin_pagamentos";
-          const tabela = tipo === "recebimento" ? "recebimentos" : "pagamentos";
           const now = new Date().toISOString();
-          await supabase.from("fin_extrato_inter").update({
-            reconciliado: true, lancamento_id: lancamentoId, reconciliado_em: now, reconciliation_rule: "AI_GPT5",
+          const rule = "AI_GEMINI_PRO";
+
+          // 1) Marca extrato como reconciliado
+          const { error: e1 } = await supabase.from("fin_extrato_inter").update({
+            reconciliado: true, lancamento_id: lancamentoId, reconciliado_em: now, reconciliation_rule: rule,
           }).eq("id", extratoId);
-          await supabase.from(table).update({
-            pago_sistema: true, pago_sistema_em: now, status: "pago",
-          }).eq("id", lancamentoId);
+          if (e1) throw e1;
+
+          // 2) Atualiza o lançamento conforme tipo
+          let tabela = "recebimentos";
+          if (tipo === "recebimento") {
+            await supabase.from("fin_recebimentos").update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", lancamentoId);
+            tabela = "recebimentos";
+          } else if (tipo === "pagamento") {
+            await supabase.from("fin_pagamentos").update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", lancamentoId);
+            tabela = "pagamentos";
+          } else if (tipo === "grupo_receber") {
+            await supabase.from("fin_grupos_receber").update({ status: "pago", data_pagamento: now }).eq("id", lancamentoId);
+            tabela = "grupos_receber";
+          } else if (tipo === "grupo_pagar") {
+            await supabase.from("fin_grupos_pagar").update({ status: "pago", data_pagamento: now }).eq("id", lancamentoId);
+            tabela = "grupos_pagar";
+          } else if (tipo === "agenda") {
+            await supabase.from("fin_agenda_pagamentos").update({ status: "executado", executado_em: now }).eq("id", lancamentoId);
+            tabela = "agenda";
+          } else if (tipo === "residuo") {
+            await supabase.from("fin_residuos_negociacao").update({ utilizado: true, utilizado_em: now }).eq("id", lancamentoId);
+            tabela = "residuos";
+          } else {
+            throw new Error(`Tipo não suportado: ${tipo}`);
+          }
+
+          // 3) Rastreabilidade
           await supabase.from("fin_extrato_lancamentos").upsert({
             extrato_id: extratoId, lancamento_id: lancamentoId, tabela,
-            valor_alocado: 0, reconciliation_rule: "AI_GPT5",
+            valor_alocado: 0, reconciliation_rule: rule,
           }, { onConflict: "extrato_id,lancamento_id,tabela" });
+
           invalidateAll();
         }}
       />
