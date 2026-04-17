@@ -368,8 +368,13 @@ export const useMetasResultados = (year: number, month: number) => {
             realizado += auvoSum * (link.peso || 1);
           } else {
             // Always use fin_pagamentos/fin_recebimentos (contas a pagar/receber)
-            // instead of gc_pagamentos/gc_recebimentos to avoid mixing with compras
-            const source = meta.categoria === 'receita' ? recebimentos : pagamentos;
+            // instead of gc_pagamentos/gc_recebimentos to avoid mixing with compras.
+            // Para planos marcados como "por competência", usa pagamentosCompetencia.
+            const usaCompetencia =
+              meta.categoria !== 'receita' && PLANOS_POR_COMPETENCIA.has(planoUuid);
+            const source = meta.categoria === 'receita'
+              ? recebimentos
+              : (usaCompetencia ? pagamentosCompetencia : pagamentos);
             const soma = source
               .filter(r =>
                 r.plano_contas_id === planoUuid &&
