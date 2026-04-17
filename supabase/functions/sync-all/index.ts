@@ -1049,16 +1049,57 @@ serve(async (req) => {
         console.error("[sync-all] Backfill recipient_document error:", e);
       }
 
+      // ── Reconciliação: detectar cancelamentos/exclusões ──
+      let pagCancelled = 0;
+      try {
+        const apiGcIds = new Set(pagRecords.map((r: any) => String(r.id)));
+        const { data: localPags } = await supabase
+          .from("fin_pagamentos")
+          .select("id, gc_id, gc_codigo, valor, data_vencimento, nome_fornecedor, status")
+          .not("gc_id", "is", null)
+          .gte("data_vencimento", dataInicio)
+          .lte("data_vencimento", dataFim)
+          .neq("status", "cancelado");
+
+        const orphans = (localPags ?? []).filter((p: any) => !apiGcIds.has(String(p.gc_id)));
+        if (orphans.length > 0) {
+          const orphanIds = orphans.map((o: any) => o.id);
+          const { error: cancelErr } = await supabase
+            .from("fin_pagamentos")
+            .update({
+              status: "cancelado",
+              liquidado: false,
+              observacao: `Cancelado automaticamente em ${new Date().toISOString()} — ausente da API GestãoClick na sincronização da janela ${dataInicio}→${dataFim}.`,
+              last_synced_at: new Date().toISOString(),
+            })
+            .in("id", orphanIds);
+          if (cancelErr) {
+            console.error(`[sync-all] reconcile pagamentos error: ${cancelErr.message}`);
+            pagErrorMessages.add(`reconcile: ${cancelErr.message}`);
+          } else {
+            pagCancelled = orphans.length;
+            console.log(`[sync-all] 🧹 Pagamentos: ${pagCancelled} órfãos marcados como cancelado`);
+            for (const o of orphans.slice(0, 20)) {
+              console.log(`  ↳ gc_id=${o.gc_id} cod=${o.gc_codigo} forn=${o.nome_fornecedor} venc=${o.data_vencimento} val=${o.valor}`);
+            }
+          }
+        }
+      } catch (pagErr) {
+        console.error(`[sync-all] reconcile pagamentos exception:`, pagErr);
+        pagErrorMessages.add(`reconcile: ${(pagErr as Error).message}`);
+      }
+
       results.pagamentos = {
         status: pagErrors > 0 ? "partial" : "ok",
         fetched: pagRecords.length,
         gc_upserted: gcPagUpserted,
         fin_upserted: finPagUpserted,
+        cancelled_orphans: pagCancelled,
         errors: pagErrors,
         error_messages: [...pagErrorMessages],
         duration_ms: Date.now() - pagStart,
       };
-      console.log(`[sync-all] Pagamentos done: ${pagRecords.length} fetched, gc=${gcPagUpserted}, fin=${finPagUpserted} (${Date.now() - pagStart}ms)`);
+      console.log(`[sync-all] Pagamentos done: ${pagRecords.length} fetched, gc=${gcPagUpserted}, fin=${finPagUpserted}, orphans=${pagCancelled} (${Date.now() - pagStart}ms)`);
     } catch (err) {
       results.pagamentos = { status: "error", error: (err as Error).message, duration_ms: Date.now() - pagStart };
       console.error(`[sync-all] pagamentos error: ${(err as Error).message}`);
