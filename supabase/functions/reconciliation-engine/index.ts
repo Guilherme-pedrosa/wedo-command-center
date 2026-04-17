@@ -1050,7 +1050,9 @@ serve(async (req) => {
                   const nScore = extNomeApprox ? nomeSimilarScore(extNomeApprox, finNome) : 0;
                   const nomeOk = extNomeApprox ? nomeForteMatch(extNomeApprox, finNome) : false;
                   if (!docOk && !nomeOk) return null;
-                  if (finDate && extDateApprox && !dataProxima(extDateApprox, finDate, janelaNn)) return null;
+                  if (!finDate || !extDateApprox) return null; // hard cap exige datas
+                  if (!dentroJanelaMaxima(extDateApprox, finDate)) return null; // HARD CAP 60d
+                  if (!dataProxima(extDateApprox, finDate, janelaNn)) return null;
                   if (finValor <= 0) return null;
                   return { fin, finValor, finNome, finDate, finDoc, docOk, nomeOk, nScore, status: fin.status };
                 })
