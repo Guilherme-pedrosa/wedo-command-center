@@ -146,7 +146,7 @@ serve(async (req) => {
             nome_cliente: String(venda.nome_cliente || venda.cliente_nome || "") || null,
             cliente_id: String(venda.cliente_id || venda.cliente_codigo || "") || null,
             nome_situacao: String(venda.nome_situacao || venda.situacao_nome || ""),
-            situacao_id: sitId,
+            situacao_id: String(venda.situacao_id || sitId),
             data: dataVenda,
             valor_total: parseFloat(String(venda.valor_total || "0")) || null,
             valor_produtos: parseFloat(String(venda.valor_produtos || "0")) || null,
