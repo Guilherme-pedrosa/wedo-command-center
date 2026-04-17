@@ -135,15 +135,21 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
   // Buscar data do extrato vinculado (a mais recente, caso N:N)
   // Aceita tanto "fin_pagamentos"/"fin_recebimentos" quanto sem prefixo (legado)
   const tabelaShort = tabela.replace(/^fin_/, "");
-  const { data: vinculos } = await supabase
+  const { data: vinculos, error: vincErr } = await supabase
     .from("fin_extrato_lancamentos")
     .select("extrato_id, tabela")
-    .eq("lancamento_id", link.lancamento_id)
-    .in("tabela", [tabela, tabelaShort]);
+    .eq("lancamento_id", link.lancamento_id);
 
-  const extratoIds = Array.from(new Set((vinculos || []).map((v: any) => v.extrato_id).filter(Boolean)));
+  console.log(`[processarLink] ${link.lancamento_id} (${tabela}): vinculos=`, JSON.stringify(vinculos), "err=", vincErr?.message);
+
+  const vinculosFiltrados = (vinculos || []).filter((v: any) => {
+    const t = (v.tabela || "").toString();
+    return t === tabela || t === tabelaShort;
+  });
+
+  const extratoIds = Array.from(new Set(vinculosFiltrados.map((v: any) => v.extrato_id).filter(Boolean)));
   if (extratoIds.length === 0) {
-    return { ...link, ok: false, erro: "Sem extrato vinculado" };
+    return { ...link, ok: false, erro: `Sem extrato vinculado (raw=${vinculos?.length ?? 0}, filt=${vinculosFiltrados.length}, tab=${tabela})` };
   }
 
   const { data: extratos } = await supabase
