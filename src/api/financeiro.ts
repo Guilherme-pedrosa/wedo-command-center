@@ -95,6 +95,46 @@ export function inferirOrigem(
   if (/contrato/i.test(descricao)) return "gc_contrato";
   return "outro";
 }
+
+type FinLancamentoStatus = "pendente" | "pago" | "vencido" | "cancelado";
+
+function coerceLancamentoStatus(value: unknown, fallback: FinLancamentoStatus = "pendente"): FinLancamentoStatus {
+  const normalized = String(value ?? "").toLowerCase().trim();
+
+  if (["liquidado", "pago", "paga", "baixado", "recebido", "quitado"].includes(normalized)) {
+    return "pago";
+  }
+
+  if (["cancelado", "cancelada", "cancelar"].includes(normalized)) {
+    return "cancelado";
+  }
+
+  if (normalized === "vencido") return "vencido";
+  if (normalized === "pendente") return "pendente";
+
+  return fallback;
+}
+
+function normalizeLancamentoStatus(item: Record<string, any>): FinLancamentoStatus {
+  const rawStatus = String(item.status || item.situacao || item.nome_situacao || item.status_pagamento || "").toLowerCase().trim();
+  const liquidado = item.liquidado === "1" || item.liquidado === 1 || item.liquidado === true;
+
+  if (liquidado) return "pago";
+
+  const coerced = coerceLancamentoStatus(rawStatus);
+  if (coerced !== "pendente" || rawStatus === "pendente") return coerced;
+
+  const dataVencimento = item.data_vencimento ? new Date(item.data_vencimento) : null;
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  if (dataVencimento && !Number.isNaN(dataVencimento.getTime())) {
+    dataVencimento.setHours(0, 0, 0, 0);
+    if (dataVencimento < hoje) return "vencido";
+  }
+
+  return "pendente";
+}
 /**
  * Extrai o nome do remetente/destinatário da descrição do extrato Inter.
  */

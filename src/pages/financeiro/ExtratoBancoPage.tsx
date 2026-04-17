@@ -14,7 +14,6 @@ import { Calendar } from "@/components/ui/calendar";
 import { EmptyState } from "@/components/EmptyState";
 import { formatCurrency, formatDateTime, formatDate } from "@/lib/format";
 import { buscarExtratoInter, extrairNomeDaDescricao, syncFinanceiroFullSweep } from "@/api/financeiro";
-import { syncRecebimentos, syncPagamentos } from "@/api/syncService";
 import {
   Building2, RefreshCw, Loader2, CalendarIcon, Download, CloudDownload,
   Wand2, Brain, ArrowLeftRight, CheckCircle, ChevronDown, ChevronUp,
