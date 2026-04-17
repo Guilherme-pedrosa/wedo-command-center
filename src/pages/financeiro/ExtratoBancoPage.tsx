@@ -203,6 +203,48 @@ export default function ExtratoBancoPage() {
     },
   });
 
+  // GC baixa status por extrato — agrega info dos lançamentos vinculados
+  const { data: gcBaixaMap } = useQuery({
+    queryKey: ["extrato-gc-baixa", queryDateFrom, queryDateTo],
+    queryFn: async () => {
+      const extratoIds = (extrato || []).filter((e: any) => e.reconciliado).map((e: any) => e.id);
+      if (!extratoIds.length) return {} as Record<string, "all" | "partial" | "none">;
+
+      const { data: links } = await supabase
+        .from("fin_extrato_lancamentos")
+        .select("extrato_id, lancamento_id, tabela")
+        .in("extrato_id", extratoIds);
+
+      if (!links?.length) return {};
+
+      const recIds = links.filter((l: any) => l.tabela === "recebimentos").map((l: any) => l.lancamento_id);
+      const pagIds = links.filter((l: any) => l.tabela === "pagamentos").map((l: any) => l.lancamento_id);
+
+      const [recRes, pagRes] = await Promise.all([
+        recIds.length ? supabase.from("fin_recebimentos").select("id, gc_baixado, gc_baixado_em").in("id", recIds) : Promise.resolve({ data: [] as any[] }),
+        pagIds.length ? supabase.from("fin_pagamentos").select("id, gc_baixado, gc_baixado_em").in("id", pagIds) : Promise.resolve({ data: [] as any[] }),
+      ]);
+
+      const baixaById: Record<string, { baixado: boolean; em: string | null }> = {};
+      for (const r of (recRes.data || [])) baixaById[`r:${r.id}`] = { baixado: !!r.gc_baixado, em: r.gc_baixado_em };
+      for (const p of (pagRes.data || [])) baixaById[`p:${p.id}`] = { baixado: !!p.gc_baixado, em: p.gc_baixado_em };
+
+      const result: Record<string, { status: "all" | "partial" | "none"; em: string | null }> = {};
+      for (const eid of extratoIds) {
+        const linkedHere = links.filter((l: any) => l.extrato_id === eid);
+        if (!linkedHere.length) continue;
+        const flags = linkedHere.map((l: any) => baixaById[`${l.tabela === "recebimentos" ? "r" : "p"}:${l.lancamento_id}`]).filter(Boolean);
+        if (!flags.length) continue;
+        const baixados = flags.filter(f => f.baixado);
+        const ems = baixados.map(f => f.em).filter(Boolean).sort();
+        const status: "all" | "partial" | "none" = baixados.length === flags.length ? "all" : baixados.length === 0 ? "none" : "partial";
+        result[eid] = { status, em: ems[ems.length - 1] || null };
+      }
+      return result as any;
+    },
+    enabled: !!extrato?.length,
+  });
+
   const filtered = useMemo(() => {
     return (extrato || []).filter((e: any) => {
       if (tipoFilter !== "todos" && e.tipo !== tipoFilter) return false;
