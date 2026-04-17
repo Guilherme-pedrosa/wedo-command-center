@@ -870,6 +870,20 @@ export async function syncByMonthChunks(
     }
   }
 
+  // Após sincronizar, dispara baixa automática dos conciliados (fire-and-forget)
+  try {
+    onStep?.("Baixando conciliados no GC...");
+    const { supabase } = await import("@/integrations/supabase/client");
+    supabase.functions.invoke("argus-baixa-confirmada", { body: { mode: "auto" } })
+      .then(({ data, error }) => {
+        if (error) console.warn("[syncByMonthChunks] argus-baixa-confirmada falhou:", error.message);
+        else console.log("[syncByMonthChunks] argus-baixa-confirmada:", data);
+      })
+      .catch((e) => console.warn("[syncByMonthChunks] argus-baixa-confirmada erro:", e));
+  } catch (e) {
+    console.warn("[syncByMonthChunks] não conseguiu disparar baixa:", e);
+  }
+
   return totals;
 }
 

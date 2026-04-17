@@ -80,6 +80,16 @@ serve(async (req) => {
       });
     }
 
+    // Guarda: nunca vincular financeiros cancelados
+    const cancelados = lancamentos.filter((l: any) => l.status === "cancelado");
+    if (cancelados.length > 0) {
+      const nomes = cancelados.map((l: any) => l.gc_codigo || l.descricao).join(", ");
+      return new Response(JSON.stringify({
+        success: false,
+        error: `Financeiro(s) cancelado(s) não pode(m) ser vinculado(s): ${nomes}`,
+      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // 3. Validate CNPJ raiz match (if extrato has doc)
     if (extDoc && extDoc.length >= 8) {
       const extRaiz = cnpjRaiz(extDoc);
