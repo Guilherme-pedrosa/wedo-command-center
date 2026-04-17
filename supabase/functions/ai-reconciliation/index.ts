@@ -9,6 +9,20 @@ const corsHeaders = {
 // Lovable AI Gateway — modelo de raciocínio top-tier (multimodal, contexto longo, reasoning)
 const AI_MODEL = "google/gemini-2.5-pro";
 
+function parseDateOnly(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+}
+
+function withinMaxGapDays(a: string | null | undefined, b: string | null | undefined, maxDays = 60): boolean {
+  const da = parseDateOnly(a);
+  const db = parseDateOnly(b);
+  if (!da || !db) return false;
+  return Math.abs(da.getTime() - db.getTime()) <= maxDays * 86400000;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -125,7 +139,7 @@ serve(async (req) => {
       codigo_barras: e.codigo_barras,
     }));
 
-    const recCtx = (recebimentos ?? []).map(r => ({
+    const recCtxBase = (recebimentos ?? []).map(r => ({
       id: r.id,
       tipo: "recebimento",
       valor: Number(r.valor),
@@ -143,7 +157,7 @@ serve(async (req) => {
       nfe_numero: r.nfe_numero,
     }));
 
-    const pagCtx = (pagamentos ?? []).map(p => ({
+    const pagCtxBase = (pagamentos ?? []).map(p => ({
       id: p.id,
       tipo: "pagamento",
       valor: Number(p.valor),
@@ -162,6 +176,10 @@ serve(async (req) => {
       nf_numero: p.nf_numero,
       tipo_lanc: p.tipo,
     }));
+
+    const extratoDates = extratoCtx.map((e) => e.data).filter(Boolean) as string[];
+    const recCtx = recCtxBase.filter((r) => extratoDates.some((d) => withinMaxGapDays(d, r.vencimento || r.emissao)));
+    const pagCtx = pagCtxBase.filter((p) => extratoDates.some((d) => withinMaxGapDays(d, p.vencimento || p.emissao)));
 
     const grRecCtx = (gruposReceber ?? []).map(g => ({
       id: g.id, tipo: "grupo_receber", nome: g.nome, cliente: g.nome_cliente, cpf_cnpj: g.cliente_gc_id ? cliMap[g.cliente_gc_id]?.cpf_cnpj : null,
