@@ -217,8 +217,12 @@ export default function ExtratoBancoPage() {
 
       if (!links?.length) return {};
 
-      const recIds = links.filter((l: any) => l.tabela === "recebimentos").map((l: any) => l.lancamento_id);
-      const pagIds = links.filter((l: any) => l.tabela === "pagamentos").map((l: any) => l.lancamento_id);
+      const recIds = links
+        .filter((l: any) => l.tabela === "recebimentos" || l.tabela === "fin_recebimentos")
+        .map((l: any) => l.lancamento_id);
+      const pagIds = links
+        .filter((l: any) => l.tabela === "pagamentos" || l.tabela === "fin_pagamentos")
+        .map((l: any) => l.lancamento_id);
 
       const [recRes, pagRes] = await Promise.all([
         recIds.length ? supabase.from("fin_recebimentos").select("id, gc_baixado, gc_baixado_em").in("id", recIds) : Promise.resolve({ data: [] as any[] }),
@@ -233,7 +237,9 @@ export default function ExtratoBancoPage() {
       for (const eid of extratoIds) {
         const linkedHere = links.filter((l: any) => l.extrato_id === eid);
         if (!linkedHere.length) continue;
-        const flags = linkedHere.map((l: any) => baixaById[`${l.tabela === "recebimentos" ? "r" : "p"}:${l.lancamento_id}`]).filter(Boolean);
+        const flags = linkedHere
+          .map((l: any) => baixaById[`${l.tabela === "recebimentos" || l.tabela === "fin_recebimentos" ? "r" : "p"}:${l.lancamento_id}`])
+          .filter(Boolean);
         if (!flags.length) continue;
         const baixados = flags.filter(f => f.baixado);
         const ems = baixados.map(f => f.em).filter(Boolean).sort();
