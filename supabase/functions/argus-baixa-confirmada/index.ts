@@ -214,20 +214,27 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
 
   const { data: extratos } = await supabase
     .from("fin_extrato_inter")
-    .select("id, data_hora")
+    .select("id, data_hora, valor, descricao, nome_contraparte, tipo, tipo_transacao, end_to_end_id")
     .in("id", extratoIds);
 
-  const datas = (extratos || [])
-    .map((e: any) => dateOnly(e.data_hora))
-    .filter((d: string | null): d is string => !!d);
+  const extratosNorm: ExtratoInfo[] = ((extratos || []) as any[])
+    .map((e) => ({
+      data: dateOnly(e.data_hora) || "",
+      valor: e.valor != null ? Number(e.valor) : null,
+      descricao: e.descricao || null,
+      contraparte: e.nome_contraparte || null,
+      tipo: e.tipo_transacao || e.tipo || null,
+      end_to_end_id: e.end_to_end_id || null,
+    }))
+    .filter((e) => !!e.data)
+    .sort((a, b) => a.data.localeCompare(b.data));
 
-  if (datas.length === 0) {
+  if (extratosNorm.length === 0) {
     return { ...link, ok: false, erro: "Sem extrato vinculado" };
   }
 
   // Maior data (última liquidação)
-  datas.sort();
-  const dataLiq = datas[datas.length - 1];
+  const dataLiq = extratosNorm[extratosNorm.length - 1].data;
 
   if (dataLiq < CUTOFF_DATE) {
     return { ...link, ok: false, erro: `Antes do cutoff ${CUTOFF_DATE}` };
@@ -238,7 +245,8 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
     endpoint,
     lanc.gc_id,
     lanc.gc_payload_raw as Record<string, unknown>,
-    dataLiq
+    dataLiq,
+    extratosNorm
   );
 
   if (!result.ok) {
