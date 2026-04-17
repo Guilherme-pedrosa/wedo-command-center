@@ -189,7 +189,7 @@ interface Candidato {
 
 function aplicarRegras(
   ext: any,
-  candidatos: Candidato[]
+  candidatosRaw: Candidato[]
 ): { rule: MatchRule | null; candidato: Candidato | null; auto: boolean } {
 
   const extValor = Math.abs(Number(ext.valor));
@@ -197,6 +197,17 @@ function aplicarRegras(
   const extPix   = (ext.chave_pix ?? "").trim().toLowerCase();
   const extDate  = ext.data_hora?.substring(0, 10) ?? "";
   const extNome  = ext.nome_contraparte ?? ext.contrapartida ?? "";
+
+  // HARD CAP global: descarta qualquer candidato cujo lançamento esteja a mais
+  // de MAX_GAP_DIAS (60) da data do extrato. Evita matches absurdos entre meses
+  // muito distantes (ex.: extrato de Abril vinculando lançamento de Dezembro).
+  const candidatos = extDate
+    ? candidatosRaw.filter(c => {
+        const finDate = getFinMatchDate(c.fin);
+        if (!finDate) return false;
+        return dentroJanelaMaxima(extDate, finDate);
+      })
+    : candidatosRaw;
 
   // Regra 0: CNPJ/CPF + valor exato + data ±3 dias → auto-baixa máxima confiança
   if (extDoc && extDate) {
