@@ -1053,7 +1053,9 @@ serve(async (req) => {
 
       // ── Reconciliação: detectar cancelamentos/exclusões ──
       let pagCancelled = 0;
-      try {
+      if (pagRecords.length === 0) {
+        console.warn(`[sync-all] ⚠️ Pagamentos: API retornou 0 registros — pulando reconciliação por segurança.`);
+      } else try {
         const apiGcIds = new Set(pagRecords.map((r: any) => String(r.id)));
         const { data: localPags } = await supabase
           .from("fin_pagamentos")
