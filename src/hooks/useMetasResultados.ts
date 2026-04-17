@@ -351,9 +351,24 @@ export const useMetasResultados = (year: number, month: number) => {
         }
       }
 
-      // Base do percentual: Comissões/Premiações usa base específica (Ecolab + Execução Serviços/Coifas)
+      // Base do percentual:
+      // - Comissões/Premiações: Ecolab + Execução Serviços/Coifas
+      // - Custo de peças/operações: APENAS Execução + Coifas (não inclui PCM, Vendas, Ecolab)
+      // - Demais: Faturamento Executado total
       const isComissao = nome.includes('comiss') || nome.includes('premia');
-      const basePercentual = isComissao ? baseComissoes : execTotal;
+      const isCustoPecasOperacao =
+        meta.categoria === 'custo_variavel' &&
+        (nome.includes('peça') || nome.includes('peca') || nome.includes('operaç') || nome.includes('operac') || nome.includes('estoque'));
+
+      const baseExecCoifa = osExecutadas
+        .filter(os => os.nome_situacao !== 'EXECUTADO - FECHADO CHAMADO')
+        .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
+
+      const basePercentual = isComissao
+        ? baseComissoes
+        : isCustoPecasOperacao
+          ? baseExecCoifa
+          : execTotal;
 
       const meta_calculada =
         meta.tipo_meta === 'absoluto'
