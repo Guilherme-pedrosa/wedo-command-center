@@ -1463,6 +1463,8 @@ export default function ExtratoBancoPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BaixarGCDialog open={baixarGCOpen} onOpenChange={setBaixarGCOpen} onDone={invalidateAll} />
     </div>
   );
 }
