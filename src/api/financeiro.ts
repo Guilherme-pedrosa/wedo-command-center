@@ -276,7 +276,7 @@ export async function baixarRecebimentoGC(
   const hoje = new Date().toISOString().split("T")[0];
   const payload = {
     ...gcPayloadRaw,
-    liquidado: "pg",
+    liquidado: 1,
     data_liquidacao: dataLiquidacao || hoje,
   };
 
@@ -585,7 +585,7 @@ export async function baixarPagamentoGC(
   const hoje = new Date().toISOString().split("T")[0];
   const payload = {
     ...gcPayloadRaw,
-    liquidado: "pg",
+    liquidado: 1,
     data_liquidacao: dataLiquidacao || hoje,
   };
 
