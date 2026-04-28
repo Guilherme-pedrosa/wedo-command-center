@@ -145,7 +145,7 @@ async function baixarNoGC(
     plano_contas_id: payloadRaw.plano_contas_id,
     forma_pagamento_id: payloadRaw.forma_pagamento_id,
     conta_bancaria_id: payloadRaw.conta_bancaria_id,
-    liquidado: "pg",
+    liquidado: 1,
     data_liquidacao: dataLiquidacao,
     observacao: obsFinal,
   };
