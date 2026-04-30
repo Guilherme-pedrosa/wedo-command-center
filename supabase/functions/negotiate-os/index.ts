@@ -482,13 +482,15 @@ serve(async (req) => {
 
     // ─── EXECUTE ───────────────────────────────────────────
     if (body.action === "execute") {
-      const { os_ids, parcelas, dia_vencimento, mes_inicio, nome_cliente, cliente_gc_id, situacao_ids } = body as any;
+      const { os_ids: rawOsIds, parcelas, dia_vencimento, mes_inicio, nome_cliente, cliente_gc_id, situacao_ids } = body as any;
+      const os_ids: string[] = Array.isArray(rawOsIds) ? rawOsIds : [];
       const valoresParcelas = (body as any).valores_parcelas as number[] | undefined;
       const valorNegociado = (body as any).valor_negociado as number | undefined;
+      const residualIdsInput: string[] = Array.isArray((body as any).residual_ids) ? (body as any).residual_ids : [];
 
-      if (!os_ids?.length || !parcelas || !dia_vencimento || !mes_inicio) {
+      if ((!os_ids.length && !residualIdsInput.length) || !parcelas || !dia_vencimento || !mes_inicio) {
         return new Response(
-          JSON.stringify({ error: "Missing required fields: os_ids, parcelas, dia_vencimento, mes_inicio" }),
+          JSON.stringify({ error: "Missing required fields: (os_ids OR residual_ids), parcelas, dia_vencimento, mes_inicio" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -903,22 +905,51 @@ serve(async (req) => {
       const totalResidualSuccess = roundMoney(successPlans.reduce((sum, item) => sum + item.plan.residual, 0));
       const grupoIds: string[] = [];
 
-      if (successPlans.length > 0 && totalNegotiatedSuccess > 0) {
-        const groupValues = Array.from({ length: parcelas }, (_, index) =>
-          roundMoney(successPlans.reduce((sum, item) => sum + (item.plan.parcelValues[index] ?? 0), 0))
+      // Soma residuais selecionados (caso negociação seja parcial/exclusiva de residuais)
+      const residualOnlyMode = os_ids.length === 0 && residualIdsInput.length > 0;
+      let residuaisSelecionadosValor = 0;
+      if (residualIdsInput.length > 0) {
+        const { data: resPreview } = await supabase
+          .from("fin_residuos_negociacao")
+          .select("valor_residual")
+          .in("id", residualIdsInput)
+          .eq("utilizado", false);
+        residuaisSelecionadosValor = roundMoney(
+          (resPreview || []).reduce((sum, r: any) => sum + (parseFloat(String(r.valor_residual)) || 0), 0)
         );
-        const groupDiff = roundMoney(totalNegotiatedSuccess - groupValues.reduce((sum, value) => sum + value, 0));
+      }
+
+      // Determina valor base para criação dos grupos
+      const valorBaseGrupos = roundMoney(
+        residualOnlyMode
+          ? (typeof valorNegociado === "number" && valorNegociado > 0 ? valorNegociado : residuaisSelecionadosValor)
+          : totalNegotiatedSuccess
+      );
+
+      const shouldCreateGroups = (successPlans.length > 0 && totalNegotiatedSuccess > 0) || (residualOnlyMode && valorBaseGrupos > 0);
+
+      if (shouldCreateGroups) {
+        const groupValues = useCustomValues && residualOnlyMode
+          ? valoresParcelas!.map((v) => roundMoney(v))
+          : (successPlans.length > 0
+              ? Array.from({ length: parcelas }, (_, index) =>
+                  roundMoney(successPlans.reduce((sum, item) => sum + (item.plan.parcelValues[index] ?? 0), 0))
+                )
+              : splitEvenlyCents(moneyToCents(valorBaseGrupos), parcelas).map(centsToMoney));
+        const groupDiff = roundMoney(valorBaseGrupos - groupValues.reduce((sum, value) => sum + value, 0));
         if (groupDiff !== 0 && groupValues.length > 0) {
           groupValues[groupValues.length - 1] = roundMoney(groupValues[groupValues.length - 1] + groupDiff);
         }
 
-        const clienteNome = successPlans[0].os.nome_cliente || nome_cliente || "Cliente";
-        const osRef = successPlans.map(({ os, plan }) => {
-          const equip = os.nome_equipamento ? ` (${os.nome_equipamento})` : "";
-          return `OS ${os.codigo}${equip} — Original: R$ ${os.valor_total.toFixed(2)} · Negociado: R$ ${plan.negotiatedTotal.toFixed(2)} · Passivo: R$ ${plan.residual.toFixed(2)}`;
-        }).join("\n");
+        const clienteNome = (successPlans[0]?.os.nome_cliente) || nome_cliente || "Cliente";
+        const osRef = successPlans.length > 0
+          ? successPlans.map(({ os, plan }) => {
+              const equip = os.nome_equipamento ? ` (${os.nome_equipamento})` : "";
+              return `OS ${os.codigo}${equip} — Original: R$ ${os.valor_total.toFixed(2)} · Negociado: R$ ${plan.negotiatedTotal.toFixed(2)} · Passivo: R$ ${plan.residual.toFixed(2)}`;
+            }).join("\n")
+          : `Negociação somente de residuais — Total: R$ ${valorBaseGrupos.toFixed(2)}`;
 
-        console.log(`[negotiate-os] Criando ${parcelas} grupo(s) para ${successPlans.length} OS...`);
+        console.log(`[negotiate-os] Criando ${parcelas} grupo(s) — modo: ${residualOnlyMode ? 'só residuais' : `${successPlans.length} OS`}`);
 
         for (let i = 0; i < parcelas; i++) {
           const valor = groupValues[i] ?? 0;
@@ -930,7 +961,7 @@ serve(async (req) => {
             .from("fin_grupos_receber")
             .insert({
               nome: nomeGrupo,
-              cliente_gc_id: cliente_gc_id || successPlans[0].os.cliente_id || null,
+              cliente_gc_id: cliente_gc_id || successPlans[0]?.os.cliente_id || null,
               nome_cliente: clienteNome,
               valor_total: valor,
               data_vencimento: vencimento,

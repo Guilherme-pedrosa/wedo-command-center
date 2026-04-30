@@ -327,7 +327,7 @@ export default function NegociacaoOSPage() {
   };
 
   const handleExecute = async () => {
-    if (selectedOSIds.size === 0) return;
+    if (selectedOSIds.size === 0 && selectedResidualIds.size === 0) return;
     setExecuting(true);
     setResults(null);
 
@@ -541,7 +541,7 @@ export default function NegociacaoOSPage() {
               </span>
               <Button
                 onClick={() => setShowNegotiate(true)}
-                disabled={selectedOSIds.size === 0}
+                disabled={selectedOSIds.size === 0 && selectedResidualIds.size === 0}
                 size="sm"
               >
                 <HandshakeIcon className="h-4 w-4 mr-2" />
@@ -809,7 +809,7 @@ export default function NegociacaoOSPage() {
                 <Button variant="outline" onClick={() => setShowNegotiate(false)}>Cancelar</Button>
                 <Button onClick={handleExecute} disabled={
                   executing || 
-                  selectedOSIds.size === 0 || 
+                  (selectedOSIds.size === 0 && selectedResidualIds.size === 0) || 
                   valorNegociado <= 0 || 
                   valorNegociado > selectedTotal ||
                   parcelas < 1 ||
