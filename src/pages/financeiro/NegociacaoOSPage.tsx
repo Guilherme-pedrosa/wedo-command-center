@@ -809,7 +809,7 @@ export default function NegociacaoOSPage() {
                 <Button variant="outline" onClick={() => setShowNegotiate(false)}>Cancelar</Button>
                 <Button onClick={handleExecute} disabled={
                   executing || 
-                  selectedOSIds.size === 0 || 
+                  (selectedOSIds.size === 0 && selectedResidualIds.size === 0) || 
                   valorNegociado <= 0 || 
                   valorNegociado > selectedTotal ||
                   parcelas < 1 ||
