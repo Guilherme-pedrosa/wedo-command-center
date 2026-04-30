@@ -327,7 +327,7 @@ export default function NegociacaoOSPage() {
   };
 
   const handleExecute = async () => {
-    if (selectedOSIds.size === 0) return;
+    if (selectedOSIds.size === 0 && selectedResidualIds.size === 0) return;
     setExecuting(true);
     setResults(null);
 
