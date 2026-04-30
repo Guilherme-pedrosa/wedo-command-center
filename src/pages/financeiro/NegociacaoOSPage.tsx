@@ -541,7 +541,7 @@ export default function NegociacaoOSPage() {
               </span>
               <Button
                 onClick={() => setShowNegotiate(true)}
-                disabled={selectedOSIds.size === 0}
+                disabled={selectedOSIds.size === 0 && selectedResidualIds.size === 0}
                 size="sm"
               >
                 <HandshakeIcon className="h-4 w-4 mr-2" />
