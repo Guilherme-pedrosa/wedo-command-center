@@ -482,13 +482,15 @@ serve(async (req) => {
 
     // ─── EXECUTE ───────────────────────────────────────────
     if (body.action === "execute") {
-      const { os_ids, parcelas, dia_vencimento, mes_inicio, nome_cliente, cliente_gc_id, situacao_ids } = body as any;
+      const { os_ids: rawOsIds, parcelas, dia_vencimento, mes_inicio, nome_cliente, cliente_gc_id, situacao_ids } = body as any;
+      const os_ids: string[] = Array.isArray(rawOsIds) ? rawOsIds : [];
       const valoresParcelas = (body as any).valores_parcelas as number[] | undefined;
       const valorNegociado = (body as any).valor_negociado as number | undefined;
+      const residualIdsInput: string[] = Array.isArray((body as any).residual_ids) ? (body as any).residual_ids : [];
 
-      if (!os_ids?.length || !parcelas || !dia_vencimento || !mes_inicio) {
+      if ((!os_ids.length && !residualIdsInput.length) || !parcelas || !dia_vencimento || !mes_inicio) {
         return new Response(
-          JSON.stringify({ error: "Missing required fields: os_ids, parcelas, dia_vencimento, mes_inicio" }),
+          JSON.stringify({ error: "Missing required fields: (os_ids OR residual_ids), parcelas, dia_vencimento, mes_inicio" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
