@@ -935,7 +935,7 @@ serve(async (req) => {
               ? Array.from({ length: parcelas }, (_, index) =>
                   roundMoney(successPlans.reduce((sum, item) => sum + (item.plan.parcelValues[index] ?? 0), 0))
                 )
-              : splitMoneyEvenly(valorBaseGrupos, parcelas));
+              : splitEvenlyCents(moneyToCents(valorBaseGrupos), parcelas).map(centsToMoney));
         const groupDiff = roundMoney(valorBaseGrupos - groupValues.reduce((sum, value) => sum + value, 0));
         if (groupDiff !== 0 && groupValues.length > 0) {
           groupValues[groupValues.length - 1] = roundMoney(groupValues[groupValues.length - 1] + groupDiff);
