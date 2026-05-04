@@ -367,10 +367,13 @@ export default function NegociacaoOSPage() {
     setExecuting(true);
     setResults(null);
 
+    const progressToastId = toast.loading("Enfileirando negociação...", { duration: Infinity });
+
     try {
-      const { data, error } = await supabase.functions.invoke("negotiate-os", {
+      // 1. Enfileira o job (resposta em ~50ms, sem risco de timeout 504)
+      const { data: enqueueData, error: enqueueErr } = await supabase.functions.invoke("negotiate-os", {
         body: {
-          action: "execute",
+          action: "enqueue",
           os_ids: Array.from(selectedOSIds),
           parcelas,
           dia_vencimento: diaVencimento,
@@ -385,23 +388,64 @@ export default function NegociacaoOSPage() {
         },
       });
 
-      if (error) throw error;
-      setResults((data.results || []).map((result: NegotiateResult) => ({
+      if (enqueueErr) throw enqueueErr;
+      const jobId = enqueueData?.job_id;
+      if (!jobId) throw new Error("Servidor não retornou job_id");
+
+      toast.loading("Processando negociação no GestãoClick (pode levar até 3 min)...", {
+        id: progressToastId,
+        duration: Infinity,
+      });
+
+      // 2. Polling no status do job a cada 3s, máx 6 min
+      const maxAttempts = 120; // 120 * 3s = 6 min
+      let finalJob: any = null;
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const { data: jobRow, error: pollErr } = await supabase
+          .from("fin_negociacao_jobs")
+          .select("status, progresso, resultado, ok_count, erro_count, erro_msg")
+          .eq("id", jobId)
+          .maybeSingle();
+        if (pollErr) continue;
+        if (!jobRow) continue;
+        if (jobRow.progresso) {
+          toast.loading(jobRow.progresso, { id: progressToastId, duration: Infinity });
+        }
+        if (jobRow.status === "concluido" || jobRow.status === "erro") {
+          finalJob = jobRow;
+          break;
+        }
+      }
+
+      toast.dismiss(progressToastId);
+
+      if (!finalJob) {
+        toast.error("⏱️ Negociação ainda em processamento — atualize a tela em alguns minutos.", { duration: 10000 });
+        return;
+      }
+
+      if (finalJob.status === "erro") {
+        toast.error(`Erro: ${finalJob.erro_msg || "Falha desconhecida"}`, { duration: 12000 });
+        return;
+      }
+
+      // Sucesso
+      const resultado = finalJob.resultado || {};
+      setResults((resultado.results || []).map((result: NegotiateResult) => ({
         ...result,
         os_id: selectedOsCodeMap[result.os_id] || result.os_id,
       })));
 
-      const ok = data.summary?.ok || 0;
-      const errs = data.summary?.errors || 0;
-
-      // Residual is now created by the backend (Step E) in negotiate-os
-
+      const ok = finalJob.ok_count || 0;
+      const errs = finalJob.erro_count || 0;
       if (errs === 0) {
         toast.success(`✅ ${ok} OS negociada(s) com sucesso!`);
       } else {
         toast.error(`${ok} OK, ${errs} erro(s). Verifique os resultados.`);
       }
     } catch (err) {
+      toast.dismiss(progressToastId);
       const msg = await extractFnError(err, "Falha ao executar negociação");
       toast.error(`Erro: ${msg}`, { duration: 10000 });
       console.error("[NegociacaoOS][execute] erro detalhado:", err);
