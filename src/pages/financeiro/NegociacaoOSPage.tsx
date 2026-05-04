@@ -174,7 +174,9 @@ export default function NegociacaoOSPage() {
         toast("Nenhum cliente com OS nas situações selecionadas", { icon: "ℹ️" });
       }
     } catch (err) {
-      toast.error(`Erro ao buscar OS: ${(err as Error).message}`);
+      const msg = await extractFnError(err, "Falha ao buscar OS");
+      toast.error(`Erro ao buscar OS: ${msg}`, { duration: 8000 });
+      console.error("[NegociacaoOS][list] erro detalhado:", err);
     } finally {
       setLoading(false);
     }
@@ -400,7 +402,9 @@ export default function NegociacaoOSPage() {
         toast.error(`${ok} OK, ${errs} erro(s). Verifique os resultados.`);
       }
     } catch (err) {
-      toast.error(`Erro: ${(err as Error).message}`);
+      const msg = await extractFnError(err, "Falha ao executar negociação");
+      toast.error(`Erro: ${msg}`, { duration: 10000 });
+      console.error("[NegociacaoOS][execute] erro detalhado:", err);
     } finally {
       setExecuting(false);
     }
