@@ -1394,6 +1394,60 @@ export type Database = {
         }
         Relationships: []
       }
+      fin_negociacao_jobs: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          erro_count: number | null
+          erro_msg: string | null
+          finalizado_em: string | null
+          id: string
+          iniciado_em: string | null
+          ok_count: number | null
+          payload: Json
+          progresso: string | null
+          resultado: Json | null
+          status: string
+          tentativas: number | null
+          total_count: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          erro_count?: number | null
+          erro_msg?: string | null
+          finalizado_em?: string | null
+          id?: string
+          iniciado_em?: string | null
+          ok_count?: number | null
+          payload: Json
+          progresso?: string | null
+          resultado?: Json | null
+          status?: string
+          tentativas?: number | null
+          total_count?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          erro_count?: number | null
+          erro_msg?: string | null
+          finalizado_em?: string | null
+          id?: string
+          iniciado_em?: string | null
+          ok_count?: number | null
+          payload?: Json
+          progresso?: string | null
+          resultado?: Json | null
+          status?: string
+          tentativas?: number | null
+          total_count?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       fin_nfe_xml_index: {
         Row: {
           chave: string
