@@ -486,7 +486,9 @@ export default function NegociacaoOSPage() {
                   }
                 }
               } catch (err) {
-                toast.error(`Erro: ${(err as Error).message}`);
+                const msg = await extractFnError(err, "Falha no scan");
+                toast.error(`Erro: ${msg}`, { duration: 8000 });
+                console.error("[NegociacaoOS][scan-passivos] erro detalhado:", err);
               } finally {
                 setScanningPassivos(false);
               }
