@@ -480,6 +480,53 @@ serve(async (req) => {
       );
     }
 
+    // ─── ENQUEUE (cria job em background, retorna em ~50ms) ──
+    if ((body as any).action === "enqueue") {
+      const payloadCopy: Record<string, unknown> = { ...(body as any) };
+      delete payloadCopy.action;
+      payloadCopy._gc_user = actingGcUserId; // preserva usuário que disparou para o worker
+
+      const totalCount =
+        (Array.isArray((payloadCopy as any).os_ids) ? (payloadCopy as any).os_ids.length : 0) +
+        (Array.isArray((payloadCopy as any).residual_ids) ? (payloadCopy as any).residual_ids.length : 0);
+
+      const { data: job, error: jobErr } = await supabase
+        .from("fin_negociacao_jobs")
+        .insert({
+          status: "pendente",
+          payload: payloadCopy,
+          total_count: totalCount,
+          progresso: "Aguardando processamento...",
+        })
+        .select("id")
+        .single();
+
+      if (jobErr) {
+        console.error("[negotiate-os] enqueue error:", jobErr.message);
+        return new Response(
+          JSON.stringify({ error: `Falha ao enfileirar negociação: ${jobErr.message}` }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Dispara o worker imediatamente (fire-and-forget) para processar o job sem esperar o cron
+      try {
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/negotiate-os-worker`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ job_id: job.id }),
+        }).catch(() => { /* fire-and-forget */ });
+      } catch { /* ignore */ }
+
+      return new Response(
+        JSON.stringify({ success: true, job_id: job.id }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // ─── EXECUTE ───────────────────────────────────────────
     if (body.action === "execute") {
       const { os_ids: rawOsIds, parcelas, dia_vencimento, mes_inicio, nome_cliente, cliente_gc_id, situacao_ids } = body as any;
