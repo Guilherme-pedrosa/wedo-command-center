@@ -14,6 +14,40 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import toast from "react-hot-toast";
 
+// Extrai mensagem detalhada de erros vindos de supabase.functions.invoke
+// (FunctionsHttpError engole o body — precisamos ler manualmente)
+async function extractFnError(err: unknown, fallback = "Erro desconhecido"): Promise<string> {
+  try {
+    const anyErr = err as any;
+    // FunctionsHttpError tem .context (Response)
+    const ctx = anyErr?.context;
+    if (ctx && typeof ctx.json === "function") {
+      try {
+        const body = await ctx.clone().json();
+        if (body?.error) return String(body.error);
+        if (body?.message) return String(body.message);
+      } catch {
+        try {
+          const txt = await ctx.clone().text();
+          if (txt) return txt.slice(0, 300);
+        } catch { /* ignore */ }
+      }
+    }
+    // Detectar timeout do gateway (504)
+    const status = ctx?.status;
+    if (status === 504 || status === 408) {
+      return "A operação demorou mais de 150s e o gateway encerrou a conexão. O processamento pode continuar no servidor — aguarde alguns segundos e atualize a tela para ver o resultado real.";
+    }
+    if (anyErr?.message && anyErr.message !== "Edge Function returned a non-2xx status code") {
+      return String(anyErr.message);
+    }
+    if (status) return `Falha HTTP ${status} na função.`;
+    return anyErr?.message || fallback;
+  } catch {
+    return (err as Error)?.message || fallback;
+  }
+}
+
 interface ResidualItem {
   id: string;
   valor_residual: number;
