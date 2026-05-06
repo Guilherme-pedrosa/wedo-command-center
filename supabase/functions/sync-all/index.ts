@@ -547,13 +547,21 @@ async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): P
     const token = loginJson?.result?.accessToken ?? loginJson?.result?.token ?? loginJson?.token;
     if (!token) throw new Error("Auvo login: accessToken not found");
 
-    const now = new Date();
-    const mes = now.getMonth() + 1;
-    const ano = now.getFullYear();
-    const mesStr = String(mes).padStart(2, "0");
-    const lastDay = new Date(ano, mes, 0).getDate();
-    const startDate = `${ano}-${mesStr}-01`;
-    const endDate = `${ano}-${mesStr}-${lastDay}`;
+    let startDate: string;
+    let endDate: string;
+    if (dataInicio && dataFim) {
+      startDate = dataInicio;
+      endDate = dataFim;
+    } else {
+      const now = new Date();
+      const mes = now.getMonth() + 1;
+      const ano = now.getFullYear();
+      const mesStr = String(mes).padStart(2, "0");
+      const lastDay = new Date(ano, mes, 0).getDate();
+      startDate = `${ano}-${mesStr}-01`;
+      endDate = `${ano}-${mesStr}-${lastDay}`;
+    }
+    console.log(`[sync-all/auvo] period ${startDate} → ${endDate}`);
 
     let totalSynced = 0;
     const byType: Record<string, { count: number; total: number }> = {};
