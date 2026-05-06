@@ -775,7 +775,7 @@ serve(async (req) => {
     // 4. Sync Auvo (different API, no GC rate limit conflict — run in parallel with next GC module)
     // But since Auvo is fast and doesn't use GC rate limiter, we run it here
     console.log("[sync-all] ── Module 4/6: Auvo ──");
-    results.auvo = await syncAuvo(supabase);
+    results.auvo = await syncAuvo(supabase, dataInicio, dataFim);
     console.log(`[sync-all] Auvo done (${results.auvo.duration_ms}ms)`);
 
     // ── Build PC/CC/FP maps for fin_* upserts ──
