@@ -356,7 +356,7 @@ export const useMetasResultados = (year: number, month: number) => {
           const gcId = uuidToGcId[planoUuid];
           const auvoTypeIds = gcId ? AUVO_SOURCE_MAP[gcId] : undefined;
 
-          if (auvoTypeIds && auvoExpenses.length > 0) {
+          if (auvoTypeIds) {
             const auvoSum = auvoExpenses
               .filter(e => auvoTypeIds.includes(e.type_id))
               .reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
