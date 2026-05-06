@@ -318,7 +318,16 @@ export const useMetasResultados = (year: number, month: number) => {
 
   const metasComResultado = useMemo((): MetaComResultado[] => {
     return metas.map(meta => {
-      const links = mapeamentos.filter(m => m.meta_id === meta.id);
+      const rawLinks = mapeamentos.filter(m => m.meta_id === meta.id);
+      // Dedupe links por (plano_contas_id + centro_custo_id) — evita somar 2x
+      // quando há mapeamentos duplicados em fin_meta_plano_contas.
+      const seenLinks = new Set<string>();
+      const links = rawLinks.filter(l => {
+        const key = `${l.plano_contas_id}|${l.centro_custo_id ?? ''}`;
+        if (seenLinks.has(key)) return false;
+        seenLinks.add(key);
+        return true;
+      });
       let realizado = 0;
       const nome = meta.nome.toLowerCase();
 
