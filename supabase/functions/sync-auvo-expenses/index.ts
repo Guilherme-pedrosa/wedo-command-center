@@ -144,16 +144,23 @@ Deno.serve(async (req) => {
 
     for (const typeId of TYPE_IDS) {
       const expenses = await fetchExpensesByType(token, typeId, startDate, endDate);
+      const periodExpenses = expenses.filter((e: any) => {
+        const expenseDate = extractExpenseDate(e, "");
+        return expenseDate >= startDate && expenseDate <= endDate;
+      });
+      const ignoredOutOfPeriod = expenses.length - periodExpenses.length;
+      totalIgnoredOutOfPeriod += ignoredOutOfPeriod;
       let typeTotal = 0;
+      let deletedStale = 0;
 
       if (expenses.length > 0) {
-        const rows = expenses.map((e: any) => ({
+        const rows = periodExpenses.map((e: any) => ({
           auvo_id: e.id,
           type_id: typeId,
           type_name: e.expenseTypeName || e.typeName || null,
           user_to_id: e.userToID || e.userToId || null,
           user_to_name: e.userToName || null,
-          expense_date: e.date?.split("T")[0] || startDate,
+          expense_date: extractExpenseDate(e, startDate),
           amount: parseFloat(e.value || e.amount || "0"),
           description: e.description || null,
           attachment_url: e.attachmentUrl || e.receiptUrl || null,
@@ -171,14 +178,19 @@ Deno.serve(async (req) => {
           if (error) console.error(`Upsert error typeId=${typeId}:`, error.message);
         }
 
-        totalSynced += expenses.length;
+        deletedStale = await deleteStaleRows(supabase, typeId, startDate, endDate, rows.map((row: any) => Number(row.auvo_id)).filter(Number.isFinite));
+        totalDeletedStale += deletedStale;
+        totalSynced += rows.length;
+      } else {
+        deletedStale = await deleteStaleRows(supabase, typeId, startDate, endDate, []);
+        totalDeletedStale += deletedStale;
       }
 
-      byType[String(typeId)] = { count: expenses.length, total: typeTotal };
+      byType[String(typeId)] = { count: periodExpenses.length, total: typeTotal, ignored_out_of_period: ignoredOutOfPeriod, deleted_stale: deletedStale };
     }
 
     return new Response(
-      JSON.stringify({ synced: totalSynced, by_type: byType, period: { mes, ano } }),
+      JSON.stringify({ synced: totalSynced, ignored_out_of_period: totalIgnoredOutOfPeriod, deleted_stale: totalDeletedStale, by_type: byType, period: { mes, ano, startDate, endDate } }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
