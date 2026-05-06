@@ -526,7 +526,7 @@ async function syncCompras(
 // ═══════════════════════════════════════════════════════════════
 const AUVO_TYPE_IDS = [48782, 48784, 49032, 48783, 48799, 50758];
 
-async function syncAuvo(supabase: any): Promise<any> {
+async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): Promise<any> {
   const start = Date.now();
   const apiKey = Deno.env.get("AUVO_API_KEY");
   const apiToken = Deno.env.get("AUVO_USER_TOKEN");
