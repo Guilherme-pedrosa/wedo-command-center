@@ -526,6 +526,45 @@ async function syncCompras(
 // ═══════════════════════════════════════════════════════════════
 const AUVO_TYPE_IDS = [48782, 48784, 49032, 48783, 48799, 50758];
 
+function extractAuvoExpenseDate(expense: Record<string, any>, fallback: string): string {
+  const rawDate = expense.date
+    ?? expense.expenseDate
+    ?? expense.expense_date
+    ?? expense.data
+    ?? expense.createdAt
+    ?? expense.created_at
+    ?? expense.registerDate
+    ?? expense.registeredAt;
+  const match = String(rawDate || "").match(/^\d{4}-\d{2}-\d{2}/);
+  return match?.[0] ?? fallback;
+}
+
+async function deleteStaleAuvoRows(
+  supabase: any,
+  typeId: number,
+  startDate: string,
+  endDate: string,
+  currentAuvoIds: number[],
+): Promise<number> {
+  let query = supabase
+    .from("auvo_expenses_sync")
+    .delete()
+    .eq("type_id", typeId)
+    .gte("expense_date", startDate)
+    .lte("expense_date", endDate);
+
+  if (currentAuvoIds.length > 0) {
+    query = query.not("auvo_id", "in", `(${currentAuvoIds.join(",")})`);
+  }
+
+  const { data, error } = await query.select("id");
+  if (error) {
+    console.error(`[sync-all/auvo] Delete stale rows error typeId=${typeId}:`, error.message);
+    return 0;
+  }
+  return Array.isArray(data) ? data.length : 0;
+}
+
 async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): Promise<any> {
   const start = Date.now();
   const apiKey = Deno.env.get("AUVO_API_KEY");
@@ -564,7 +603,9 @@ async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): P
     console.log(`[sync-all/auvo] period ${startDate} → ${endDate}`);
 
     let totalSynced = 0;
-    const byType: Record<string, { count: number; total: number }> = {};
+    let totalIgnoredOutOfPeriod = 0;
+    let totalDeletedStale = 0;
+    const byType: Record<string, { count: number; total: number; ignored_out_of_period: number; deleted_stale: number }> = {};
 
     for (const typeId of AUVO_TYPE_IDS) {
       const all: any[] = [];
@@ -589,15 +630,23 @@ async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): P
         page++;
       }
 
+      const periodExpenses = all.filter((e: any) => {
+        const expenseDate = extractAuvoExpenseDate(e, "");
+        return expenseDate >= startDate && expenseDate <= endDate;
+      });
+      const ignoredOutOfPeriod = all.length - periodExpenses.length;
+      totalIgnoredOutOfPeriod += ignoredOutOfPeriod;
+
       let typeTotal = 0;
+      let deletedStale = 0;
       if (all.length > 0) {
-        const rows = all.map((e: any) => ({
+        const rows = periodExpenses.map((e: any) => ({
           auvo_id: e.id,
           type_id: typeId,
           type_name: e.expenseTypeName || e.typeName || null,
           user_to_id: e.userToID || e.userToId || null,
           user_to_name: e.userToName || null,
-          expense_date: e.date?.split("T")[0] || startDate,
+          expense_date: extractAuvoExpenseDate(e, startDate),
           amount: parseFloat(e.value || e.amount || "0"),
           description: e.description || null,
           attachment_url: e.attachmentUrl || e.receiptUrl || null,
@@ -614,13 +663,18 @@ async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): P
           if (error) console.error(`[sync-all/auvo] Upsert error typeId=${typeId}:`, error.message);
         }
 
-        totalSynced += all.length;
+        deletedStale = await deleteStaleAuvoRows(supabase, typeId, startDate, endDate, rows.map((row: any) => Number(row.auvo_id)).filter(Number.isFinite));
+        totalDeletedStale += deletedStale;
+        totalSynced += rows.length;
+      } else {
+        deletedStale = await deleteStaleAuvoRows(supabase, typeId, startDate, endDate, []);
+        totalDeletedStale += deletedStale;
       }
 
-      byType[String(typeId)] = { count: all.length, total: typeTotal };
+      byType[String(typeId)] = { count: periodExpenses.length, total: typeTotal, ignored_out_of_period: ignoredOutOfPeriod, deleted_stale: deletedStale };
     }
 
-    return { status: "ok", synced: totalSynced, by_type: byType, duration_ms: Date.now() - start };
+    return { status: "ok", synced: totalSynced, ignored_out_of_period: totalIgnoredOutOfPeriod, deleted_stale: totalDeletedStale, period: { startDate, endDate }, by_type: byType, duration_ms: Date.now() - start };
   } catch (err) {
     return { status: "error", error: (err as Error).message, duration_ms: Date.now() - start };
   }
