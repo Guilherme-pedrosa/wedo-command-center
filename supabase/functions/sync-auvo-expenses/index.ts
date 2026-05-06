@@ -111,14 +111,17 @@ Deno.serve(async (req) => {
     const now = new Date();
     let startDate = body.data_inicio || body.startDate || null;
     let endDate = body.data_fim || body.endDate || null;
-    const mes = Number(body.mes || now.getMonth() + 1);
-    const ano = Number(body.ano || now.getFullYear());
+    let mes = Number(body.mes || now.getMonth() + 1);
+    let ano = Number(body.ano || now.getFullYear());
 
     if (!startDate || !endDate) {
       const mesStr = String(mes).padStart(2, "0");
       const lastDay = new Date(ano, mes, 0).getDate();
       startDate = `${ano}-${mesStr}-01`;
       endDate = `${ano}-${mesStr}-${lastDay}`;
+    } else {
+      ano = Number(startDate.slice(0, 4));
+      mes = Number(startDate.slice(5, 7));
     }
 
     if (!dateRegex.test(startDate) || !dateRegex.test(endDate) || startDate > endDate) {
