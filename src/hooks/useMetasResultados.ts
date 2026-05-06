@@ -328,6 +328,9 @@ export const useMetasResultados = (year: number, month: number) => {
         seenLinks.add(key);
         return true;
       });
+      // Auvo não vem segmentado por centro de custo no cálculo das metas.
+      // Se o mesmo plano Auvo estiver mapeado em 2 centros, soma o tipo Auvo apenas 1x.
+      const seenAuvoSources = new Set<string>();
       let realizado = 0;
       const nome = meta.nome.toLowerCase();
 
@@ -366,6 +369,10 @@ export const useMetasResultados = (year: number, month: number) => {
           const auvoTypeIds = gcId ? AUVO_SOURCE_MAP[gcId] : undefined;
 
           if (auvoTypeIds) {
+            const auvoKey = `${gcId}:${auvoTypeIds.join(',')}`;
+            if (seenAuvoSources.has(auvoKey)) continue;
+            seenAuvoSources.add(auvoKey);
+
             const auvoSum = auvoExpenses
               .filter(e => auvoTypeIds.includes(e.type_id))
               .reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
