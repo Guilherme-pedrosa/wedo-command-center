@@ -107,13 +107,26 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({}));
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     const now = new Date();
-    const mes = body.mes || now.getMonth() + 1;
-    const ano = body.ano || now.getFullYear();
-    const mesStr = String(mes).padStart(2, "0");
-    const lastDay = new Date(ano, mes, 0).getDate();
-    const startDate = `${ano}-${mesStr}-01`;
-    const endDate = `${ano}-${mesStr}-${lastDay}`;
+    let startDate = body.data_inicio || body.startDate || null;
+    let endDate = body.data_fim || body.endDate || null;
+    const mes = Number(body.mes || now.getMonth() + 1);
+    const ano = Number(body.ano || now.getFullYear());
+
+    if (!startDate || !endDate) {
+      const mesStr = String(mes).padStart(2, "0");
+      const lastDay = new Date(ano, mes, 0).getDate();
+      startDate = `${ano}-${mesStr}-01`;
+      endDate = `${ano}-${mesStr}-${lastDay}`;
+    }
+
+    if (!dateRegex.test(startDate) || !dateRegex.test(endDate) || startDate > endDate) {
+      return new Response(
+        JSON.stringify({ error: "Período inválido. Envie data_inicio e data_fim no formato YYYY-MM-DD." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Login
     const token = await auvoLogin(apiKey, apiToken);
@@ -125,7 +138,9 @@ Deno.serve(async (req) => {
     );
 
     let totalSynced = 0;
-    const byType: Record<string, { count: number; total: number }> = {};
+    let totalDeletedStale = 0;
+    let totalIgnoredOutOfPeriod = 0;
+    const byType: Record<string, { count: number; total: number; ignored_out_of_period: number; deleted_stale: number }> = {};
 
     for (const typeId of TYPE_IDS) {
       const expenses = await fetchExpensesByType(token, typeId, startDate, endDate);
