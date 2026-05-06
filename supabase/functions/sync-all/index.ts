@@ -526,7 +526,7 @@ async function syncCompras(
 // ═══════════════════════════════════════════════════════════════
 const AUVO_TYPE_IDS = [48782, 48784, 49032, 48783, 48799, 50758];
 
-async function syncAuvo(supabase: any): Promise<any> {
+async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): Promise<any> {
   const start = Date.now();
   const apiKey = Deno.env.get("AUVO_API_KEY");
   const apiToken = Deno.env.get("AUVO_USER_TOKEN");
@@ -547,13 +547,21 @@ async function syncAuvo(supabase: any): Promise<any> {
     const token = loginJson?.result?.accessToken ?? loginJson?.result?.token ?? loginJson?.token;
     if (!token) throw new Error("Auvo login: accessToken not found");
 
-    const now = new Date();
-    const mes = now.getMonth() + 1;
-    const ano = now.getFullYear();
-    const mesStr = String(mes).padStart(2, "0");
-    const lastDay = new Date(ano, mes, 0).getDate();
-    const startDate = `${ano}-${mesStr}-01`;
-    const endDate = `${ano}-${mesStr}-${lastDay}`;
+    let startDate: string;
+    let endDate: string;
+    if (dataInicio && dataFim) {
+      startDate = dataInicio;
+      endDate = dataFim;
+    } else {
+      const now = new Date();
+      const mes = now.getMonth() + 1;
+      const ano = now.getFullYear();
+      const mesStr = String(mes).padStart(2, "0");
+      const lastDay = new Date(ano, mes, 0).getDate();
+      startDate = `${ano}-${mesStr}-01`;
+      endDate = `${ano}-${mesStr}-${lastDay}`;
+    }
+    console.log(`[sync-all/auvo] period ${startDate} → ${endDate}`);
 
     let totalSynced = 0;
     const byType: Record<string, { count: number; total: number }> = {};
@@ -767,7 +775,7 @@ serve(async (req) => {
     // 4. Sync Auvo (different API, no GC rate limit conflict — run in parallel with next GC module)
     // But since Auvo is fast and doesn't use GC rate limiter, we run it here
     console.log("[sync-all] ── Module 4/6: Auvo ──");
-    results.auvo = await syncAuvo(supabase);
+    results.auvo = await syncAuvo(supabase, dataInicio, dataFim);
     console.log(`[sync-all] Auvo done (${results.auvo.duration_ms}ms)`);
 
     // ── Build PC/CC/FP maps for fin_* upserts ──
