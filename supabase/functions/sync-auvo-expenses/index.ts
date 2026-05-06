@@ -9,6 +9,45 @@ const corsHeaders = {
 const AUVO_BASE = "https://api.auvo.com.br/v2";
 const TYPE_IDS = [48782, 48784, 49032, 48783, 48799, 50758];
 
+function extractExpenseDate(expense: Record<string, any>, fallback: string): string {
+  const rawDate = expense.date
+    ?? expense.expenseDate
+    ?? expense.expense_date
+    ?? expense.data
+    ?? expense.createdAt
+    ?? expense.created_at
+    ?? expense.registerDate
+    ?? expense.registeredAt;
+  const match = String(rawDate || "").match(/^\d{4}-\d{2}-\d{2}/);
+  return match?.[0] ?? fallback;
+}
+
+async function deleteStaleRows(
+  supabase: any,
+  typeId: number,
+  startDate: string,
+  endDate: string,
+  currentAuvoIds: number[],
+): Promise<number> {
+  let query = supabase
+    .from("auvo_expenses_sync")
+    .delete()
+    .eq("type_id", typeId)
+    .gte("expense_date", startDate)
+    .lte("expense_date", endDate);
+
+  if (currentAuvoIds.length > 0) {
+    query = query.not("auvo_id", "in", `(${currentAuvoIds.join(",")})`);
+  }
+
+  const { data, error } = await query.select("id");
+  if (error) {
+    console.error(`Delete stale rows error typeId=${typeId}:`, error.message);
+    return 0;
+  }
+  return Array.isArray(data) ? data.length : 0;
+}
+
 async function auvoLogin(apiKey: string, apiToken: string): Promise<string> {
   const res = await fetch(`${AUVO_BASE}/login/`, {
     method: "POST",
