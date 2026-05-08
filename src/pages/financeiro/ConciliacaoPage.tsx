@@ -202,10 +202,10 @@ export default function ConciliacaoPage() {
     };
 
     if (isCredito) {
-      const list = (recebimentosNL || []).filter((r: any) => !recebLinked.has(r.id)).filter(filterFn).slice(0, 50);
+      const list = (recebimentosNL || []).filter((r: any) => !recebLinked.has(r.id)).filter(notBaixado).filter(filterFn).slice(0, 50);
       return { recebimentos: list, pagamentos: [] };
     } else {
-      const list = (pagamentosNL || []).filter((p: any) => !pagLinked.has(p.id)).filter(filterFn).slice(0, 50);
+      const list = (pagamentosNL || []).filter((p: any) => !pagLinked.has(p.id)).filter(notBaixado).filter(filterFn).slice(0, 50);
       return { recebimentos: [], pagamentos: list };
     }
   }, [expandedExtrato, selectedExtrato, searchLanc, recebimentosNL, pagamentosNL, linkedIds]);
