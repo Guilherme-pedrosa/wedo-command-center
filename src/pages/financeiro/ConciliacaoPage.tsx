@@ -182,6 +182,15 @@ export default function ConciliacaoPage() {
     const recebLinked = linkedIds?.recebSet ?? new Set<string>();
     const pagLinked = linkedIds?.pagSet ?? new Set<string>();
 
+    const notBaixado = (l: any) => {
+      // Nunca sugerir lançamentos já baixados/pagos/liquidados
+      if (l.liquidado === true) return false;
+      if (l.pago_sistema === true) return false;
+      const st = String(l.status || "").toLowerCase();
+      if (st === "pago" || st === "liquidado" || st === "baixado") return false;
+      return true;
+    };
+
     const filterFn = (l: any) => {
       if (!q) return true;
       const valorStr = Number(l.valor || 0).toFixed(2);
