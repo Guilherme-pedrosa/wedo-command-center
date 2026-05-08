@@ -209,11 +209,21 @@ export default function ConciliacaoPage() {
       return da - db;
     };
 
+    // Quando não há busca, só mostra itens dentro de uma faixa razoável do valor do extrato
+    // (evita sugerir R$ 1.258 para um extrato de R$ 2,50). Soma de N parcelas continua possível via N:N.
+    // Tolerância: ±50% do valor, com piso de R$ 5,00 e teto de R$ 500,00 absolutos.
+    const tolerancia = Math.min(500, Math.max(5, valorExtrato * 0.5));
+    const closenessFilter = (l: any) => {
+      if (q) return true; // busca explícita ignora faixa
+      const v = Math.abs(Number(l.valor || 0));
+      return Math.abs(v - valorExtrato) <= tolerancia;
+    };
+
     if (isCredito) {
-      const list = (recebimentosNL || []).filter((r: any) => !recebLinked.has(r.id)).filter(notBaixado).filter(filterFn).sort(sortByCloseness).slice(0, 50);
+      const list = (recebimentosNL || []).filter((r: any) => !recebLinked.has(r.id)).filter(notBaixado).filter(filterFn).filter(closenessFilter).sort(sortByCloseness).slice(0, 50);
       return { recebimentos: list, pagamentos: [] };
     } else {
-      const list = (pagamentosNL || []).filter((p: any) => !pagLinked.has(p.id)).filter(notBaixado).filter(filterFn).sort(sortByCloseness).slice(0, 50);
+      const list = (pagamentosNL || []).filter((p: any) => !pagLinked.has(p.id)).filter(notBaixado).filter(filterFn).filter(closenessFilter).sort(sortByCloseness).slice(0, 50);
       return { recebimentos: [], pagamentos: list };
     }
   }, [expandedExtrato, selectedExtrato, searchLanc, recebimentosNL, pagamentosNL, linkedIds]);
