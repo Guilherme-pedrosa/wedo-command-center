@@ -201,11 +201,19 @@ export default function ConciliacaoPage() {
       return fields.includes(q);
     };
 
+    // Ordena por proximidade ao valor do extrato (mais próximo primeiro)
+    const valorExtrato = Math.abs(Number(selectedExtrato.valor || 0));
+    const sortByCloseness = (a: any, b: any) => {
+      const da = Math.abs(Math.abs(Number(a.valor || 0)) - valorExtrato);
+      const db = Math.abs(Math.abs(Number(b.valor || 0)) - valorExtrato);
+      return da - db;
+    };
+
     if (isCredito) {
-      const list = (recebimentosNL || []).filter((r: any) => !recebLinked.has(r.id)).filter(notBaixado).filter(filterFn).slice(0, 50);
+      const list = (recebimentosNL || []).filter((r: any) => !recebLinked.has(r.id)).filter(notBaixado).filter(filterFn).sort(sortByCloseness).slice(0, 50);
       return { recebimentos: list, pagamentos: [] };
     } else {
-      const list = (pagamentosNL || []).filter((p: any) => !pagLinked.has(p.id)).filter(notBaixado).filter(filterFn).slice(0, 50);
+      const list = (pagamentosNL || []).filter((p: any) => !pagLinked.has(p.id)).filter(notBaixado).filter(filterFn).sort(sortByCloseness).slice(0, 50);
       return { recebimentos: [], pagamentos: list };
     }
   }, [expandedExtrato, selectedExtrato, searchLanc, recebimentosNL, pagamentosNL, linkedIds]);
