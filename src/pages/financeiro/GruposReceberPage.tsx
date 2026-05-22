@@ -74,6 +74,54 @@ export default function GruposReceberPage() {
     return new Set(bestKeys);
   };
 
+  // Encontra o subconjunto cujo somatório seja >= target com o MENOR excedente.
+  // Garante que o grupo cubra integralmente o valor desejado pelo usuário.
+  const findClosestSubsetAtOrAbove = (
+    items: Array<{ key: string; valor: number }>,
+    target: number,
+  ) => {
+    const sorted = [...items]
+      .filter((item) => item.valor > 0)
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 30);
+
+    const totalAll = sorted.reduce((s, i) => s + i.valor, 0);
+    if (totalAll <= target + 0.02) {
+      return new Set(sorted.map((i) => i.key));
+    }
+
+    let bestKeys: string[] = sorted.map((i) => i.key);
+    let bestSum = totalAll;
+    const tolerance = 0.02;
+
+    const search = (index: number, currentSum: number, chosen: string[]) => {
+      if (currentSum >= target - tolerance) {
+        if (currentSum < bestSum) {
+          bestSum = currentSum;
+          bestKeys = [...chosen];
+        }
+        return;
+      }
+      if (index >= sorted.length) return;
+
+      let remaining = 0;
+      for (let i = index; i < sorted.length; i++) remaining += sorted[i].valor;
+      if (currentSum + remaining < target - tolerance) return;
+
+      for (let i = index; i < sorted.length; i++) {
+        const next = currentSum + sorted[i].valor;
+        if (next < bestSum) {
+          chosen.push(sorted[i].key);
+          search(i + 1, next, chosen);
+          chosen.pop();
+        }
+      }
+    };
+
+    search(0, 0, []);
+    return new Set(bestKeys);
+  };
+
   const handleDownloadXml = async (filePath: string) => {
     try {
       const { data, error } = await supabase.storage.from("nf-xmls").createSignedUrl(filePath, 300);
@@ -252,16 +300,16 @@ export default function GruposReceberPage() {
         ? Math.max(0.01, roundMoney(editValorCobrar))
         : totalItens;
 
-      // Se o valor desejado >= total dos itens (com tolerância), manter todos
-      const keepKeys = valorDesejado < totalItens - 1.00
-        ? findClosestSubsetAtOrBelow(candidateItems.map((item) => ({ key: item.key, valor: item.valor })), valorDesejado)
+      // Subset >= valorDesejado (menor excedente) — nunca reduz o valor pedido.
+      const keepKeys = editValorCobrar !== null && valorDesejado < totalItens - 0.02
+        ? findClosestSubsetAtOrAbove(candidateItems.map((item) => ({ key: item.key, valor: item.valor })), valorDesejado)
         : new Set(candidateItems.map((item) => item.key));
 
       const keptItems = candidateItems.filter((item) => keepKeys.has(item.key));
       const removedItems = candidateItems.filter((item) => !keepKeys.has(item.key));
 
       if (!keptItems.length) {
-        throw new Error("Nenhuma combinação de itens fecha o valor informado. Ajuste o valor a cobrar.");
+        throw new Error("Nenhuma combinação de itens cobre o valor informado. Ajuste os itens do grupo.");
       }
 
       const removedExisting = removedItems.filter((item) => item.source === "existing");
@@ -294,10 +342,21 @@ export default function GruposReceberPage() {
         await supabase.from("fin_recebimentos").update({ grupo_id: selectedGrupo.id }).in("id", keptNewItems.map((item) => item.recebimentoId));
       }
 
-      const valorGrupoFinal = roundMoney(keptItems.reduce((sum, item) => sum + item.valor, 0));
-      const valorSeparado = roundMoney(removedItems.reduce((sum, item) => sum + item.valor, 0));
+      const somaItensMantidos = roundMoney(keptItems.reduce((sum, item) => sum + item.valor, 0));
+      // valor_total do grupo respeita EXATAMENTE o valor informado pelo usuário.
+      // Se itens somam mais que o desejado, o excedente vai para passivo.
+      // Se somam menos, o grupo ainda assim cobra o valor pedido (nunca reduz).
+      const valorGrupoFinal = editValorCobrar !== null
+        ? roundMoney(valorDesejado)
+        : somaItensMantidos;
+      const excedenteItensMantidos = roundMoney(Math.max(0, somaItensMantidos - valorGrupoFinal));
+      const valorRemovidos = roundMoney(removedItems.reduce((sum, item) => sum + item.valor, 0));
+      const valorSeparado = roundMoney(excedenteItensMantidos + valorRemovidos);
       const osCodigos = Array.from(new Set(keptItems.map((item) => item.osCodigo).filter(Boolean)));
-      const osCodigosSeparados = Array.from(new Set(removedItems.map((item) => item.osCodigo).filter(Boolean)));
+      const osCodigosSeparados = Array.from(new Set([
+        ...removedItems.map((item) => item.osCodigo).filter(Boolean),
+        ...(excedenteItensMantidos > 0.01 ? keptItems.map((item) => item.osCodigo).filter(Boolean) : []),
+      ]));
       const keptRecebimentoIds = keptItems.map((item) => item.recebimentoId);
 
       const { error } = await supabase.from("fin_grupos_receber").update({
@@ -323,6 +382,7 @@ export default function GruposReceberPage() {
         });
         if (residualError) throw residualError;
       }
+
 
       if (editVencimento && keptRecebimentoIds.length > 0) {
         await supabase.from("fin_recebimentos").update({ data_vencimento: editVencimento }).in("id", keptRecebimentoIds);
