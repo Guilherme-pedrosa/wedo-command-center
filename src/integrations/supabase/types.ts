@@ -3123,7 +3123,13 @@ export type Database = {
       next_negociacao_number: { Args: never; Returns: number }
     }
     Enums: {
-      app_role: "admin" | "user"
+      app_role:
+        | "admin"
+        | "user"
+        | "ceo"
+        | "gerente_comercial"
+        | "gerente_financeiro"
+        | "vendedor"
       fin_origem:
         | "gc_os"
         | "gc_venda"
@@ -3276,7 +3282,14 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "user"],
+      app_role: [
+        "admin",
+        "user",
+        "ceo",
+        "gerente_comercial",
+        "gerente_financeiro",
+        "vendedor",
+      ],
       fin_origem: [
         "gc_os",
         "gc_venda",
