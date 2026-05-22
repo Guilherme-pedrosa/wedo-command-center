@@ -74,6 +74,54 @@ export default function GruposReceberPage() {
     return new Set(bestKeys);
   };
 
+  // Encontra o subconjunto cujo somatório seja >= target com o MENOR excedente.
+  // Garante que o grupo cubra integralmente o valor desejado pelo usuário.
+  const findClosestSubsetAtOrAbove = (
+    items: Array<{ key: string; valor: number }>,
+    target: number,
+  ) => {
+    const sorted = [...items]
+      .filter((item) => item.valor > 0)
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 30);
+
+    const totalAll = sorted.reduce((s, i) => s + i.valor, 0);
+    if (totalAll <= target + 0.02) {
+      return new Set(sorted.map((i) => i.key));
+    }
+
+    let bestKeys: string[] = sorted.map((i) => i.key);
+    let bestSum = totalAll;
+    const tolerance = 0.02;
+
+    const search = (index: number, currentSum: number, chosen: string[]) => {
+      if (currentSum >= target - tolerance) {
+        if (currentSum < bestSum) {
+          bestSum = currentSum;
+          bestKeys = [...chosen];
+        }
+        return;
+      }
+      if (index >= sorted.length) return;
+
+      let remaining = 0;
+      for (let i = index; i < sorted.length; i++) remaining += sorted[i].valor;
+      if (currentSum + remaining < target - tolerance) return;
+
+      for (let i = index; i < sorted.length; i++) {
+        const next = currentSum + sorted[i].valor;
+        if (next < bestSum) {
+          chosen.push(sorted[i].key);
+          search(i + 1, next, chosen);
+          chosen.pop();
+        }
+      }
+    };
+
+    search(0, 0, []);
+    return new Set(bestKeys);
+  };
+
   const handleDownloadXml = async (filePath: string) => {
     try {
       const { data, error } = await supabase.storage.from("nf-xmls").createSignedUrl(filePath, 300);
