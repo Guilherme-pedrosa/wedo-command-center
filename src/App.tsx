@@ -115,6 +115,7 @@ const App = () => (
               <Route path="/financeiro/negociacao-os" element={<Suspense fallback={<LazyFallback />}><FinNegociacaoOS /></Suspense>} />
               <Route path="/financeiro/negociacoes" element={<Suspense fallback={<LazyFallback />}><FinNegociacoes /></Suspense>} />
               <Route path="/financeiro/precificacao" element={<Suspense fallback={<LazyFallback />}><FinPrecificacao /></Suspense>} />
+              <Route path="/financeiro/precificacao/politicas" element={<Suspense fallback={<LazyFallback />}><FinPrecPoliticas /></Suspense>} />
               <Route path="/financeiro/argus-agent" element={<Suspense fallback={<LazyFallback />}><FinArgusAgent /></Suspense>} />
               <Route path="/financeiro/auditor" element={<Suspense fallback={<LazyFallback />}><FinAuditor /></Suspense>} />
             </Route>
