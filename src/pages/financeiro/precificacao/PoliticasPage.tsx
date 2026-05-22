@@ -191,9 +191,9 @@ export default function PoliticasPage() {
       for (const p of dirtyList) {
         const eff = getEffective(p);
         if (eff.margem_minima !== p.margem_minima) {
-          const { data, error } = await supabase
+          const res = await supabase
             .from("v_produto_tabela_mc" as any)
-            .select("produto_gc_id", { count: "exact", head: true })
+            .select("*", { count: "exact", head: true })
             .eq("tipo_id", p.tipo_id)
             .lt("margem_contribuicao", eff.margem_minima)
             .not("margem_contribuicao", "is", null);
@@ -202,19 +202,8 @@ export default function PoliticasPage() {
             nome_tabela: p.nome_tabela,
             antiga: p.margem_minima,
             nova: eff.margem_minima,
-            produtos: error ? 0 : ((data as any)?.length ?? 0) || 0,
+            produtos: res.count ?? 0,
           });
-          // count(*) head:true returns count via .count
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const lastIdx = rows.length - 1;
-          // re-fetch with explicit count
-          const res = await supabase
-            .from("v_produto_tabela_mc" as any)
-            .select("*", { count: "exact", head: true })
-            .eq("tipo_id", p.tipo_id)
-            .lt("margem_contribuicao", eff.margem_minima)
-            .not("margem_contribuicao", "is", null);
-          rows[lastIdx].produtos = res.count ?? 0;
         } else {
           rows.push({
             tipo_id: p.tipo_id,
