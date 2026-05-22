@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
 
   try {
     const { adminClient, callerId } = await verifyAdmin(req);
-    const { action, user_id, nome, gc_codigo, auvo_codigo, role, password } = await req.json();
+    const { action, user_id, nome, gc_codigo, auvo_codigo, role, roles, password } = await req.json();
 
     if (action === "update") {
       if (!user_id) throw new Error("user_id obrigatório");
@@ -61,10 +61,20 @@ Deno.serve(async (req) => {
         if (error) throw new Error(error.message);
       }
 
-      // Update role if provided
-      if (role) {
+      // Update roles if provided (accepts roles[] or legacy role)
+      const VALID_ROLES = ["admin", "user", "ceo", "gerente_comercial", "gerente_financeiro", "vendedor"];
+      let newRoles: string[] | null = null;
+      if (Array.isArray(roles)) {
+        newRoles = Array.from(new Set(roles.filter((r: string) => VALID_ROLES.includes(r))));
+      } else if (role) {
+        newRoles = [role].filter((r: string) => VALID_ROLES.includes(r));
+      }
+      if (newRoles !== null) {
+        if (newRoles.length === 0) newRoles = ["user"];
         await adminClient.from("user_roles").delete().eq("user_id", user_id);
-        await adminClient.from("user_roles").insert({ user_id, role });
+        await adminClient.from("user_roles").insert(
+          newRoles.map((r) => ({ user_id, role: r }))
+        );
       }
 
       return new Response(
