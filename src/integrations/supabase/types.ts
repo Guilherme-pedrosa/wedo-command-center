@@ -2820,6 +2820,78 @@ export type Database = {
         }
         Relationships: []
       }
+      gc_produtos_cache: {
+        Row: {
+          ativo: boolean
+          codigo_barra: string | null
+          codigo_interno: string | null
+          created_at: string
+          estoque: number | null
+          grupo_id: string | null
+          movimenta_estoque: boolean | null
+          ncm: string | null
+          nome: string
+          nome_grupo: string | null
+          peso: number | null
+          possui_composicao: boolean | null
+          possui_variacao: boolean | null
+          produto_gc_id: string
+          raw_gc: Json | null
+          ultima_sincronizacao: string
+          unidade: string | null
+          updated_at: string
+          valor_custo: number | null
+          valor_venda_padrao: number | null
+          valores: Json
+        }
+        Insert: {
+          ativo?: boolean
+          codigo_barra?: string | null
+          codigo_interno?: string | null
+          created_at?: string
+          estoque?: number | null
+          grupo_id?: string | null
+          movimenta_estoque?: boolean | null
+          ncm?: string | null
+          nome: string
+          nome_grupo?: string | null
+          peso?: number | null
+          possui_composicao?: boolean | null
+          possui_variacao?: boolean | null
+          produto_gc_id: string
+          raw_gc?: Json | null
+          ultima_sincronizacao?: string
+          unidade?: string | null
+          updated_at?: string
+          valor_custo?: number | null
+          valor_venda_padrao?: number | null
+          valores?: Json
+        }
+        Update: {
+          ativo?: boolean
+          codigo_barra?: string | null
+          codigo_interno?: string | null
+          created_at?: string
+          estoque?: number | null
+          grupo_id?: string | null
+          movimenta_estoque?: boolean | null
+          ncm?: string | null
+          nome?: string
+          nome_grupo?: string | null
+          peso?: number | null
+          possui_composicao?: boolean | null
+          possui_variacao?: boolean | null
+          produto_gc_id?: string
+          raw_gc?: Json | null
+          ultima_sincronizacao?: string
+          unidade?: string | null
+          updated_at?: string
+          valor_custo?: number | null
+          valor_venda_padrao?: number | null
+          valores?: Json
+        }
+        Relationships: []
+      }
       gc_recebimentos: {
         Row: {
           centro_custo_id: string | null
@@ -3458,6 +3530,27 @@ export type Database = {
       }
     }
     Views: {
+      v_produto_tabela_mc: {
+        Row: {
+          codigo_interno: string | null
+          custo_efetivo: number | null
+          custo_gc: number | null
+          custo_nf: number | null
+          estoque: number | null
+          exige_aprovacao_ceo: boolean | null
+          lucro_utilizado_gc: number | null
+          margem_contribuicao: number | null
+          margem_minima: number | null
+          modo_calculo: string | null
+          modo_sugestao: string | null
+          nome_tipo: string | null
+          produto_gc_id: string | null
+          produto_nome: string | null
+          tipo_id: string | null
+          valor_venda: number | null
+        }
+        Relationships: []
+      }
       vw_conciliacao_extrato: {
         Row: {
           _tabela: string | null
