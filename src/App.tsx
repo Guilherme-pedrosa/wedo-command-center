@@ -44,6 +44,7 @@ const FinFaturaCartao = lazy(() => import("@/pages/financeiro/FaturaCartaoPage")
 const FinNegociacaoOS = lazy(() => import("@/pages/financeiro/NegociacaoOSPage"));
 const FinNegociacoes = lazy(() => import("@/pages/financeiro/NegociacoesPage"));
 const FinPrecificacao = lazy(() => import("@/pages/financeiro/PrecificacaoPage"));
+const FinPrecPoliticas = lazy(() => import("@/pages/financeiro/precificacao/PoliticasPage"));
 const FinArgusAgent = lazy(() => import("@/pages/financeiro/ArgusAgentPage"));
 const FinAuditor = lazy(() => import("@/pages/financeiro/AuditorIAPage"));
 const AdminUsuarios = lazy(() => import("@/pages/AdminUsuarios"));
