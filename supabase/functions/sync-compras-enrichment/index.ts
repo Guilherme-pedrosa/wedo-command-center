@@ -240,17 +240,20 @@ serve(async (req) => {
 
         const itensBatch = produtos.map((wrap: any, idx: number) => {
           const p = wrap?.produto ?? wrap ?? {};
+          const rawProdutoId = (p.produto_id ?? "").toString().trim();
+          const temVinculo = !!rawProdutoId && rawProdutoId !== "0";
           return {
             compra_gc_id: compraGcId,
-            produto_gc_id: String(p.produto_id ?? p.id ?? ""),
-            nome_produto: p.nome_produto ?? null,
+            produto_gc_id: temVinculo ? rawProdutoId : null,
+            nome_produto: (p.nome_produto ?? "").toString().trim() || null,
             unidade: p.unidade ?? null,
             quantidade: parseFloat(String(p.quantidade ?? "0")) || null,
             valor_custo: parseFloat(String(p.valor_custo ?? "0")) || null,
             valor_total: parseFloat(String(p.valor_total ?? "0")) || null,
             ordem_item: idx,
+            origem_vinculo: temVinculo ? "produto_id_gc" : "legacy_sem_produto_id",
           };
-        }).filter((it) => it.produto_gc_id);
+        });
 
         if (itensBatch.length > 0) {
           const { error: insErr } = await supabase.from("gc_compras_itens").insert(itensBatch);
