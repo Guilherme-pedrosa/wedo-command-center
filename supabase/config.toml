@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.sync-nfe-entrada]
 verify_jwt = false
+
+[functions.sync-gc-produtos]
+verify_jwt = false
