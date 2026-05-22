@@ -6,16 +6,70 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Plus, Shield, User, Users, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Plus, Shield, User, Users, Pencil, Trash2, Crown } from "lucide-react";
 import toast from "react-hot-toast";
 import { Navigate } from "react-router-dom";
 
-const emptyForm = { email: "", password: "", nome: "", gc_codigo: "", auvo_codigo: "", role: "user" };
+type RoleKey = "admin" | "ceo" | "gerente_comercial" | "gerente_financeiro" | "vendedor" | "user";
+
+const ROLE_OPTIONS: { value: RoleKey; label: string; hint: string }[] = [
+  { value: "admin", label: "Administrador", hint: "Acesso total ao sistema" },
+  { value: "ceo", label: "CEO", hint: "Aprova margens e políticas" },
+  { value: "gerente_financeiro", label: "Gerente Financeiro", hint: "Vê custos e tributos" },
+  { value: "gerente_comercial", label: "Gerente Comercial", hint: "Vê preços e margens" },
+  { value: "vendedor", label: "Vendedor", hint: "Apenas consulta de preços" },
+  { value: "user", label: "Usuário", hint: "Acesso básico" },
+];
+
+const ROLE_BADGE: Record<string, { label: string; icon: any; className: string }> = {
+  admin: { label: "Admin", icon: Shield, className: "bg-wedo-orange/20 text-wedo-orange border-wedo-orange/30" },
+  ceo: { label: "CEO", icon: Crown, className: "bg-amber-500/20 text-amber-600 border-amber-500/30" },
+  gerente_financeiro: { label: "Ger. Financeiro", icon: Shield, className: "bg-emerald-500/20 text-emerald-600 border-emerald-500/30" },
+  gerente_comercial: { label: "Ger. Comercial", icon: Shield, className: "bg-blue-500/20 text-blue-600 border-blue-500/30" },
+  vendedor: { label: "Vendedor", icon: User, className: "bg-violet-500/20 text-violet-600 border-violet-500/30" },
+  user: { label: "Usuário", icon: User, className: "" },
+};
+
+const emptyForm = {
+  email: "",
+  password: "",
+  nome: "",
+  gc_codigo: "",
+  auvo_codigo: "",
+  roles: ["user"] as RoleKey[],
+};
+
+const RolesPicker = ({ value, onChange }: { value: RoleKey[]; onChange: (v: RoleKey[]) => void }) => {
+  const toggle = (r: RoleKey, checked: boolean) => {
+    const set = new Set(value);
+    if (checked) set.add(r); else set.delete(r);
+    onChange(Array.from(set) as RoleKey[]);
+  };
+  return (
+    <div className="space-y-2">
+      <Label>Perfis (selecione um ou mais)</Label>
+      <div className="grid grid-cols-2 gap-2 rounded-md border border-border p-3">
+        {ROLE_OPTIONS.map((opt) => (
+          <label key={opt.value} className="flex items-start gap-2 cursor-pointer text-sm">
+            <Checkbox
+              checked={value.includes(opt.value)}
+              onCheckedChange={(c) => toggle(opt.value, !!c)}
+            />
+            <div className="leading-tight">
+              <div className="font-medium">{opt.label}</div>
+              <div className="text-xs text-muted-foreground">{opt.hint}</div>
+            </div>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const UserFormFields = ({ values, onChange, showEmail = false, showPassword = true, passwordRequired = false }: any) => (
   <>
@@ -45,16 +99,7 @@ const UserFormFields = ({ values, onChange, showEmail = false, showPassword = tr
         <Input value={values.auvo_codigo} onChange={(e) => onChange({ ...values, auvo_codigo: e.target.value })} />
       </div>
     </div>
-    <div className="space-y-2">
-      <Label>Perfil</Label>
-      <Select value={values.role} onValueChange={(v) => onChange({ ...values, role: v })}>
-        <SelectTrigger><SelectValue /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="user">Usuário</SelectItem>
-          <SelectItem value="admin">Administrador</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
+    <RolesPicker value={values.roles ?? []} onChange={(r) => onChange({ ...values, roles: r })} />
   </>
 );
 
@@ -64,7 +109,7 @@ export default function AdminUsuarios() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
-  const [editForm, setEditForm] = useState<any>({ id: "", nome: "", gc_codigo: "", auvo_codigo: "", role: "user", password: "" });
+  const [editForm, setEditForm] = useState<any>({ id: "", nome: "", gc_codigo: "", auvo_codigo: "", roles: ["user"] as RoleKey[], password: "" });
 
   const { data: users, isLoading } = useQuery({
     queryKey: ["admin-users"],
@@ -98,7 +143,7 @@ export default function AdminUsuarios() {
   const updateUser = useMutation({
     mutationFn: async (data: any) => {
       const { data: result, error } = await supabase.functions.invoke("admin-manage-user", {
-        body: { action: "update", user_id: data.id, nome: data.nome, gc_codigo: data.gc_codigo, auvo_codigo: data.auvo_codigo, role: data.role, password: data.password || undefined },
+        body: { action: "update", user_id: data.id, nome: data.nome, gc_codigo: data.gc_codigo, auvo_codigo: data.auvo_codigo, roles: data.roles, password: data.password || undefined },
       });
       if (error) throw new Error(error.message);
       if (result?.error) throw new Error(result.error);
@@ -134,7 +179,7 @@ export default function AdminUsuarios() {
       nome: u.nome,
       gc_codigo: u.gc_codigo || "",
       auvo_codigo: u.auvo_codigo || "",
-      role: u.roles?.includes("admin") ? "admin" : "user",
+      roles: (u.roles?.length ? u.roles : ["user"]) as RoleKey[],
       password: "",
     });
     setEditOpen(true);
@@ -202,7 +247,7 @@ export default function AdminUsuarios() {
                   <TableHead>Email</TableHead>
                   <TableHead>Código GC</TableHead>
                   <TableHead>Código AUVO</TableHead>
-                  <TableHead>Perfil</TableHead>
+                  <TableHead>Perfis</TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
@@ -214,15 +259,21 @@ export default function AdminUsuarios() {
                     <TableCell>{u.gc_codigo || "—"}</TableCell>
                     <TableCell>{u.auvo_codigo || "—"}</TableCell>
                     <TableCell>
-                      {u.roles?.includes("admin") ? (
-                        <Badge className="bg-wedo-orange/20 text-wedo-orange border-wedo-orange/30">
-                          <Shield className="h-3 w-3 mr-1" /> Admin
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary">
-                          <User className="h-3 w-3 mr-1" /> Usuário
-                        </Badge>
-                      )}
+                      <div className="flex flex-wrap gap-1">
+                        {(u.roles ?? []).length === 0 ? (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : (
+                          (u.roles as string[]).map((r) => {
+                            const cfg = ROLE_BADGE[r] ?? { label: r, icon: User, className: "" };
+                            const Icon = cfg.icon;
+                            return (
+                              <Badge key={r} variant="secondary" className={cfg.className}>
+                                <Icon className="h-3 w-3 mr-1" /> {cfg.label}
+                              </Badge>
+                            );
+                          })
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
