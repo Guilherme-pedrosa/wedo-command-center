@@ -2177,6 +2177,8 @@ export type Database = {
           compra_gc_id: string | null
           created_at: string | null
           custo_efetivo_unit: number | null
+          custo_variavel_real: number | null
+          fator_conversao: number | null
           fornecedor_nome: string | null
           frete_percentual: number | null
           gc_produto_id: string
@@ -2195,9 +2197,22 @@ export type Database = {
           nome_produto: string
           pis_aliquota: number | null
           pis_aliquota_manual: number | null
+          q_com: number | null
+          q_trib: number | null
           regime_fornecedor: string | null
           sem_credito: boolean | null
+          u_com: number | null
+          u_trib: number | null
           ultima_atualizacao: string | null
+          v_desc: number | null
+          v_fcp_st: number | null
+          v_icms_st: number | null
+          v_icms_uf_dest: number | null
+          v_icms_uf_remet: number | null
+          v_outro: number | null
+          v_seg: number | null
+          v_un_com: number | null
+          v_un_trib: number | null
           valor_cofins_unit: number | null
           valor_frete_unit: number | null
           valor_icms_unit: number | null
@@ -2212,6 +2227,8 @@ export type Database = {
           compra_gc_id?: string | null
           created_at?: string | null
           custo_efetivo_unit?: number | null
+          custo_variavel_real?: number | null
+          fator_conversao?: number | null
           fornecedor_nome?: string | null
           frete_percentual?: number | null
           gc_produto_id: string
@@ -2230,9 +2247,22 @@ export type Database = {
           nome_produto: string
           pis_aliquota?: number | null
           pis_aliquota_manual?: number | null
+          q_com?: number | null
+          q_trib?: number | null
           regime_fornecedor?: string | null
           sem_credito?: boolean | null
+          u_com?: number | null
+          u_trib?: number | null
           ultima_atualizacao?: string | null
+          v_desc?: number | null
+          v_fcp_st?: number | null
+          v_icms_st?: number | null
+          v_icms_uf_dest?: number | null
+          v_icms_uf_remet?: number | null
+          v_outro?: number | null
+          v_seg?: number | null
+          v_un_com?: number | null
+          v_un_trib?: number | null
           valor_cofins_unit?: number | null
           valor_frete_unit?: number | null
           valor_icms_unit?: number | null
@@ -2247,6 +2277,8 @@ export type Database = {
           compra_gc_id?: string | null
           created_at?: string | null
           custo_efetivo_unit?: number | null
+          custo_variavel_real?: number | null
+          fator_conversao?: number | null
           fornecedor_nome?: string | null
           frete_percentual?: number | null
           gc_produto_id?: string
@@ -2265,9 +2297,22 @@ export type Database = {
           nome_produto?: string
           pis_aliquota?: number | null
           pis_aliquota_manual?: number | null
+          q_com?: number | null
+          q_trib?: number | null
           regime_fornecedor?: string | null
           sem_credito?: boolean | null
+          u_com?: number | null
+          u_trib?: number | null
           ultima_atualizacao?: string | null
+          v_desc?: number | null
+          v_fcp_st?: number | null
+          v_icms_st?: number | null
+          v_icms_uf_dest?: number | null
+          v_icms_uf_remet?: number | null
+          v_outro?: number | null
+          v_seg?: number | null
+          v_un_com?: number | null
+          v_un_trib?: number | null
           valor_cofins_unit?: number | null
           valor_frete_unit?: number | null
           valor_icms_unit?: number | null
