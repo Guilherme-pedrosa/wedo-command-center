@@ -1,0 +1,1 @@
+ALTER VIEW public.v_produto_tabela_mc SET (security_invoker = on);
