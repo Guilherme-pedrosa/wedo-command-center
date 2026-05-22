@@ -2695,6 +2695,7 @@ export type Database = {
           nome_situacao: string | null
           numero_nfe: string | null
           observacao: string | null
+          re_enrichment_needed: boolean | null
           situacao_id: string | null
           valor_frete: number | null
           valor_produtos: number | null
@@ -2718,6 +2719,7 @@ export type Database = {
           nome_situacao?: string | null
           numero_nfe?: string | null
           observacao?: string | null
+          re_enrichment_needed?: boolean | null
           situacao_id?: string | null
           valor_frete?: number | null
           valor_produtos?: number | null
@@ -2741,6 +2743,7 @@ export type Database = {
           nome_situacao?: string | null
           numero_nfe?: string | null
           observacao?: string | null
+          re_enrichment_needed?: boolean | null
           situacao_id?: string | null
           valor_frete?: number | null
           valor_produtos?: number | null
@@ -2755,7 +2758,8 @@ export type Database = {
           id: string
           nome_produto: string | null
           ordem_item: number | null
-          produto_gc_id: string
+          origem_vinculo: string | null
+          produto_gc_id: string | null
           quantidade: number | null
           unidade: string | null
           valor_custo: number | null
@@ -2767,7 +2771,8 @@ export type Database = {
           id?: string
           nome_produto?: string | null
           ordem_item?: number | null
-          produto_gc_id: string
+          origem_vinculo?: string | null
+          produto_gc_id?: string | null
           quantidade?: number | null
           unidade?: string | null
           valor_custo?: number | null
@@ -2779,7 +2784,8 @@ export type Database = {
           id?: string
           nome_produto?: string | null
           ordem_item?: number | null
-          produto_gc_id?: string
+          origem_vinculo?: string | null
+          produto_gc_id?: string | null
           quantidade?: number | null
           unidade?: string | null
           valor_custo?: number | null
