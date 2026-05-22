@@ -77,6 +77,54 @@ export type Database = {
         }
         Relationships: []
       }
+      fin_acoes_pendentes: {
+        Row: {
+          created_at: string | null
+          descricao: string | null
+          destinatario_role: Database["public"]["Enums"]["app_role"]
+          entidade_id: string | null
+          entidade_tipo: string | null
+          id: string
+          payload: Json | null
+          resolvido_em: string | null
+          resolvido_por: string | null
+          status: string
+          tipo: string
+          titulo: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          descricao?: string | null
+          destinatario_role?: Database["public"]["Enums"]["app_role"]
+          entidade_id?: string | null
+          entidade_tipo?: string | null
+          id?: string
+          payload?: Json | null
+          resolvido_em?: string | null
+          resolvido_por?: string | null
+          status?: string
+          tipo: string
+          titulo: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          descricao?: string | null
+          destinatario_role?: Database["public"]["Enums"]["app_role"]
+          entidade_id?: string | null
+          entidade_tipo?: string | null
+          id?: string
+          payload?: Json | null
+          resolvido_em?: string | null
+          resolvido_por?: string | null
+          status?: string
+          tipo?: string
+          titulo?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       fin_agenda_pagamentos: {
         Row: {
           centro_custo_id: string | null
@@ -351,6 +399,42 @@ export type Database = {
           },
         ]
       }
+      fin_arredondamento_comercial: {
+        Row: {
+          ativo: boolean
+          created_at: string | null
+          estrategia: string
+          faixa_max: number
+          faixa_min: number
+          id: string
+          nome: string
+          terminacao: string
+          updated_at: string | null
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string | null
+          estrategia?: string
+          faixa_max: number
+          faixa_min: number
+          id?: string
+          nome: string
+          terminacao: string
+          updated_at?: string | null
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string | null
+          estrategia?: string
+          faixa_max?: number
+          faixa_min?: number
+          id?: string
+          nome?: string
+          terminacao?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       fin_audit_log: {
         Row: {
           acao: string
@@ -594,6 +678,45 @@ export type Database = {
           saldo_inicial?: number | null
           tipo?: string | null
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      fin_eventos_sistema: {
+        Row: {
+          created_at: string | null
+          descricao: string | null
+          entidade_id: string | null
+          entidade_tipo: string | null
+          id: string
+          origem: string
+          payload: Json | null
+          severidade: string
+          tipo: string
+          titulo: string
+        }
+        Insert: {
+          created_at?: string | null
+          descricao?: string | null
+          entidade_id?: string | null
+          entidade_tipo?: string | null
+          id?: string
+          origem: string
+          payload?: Json | null
+          severidade?: string
+          tipo: string
+          titulo: string
+        }
+        Update: {
+          created_at?: string | null
+          descricao?: string | null
+          entidade_id?: string | null
+          entidade_tipo?: string | null
+          id?: string
+          origem?: string
+          payload?: Json | null
+          severidade?: string
+          tipo?: string
+          titulo?: string
         }
         Relationships: []
       }
@@ -972,6 +1095,231 @@ export type Database = {
           razao_social?: string | null
           telefone?: string | null
           tipo_pessoa?: string | null
+        }
+        Relationships: []
+      }
+      fin_gc_custo_history: {
+        Row: {
+          created_at: string | null
+          custo_anterior: number | null
+          custo_novo: number
+          gc_produto_id: string
+          id: string
+          motivo: string | null
+          nf_chave: string | null
+          source: string
+        }
+        Insert: {
+          created_at?: string | null
+          custo_anterior?: number | null
+          custo_novo: number
+          gc_produto_id: string
+          id?: string
+          motivo?: string | null
+          nf_chave?: string | null
+          source: string
+        }
+        Update: {
+          created_at?: string | null
+          custo_anterior?: number | null
+          custo_novo?: number
+          gc_produto_id?: string
+          id?: string
+          motivo?: string | null
+          nf_chave?: string | null
+          source?: string
+        }
+        Relationships: []
+      }
+      fin_gc_price_aprovacoes: {
+        Row: {
+          created_at: string | null
+          custo_referencia: number | null
+          decidido_em: string | null
+          decidido_por: string | null
+          decisao_observacao: string | null
+          gc_produto_id: string
+          id: string
+          justificativa: string | null
+          margem_minima_politica: number | null
+          margem_resultante: number | null
+          modo_calculo: string
+          nome_produto: string | null
+          payload: Json | null
+          preco_atual: number | null
+          preco_solicitado: number
+          solicitado_por: string | null
+          status: string
+          tipo_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          custo_referencia?: number | null
+          decidido_em?: string | null
+          decidido_por?: string | null
+          decisao_observacao?: string | null
+          gc_produto_id: string
+          id?: string
+          justificativa?: string | null
+          margem_minima_politica?: number | null
+          margem_resultante?: number | null
+          modo_calculo?: string
+          nome_produto?: string | null
+          payload?: Json | null
+          preco_atual?: number | null
+          preco_solicitado: number
+          solicitado_por?: string | null
+          status?: string
+          tipo_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          custo_referencia?: number | null
+          decidido_em?: string | null
+          decidido_por?: string | null
+          decisao_observacao?: string | null
+          gc_produto_id?: string
+          id?: string
+          justificativa?: string | null
+          margem_minima_politica?: number | null
+          margem_resultante?: number | null
+          modo_calculo?: string
+          nome_produto?: string | null
+          payload?: Json | null
+          preco_atual?: number | null
+          preco_solicitado?: number
+          solicitado_por?: string | null
+          status?: string
+          tipo_id?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      fin_gc_price_history: {
+        Row: {
+          aprovacao_id: string | null
+          ator: string | null
+          created_at: string | null
+          gc_produto_id: string
+          id: string
+          margem_aplicada: number | null
+          motivo: string | null
+          preco_anterior: number | null
+          preco_novo: number
+          source: string
+          tipo_id: string
+        }
+        Insert: {
+          aprovacao_id?: string | null
+          ator?: string | null
+          created_at?: string | null
+          gc_produto_id: string
+          id?: string
+          margem_aplicada?: number | null
+          motivo?: string | null
+          preco_anterior?: number | null
+          preco_novo: number
+          source: string
+          tipo_id: string
+        }
+        Update: {
+          aprovacao_id?: string | null
+          ator?: string | null
+          created_at?: string | null
+          gc_produto_id?: string
+          id?: string
+          margem_aplicada?: number | null
+          motivo?: string | null
+          preco_anterior?: number | null
+          preco_novo?: number
+          source?: string
+          tipo_id?: string
+        }
+        Relationships: []
+      }
+      fin_gc_price_review_log: {
+        Row: {
+          created_at: string | null
+          detalhes: Json | null
+          duracao_ms: number | null
+          id: string
+          paginas_processadas: number | null
+          produtos_alterados: number | null
+          produtos_analisados: number | null
+          scope: string
+          status: string
+        }
+        Insert: {
+          created_at?: string | null
+          detalhes?: Json | null
+          duracao_ms?: number | null
+          id?: string
+          paginas_processadas?: number | null
+          produtos_alterados?: number | null
+          produtos_analisados?: number | null
+          scope: string
+          status?: string
+        }
+        Update: {
+          created_at?: string | null
+          detalhes?: Json | null
+          duracao_ms?: number | null
+          id?: string
+          paginas_processadas?: number | null
+          produtos_alterados?: number | null
+          produtos_analisados?: number | null
+          scope?: string
+          status?: string
+        }
+        Relationships: []
+      }
+      fin_gc_write_jobs: {
+        Row: {
+          created_at: string | null
+          finalizado_em: string | null
+          id: string
+          iniciado_em: string | null
+          payload: Json
+          payload_hash: string
+          recurso: string
+          recurso_id: string
+          resposta: Json | null
+          status: string
+          tentativas: number
+          ultimo_erro: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          finalizado_em?: string | null
+          id?: string
+          iniciado_em?: string | null
+          payload: Json
+          payload_hash: string
+          recurso: string
+          recurso_id: string
+          resposta?: Json | null
+          status?: string
+          tentativas?: number
+          ultimo_erro?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          finalizado_em?: string | null
+          id?: string
+          iniciado_em?: string | null
+          payload?: Json
+          payload_hash?: string
+          recurso?: string
+          recurso_id?: string
+          resposta?: Json | null
+          status?: string
+          tentativas?: number
+          ultimo_erro?: string | null
+          updated_at?: string | null
         }
         Relationships: []
       }
@@ -1749,6 +2097,78 @@ export type Database = {
           },
         ]
       }
+      fin_politica_markup_tabela: {
+        Row: {
+          ativo: boolean
+          created_at: string | null
+          exige_aprovacao_ceo: boolean
+          id: string
+          margem_minima: number
+          modo_sugestao: string
+          nome_tabela: string
+          observacao: string | null
+          tipo_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string | null
+          exige_aprovacao_ceo?: boolean
+          id?: string
+          margem_minima?: number
+          modo_sugestao?: string
+          nome_tabela: string
+          observacao?: string | null
+          tipo_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string | null
+          exige_aprovacao_ceo?: boolean
+          id?: string
+          margem_minima?: number
+          modo_sugestao?: string
+          nome_tabela?: string
+          observacao?: string | null
+          tipo_id?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      fin_politica_markup_tabela_history: {
+        Row: {
+          acao: string
+          antes: Json | null
+          ator: string | null
+          created_at: string | null
+          depois: Json | null
+          id: string
+          politica_id: string
+          tipo_id: string
+        }
+        Insert: {
+          acao: string
+          antes?: Json | null
+          ator?: string | null
+          created_at?: string | null
+          depois?: Json | null
+          id?: string
+          politica_id: string
+          tipo_id: string
+        }
+        Update: {
+          acao?: string
+          antes?: Json | null
+          ator?: string | null
+          created_at?: string | null
+          depois?: Json | null
+          id?: string
+          politica_id?: string
+          tipo_id?: string
+        }
+        Relationships: []
+      }
       fin_produto_tributos: {
         Row: {
           cfop: string | null
@@ -1854,6 +2274,36 @@ export type Database = {
           valor_ipi_unit?: number | null
           valor_pis_unit?: number | null
           valor_unitario_nf?: number | null
+        }
+        Relationships: []
+      }
+      fin_produto_tributos_historico: {
+        Row: {
+          acao: string
+          antes: Json | null
+          created_at: string | null
+          depois: Json | null
+          gc_produto_id: string
+          id: string
+          produto_tributo_id: string
+        }
+        Insert: {
+          acao: string
+          antes?: Json | null
+          created_at?: string | null
+          depois?: Json | null
+          gc_produto_id: string
+          id?: string
+          produto_tributo_id: string
+        }
+        Update: {
+          acao?: string
+          antes?: Json | null
+          created_at?: string | null
+          depois?: Json | null
+          gc_produto_id?: string
+          id?: string
+          produto_tributo_id?: string
         }
         Relationships: []
       }
