@@ -137,8 +137,8 @@ serve(async (req) => {
       if (scope === "pending") {
         q = q.is("numero_nfe", null);
       } else if (scope === "modified") {
-        // Re-enriquece se foi modificado depois do enriched_at (ou nunca enriquecido)
-        q = q.or("enriched_at.is.null,modificado_em.gt.enriched_at");
+        // Re-enriquece compras sem enriched_at (NULL = marcadas para reprocesso)
+        q = q.is("enriched_at", null);
       }
       // scope='all' não filtra
 
