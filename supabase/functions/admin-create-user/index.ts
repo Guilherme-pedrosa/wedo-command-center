@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { email, password, nome, gc_codigo, auvo_codigo, role } = await req.json();
+    const { email, password, nome, gc_codigo, auvo_codigo, role, roles } = await req.json();
 
     if (!email || !password || !nome) {
       return new Response(JSON.stringify({ error: "Email, senha e nome são obrigatórios" }), {
@@ -60,6 +60,14 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Normalize roles: accept either `roles: string[]` or legacy `role: string`
+    const VALID_ROLES = ["admin", "user", "ceo", "gerente_comercial", "gerente_financeiro", "vendedor"];
+    let finalRoles: string[] = Array.isArray(roles) && roles.length > 0
+      ? roles
+      : [role || "user"];
+    finalRoles = Array.from(new Set(finalRoles.filter((r) => VALID_ROLES.includes(r))));
+    if (finalRoles.length === 0) finalRoles = ["user"];
 
     // Create the user
     const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
@@ -76,15 +84,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Assign role
-    const userRole = role === "admin" ? "admin" : "user";
-    await adminClient.from("user_roles").insert({
-      user_id: newUser.user.id,
-      role: userRole,
-    });
+    await adminClient.from("user_roles").insert(
+      finalRoles.map((r) => ({ user_id: newUser.user.id, role: r }))
+    );
 
     return new Response(
-      JSON.stringify({ success: true, user_id: newUser.user.id, email, role: userRole }),
+      JSON.stringify({ success: true, user_id: newUser.user.id, email, roles: finalRoles }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
