@@ -2679,17 +2679,21 @@ export type Database = {
       gc_compras: {
         Row: {
           cadastrado_em: string | null
+          cnpj_fornecedor: string | null
           codigo: string | null
           created_at: string | null
           data: string | null
           desconto: number | null
+          enriched_at: string | null
           fornecedor_id: string | null
           gc_id: string
           gc_payload_raw: Json | null
           id: string
           last_synced_at: string | null
+          modificado_em: string | null
           nome_fornecedor: string | null
           nome_situacao: string | null
+          numero_nfe: string | null
           observacao: string | null
           situacao_id: string | null
           valor_frete: number | null
@@ -2698,17 +2702,21 @@ export type Database = {
         }
         Insert: {
           cadastrado_em?: string | null
+          cnpj_fornecedor?: string | null
           codigo?: string | null
           created_at?: string | null
           data?: string | null
           desconto?: number | null
+          enriched_at?: string | null
           fornecedor_id?: string | null
           gc_id: string
           gc_payload_raw?: Json | null
           id?: string
           last_synced_at?: string | null
+          modificado_em?: string | null
           nome_fornecedor?: string | null
           nome_situacao?: string | null
+          numero_nfe?: string | null
           observacao?: string | null
           situacao_id?: string | null
           valor_frete?: number | null
@@ -2717,21 +2725,64 @@ export type Database = {
         }
         Update: {
           cadastrado_em?: string | null
+          cnpj_fornecedor?: string | null
           codigo?: string | null
           created_at?: string | null
           data?: string | null
           desconto?: number | null
+          enriched_at?: string | null
           fornecedor_id?: string | null
           gc_id?: string
           gc_payload_raw?: Json | null
           id?: string
           last_synced_at?: string | null
+          modificado_em?: string | null
           nome_fornecedor?: string | null
           nome_situacao?: string | null
+          numero_nfe?: string | null
           observacao?: string | null
           situacao_id?: string | null
           valor_frete?: number | null
           valor_produtos?: number | null
+          valor_total?: number | null
+        }
+        Relationships: []
+      }
+      gc_compras_itens: {
+        Row: {
+          compra_gc_id: string
+          created_at: string | null
+          id: string
+          nome_produto: string | null
+          ordem_item: number | null
+          produto_gc_id: string
+          quantidade: number | null
+          unidade: string | null
+          valor_custo: number | null
+          valor_total: number | null
+        }
+        Insert: {
+          compra_gc_id: string
+          created_at?: string | null
+          id?: string
+          nome_produto?: string | null
+          ordem_item?: number | null
+          produto_gc_id: string
+          quantidade?: number | null
+          unidade?: string | null
+          valor_custo?: number | null
+          valor_total?: number | null
+        }
+        Update: {
+          compra_gc_id?: string
+          created_at?: string | null
+          id?: string
+          nome_produto?: string | null
+          ordem_item?: number | null
+          produto_gc_id?: string
+          quantidade?: number | null
+          unidade?: string | null
+          valor_custo?: number | null
           valor_total?: number | null
         }
         Relationships: []
@@ -3709,6 +3760,8 @@ export type Database = {
         Returns: boolean
       }
       next_negociacao_number: { Args: never; Returns: number }
+      normalizar_cnpj: { Args: { c: string }; Returns: string }
+      normalizar_numero_nf: { Args: { n: string }; Returns: string }
     }
     Enums: {
       app_role:
