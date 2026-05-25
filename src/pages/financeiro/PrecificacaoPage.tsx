@@ -1197,20 +1197,25 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs text-right" rowSpan={2}>Créd. Entrada</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo Total</TableHead>
                   <TableHead className="text-xs text-right font-semibold text-primary" rowSpan={2}>Preço Mín.</TableHead>
-                  <TableHead className="text-xs text-center text-blue-400 border-l border-border" colSpan={3}>Tabela A (120%)</TableHead>
-                  <TableHead className="text-xs text-center text-yellow-400 border-l border-border" colSpan={3}>Tabela B (70%)</TableHead>
-                  <TableHead className="text-xs text-center text-purple-400 border-l border-border" colSpan={3}>Tabela P (50%)</TableHead>
+                  {(politicas ?? []).map((pol, idx) => (
+                    <TableHead
+                      key={pol.tipo_id}
+                      className={`text-xs text-center border-l border-border ${idx % 3 === 0 ? "text-blue-400" : idx % 3 === 1 ? "text-yellow-400" : "text-purple-400"}`}
+                      colSpan={3}
+                    >
+                      {pol.nome_tabela}
+                      <div className="text-[9px] font-normal text-muted-foreground">mín {(Number(pol.margem_minima) * 100).toFixed(0)}%</div>
+                    </TableHead>
+                  ))}
                 </TableRow>
-                <TableRow className="border-border hover:bg-transparent [&>th]:sticky [&>th]:top-12 [&>th]:z-30 [&>th]:bg-card">
-                  <TableHead className="text-[10px] text-right border-l border-border bg-card">Venda</TableHead>
-                  <TableHead className="text-[10px] text-right bg-card">Tributo</TableHead>
-                  <TableHead className="text-[10px] text-center bg-card">Margem</TableHead>
-                  <TableHead className="text-[10px] text-right border-l border-border bg-card">Venda</TableHead>
-                  <TableHead className="text-[10px] text-right bg-card">Tributo</TableHead>
-                  <TableHead className="text-[10px] text-center bg-card">Margem</TableHead>
-                  <TableHead className="text-[10px] text-right border-l border-border bg-card">Venda</TableHead>
-                  <TableHead className="text-[10px] text-right bg-card">Tributo</TableHead>
-                  <TableHead className="text-[10px] text-center bg-card">Margem</TableHead>
+                <TableRow className="border-border hover:bg-transparent [&>th]:sticky [&>th]:top-14 [&>th]:z-30 [&>th]:bg-card">
+                  {(politicas ?? []).map((pol) => (
+                    <>
+                      <TableHead key={`${pol.tipo_id}-v`} className="text-[10px] text-right border-l border-border bg-card">Venda</TableHead>
+                      <TableHead key={`${pol.tipo_id}-t`} className="text-[10px] text-right bg-card">Tributo</TableHead>
+                      <TableHead key={`${pol.tipo_id}-m`} className="text-[10px] text-center bg-card">Margem</TableHead>
+                    </>
+                  ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
