@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAllGCPages } from "@/lib/gc-client";
 import { supabase } from "@/integrations/supabase/client";
@@ -248,7 +248,7 @@ export default function PrecificacaoPage() {
   const [tipoSaidaGlobal, setTipoSaidaGlobal] = useState<TipoSaida>("venda");
   const [margemAlvo, setMargemAlvo] = useState(30);
   const [tabelaVenda, setTabelaVenda] = useState<"A" | "B" | "P">("B");
-  const MARKUP_TABELAS = { A: 2.2, B: 1.7, P: 1.5 }; // A=120%, B=70%, P=50%
+  // MARKUP_TABELAS removido — tabelas vêm de fin_politica_markup_tabela (dinâmico)
   const [activeSync, setActiveSync] = useState<"gc" | "offline" | null>(null);
   const [calcCusto, setCalcCusto] = useState<string>("");
   const [calcTipoSaida, setCalcTipoSaida] = useState<TipoSaida>("venda");
@@ -329,6 +329,64 @@ export default function PrecificacaoPage() {
     }
     return m;
   }, [custoCanonico]);
+
+  // Políticas de margem ativas (12 tabelas configuradas em /precificacao/politicas)
+  const { data: politicas } = useQuery({
+    queryKey: ["fin-politica-markup-tabela"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("fin_politica_markup_tabela")
+        .select("tipo_id, nome_tabela, margem_minima, modo_sugestao, exige_aprovacao_ceo")
+        .eq("ativo", true)
+        .order("nome_tabela");
+      if (error) throw error;
+      return data as Array<{
+        tipo_id: string;
+        nome_tabela: string;
+        margem_minima: number;
+        modo_sugestao: string;
+        exige_aprovacao_ceo: boolean;
+      }>;
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  // Snapshot dos valores de venda por tabela vindos do cache GC
+  const { data: produtosCacheValores } = useQuery({
+    queryKey: ["gc-produtos-cache-valores"],
+    queryFn: async () => {
+      const pageSize = 1000;
+      let from = 0;
+      const allRows: { produto_gc_id: string; valores: unknown }[] = [];
+      while (true) {
+        const { data, error } = await supabase
+          .from("gc_produtos_cache")
+          .select("produto_gc_id, valores")
+          .eq("ativo", true)
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        const batch = (data || []) as { produto_gc_id: string; valores: unknown }[];
+        allRows.push(...batch);
+        if (batch.length < pageSize) break;
+        from += pageSize;
+      }
+      return allRows;
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const valoresMap = useMemo(() => {
+    const m = new Map<string, Map<string, number>>();
+    for (const row of produtosCacheValores || []) {
+      const inner = new Map<string, number>();
+      const arr = Array.isArray(row.valores) ? (row.valores as Array<{ tipo_id: string | number; valor_venda?: string | number }>) : [];
+      for (const v of arr) {
+        inner.set(String(v.tipo_id), Number(v.valor_venda ?? 0) || 0);
+      }
+      m.set(String(row.produto_gc_id), inner);
+    }
+    return m;
+  }, [produtosCacheValores]);
 
 
   // Índice de XMLs realmente enviados/processados
@@ -1128,7 +1186,7 @@ export default function PrecificacaoPage() {
             </strong>: {getTipoSaidaAliquota(tipoSaidaGlobal)}
           </div>
 
-          <Card className="border-border bg-card overflow-hidden">
+          <Card className="border-border bg-card overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="border-border hover:bg-transparent [&>th]:sticky [&>th]:top-0 [&>th]:z-30 [&>th]:bg-card">
@@ -1139,20 +1197,25 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs text-right" rowSpan={2}>Créd. Entrada</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo Total</TableHead>
                   <TableHead className="text-xs text-right font-semibold text-primary" rowSpan={2}>Preço Mín.</TableHead>
-                  <TableHead className="text-xs text-center text-blue-400 border-l border-border" colSpan={3}>Tabela A (120%)</TableHead>
-                  <TableHead className="text-xs text-center text-yellow-400 border-l border-border" colSpan={3}>Tabela B (70%)</TableHead>
-                  <TableHead className="text-xs text-center text-purple-400 border-l border-border" colSpan={3}>Tabela P (50%)</TableHead>
+                  {(politicas ?? []).map((pol, idx) => (
+                    <TableHead
+                      key={pol.tipo_id}
+                      className={`text-xs text-center border-l border-border ${idx % 3 === 0 ? "text-blue-400" : idx % 3 === 1 ? "text-yellow-400" : "text-purple-400"}`}
+                      colSpan={3}
+                    >
+                      {pol.nome_tabela}
+                      <div className="text-[9px] font-normal text-muted-foreground">mín {(Number(pol.margem_minima) * 100).toFixed(0)}%</div>
+                    </TableHead>
+                  ))}
                 </TableRow>
-                <TableRow className="border-border hover:bg-transparent [&>th]:sticky [&>th]:top-12 [&>th]:z-30 [&>th]:bg-card">
-                  <TableHead className="text-[10px] text-right border-l border-border bg-card">Venda</TableHead>
-                  <TableHead className="text-[10px] text-right bg-card">Tributo</TableHead>
-                  <TableHead className="text-[10px] text-center bg-card">Margem</TableHead>
-                  <TableHead className="text-[10px] text-right border-l border-border bg-card">Venda</TableHead>
-                  <TableHead className="text-[10px] text-right bg-card">Tributo</TableHead>
-                  <TableHead className="text-[10px] text-center bg-card">Margem</TableHead>
-                  <TableHead className="text-[10px] text-right border-l border-border bg-card">Venda</TableHead>
-                  <TableHead className="text-[10px] text-right bg-card">Tributo</TableHead>
-                  <TableHead className="text-[10px] text-center bg-card">Margem</TableHead>
+                <TableRow className="border-border hover:bg-transparent [&>th]:sticky [&>th]:top-14 [&>th]:z-30 [&>th]:bg-card">
+                  {(politicas ?? []).map((pol) => (
+                    <Fragment key={pol.tipo_id}>
+                      <TableHead className="text-[10px] text-right border-l border-border bg-card">Venda</TableHead>
+                      <TableHead className="text-[10px] text-right bg-card">Tributo</TableHead>
+                      <TableHead className="text-[10px] text-center bg-card">Margem</TableHead>
+                    </Fragment>
+                  ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1173,10 +1236,8 @@ export default function PrecificacaoPage() {
                    const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
                    const hasNF = !!tributo;
                    const custoBase = hasNF ? tributo.valor_unitario_nf : custoBruto;
-                  const vendaA = custoBase * MARKUP_TABELAS.A;
-                  const vendaB = custoBase * MARKUP_TABELAS.B;
-                  const vendaP = custoBase * MARKUP_TABELAS.P;
-                  const vendaGC = vendaB; // default ref for backwards compat
+                   // Tabelas dinâmicas — preços reais vêm de valoresMap por tipo_id (não há mais markup hardcoded A/B/P)
+
 
                   let calc: ReturnType<typeof calcPricing>;
                   if (hasNF) {
@@ -1201,15 +1262,8 @@ export default function PrecificacaoPage() {
                     calc = calcPricing(custoBruto, activeEntrada, taxSaida, tipoSaidaGlobal, margemAlvo);
                   }
 
-                  const abaixoMinimo = vendaGC > 0 && vendaGC < calc.precoMinimo;
-                  // Estimate current margin at GC sale price
-                  const margemAtualVendaGC = vendaGC > 0 && calc.custoTotal > 0
-                    ? (() => {
-                        const tribSaida = vendaGC * calc.aliquotaSaidaFaturamento;
-                        const lucro = vendaGC - calc.custoTotal - tribSaida;
-                        return (lucro / vendaGC) * 100;
-                      })()
-                    : 0;
+
+
 
                   return (
                     <TableRow key={p.id} className="border-border">
@@ -1328,38 +1382,32 @@ export default function PrecificacaoPage() {
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
                         {formatCurrency(calc.precoMinimo)}
                       </TableCell>
-                      {/* Tab A */}
+                      {/* Tabelas dinâmicas (lê fin_politica_markup_tabela + valor_venda real de gc_produtos_cache) */}
                       {(() => {
-                        const tribA = vendaA * calc.aliquotaSaidaFaturamento;
-                        const margemA = vendaA > 0 && calc.custoTotal > 0 ? ((vendaA - calc.custoTotal - tribA) / vendaA) * 100 : 0;
-                        const okA = vendaA >= calc.precoMinimo;
-                        return (<>
-                          <TableCell className="text-right font-mono text-xs text-blue-400 border-l border-border">{formatCurrency(vendaA)}</TableCell>
-                          <TableCell className="text-right font-mono text-[10px] text-orange-400">-{formatCurrency(tribA)}</TableCell>
-                          <TableCell className="text-center"><Badge className={`text-[10px] gap-0.5 ${okA ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>{okA ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margemA.toFixed(1)}%</Badge></TableCell>
-                        </>);
-                      })()}
-                      {/* Tab B */}
-                      {(() => {
-                        const tribB = vendaB * calc.aliquotaSaidaFaturamento;
-                        const margemB = vendaB > 0 && calc.custoTotal > 0 ? ((vendaB - calc.custoTotal - tribB) / vendaB) * 100 : 0;
-                        const okB = vendaB >= calc.precoMinimo;
-                        return (<>
-                          <TableCell className="text-right font-mono text-xs text-yellow-400 border-l border-border">{formatCurrency(vendaB)}</TableCell>
-                          <TableCell className="text-right font-mono text-[10px] text-orange-400">-{formatCurrency(tribB)}</TableCell>
-                          <TableCell className="text-center"><Badge className={`text-[10px] gap-0.5 ${okB ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>{okB ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margemB.toFixed(1)}%</Badge></TableCell>
-                        </>);
-                      })()}
-                      {/* Tab P */}
-                      {(() => {
-                        const tribP = vendaP * calc.aliquotaSaidaFaturamento;
-                        const margemP = vendaP > 0 && calc.custoTotal > 0 ? ((vendaP - calc.custoTotal - tribP) / vendaP) * 100 : 0;
-                        const okP = vendaP >= calc.precoMinimo;
-                        return (<>
-                          <TableCell className="text-right font-mono text-xs text-purple-400 border-l border-border">{formatCurrency(vendaP)}</TableCell>
-                          <TableCell className="text-right font-mono text-[10px] text-orange-400">-{formatCurrency(tribP)}</TableCell>
-                          <TableCell className="text-center"><Badge className={`text-[10px] gap-0.5 ${okP ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>{okP ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margemP.toFixed(1)}%</Badge></TableCell>
-                        </>);
+                        const valoresProd = valoresMap.get(p.id);
+                        return (politicas ?? []).map((pol, idx) => {
+                          const margemMin = Number(pol.margem_minima) || 0;
+                          const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - margemMin) : 0;
+                          const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
+                          const venda = vendaReal > 0 ? vendaReal : precoSugerido;
+                          const trib = venda * calc.aliquotaSaidaFaturamento;
+                          const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
+                          const okMin = venda > 0 && (margem / 100) >= margemMin;
+                          const cor = idx % 3 === 0 ? "text-blue-400" : idx % 3 === 1 ? "text-yellow-400" : "text-purple-400";
+                          return (
+                            <Fragment key={pol.tipo_id}>
+                              <TableCell className={`text-right font-mono text-xs ${cor} border-l border-border`}>
+                                {vendaReal > 0 ? formatCurrency(vendaReal) : <span className="italic text-muted-foreground">sug. {formatCurrency(precoSugerido)}</span>}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-[10px] text-orange-400">-{formatCurrency(trib)}</TableCell>
+                              <TableCell className="text-center">
+                                <Badge className={`text-[10px] gap-0.5 ${okMin ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>
+                                  {okMin ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margem.toFixed(1)}%
+                                </Badge>
+                              </TableCell>
+                            </Fragment>
+                          );
+                        });
                       })()}
                     </TableRow>
                   );
