@@ -1391,38 +1391,32 @@ export default function PrecificacaoPage() {
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
                         {formatCurrency(calc.precoMinimo)}
                       </TableCell>
-                      {/* Tab A */}
+                      {/* Tabelas dinâmicas (lê fin_politica_markup_tabela + valor_venda real de gc_produtos_cache) */}
                       {(() => {
-                        const tribA = vendaA * calc.aliquotaSaidaFaturamento;
-                        const margemA = vendaA > 0 && calc.custoTotal > 0 ? ((vendaA - calc.custoTotal - tribA) / vendaA) * 100 : 0;
-                        const okA = vendaA >= calc.precoMinimo;
-                        return (<>
-                          <TableCell className="text-right font-mono text-xs text-blue-400 border-l border-border">{formatCurrency(vendaA)}</TableCell>
-                          <TableCell className="text-right font-mono text-[10px] text-orange-400">-{formatCurrency(tribA)}</TableCell>
-                          <TableCell className="text-center"><Badge className={`text-[10px] gap-0.5 ${okA ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>{okA ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margemA.toFixed(1)}%</Badge></TableCell>
-                        </>);
-                      })()}
-                      {/* Tab B */}
-                      {(() => {
-                        const tribB = vendaB * calc.aliquotaSaidaFaturamento;
-                        const margemB = vendaB > 0 && calc.custoTotal > 0 ? ((vendaB - calc.custoTotal - tribB) / vendaB) * 100 : 0;
-                        const okB = vendaB >= calc.precoMinimo;
-                        return (<>
-                          <TableCell className="text-right font-mono text-xs text-yellow-400 border-l border-border">{formatCurrency(vendaB)}</TableCell>
-                          <TableCell className="text-right font-mono text-[10px] text-orange-400">-{formatCurrency(tribB)}</TableCell>
-                          <TableCell className="text-center"><Badge className={`text-[10px] gap-0.5 ${okB ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>{okB ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margemB.toFixed(1)}%</Badge></TableCell>
-                        </>);
-                      })()}
-                      {/* Tab P */}
-                      {(() => {
-                        const tribP = vendaP * calc.aliquotaSaidaFaturamento;
-                        const margemP = vendaP > 0 && calc.custoTotal > 0 ? ((vendaP - calc.custoTotal - tribP) / vendaP) * 100 : 0;
-                        const okP = vendaP >= calc.precoMinimo;
-                        return (<>
-                          <TableCell className="text-right font-mono text-xs text-purple-400 border-l border-border">{formatCurrency(vendaP)}</TableCell>
-                          <TableCell className="text-right font-mono text-[10px] text-orange-400">-{formatCurrency(tribP)}</TableCell>
-                          <TableCell className="text-center"><Badge className={`text-[10px] gap-0.5 ${okP ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>{okP ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margemP.toFixed(1)}%</Badge></TableCell>
-                        </>);
+                        const valoresProd = valoresMap.get(p.id);
+                        return (politicas ?? []).map((pol, idx) => {
+                          const margemMin = Number(pol.margem_minima) || 0;
+                          const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - margemMin) : 0;
+                          const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
+                          const venda = vendaReal > 0 ? vendaReal : precoSugerido;
+                          const trib = venda * calc.aliquotaSaidaFaturamento;
+                          const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
+                          const okMin = venda > 0 && (margem / 100) >= margemMin;
+                          const cor = idx % 3 === 0 ? "text-blue-400" : idx % 3 === 1 ? "text-yellow-400" : "text-purple-400";
+                          return (
+                            <Fragment key={pol.tipo_id}>
+                              <TableCell className={`text-right font-mono text-xs ${cor} border-l border-border`}>
+                                {vendaReal > 0 ? formatCurrency(vendaReal) : <span className="italic text-muted-foreground">sug. {formatCurrency(precoSugerido)}</span>}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-[10px] text-orange-400">-{formatCurrency(trib)}</TableCell>
+                              <TableCell className="text-center">
+                                <Badge className={`text-[10px] gap-0.5 ${okMin ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>
+                                  {okMin ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margem.toFixed(1)}%
+                                </Badge>
+                              </TableCell>
+                            </Fragment>
+                          );
+                        });
                       })()}
                     </TableRow>
                   );
