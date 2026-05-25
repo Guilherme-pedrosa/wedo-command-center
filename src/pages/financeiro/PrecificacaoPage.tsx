@@ -1157,7 +1157,10 @@ export default function PrecificacaoPage() {
                   </TableRow>
                 )}
                 {filtered.map((p) => {
-                  const custoBruto = parseFloat(p.valor_custo) || 0;
+                  // Refator v3: custo canônico vem da view v_produto_custo_atual (fonte = gc_produtos_cache.valor_custo)
+                  const custoCan = custoCanonicoMap.get(p.id);
+                  const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
+                  const statusCusto = custoCan?.status || "ok_sem_tributo";
                   const estoque = Number(p.estoque) || 0;
                    const tributoRaw = tributosMap.get(p.id);
                    const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
