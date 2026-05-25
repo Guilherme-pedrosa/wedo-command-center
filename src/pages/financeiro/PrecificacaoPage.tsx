@@ -39,6 +39,7 @@ interface ProdutoTributo {
   nf_chave: string | null;
   nf_data_emissao: string | null;
   fornecedor_nome: string | null;
+  compra_codigo: string | null;
   regime_fornecedor: string | null;
   sem_credito: boolean | null;
   match_rule: string | null;
