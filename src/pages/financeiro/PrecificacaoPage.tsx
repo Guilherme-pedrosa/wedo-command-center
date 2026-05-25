@@ -426,7 +426,8 @@ export default function PrecificacaoPage() {
     if (produtos) {
       return produtos
         .filter((p) => {
-          if (!tributosMap.has(p.id)) return false;
+          // Mostra TODOS os produtos do cadastro, com ou sem NF de entrada.
+          // Sem NF → cálculo usa valor_custo do ERP e zera o crédito de entrada.
           if ((Number(p.estoque) || 0) <= 0) return false;
           if (EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k))) return false;
           const nome = (p.nome || "").toLowerCase();
