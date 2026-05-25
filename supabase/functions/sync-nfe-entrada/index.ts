@@ -23,6 +23,7 @@ interface CompraItem {
   valor_total: number;
   unidade: string | null;
   origem_vinculo: string | null;
+  ordem_item: number | null;
 }
 
 interface CompraRow {
