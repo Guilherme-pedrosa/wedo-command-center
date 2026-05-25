@@ -296,6 +296,41 @@ export default function PrecificacaoPage() {
     staleTime: 5 * 60_000,
   });
 
+  // Fonte canônica de custo (Refator matcher v3 — Pedido de Compra GC = verdade)
+  const { data: custoCanonico } = useQuery({
+    queryKey: ["v-produto-custo-atual"],
+    queryFn: async () => {
+      const pageSize = 1000;
+      let from = 0;
+      const allRows: { produto_gc_id: string; custo_variavel_real: number | null; status_custo: string }[] = [];
+      while (true) {
+        const { data, error } = await supabase
+          .from("v_produto_custo_atual" as any)
+          .select("produto_gc_id, custo_variavel_real, status_custo")
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        const batch = (data || []) as any[];
+        allRows.push(...batch);
+        if (batch.length < pageSize) break;
+        from += pageSize;
+      }
+      return allRows;
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const custoCanonicoMap = useMemo(() => {
+    const m = new Map<string, { custo: number; status: string }>();
+    for (const r of custoCanonico || []) {
+      m.set(String(r.produto_gc_id), {
+        custo: Number(r.custo_variavel_real) || 0,
+        status: r.status_custo || "ok_sem_tributo",
+      });
+    }
+    return m;
+  }, [custoCanonico]);
+
+
   // Índice de XMLs realmente enviados/processados
   const { data: xmlIndexRows } = useQuery({
     queryKey: ["nfe-xml-index-keys"],
