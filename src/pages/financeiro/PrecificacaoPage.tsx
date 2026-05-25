@@ -522,7 +522,7 @@ export default function PrecificacaoPage() {
       // deduplicate by id
       .filter((p, i, arr) => arr.findIndex((x) => x.id === p.id) === i)
       .slice(0, 100);
-  }, [produtos, search, tributosMap, tributosXml]);
+  }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap]);
 
   const totalProdutosEstoque = useMemo(() => {
     if (!produtos) return null; // sem dados de estoque carregados
