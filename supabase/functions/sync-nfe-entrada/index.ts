@@ -759,6 +759,27 @@ function processarXml(
     const icmsBasePerc = xi.vProd > 0 ? (xi.icms_vBC / xi.vProd) * 100 : 100;
     const custoEfetivo = valorUnit + ipiUnit + freteUnit - icmsUnit - pisUnit - cofinsUnit;
 
+    // ── Bloco 1.9: cálculo de custo variável real (usa qTrib quando disponível) ──
+    const qComEst = xi.qCom || 0;
+    const qTribEst = xi.qTrib || 0;
+    const fatorConversao = (qComEst > 0 && qTribEst > 0) ? (qTribEst / qComEst) : 1;
+    const qtdEstoqueReal = qTribEst > 0 ? qTribEst : (qComEst || 1);
+    // custo total do item: vProd + IPI + frete (rateado) + seg + outro + ST + FCP-ST + DIFAL - desc - créditos (se houver)
+    const custoTotalItem =
+      xi.vProd
+      + xi.ipi_vIPI
+      + (xmlFrete * proporcao)
+      + xi.vSeg
+      + xi.vOutro
+      + xi.icms_vICMSST
+      + xi.icms_vFCPST
+      + xi.icms_vICMSUFDest
+      - xi.vDesc
+      - (isSN ? 0 : xi.icms_vICMS)
+      - (isSN ? 0 : xi.pis_vPIS)
+      - (isSN ? 0 : xi.cofins_vCOFINS);
+    const custoVariavelReal = qtdEstoqueReal > 0 ? custoTotalItem / qtdEstoqueReal : custoTotalItem;
+
     const existing = productTaxMap.get(gcProdId);
     if (existing && existing.nf_data_emissao > (xmlMeta.data_emissao || meta.data_emissao || "")) continue;
 
@@ -789,6 +810,20 @@ function processarXml(
       valor_frete_unit: r(freteUnit),
       custo_efetivo_unit: r(custoEfetivo),
       match_rule: `${matchRuleTag}+${pick.rule}`,
+      // Bloco 1.9
+      q_com: r(qComEst),
+      v_un_com: r(xi.vUnCom),
+      q_trib: r(qTribEst),
+      v_un_trib: r(xi.vUnTrib),
+      fator_conversao: Math.round(fatorConversao * 10000) / 10000,
+      v_seg: r(xi.vSeg),
+      v_outro: r(xi.vOutro),
+      v_desc: r(xi.vDesc),
+      v_icms_st: r(xi.icms_vICMSST),
+      v_fcp_st: r(xi.icms_vFCPST),
+      v_icms_uf_dest: r(xi.icms_vICMSUFDest),
+      v_icms_uf_remet: r(xi.icms_vICMSUFRemet),
+      custo_variavel_real: r(custoVariavelReal),
     });
   }
 }
