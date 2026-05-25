@@ -1,77 +1,103 @@
-# FASE B — Migrations 1.1 → 1.9 (núcleo do Bloco 1 da Precificação)
+## Objetivo
 
-Criar/ajustar as tabelas do motor de Precificação com RLS baseada em `has_role()` usando os perfis recém-criados (`ceo`, `gerente_comercial`, `gerente_financeiro`, `admin`, `vendedor`).
+Eliminar a dependência da API GC `/api/notas_fiscais_produtos` e do paginador `/api/compras` no `sync-nfe-entrada`. Tudo que precisamos já está local:
 
-## Escopo (uma única migration consolidada)
+- `gc_compras` → `numero_nfe`, `cnpj_fornecedor`, `fornecedor_id`, `data` (após enrichment P1+P2)
+- `gc_compras_itens` → produtos da compra com `produto_gc_id` (ou legacy `nome_produto`+`valor_custo`)
+- `fin_nfe_xml_index` → `chave`, `cnpj_emitente`, `numero_nf` (a extrair), `data_emissao`, `valor_total`
+- Bucket `nf-xmls` → XML completo para parsing por item
 
-### 1.1 — `fin_politica_markup_tabela` + history
-- 12 políticas de markup (A, B, P, V, COMERCIAL, SAPORE, RATIONAL A/B/GUERRA, EQUIP A/B/P) com `tipo_id`, `margem_minima`, `modo_sugestao`, `exige_aprovacao_ceo`
-- Tabela espelho `_history` + trigger `fn_politica_markup_history` (INSERT/UPDATE)
-- **Seed inicial:** 12 linhas pré-populadas
+## Estratégia do matcher (3 níveis, em ordem)
 
-### 1.2 — `fin_eventos_sistema`
-- Log de eventos (severidades: info, baixa, media, alta, critica)
-- Origem, payload JSONB, entidade vinculada
+```text
+Nível 1 — DETERMINÍSTICO (preferencial)
+  match em fin_nfe_xml_index por:
+    normalizar_cnpj(cnpj_emitente) = normalizar_cnpj(gc_compras.cnpj_fornecedor)
+    AND normalizar_numero_nf(numero_nf_extraido) = normalizar_numero_nf(gc_compras.numero_nfe)
+  → 1 candidato → usa direto
+  → N candidatos → desempate por menor |valor_total_xml − gc_compras.valor_total| e |data − data_emissao| ≤ 30d
 
-### 1.3 — `fin_acoes_pendentes`
-- Fila de ações com `status` (pendente, em_andamento, concluida, cancelada)
-- `destinatario_role` (filtra por role do usuário corrente)
+Nível 2 — CNPJ + VALOR (fallback brando, mesma janela)
+  só CNPJ bate, sem nº NF confiável → escolhe XML com menor diff de valor (tol 1% ou R$5)
+  marca match_rule = "cnpj_valor_frouxo"
 
-### 1.4 — `fin_gc_price_history` + `fin_gc_custo_history`
-- Histórico append-only de mudanças de preço e custo por `gc_produto_id`
-- Source: nf | erp | manual | aprovacao_ceo
+Nível 3 — SEM MATCH
+  registra em fin_nfe_match_pendentes (nova tabela) com motivo:
+    "sem_cnpj_compra" | "cnpj_sem_xml" | "valor_fora_tolerancia" | "multiplo_ambiguo"
+  NÃO marca passivos retroativos ainda (combinado).
+```
 
-### 1.5 — `fin_gc_price_aprovacoes`
-- Fluxo CEO para alterações abaixo da margem mínima
-- `modo_calculo` (completo | rapido), `status` (pendente | aprovada | rejeitada)
+## Pré-requisito: pré-processar `fin_nfe_xml_index` para extrair `numero_nf`
 
-### 1.6 — `fin_gc_write_jobs`
-- Fila assíncrona de PUT para GC (idempotente por hash)
-- Status: pendente, em_andamento, sucesso, erro, descartado
+Hoje a tabela tem `chave` (44 dígitos). O número da NF é dígitos 26-34 da chave (posição `nNF`). Adicionar coluna gerada:
 
-### 1.7 — `fin_gc_price_review_log` + chaves em `fin_configuracoes`
-- Log de revisões agendadas
-- Seed de 16 chaves (tolerâncias, intervalos, page_size, sentinels de retomada)
+```sql
+ALTER TABLE fin_nfe_xml_index
+  ADD COLUMN numero_nf TEXT
+    GENERATED ALWAYS AS (substring(chave from 26 for 9)) STORED;
+CREATE INDEX idx_xml_index_cnpj_numero
+  ON fin_nfe_xml_index (cnpj_emitente, numero_nf);
+```
 
-### 1.8 — `fin_arredondamento_comercial`
-- Regras de arredondamento por faixa de preço (ex: arredondar para `,90` ou `,99`)
+## Fluxo da edge refatorada
 
-### 1.9 — `fin_produto_tributos_historico` (auditoria do existente)
-- Snapshots de mudanças em `fin_produto_tributos`
-- Trigger AFTER UPDATE para registrar before/after
+```text
+1. Carregar gc_compras com numero_nfe IS NOT NULL (slice por offset/batch_size)
+   — sem chamar /api/compras
+2. Carregar gc_compras_itens dessas compras em bulk
+   — substitui o array compra.produtos da API
+3. Carregar fin_nfe_xml_index inteiro (já cabe em RAM, ~3-5k linhas)
+   — montar Map<(cnpj+numero), xml> + Map<cnpj, xml[]>
+4. Para cada compra:
+   a. Tenta Nível 1 (cnpj+numero) → match exato
+   b. Senão tenta Nível 2 (cnpj+valor)
+   c. Senão registra em fin_nfe_match_pendentes
+5. Para cada match → baixar XML do bucket e rodar parseXmlItems + matching
+   item-a-item (lógica de impostos atual permanece intacta)
+6. Upsert em fin_produto_tributos (preserva manual overrides — lógica existente OK)
+7. Item com produto_gc_id IS NULL (legacy) → match item por nome_produto + valor_custo
+   com xmlItems do XML; sem gc_produto_id, registra apenas estatística (não grava em
+   fin_produto_tributos, que tem PK = gc_produto_id)
+```
 
-## RLS — matriz `has_role()`
+## Nova tabela `fin_nfe_match_pendentes`
 
-| Tabela | SELECT | INSERT/UPDATE |
-|---|---|---|
-| `fin_politica_markup_tabela` | admin, ceo, gerente_comercial, gerente_financeiro | admin, ceo |
-| `fin_politica_markup_tabela_history` | admin, ceo, gerente_comercial, gerente_financeiro | service_role |
-| `fin_gc_price_history` | admin, ceo, gerente_comercial, gerente_financeiro | admin, ceo, gerente_comercial |
-| `fin_gc_custo_history` | admin, ceo, gerente_financeiro | service_role |
-| `fin_gc_price_aprovacoes` | authenticated | admin, ceo (UPDATE status) |
-| `fin_gc_write_jobs` | authenticated | service_role |
-| `fin_eventos_sistema` | authenticated | service_role |
-| `fin_acoes_pendentes` | filtrado por `destinatario_role IN roles_do_user` | admin, ceo |
-| `fin_arredondamento_comercial` | authenticated | admin, ceo |
-| `fin_gc_price_review_log` | authenticated | service_role |
-| `fin_produto_tributos_historico` | admin, ceo, gerente_financeiro | service_role (via trigger) |
+```sql
+CREATE TABLE fin_nfe_match_pendentes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  compra_gc_id text NOT NULL,
+  numero_nfe text,
+  cnpj_fornecedor text,
+  nome_fornecedor text,
+  valor_compra numeric,
+  data_compra date,
+  motivo text NOT NULL,
+  candidatos jsonb,
+  created_at timestamptz DEFAULT now(),
+  resolvido boolean DEFAULT false,
+  resolvido_em timestamptz,
+  UNIQUE (compra_gc_id)
+);
+ALTER TABLE fin_nfe_match_pendentes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY ... (ceo/admin/gerente_financeiro SELECT)
+```
 
-`anon` = ZERO acesso nessas tabelas. Função helper `has_role()` já existe no projeto.
+## O que NÃO muda nesta etapa
 
-## Itens deixados para FASE seguinte (não estão nesta migration)
+- Toda a lógica de parsing XML por item (`parseXmlItems`, `isXmlSimplesNacional`, rateio).
+- Upsert em `fin_produto_tributos` (preservar manuais).
+- Contador diário de chamadas GC (vai cair drasticamente, mas mantém o guard).
+- NÃO mexer em `gc_compras_itens` para marcar `pendente_revinculacao_pedido` retroativo (combinado: só após matcher validado).
 
-- 1.10 RLS já contemplada inline (não há migration separada)
-- 1.11 `gc_vendas_itens` → será criada no Bloco 2 (parser)
-- 1.12 `fin_produto_marca` → será criada quando UI de Marca for construída
-- 1.13 `gc_produtos_cache` + GENERATED column → vai junto da edge `sync-gc-produtos` no próximo passo
-- 1.14 triggers `updated_at` aplicados onde fizer sentido (incluído nesta migration)
+## Sequência de execução proposta
 
-## Após executar
+1. **Migration**: gera coluna `numero_nf` em `fin_nfe_xml_index` + índice + tabela `fin_nfe_match_pendentes` + RLS.
+2. **Edge refatorada**: novo `sync-nfe-entrada` com matcher determinístico + leitura local.
+3. **Smoke run**: chamar a edge com `batch_size=20` em compras com `numero_nfe IS NOT NULL` e devolver:
+   - total de compras candidatas
+   - nivel_1 (cnpj+numero) / nivel_2 (cnpj+valor) / sem_match
+   - amostra de 5 sem_match (compra + motivo + candidatos)
+   - tempo total, chamadas GC = 0 (esperado)
+4. **PARAR** para validação antes de processar o resto do batch e antes de qualquer cleanup retroativo.
 
-Devolvo:
-- Lista das tabelas criadas com contagem de policies
-- Confirmação do seed das 12 políticas (`SELECT count(*) FROM fin_politica_markup_tabela`)
-- Smoke test RLS: query como `anon` deve retornar 0 linhas/erro
-- Lista de warnings do linter introduzidos (esperado: 0 novos; pré-existentes 107 ficam para outra rodada)
-
-Aguardo confirmação para avançar para a edge `sync-gc-produtos` (item 1.13 + cron F1/F2/F3).
+Aguardo aprovação para gerar a migration (passo 1).
