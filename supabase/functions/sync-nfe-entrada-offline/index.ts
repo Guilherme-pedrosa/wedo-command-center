@@ -463,34 +463,8 @@ serve(async (req) => {
           }
         }
 
-        // ── PRIORIDADE 3: Match por valor total ou unitário (tolerância 5%) ──
-        if (!xmlItem) {
-          const matchTolerance = Math.max(compraProdValor * 0.05, 0.50);
-          const unitTolerance = Math.max(compraProdUnitario * 0.05, 0.10);
-          let bestDiff = Infinity;
-
-          for (let i = 0; i < xmlItems.length; i++) {
-            if (usedXmlIndices.has(i)) continue;
-            const xi = xmlItems[i];
-            const diffTotal = Math.abs(xi.vProd - compraProdValor);
-            if (diffTotal <= matchTolerance && diffTotal < bestDiff) {
-              bestDiff = diffTotal;
-              bestIdx = i;
-              xmlItem = xi;
-              matchRule = "valor_total";
-            }
-            if (!xmlItem || diffTotal > matchTolerance) {
-              const diffUnit = Math.abs(xi.vUnCom - compraProdUnitario);
-              const sameQtd = Math.abs(xi.qCom - compraProdQtd) < 0.01;
-              if (sameQtd && diffUnit <= unitTolerance && diffUnit < bestDiff) {
-                bestDiff = diffUnit;
-                bestIdx = i;
-                xmlItem = xi;
-                matchRule = "valor_unit_qtd";
-              }
-            }
-          }
-        }
+        // ── PRIORIDADE 3 (REMOVIDA): Match por valor era fonte de erros (produtos diferentes com mesmo preço) ──
+        // Política "não inferir": só vinculamos se houver confirmação por código, por nome ou item único 1:1.
 
         // ── PRIORIDADE 4: Produto único na compra + item único no XML ──
         if (!xmlItem && compraProdutos.length === 1 && xmlItems.length === 1 && usedXmlIndices.size === 0) {
