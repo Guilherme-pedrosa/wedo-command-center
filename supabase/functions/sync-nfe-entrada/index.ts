@@ -295,6 +295,10 @@ function normCnpj(v: string | null | undefined): string {
 function normNumeroNf(v: string | null | undefined): string {
   return ((v ?? "").replace(/\D/g, "")).replace(/^0+/, "");
 }
+function normalizarCodigoProduto(c: string | null | undefined): string {
+  if (!c) return "";
+  return String(c).trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
 
 async function tryDownloadXml(chave: string, storagePath: string | null, supabase: any): Promise<string | null> {
   if (!chave || chave.length < 44) return null;
