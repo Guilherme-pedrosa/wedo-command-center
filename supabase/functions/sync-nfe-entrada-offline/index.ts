@@ -508,6 +508,7 @@ serve(async (req) => {
             nf_chave: matchedChave,
             nf_data_emissao: xmlDataEmissao,
             compra_gc_id: compraId,
+            compra_codigo: compraCodigo,
             fornecedor_nome: fornecedorNome || "",
             regime_fornecedor: isSN ? "simples_nacional" : "normal",
             sem_credito: isSN,
