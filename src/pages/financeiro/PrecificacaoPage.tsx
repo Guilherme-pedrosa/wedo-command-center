@@ -1210,11 +1210,11 @@ export default function PrecificacaoPage() {
                 </TableRow>
                 <TableRow className="border-border hover:bg-transparent [&>th]:sticky [&>th]:top-14 [&>th]:z-30 [&>th]:bg-card">
                   {(politicas ?? []).map((pol) => (
-                    <>
-                      <TableHead key={`${pol.tipo_id}-v`} className="text-[10px] text-right border-l border-border bg-card">Venda</TableHead>
-                      <TableHead key={`${pol.tipo_id}-t`} className="text-[10px] text-right bg-card">Tributo</TableHead>
-                      <TableHead key={`${pol.tipo_id}-m`} className="text-[10px] text-center bg-card">Margem</TableHead>
-                    </>
+                    <Fragment key={pol.tipo_id}>
+                      <TableHead className="text-[10px] text-right border-l border-border bg-card">Venda</TableHead>
+                      <TableHead className="text-[10px] text-right bg-card">Tributo</TableHead>
+                      <TableHead className="text-[10px] text-center bg-card">Margem</TableHead>
+                    </Fragment>
                   ))}
                 </TableRow>
               </TableHeader>
