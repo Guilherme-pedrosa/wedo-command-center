@@ -1283,8 +1283,10 @@ export type Database = {
           iniciado_em: string | null
           payload: Json
           payload_hash: string
+          processado_em: string | null
           recurso: string
           recurso_id: string
+          response_body: Json | null
           resposta: Json | null
           status: string
           tentativas: number
@@ -1298,8 +1300,10 @@ export type Database = {
           iniciado_em?: string | null
           payload: Json
           payload_hash: string
+          processado_em?: string | null
           recurso: string
           recurso_id: string
+          response_body?: Json | null
           resposta?: Json | null
           status?: string
           tentativas?: number
@@ -1313,8 +1317,10 @@ export type Database = {
           iniciado_em?: string | null
           payload?: Json
           payload_hash?: string
+          processado_em?: string | null
           recurso?: string
           recurso_id?: string
+          response_body?: Json | null
           resposta?: Json | null
           status?: string
           tentativas?: number
