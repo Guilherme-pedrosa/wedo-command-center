@@ -1215,6 +1215,15 @@ export default function PrecificacaoPage() {
                           {p.nome_grupo && (
                             <Badge variant="outline" className="ml-2 text-[10px] py-0">{p.nome_grupo}</Badge>
                           )}
+                          {statusCusto === "ok_com_tributo" && (
+                            <Badge className="ml-2 text-[10px] py-0 bg-green-500/20 text-green-400 border-green-500/30">Custo + Tributo OK</Badge>
+                          )}
+                          {statusCusto === "ok_sem_tributo" && (
+                            <Badge className="ml-2 text-[10px] py-0 bg-yellow-500/20 text-yellow-400 border-yellow-500/30">Custo OK (sem XML)</Badge>
+                          )}
+                          {statusCusto === "pendente_custo_zero" && (
+                            <Badge className="ml-2 text-[10px] py-0 bg-red-500/20 text-red-400 border-red-500/30">⚠ Custo zero no GC</Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{estoque}</TableCell>
