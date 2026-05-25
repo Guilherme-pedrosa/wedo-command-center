@@ -377,7 +377,7 @@ serve(async (req) => {
       const chunk = compraIds.slice(i, i + 100);
       const { data: itens } = await supabase
         .from("gc_compras_itens")
-        .select("compra_gc_id, produto_gc_id, nome_produto, quantidade, valor_custo, valor_total, unidade, origem_vinculo")
+        .select("compra_gc_id, produto_gc_id, nome_produto, quantidade, valor_custo, valor_total, unidade, origem_vinculo, ordem_item")
         .in("compra_gc_id", chunk);
       for (const it of itens || []) {
         const arr = itensByCompra.get(String(it.compra_gc_id)) || [];
@@ -389,9 +389,15 @@ serve(async (req) => {
           valor_total: Number(it.valor_total) || 0,
           unidade: it.unidade,
           origem_vinculo: it.origem_vinculo,
+          ordem_item: it.ordem_item != null ? Number(it.ordem_item) : null,
         });
         itensByCompra.set(String(it.compra_gc_id), arr);
       }
+    }
+    // garante ordem estável por ordem_item (fallback: ordem de inserção)
+    for (const [k, arr] of itensByCompra) {
+      arr.sort((a, b) => (a.ordem_item ?? 999999) - (b.ordem_item ?? 999999));
+      itensByCompra.set(k, arr);
     }
 
     const compras: CompraRow[] = (comprasRaw || []).map((c: any) => ({
