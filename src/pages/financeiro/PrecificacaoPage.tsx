@@ -1262,15 +1262,8 @@ export default function PrecificacaoPage() {
                     calc = calcPricing(custoBruto, activeEntrada, taxSaida, tipoSaidaGlobal, margemAlvo);
                   }
 
-                  const abaixoMinimo = vendaGC > 0 && vendaGC < calc.precoMinimo;
-                  // Estimate current margin at GC sale price
-                  const margemAtualVendaGC = vendaGC > 0 && calc.custoTotal > 0
-                    ? (() => {
-                        const tribSaida = vendaGC * calc.aliquotaSaidaFaturamento;
-                        const lucro = vendaGC - calc.custoTotal - tribSaida;
-                        return (lucro / vendaGC) * 100;
-                      })()
-                    : 0;
+
+
 
                   return (
                     <TableRow key={p.id} className="border-border">
