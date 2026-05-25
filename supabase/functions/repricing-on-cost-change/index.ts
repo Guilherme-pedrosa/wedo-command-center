@@ -109,14 +109,16 @@ Deno.serve(async (req) => {
     const pol = polByTipo.get(tipoId);
 
     if (!pol) {
-      novosValores.push(entry);
+      // FIX BUG #3: snapshot do valor_custo deve refletir o custo atual mesmo sem política
+      novosValores.push({ ...entry, valor_custo: custo_novo });
       skipped.push({ tipo_id: tipoId, motivo: "sem política" });
       continue;
     }
 
     if (precoAtual <= 0) {
       // Preço inicial ausente — sempre exige aprovação CEO (nunca auto-publica preço novo)
-      novosValores.push(entry);
+      // FIX BUG #3: atualizar snapshot mesmo quando preço está zerado
+      novosValores.push({ ...entry, valor_custo: custo_novo });
       const margemMinZ = Number(pol.margem_minima);
       const precoSugeridoZ = round2(custo_novo / (1 - margemMinZ));
       const margemResZ = (precoSugeridoZ - custo_novo) / precoSugeridoZ;
@@ -200,7 +202,8 @@ Deno.serve(async (req) => {
 
       if (errAp) {
         skipped.push({ tipo_id: tipoId, motivo: "erro_aprovacao", erro: errAp.message });
-        novosValores.push(entry);
+        // FIX BUG #3 (latente): em caso de erro na aprovação auto, ainda atualizar snapshot de custo
+        novosValores.push({ ...entry, valor_custo: custo_novo });
         continue;
       }
 
@@ -230,7 +233,9 @@ Deno.serve(async (req) => {
       });
     } else {
       // Aguardando aprovação CEO — preço NÃO muda
-      novosValores.push(entry);
+      // FIX BUG #3: snapshot do custo precisa refletir o novo custo pra não enviar valor_custo=0 no PUT do GC
+      // (GC rejeita inconsistência custo=0 com venda>0)
+      novosValores.push({ ...entry, valor_custo: custo_novo });
 
       const { data: aprov, error: errAp } = await supabase
         .from("fin_gc_price_aprovacoes")
