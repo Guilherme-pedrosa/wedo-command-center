@@ -109,7 +109,8 @@ Deno.serve(async (req) => {
     const pol = polByTipo.get(tipoId);
 
     if (!pol) {
-      novosValores.push(entry);
+      // FIX BUG #3: snapshot do valor_custo deve refletir o custo atual mesmo sem política
+      novosValores.push({ ...entry, valor_custo: custo_novo });
       skipped.push({ tipo_id: tipoId, motivo: "sem política" });
       continue;
     }
