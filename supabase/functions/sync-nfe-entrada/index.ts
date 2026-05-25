@@ -78,6 +78,20 @@ interface ProductTaxRecord {
   valor_frete_unit: number;
   custo_efetivo_unit: number;
   match_rule: string;
+  // Bloco 1.9: campos extras de NF para cálculo real
+  q_com: number;
+  v_un_com: number;
+  q_trib: number;
+  v_un_trib: number;
+  fator_conversao: number;
+  v_seg: number;
+  v_outro: number;
+  v_desc: number;
+  v_icms_st: number;
+  v_fcp_st: number;
+  v_icms_uf_dest: number;
+  v_icms_uf_remet: number;
+  custo_variavel_real: number;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -115,12 +129,23 @@ interface XmlItemTax {
   qCom: number;
   vProd: number;
   vUnCom: number;
+  uCom: string;
+  uTrib: string;
+  qTrib: number;
+  vUnTrib: number;
+  vSeg: number;
+  vOutro: number;
+  vDesc: number;
   icms_orig: string;
   icms_cst: string;
   icms_pRedBC: number;
   icms_vBC: number;
   icms_pICMS: number;
   icms_vICMS: number;
+  icms_vICMSST: number;
+  icms_vFCPST: number;
+  icms_vICMSUFDest: number;
+  icms_vICMSUFRemet: number;
   ipi_cst: string;
   ipi_vBC: number;
   ipi_pIPI: number;
@@ -153,6 +178,13 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const qCom = parseFloat(getTag(prod, "qCom")) || 1;
     const vProd = parseFloat(getTag(prod, "vProd")) || 0;
     const vUnCom = parseFloat(getTag(prod, "vUnCom")) || 0;
+    const uCom = getTag(prod, "uCom");
+    const uTrib = getTag(prod, "uTrib");
+    const qTrib = parseFloat(getTag(prod, "qTrib")) || 0;
+    const vUnTrib = parseFloat(getTag(prod, "vUnTrib")) || 0;
+    const vSeg = parseFloat(getTag(prod, "vSeg")) || 0;
+    const vOutro = parseFloat(getTag(prod, "vOutro")) || 0;
+    const vDesc = parseFloat(getTag(prod, "vDesc")) || 0;
 
     const icmsBlock = getBlock(imposto, "ICMS");
     const icmsInner = icmsBlock.replace(/<\/?(?:[a-zA-Z0-9]+:)?ICMS>/gi, "").trim();
@@ -162,6 +194,13 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const icms_vBC = parseFloat(getTag(icmsInner, "vBC")) || 0;
     const icms_pICMS = parseFloat(getTag(icmsInner, "pICMS")) || 0;
     const icms_vICMS = parseFloat(getTag(icmsInner, "vICMS")) || 0;
+    // ICMS-ST e FCP-ST (entram no custo)
+    const icms_vICMSST = parseFloat(getTag(icmsInner, "vICMSST")) || 0;
+    const icms_vFCPST = parseFloat(getTag(icmsInner, "vFCPST")) || 0;
+    // DIFAL (ICMSUFDest)
+    const icmsUfDestBlock = getBlock(imposto, "ICMSUFDest");
+    const icms_vICMSUFDest = parseFloat(getTag(icmsUfDestBlock, "vICMSUFDest")) || 0;
+    const icms_vICMSUFRemet = parseFloat(getTag(icmsUfDestBlock, "vICMSUFRemet")) || 0;
 
     const ipiBlock = getBlock(imposto, "IPI");
     const ipiTrib = getBlock(ipiBlock, "IPITrib") || ipiBlock;
@@ -190,32 +229,15 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const cofins_vCOFINS = parseFloat(getTag(cofinsInner, "vCOFINS")) || 0;
 
     items.push({
-      nItem,
-      cProd,
-      xProd,
-      NCM,
-      CFOP,
-      qCom,
-      vProd,
-      vUnCom,
-      icms_orig,
-      icms_cst,
-      icms_pRedBC,
-      icms_vBC,
-      icms_pICMS,
-      icms_vICMS,
-      ipi_cst,
-      ipi_vBC,
-      ipi_pIPI,
-      ipi_vIPI,
-      pis_cst,
-      pis_vBC,
-      pis_pPIS,
-      pis_vPIS,
-      cofins_cst,
-      cofins_vBC,
-      cofins_pCOFINS,
-      cofins_vCOFINS,
+      nItem, cProd, xProd, NCM, CFOP,
+      qCom, vProd, vUnCom,
+      uCom, uTrib, qTrib, vUnTrib,
+      vSeg, vOutro, vDesc,
+      icms_orig, icms_cst, icms_pRedBC, icms_vBC, icms_pICMS, icms_vICMS,
+      icms_vICMSST, icms_vFCPST, icms_vICMSUFDest, icms_vICMSUFRemet,
+      ipi_cst, ipi_vBC, ipi_pIPI, ipi_vIPI,
+      pis_cst, pis_vBC, pis_pPIS, pis_vPIS,
+      cofins_cst, cofins_vBC, cofins_pCOFINS, cofins_vCOFINS,
     });
   }
 
@@ -737,6 +759,27 @@ function processarXml(
     const icmsBasePerc = xi.vProd > 0 ? (xi.icms_vBC / xi.vProd) * 100 : 100;
     const custoEfetivo = valorUnit + ipiUnit + freteUnit - icmsUnit - pisUnit - cofinsUnit;
 
+    // ── Bloco 1.9: cálculo de custo variável real (usa qTrib quando disponível) ──
+    const qComEst = xi.qCom || 0;
+    const qTribEst = xi.qTrib || 0;
+    const fatorConversao = (qComEst > 0 && qTribEst > 0) ? (qTribEst / qComEst) : 1;
+    const qtdEstoqueReal = qTribEst > 0 ? qTribEst : (qComEst || 1);
+    // custo total do item: vProd + IPI + frete (rateado) + seg + outro + ST + FCP-ST + DIFAL - desc - créditos (se houver)
+    const custoTotalItem =
+      xi.vProd
+      + xi.ipi_vIPI
+      + (xmlFrete * proporcao)
+      + xi.vSeg
+      + xi.vOutro
+      + xi.icms_vICMSST
+      + xi.icms_vFCPST
+      + xi.icms_vICMSUFDest
+      - xi.vDesc
+      - (isSN ? 0 : xi.icms_vICMS)
+      - (isSN ? 0 : xi.pis_vPIS)
+      - (isSN ? 0 : xi.cofins_vCOFINS);
+    const custoVariavelReal = qtdEstoqueReal > 0 ? custoTotalItem / qtdEstoqueReal : custoTotalItem;
+
     const existing = productTaxMap.get(gcProdId);
     if (existing && existing.nf_data_emissao > (xmlMeta.data_emissao || meta.data_emissao || "")) continue;
 
@@ -767,6 +810,20 @@ function processarXml(
       valor_frete_unit: r(freteUnit),
       custo_efetivo_unit: r(custoEfetivo),
       match_rule: `${matchRuleTag}+${pick.rule}`,
+      // Bloco 1.9
+      q_com: r(qComEst),
+      v_un_com: r(xi.vUnCom),
+      q_trib: r(qTribEst),
+      v_un_trib: r(xi.vUnTrib),
+      fator_conversao: Math.round(fatorConversao * 10000) / 10000,
+      v_seg: r(xi.vSeg),
+      v_outro: r(xi.vOutro),
+      v_desc: r(xi.vDesc),
+      v_icms_st: r(xi.icms_vICMSST),
+      v_fcp_st: r(xi.icms_vFCPST),
+      v_icms_uf_dest: r(xi.icms_vICMSUFDest),
+      v_icms_uf_remet: r(xi.icms_vICMSUFRemet),
+      custo_variavel_real: r(custoVariavelReal),
     });
   }
 }
@@ -790,12 +847,25 @@ function processarRateio(
   const totalCOFINS = xmlItems.reduce((s, i) => s + i.cofins_vCOFINS, 0);
   const totalIPI = xmlItems.reduce((s, i) => s + i.ipi_vIPI, 0);
   const totalBaseICMS = xmlItems.reduce((s, i) => s + i.icms_vBC, 0);
+  const totalSeg = xmlItems.reduce((s, i) => s + i.vSeg, 0);
+  const totalOutro = xmlItems.reduce((s, i) => s + i.vOutro, 0);
+  const totalDesc = xmlItems.reduce((s, i) => s + i.vDesc, 0);
+  const totalIcmsSt = xmlItems.reduce((s, i) => s + i.icms_vICMSST, 0);
+  const totalFcpSt = xmlItems.reduce((s, i) => s + i.icms_vFCPST, 0);
+  const totalIcmsUfDest = xmlItems.reduce((s, i) => s + i.icms_vICMSUFDest, 0);
   const avgIcmsAliq = totalVProd > 0 ? (totalICMS / totalVProd) * 100 : 0;
   const avgPisAliq = totalVProd > 0 ? (totalPIS / totalVProd) * 100 : 0;
   const avgCofinsAliq = totalVProd > 0 ? (totalCOFINS / totalVProd) * 100 : 0;
   const avgIpiAliq = totalVProd > 0 ? (totalIPI / totalVProd) * 100 : 0;
   const freteRate = totalVProd > 0 ? (xmlFrete / totalVProd) * 100 : 0;
   const icmsBasePerc = totalVProd > 0 ? (totalBaseICMS / totalVProd) * 100 : 100;
+  // taxas rateadas (sobre vProd) para seguros/outros/ST/DIFAL/desc
+  const segRate = totalVProd > 0 ? totalSeg / totalVProd : 0;
+  const outroRate = totalVProd > 0 ? totalOutro / totalVProd : 0;
+  const descRate = totalVProd > 0 ? totalDesc / totalVProd : 0;
+  const icmsStRate = totalVProd > 0 ? totalIcmsSt / totalVProd : 0;
+  const fcpStRate = totalVProd > 0 ? totalFcpSt / totalVProd : 0;
+  const difalRate = totalVProd > 0 ? totalIcmsUfDest / totalVProd : 0;
 
   const ref = xmlItems[0];
   const qtd = item.quantidade || 1;
@@ -807,6 +877,17 @@ function processarRateio(
   const ipiUnit = valorUnit * (avgIpiAliq / 100);
   const freteUnit = valorUnit * (freteRate / 100);
   const custoEfetivo = valorUnit + ipiUnit + freteUnit - icmsUnit - pisUnit - cofinsUnit;
+
+  // Bloco 1.9 — custo variável real no rateio (sem qTrib específico → fator=1)
+  const vSegUnit = valorUnit * segRate;
+  const vOutroUnit = valorUnit * outroRate;
+  const vDescUnit = valorUnit * descRate;
+  const vIcmsStUnit = valorUnit * icmsStRate;
+  const vFcpStUnit = valorUnit * fcpStRate;
+  const vDifalUnit = valorUnit * difalRate;
+  const custoVariavelReal = valorUnit + ipiUnit + freteUnit
+    + vSegUnit + vOutroUnit + vIcmsStUnit + vFcpStUnit + vDifalUnit
+    - vDescUnit - icmsUnit - pisUnit - cofinsUnit;
 
   const existing = productTaxMap.get(gcProdId);
   if (existing && existing.nf_data_emissao > (xmlMeta.data_emissao || "")) return;
@@ -838,5 +919,19 @@ function processarRateio(
     valor_frete_unit: r(freteUnit),
     custo_efetivo_unit: r(custoEfetivo),
     match_rule: `${matchRuleTag}+xml_rateio`,
+    // Bloco 1.9
+    q_com: r(qtd),
+    v_un_com: r(valorUnit),
+    q_trib: r(qtd),
+    v_un_trib: r(valorUnit),
+    fator_conversao: 1,
+    v_seg: r(vSegUnit * qtd),
+    v_outro: r(vOutroUnit * qtd),
+    v_desc: r(vDescUnit * qtd),
+    v_icms_st: r(vIcmsStUnit * qtd),
+    v_fcp_st: r(vFcpStUnit * qtd),
+    v_icms_uf_dest: r(vDifalUnit * qtd),
+    v_icms_uf_remet: 0,
+    custo_variavel_real: r(custoVariavelReal),
   });
 }
