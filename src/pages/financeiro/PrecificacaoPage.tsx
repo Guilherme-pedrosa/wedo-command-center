@@ -1236,10 +1236,8 @@ export default function PrecificacaoPage() {
                    const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
                    const hasNF = !!tributo;
                    const custoBase = hasNF ? tributo.valor_unitario_nf : custoBruto;
-                  const vendaA = custoBase * MARKUP_TABELAS.A;
-                  const vendaB = custoBase * MARKUP_TABELAS.B;
-                  const vendaP = custoBase * MARKUP_TABELAS.P;
-                  const vendaGC = vendaB; // default ref for backwards compat
+                   // Tabelas dinâmicas — preços reais vêm de valoresMap por tipo_id (não há mais markup hardcoded A/B/P)
+
 
                   let calc: ReturnType<typeof calcPricing>;
                   if (hasNF) {
