@@ -282,7 +282,7 @@ serve(async (req) => {
     // ── Step 2: Fetch batch of compras from BD (only with NF-e + valid status + date filter) ──
     const { data: comprasDb, error: compraErr } = await supabase
       .from("gc_compras")
-      .select("gc_id, nome_fornecedor, fornecedor_id, valor_total, valor_produtos, valor_frete, gc_payload_raw")
+      .select("gc_id, codigo, nome_fornecedor, fornecedor_id, valor_total, valor_produtos, valor_frete, gc_payload_raw")
       .not("gc_payload_raw", "is", null)
       .neq("gc_payload_raw->Compra->>numero_nfe", "")
       .in("situacao_id", ALLOWED_SITUACAO_IDS)
