@@ -330,6 +330,64 @@ export default function PrecificacaoPage() {
     return m;
   }, [custoCanonico]);
 
+  // Políticas de margem ativas (12 tabelas configuradas em /precificacao/politicas)
+  const { data: politicas } = useQuery({
+    queryKey: ["fin-politica-markup-tabela"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("fin_politica_markup_tabela")
+        .select("tipo_id, nome_tabela, margem_minima, modo_sugestao, exige_aprovacao_ceo")
+        .eq("ativo", true)
+        .order("nome_tabela");
+      if (error) throw error;
+      return data as Array<{
+        tipo_id: string;
+        nome_tabela: string;
+        margem_minima: number;
+        modo_sugestao: string;
+        exige_aprovacao_ceo: boolean;
+      }>;
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  // Snapshot dos valores de venda por tabela vindos do cache GC
+  const { data: produtosCacheValores } = useQuery({
+    queryKey: ["gc-produtos-cache-valores"],
+    queryFn: async () => {
+      const pageSize = 1000;
+      let from = 0;
+      const allRows: { produto_gc_id: string; valores: unknown }[] = [];
+      while (true) {
+        const { data, error } = await supabase
+          .from("gc_produtos_cache")
+          .select("produto_gc_id, valores")
+          .eq("ativo", true)
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        const batch = (data || []) as { produto_gc_id: string; valores: unknown }[];
+        allRows.push(...batch);
+        if (batch.length < pageSize) break;
+        from += pageSize;
+      }
+      return allRows;
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const valoresMap = useMemo(() => {
+    const m = new Map<string, Map<string, number>>();
+    for (const row of produtosCacheValores || []) {
+      const inner = new Map<string, number>();
+      const arr = Array.isArray(row.valores) ? (row.valores as Array<{ tipo_id: string | number; valor_venda?: string | number }>) : [];
+      for (const v of arr) {
+        inner.set(String(v.tipo_id), Number(v.valor_venda ?? 0) || 0);
+      }
+      m.set(String(row.produto_gc_id), inner);
+    }
+    return m;
+  }, [produtosCacheValores]);
+
 
   // Índice de XMLs realmente enviados/processados
   const { data: xmlIndexRows } = useQuery({
