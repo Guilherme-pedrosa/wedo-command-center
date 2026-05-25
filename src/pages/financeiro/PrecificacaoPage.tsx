@@ -1298,6 +1298,7 @@ export default function PrecificacaoPage() {
                             <TooltipTrigger>
                               {(() => {
                                 const nfNum = tributo.nf_numero || (tributo.nf_chave?.length === 44 ? String(parseInt(tributo.nf_chave.substring(25, 34))) : "");
+                                const pedidoNum = tributo.compra_codigo || "";
                                 return (
                                   <div className="flex flex-col items-center gap-0.5">
                                     <Badge className={`text-[10px] gap-1 ${
@@ -1307,9 +1308,14 @@ export default function PrecificacaoPage() {
                                     }`}>
                                       <FileText className="h-3 w-3" />
                                       {tributo.fornecedor_nome || "NF"}
-                                      {nfNum ? ` #${nfNum}` : ""}
+                                      {nfNum ? ` · NF #${nfNum}` : ""}
                                       {(tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito) ? " ·SN" : ""}
                                     </Badge>
+                                    {pedidoNum && (
+                                      <Badge variant="outline" className="text-[9px] border-purple-500/40 text-purple-400">
+                                        Pedido #{pedidoNum}
+                                      </Badge>
+                                    )}
                                     {tributo.match_rule && (
                                       <Badge variant="outline" className={`text-[9px] ${
                                         ["codigo_produto", "unico_1x1"].includes(tributo.match_rule) ? "border-green-500/40 text-green-400" :
