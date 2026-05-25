@@ -78,6 +78,20 @@ interface ProductTaxRecord {
   valor_frete_unit: number;
   custo_efetivo_unit: number;
   match_rule: string;
+  // Bloco 1.9: campos extras de NF para cálculo real
+  q_com: number;
+  v_un_com: number;
+  q_trib: number;
+  v_un_trib: number;
+  fator_conversao: number;
+  v_seg: number;
+  v_outro: number;
+  v_desc: number;
+  v_icms_st: number;
+  v_fcp_st: number;
+  v_icms_uf_dest: number;
+  v_icms_uf_remet: number;
+  custo_variavel_real: number;
 }
 
 // ══════════════════════════════════════════════════════════════
