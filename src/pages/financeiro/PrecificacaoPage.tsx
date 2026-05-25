@@ -488,6 +488,13 @@ export default function PrecificacaoPage() {
           const valorEstoqueA = estoqueA * custoA;
           const valorEstoqueB = estoqueB * custoB;
 
+          // Refator v3: pendente_custo_zero sobe ao topo
+          const statusA = custoCanonicoMap.get(a.id)?.status;
+          const statusB = custoCanonicoMap.get(b.id)?.status;
+          const pendA = statusA === "pendente_custo_zero" ? 1 : 0;
+          const pendB = statusB === "pendente_custo_zero" ? 1 : 0;
+          if (pendA !== pendB) return pendB - pendA;
+
           // Regra principal: maior valor em estoque (qtd × custo)
           if (valorEstoqueB !== valorEstoqueA) return valorEstoqueB - valorEstoqueA;
           // Desempate: maior custo unitário
