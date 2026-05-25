@@ -109,11 +109,13 @@ function calcPricing(
   tipo: TipoSaida,
   margemDesejada: number
 ) {
-  // Créditos de entrada — serviço não aproveita nenhum crédito fiscal
-  const creditoIcms = tipo === "servico" ? 0 : custoBruto * (entrada.icmsCredito / 100);
-  const creditoPis = tipo === "servico" ? 0 : custoBruto * (entrada.pisCredito / 100);
-  const creditoCofins = tipo === "servico" ? 0 : custoBruto * (entrada.cofinsCredito / 100);
-  const totalCreditosEntrada = creditoIcms + creditoPis + creditoCofins;
+  // Sem NF para consultar → NUNCA inferir crédito de entrada. Zerado.
+  // Crédito de entrada só existe quando a NF foi importada e os tributos foram apurados
+  // (esse caminho é tratado em calcPricingComNF, não aqui).
+  const creditoIcms = 0;
+  const creditoPis = 0;
+  const creditoCofins = 0;
+  const totalCreditosEntrada = 0;
 
   const custoLiquido = custoBruto - totalCreditosEntrada;
   const custoFrete = custoBruto * (entrada.frete / 100);
