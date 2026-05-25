@@ -429,6 +429,25 @@ serve(async (req) => {
       byCnpj.set(cnpj, c);
     }
 
+    // ── Step 3.5: Preload codigo_interno dos produtos da compra (para priority 1 do picker) ──
+    const allProdIds = Array.from(
+      new Set(
+        compras.flatMap((c) => c.itens.map((i) => i.produto_gc_id).filter(Boolean) as string[]),
+      ),
+    );
+    const codigoPorProdutoId = new Map<string, string>();
+    for (let i = 0; i < allProdIds.length; i += 200) {
+      const chunk = allProdIds.slice(i, i + 200);
+      const { data: prods } = await supabase
+        .from("gc_produtos_cache")
+        .select("produto_gc_id, codigo_interno")
+        .in("produto_gc_id", chunk);
+      for (const p of prods || []) {
+        const norm = normalizarCodigoProduto(p.codigo_interno);
+        if (norm) codigoPorProdutoId.set(String(p.produto_gc_id), norm);
+      }
+    }
+
     // ── Step 4: Limpa tributos antigos (preserva manuais) — só no offset=0 ──
     if (offset === 0 && !dryRun) {
       await supabase
