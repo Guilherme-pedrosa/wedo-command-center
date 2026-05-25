@@ -2250,6 +2250,7 @@ export type Database = {
           pis_aliquota_manual: number | null
           q_com: number | null
           q_trib: number | null
+          re_enrichment_needed: boolean
           regime_fornecedor: string | null
           sem_credito: boolean | null
           u_com: number | null
@@ -2300,6 +2301,7 @@ export type Database = {
           pis_aliquota_manual?: number | null
           q_com?: number | null
           q_trib?: number | null
+          re_enrichment_needed?: boolean
           regime_fornecedor?: string | null
           sem_credito?: boolean | null
           u_com?: number | null
@@ -2350,6 +2352,7 @@ export type Database = {
           pis_aliquota_manual?: number | null
           q_com?: number | null
           q_trib?: number | null
+          re_enrichment_needed?: boolean
           regime_fornecedor?: string | null
           sem_credito?: boolean | null
           u_com?: number | null
@@ -3638,6 +3641,54 @@ export type Database = {
       }
     }
     Views: {
+      v_produto_custo_atual: {
+        Row: {
+          ativo: boolean | null
+          codigo_interno: string | null
+          custo_variavel_real: number | null
+          estoque: number | null
+          ncm: string | null
+          nome: string | null
+          nome_grupo: string | null
+          produto_gc_id: string | null
+          status_custo: string | null
+          ultima_sincronizacao: string | null
+          unidade: string | null
+          valor_venda_padrao: number | null
+          valores: Json | null
+        }
+        Insert: {
+          ativo?: boolean | null
+          codigo_interno?: string | null
+          custo_variavel_real?: number | null
+          estoque?: number | null
+          ncm?: string | null
+          nome?: string | null
+          nome_grupo?: string | null
+          produto_gc_id?: string | null
+          status_custo?: never
+          ultima_sincronizacao?: string | null
+          unidade?: string | null
+          valor_venda_padrao?: number | null
+          valores?: Json | null
+        }
+        Update: {
+          ativo?: boolean | null
+          codigo_interno?: string | null
+          custo_variavel_real?: number | null
+          estoque?: number | null
+          ncm?: string | null
+          nome?: string | null
+          nome_grupo?: string | null
+          produto_gc_id?: string | null
+          status_custo?: never
+          ultima_sincronizacao?: string | null
+          unidade?: string | null
+          valor_venda_padrao?: number | null
+          valores?: Json | null
+        }
+        Relationships: []
+      }
       v_produto_tabela_mc: {
         Row: {
           codigo_interno: string | null

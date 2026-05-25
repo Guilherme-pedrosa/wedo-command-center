@@ -296,6 +296,41 @@ export default function PrecificacaoPage() {
     staleTime: 5 * 60_000,
   });
 
+  // Fonte canônica de custo (Refator matcher v3 — Pedido de Compra GC = verdade)
+  const { data: custoCanonico } = useQuery({
+    queryKey: ["v-produto-custo-atual"],
+    queryFn: async () => {
+      const pageSize = 1000;
+      let from = 0;
+      const allRows: { produto_gc_id: string; custo_variavel_real: number | null; status_custo: string }[] = [];
+      while (true) {
+        const { data, error } = await supabase
+          .from("v_produto_custo_atual" as any)
+          .select("produto_gc_id, custo_variavel_real, status_custo")
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        const batch = (data || []) as any[];
+        allRows.push(...batch);
+        if (batch.length < pageSize) break;
+        from += pageSize;
+      }
+      return allRows;
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const custoCanonicoMap = useMemo(() => {
+    const m = new Map<string, { custo: number; status: string }>();
+    for (const r of custoCanonico || []) {
+      m.set(String(r.produto_gc_id), {
+        custo: Number(r.custo_variavel_real) || 0,
+        status: r.status_custo || "ok_sem_tributo",
+      });
+    }
+    return m;
+  }, [custoCanonico]);
+
+
   // Índice de XMLs realmente enviados/processados
   const { data: xmlIndexRows } = useQuery({
     queryKey: ["nfe-xml-index-keys"],
@@ -453,6 +488,13 @@ export default function PrecificacaoPage() {
           const valorEstoqueA = estoqueA * custoA;
           const valorEstoqueB = estoqueB * custoB;
 
+          // Refator v3: pendente_custo_zero sobe ao topo
+          const statusA = custoCanonicoMap.get(a.id)?.status;
+          const statusB = custoCanonicoMap.get(b.id)?.status;
+          const pendA = statusA === "pendente_custo_zero" ? 1 : 0;
+          const pendB = statusB === "pendente_custo_zero" ? 1 : 0;
+          if (pendA !== pendB) return pendB - pendA;
+
           // Regra principal: maior valor em estoque (qtd × custo)
           if (valorEstoqueB !== valorEstoqueA) return valorEstoqueB - valorEstoqueA;
           // Desempate: maior custo unitário
@@ -480,7 +522,7 @@ export default function PrecificacaoPage() {
       // deduplicate by id
       .filter((p, i, arr) => arr.findIndex((x) => x.id === p.id) === i)
       .slice(0, 100);
-  }, [produtos, search, tributosMap, tributosXml]);
+  }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap]);
 
   const totalProdutosEstoque = useMemo(() => {
     if (!produtos) return null; // sem dados de estoque carregados
@@ -1122,7 +1164,10 @@ export default function PrecificacaoPage() {
                   </TableRow>
                 )}
                 {filtered.map((p) => {
-                  const custoBruto = parseFloat(p.valor_custo) || 0;
+                  // Refator v3: custo canônico vem da view v_produto_custo_atual (fonte = gc_produtos_cache.valor_custo)
+                  const custoCan = custoCanonicoMap.get(p.id);
+                  const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
+                  const statusCusto = custoCan?.status || "ok_sem_tributo";
                   const estoque = Number(p.estoque) || 0;
                    const tributoRaw = tributosMap.get(p.id);
                    const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
@@ -1176,6 +1221,15 @@ export default function PrecificacaoPage() {
                           )}
                           {p.nome_grupo && (
                             <Badge variant="outline" className="ml-2 text-[10px] py-0">{p.nome_grupo}</Badge>
+                          )}
+                          {statusCusto === "ok_com_tributo" && (
+                            <Badge className="ml-2 text-[10px] py-0 bg-green-500/20 text-green-400 border-green-500/30">Custo + Tributo OK</Badge>
+                          )}
+                          {statusCusto === "ok_sem_tributo" && (
+                            <Badge className="ml-2 text-[10px] py-0 bg-yellow-500/20 text-yellow-400 border-yellow-500/30">Custo OK (sem XML)</Badge>
+                          )}
+                          {statusCusto === "pendente_custo_zero" && (
+                            <Badge className="ml-2 text-[10px] py-0 bg-red-500/20 text-red-400 border-red-500/30">⚠ Custo zero no GC</Badge>
                           )}
                         </div>
                       </TableCell>

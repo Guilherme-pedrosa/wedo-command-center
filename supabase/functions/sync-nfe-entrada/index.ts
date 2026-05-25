@@ -23,6 +23,7 @@ interface CompraItem {
   valor_total: number;
   unidade: string | null;
   origem_vinculo: string | null;
+  ordem_item: number | null;
 }
 
 interface CompraRow {
@@ -376,7 +377,7 @@ serve(async (req) => {
       const chunk = compraIds.slice(i, i + 100);
       const { data: itens } = await supabase
         .from("gc_compras_itens")
-        .select("compra_gc_id, produto_gc_id, nome_produto, quantidade, valor_custo, valor_total, unidade, origem_vinculo")
+        .select("compra_gc_id, produto_gc_id, nome_produto, quantidade, valor_custo, valor_total, unidade, origem_vinculo, ordem_item")
         .in("compra_gc_id", chunk);
       for (const it of itens || []) {
         const arr = itensByCompra.get(String(it.compra_gc_id)) || [];
@@ -388,9 +389,15 @@ serve(async (req) => {
           valor_total: Number(it.valor_total) || 0,
           unidade: it.unidade,
           origem_vinculo: it.origem_vinculo,
+          ordem_item: it.ordem_item != null ? Number(it.ordem_item) : null,
         });
         itensByCompra.set(String(it.compra_gc_id), arr);
       }
+    }
+    // garante ordem estável por ordem_item (fallback: ordem de inserção)
+    for (const [k, arr] of itensByCompra) {
+      arr.sort((a, b) => (a.ordem_item ?? 999999) - (b.ordem_item ?? 999999));
+      itensByCompra.set(k, arr);
     }
 
     const compras: CompraRow[] = (comprasRaw || []).map((c: any) => ({
@@ -459,7 +466,8 @@ serve(async (req) => {
         .is("ipi_aliquota_manual", null)
         .eq("sem_credito", false);
       // Limpa pendências antigas para reprocessar
-      await supabase.from("fin_nfe_match_pendentes").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      // Preserva pendências de custo zero (criadas pela migration / fora do escopo do matcher de NF)
+      await supabase.from("fin_nfe_match_pendentes").delete().neq("motivo", "custo_zero_no_cadastro_gc");
     }
 
     // ── Step 5: Matcher determinístico ──
@@ -682,7 +690,9 @@ function registrarPendente(
 }
 
 // ══════════════════════════════════════════════════════════════
-//  Processa XML real e gera ProductTaxRecord por item da compra
+//  Refator v3 — Pedido de Compra GC = fonte única
+//  XML serve APENAS para enriquecer tributos.
+//  custo_variavel_real NÃO é gravado aqui — vem de v_produto_custo_atual.
 // ══════════════════════════════════════════════════════════════
 function processarXml(
   xml: string,
@@ -694,7 +704,6 @@ function processarXml(
 ) {
   const r = (v: number) => Math.round(v * 100) / 100;
   const xmlItems = parseXmlItems(xml);
-  if (xmlItems.length === 0) return;
   const xmlFrete = getXmlFrete(xml);
   const isSN = isXmlSimplesNacional(xml, xmlItems);
   const totalVProd = xmlItems.reduce((s, i) => s + i.vProd, 0);
@@ -703,7 +712,7 @@ function processarXml(
   const compraItens = compra.itens;
   const usedXmlIdx = new Set<number>();
 
-  // Pré-indexa XML items por cProd normalizado
+  // Pré-indexa XML por cProd normalizado
   const xmlPorCProd = new Map<string, number[]>();
   for (let i = 0; i < xmlItems.length; i++) {
     const norm = normalizarCodigoProduto(xmlItems[i].cProd);
@@ -714,90 +723,76 @@ function processarXml(
     }
   }
 
-  for (const item of compraItens) {
-    // só grava tributos para itens com gc_produto_id
-    const gcProdId = item.produto_gc_id;
-    if (!gcProdId) continue;
+  // Helper: cria registro mínimo sem tributo quando não há XML item correspondente
+  const upsertSemTributo = (gcProdId: string, item: CompraItem) => {
+    const existing = productTaxMap.get(gcProdId);
+    if (existing && existing.nf_data_emissao > (xmlMeta.data_emissao || meta.data_emissao || "")) return;
+    productTaxMap.set(gcProdId, {
+      gc_produto_id: gcProdId,
+      nome_produto: item.nome_produto || "",
+      ncm: "",
+      cfop: "",
+      nf_gc_id: meta.chave || xmlMeta.chave,
+      nf_numero: meta.numero_nf || xmlMeta.numero_nf || "",
+      nf_chave: xmlMeta.chave,
+      nf_data_emissao: xmlMeta.data_emissao || meta.data_emissao || "",
+      compra_gc_id: compra.gc_id,
+      fornecedor_nome: xmlMeta.nome_emitente || compra.nome_fornecedor || "",
+      regime_fornecedor: isSN ? "simples_nacional" : "normal",
+      sem_credito: isSN,
+      icms_aliquota: 0, icms_base: 0, pis_aliquota: 0, cofins_aliquota: 0, ipi_aliquota: 0,
+      frete_percentual: 0, valor_unitario_nf: 0,
+      valor_icms_unit: 0, valor_pis_unit: 0, valor_cofins_unit: 0, valor_ipi_unit: 0, valor_frete_unit: 0,
+      custo_efetivo_unit: 0,
+      match_rule: "pedido_compra_gc_sem_xml_item",
+      q_com: 0, v_un_com: 0, q_trib: 0, v_un_trib: 0, fator_conversao: 1,
+      v_seg: 0, v_outro: 0, v_desc: 0, v_icms_st: 0, v_fcp_st: 0,
+      v_icms_uf_dest: 0, v_icms_uf_remet: 0,
+      // custo_variavel_real NÃO é gravado — fonte é gc_produtos_cache.valor_custo via v_produto_custo_atual
+      custo_variavel_real: 0,
+    });
+  };
 
-    const compraValorTotal = item.valor_total || item.valor_custo * item.quantidade;
-    const compraQtd = item.quantidade || 1;
-    const compraUnit = compraQtd > 0 ? compraValorTotal / compraQtd : compraValorTotal;
+  for (let pIdx = 0; pIdx < compraItens.length; pIdx++) {
+    const item = compraItens[pIdx];
+    const gcProdId = item.produto_gc_id;
+    if (!gcProdId) continue; // sem produto vinculado no pedido → nada a enriquecer
 
     let pick: { xi: XmlItemTax; idx: number; rule: string } | null = null;
 
-    // ── PRIORIDADE 1: cProd EXATO (codigo_interno do cadastro = cProd do XML) ──
+    // PRIORIDADE 1: cProd normalizado == codigo_interno do cadastro
     const codigoCompra = codigoPorProdutoId.get(gcProdId);
     if (codigoCompra) {
-      const candidatos = xmlPorCProd.get(codigoCompra) || [];
-      const livres = candidatos.filter((idx) => !usedXmlIdx.has(idx));
-      if (livres.length === 1) {
-        pick = { xi: xmlItems[livres[0]], idx: livres[0], rule: "cprod_normalizado" };
-      } else if (livres.length > 1) {
-        let bestScore = Infinity;
-        for (const idx of livres) {
-          const xi = xmlItems[idx];
-          const diffQtd = Math.abs(xi.qCom - compraQtd);
-          const diffUnit = Math.abs(xi.vUnCom - compraUnit);
-          const score = diffQtd * 1000 + diffUnit;
-          if (score < bestScore) {
-            bestScore = score;
-            pick = { xi, idx, rule: "cprod_multi_desempate_qtd" };
-          }
+      const candidatos = (xmlPorCProd.get(codigoCompra) || []).filter((idx) => !usedXmlIdx.has(idx));
+      if (candidatos.length === 1) {
+        pick = { xi: xmlItems[candidatos[0]], idx: candidatos[0], rule: "cprod" };
+      } else if (candidatos.length > 1) {
+        // múltiplos cProd iguais → desempate por qtd mais próxima do pedido
+        const compraQtd = item.quantidade || 1;
+        let best = candidatos[0];
+        let bestDiff = Infinity;
+        for (const idx of candidatos) {
+          const diff = Math.abs(xmlItems[idx].qCom - compraQtd);
+          if (diff < bestDiff) { bestDiff = diff; best = idx; }
         }
+        pick = { xi: xmlItems[best], idx: best, rule: "cprod_multi" };
       }
     }
 
-    // ── PRIORIDADE 2: qtd exata + unitário próximo ──
-    if (!pick) {
-      const tolUnit = Math.max(compraUnit * 0.05, 0.1);
-      let bestDiff = Infinity;
-      for (let i = 0; i < xmlItems.length; i++) {
-        if (usedXmlIdx.has(i)) continue;
-        const xi = xmlItems[i];
-        const sameQtd = Math.abs(xi.qCom - compraQtd) < 0.01;
-        const diff = Math.abs(xi.vUnCom - compraUnit);
-        if (sameQtd && diff <= tolUnit && diff < bestDiff) {
-          bestDiff = diff;
-          pick = { xi, idx: i, rule: "qtd_unitario" };
-        }
+    // PRIORIDADE 2: ordem do array (Pedido GC e XML costumam vir na mesma ordem)
+    // Sanity: qtd ±5% para evitar match cruzado em pedidos desalinhados
+    if (!pick && pIdx < xmlItems.length && !usedXmlIdx.has(pIdx)) {
+      const xi = xmlItems[pIdx];
+      const compraQtd = item.quantidade || 1;
+      const diffPct = compraQtd > 0 ? Math.abs(xi.qCom - compraQtd) / compraQtd : 1;
+      if (diffPct <= 0.05) {
+        pick = { xi, idx: pIdx, rule: "ordem_item" };
       }
     }
 
-    // ── PRIORIDADE 3: 1x1 ──
-    if (!pick && compraItens.length === 1 && xmlItems.length === 1 && usedXmlIdx.size === 0) {
-      pick = { xi: xmlItems[0], idx: 0, rule: "unico_1x1" };
-    }
-
-    // ── PRIORIDADE 4 (fallback): valor_total mais próximo ──
     if (!pick) {
-      const tolTotal = Math.max(compraValorTotal * 0.05, 0.5);
-      let bestDiff = Infinity;
-      for (let i = 0; i < xmlItems.length; i++) {
-        if (usedXmlIdx.has(i)) continue;
-        const xi = xmlItems[i];
-        const diff = Math.abs(xi.vProd - compraValorTotal);
-        if (diff <= tolTotal && diff < bestDiff) {
-          bestDiff = diff;
-          pick = { xi, idx: i, rule: "valor_total_fallback" };
-        }
-      }
-    }
-
-
-    if (!pick) {
-      // rateio proporcional pelas médias do XML
-      processarRateio(
-        gcProdId,
-        item,
-        xmlItems,
-        xmlFrete,
-        isSN,
-        xmlMeta,
-        compra,
-        meta,
-        productTaxMap,
-        matchRuleTag,
-      );
+      // Sem correspondência confiável → grava tributo vazio mas com produto_gc_id
+      upsertSemTributo(gcProdId, item);
       continue;
     }
 
@@ -820,26 +815,9 @@ function processarXml(
     const icmsBasePerc = xi.vProd > 0 ? (xi.icms_vBC / xi.vProd) * 100 : 100;
     const custoEfetivo = valorUnit + ipiUnit + freteUnit - icmsUnit - pisUnit - cofinsUnit;
 
-    // ── Bloco 1.9: cálculo de custo variável real (usa qTrib quando disponível) ──
     const qComEst = xi.qCom || 0;
     const qTribEst = xi.qTrib || 0;
     const fatorConversao = (qComEst > 0 && qTribEst > 0) ? (qTribEst / qComEst) : 1;
-    const qtdEstoqueReal = qTribEst > 0 ? qTribEst : (qComEst || 1);
-    // custo total do item: vProd + IPI + frete (rateado) + seg + outro + ST + FCP-ST + DIFAL - desc - créditos (se houver)
-    const custoTotalItem =
-      xi.vProd
-      + xi.ipi_vIPI
-      + (xmlFrete * proporcao)
-      + xi.vSeg
-      + xi.vOutro
-      + xi.icms_vICMSST
-      + xi.icms_vFCPST
-      + xi.icms_vICMSUFDest
-      - xi.vDesc
-      - (isSN ? 0 : xi.icms_vICMS)
-      - (isSN ? 0 : xi.pis_vPIS)
-      - (isSN ? 0 : xi.cofins_vCOFINS);
-    const custoVariavelReal = qtdEstoqueReal > 0 ? custoTotalItem / qtdEstoqueReal : custoTotalItem;
 
     const existing = productTaxMap.get(gcProdId);
     if (existing && existing.nf_data_emissao > (xmlMeta.data_emissao || meta.data_emissao || "")) continue;
@@ -870,8 +848,7 @@ function processarXml(
       valor_ipi_unit: r(ipiUnit),
       valor_frete_unit: r(freteUnit),
       custo_efetivo_unit: r(custoEfetivo),
-      match_rule: `${matchRuleTag}+${pick.rule}`,
-      // Bloco 1.9
+      match_rule: `pedido_compra_gc+${pick.rule}`,
       q_com: r(qComEst),
       v_un_com: r(xi.vUnCom),
       q_trib: r(qTribEst),
@@ -884,115 +861,9 @@ function processarXml(
       v_fcp_st: r(xi.icms_vFCPST),
       v_icms_uf_dest: r(xi.icms_vICMSUFDest),
       v_icms_uf_remet: r(xi.icms_vICMSUFRemet),
-      custo_variavel_real: r(custoVariavelReal),
+      // custo_variavel_real NÃO escrito pelo matcher — fonte canônica é v_produto_custo_atual
+      custo_variavel_real: 0,
     });
   }
 }
 
-function processarRateio(
-  gcProdId: string,
-  item: CompraItem,
-  xmlItems: XmlItemTax[],
-  xmlFrete: number,
-  isSN: boolean,
-  xmlMeta: XmlIndexRow,
-  compra: CompraRow,
-  meta: { chave: string; numero_nf: string; data_emissao: string; nome_emitente: string },
-  productTaxMap: Map<string, ProductTaxRecord>,
-  matchRuleTag: string,
-) {
-  const r = (v: number) => Math.round(v * 100) / 100;
-  const totalVProd = xmlItems.reduce((s, i) => s + i.vProd, 0);
-  const totalICMS = xmlItems.reduce((s, i) => s + i.icms_vICMS, 0);
-  const totalPIS = xmlItems.reduce((s, i) => s + i.pis_vPIS, 0);
-  const totalCOFINS = xmlItems.reduce((s, i) => s + i.cofins_vCOFINS, 0);
-  const totalIPI = xmlItems.reduce((s, i) => s + i.ipi_vIPI, 0);
-  const totalBaseICMS = xmlItems.reduce((s, i) => s + i.icms_vBC, 0);
-  const totalSeg = xmlItems.reduce((s, i) => s + i.vSeg, 0);
-  const totalOutro = xmlItems.reduce((s, i) => s + i.vOutro, 0);
-  const totalDesc = xmlItems.reduce((s, i) => s + i.vDesc, 0);
-  const totalIcmsSt = xmlItems.reduce((s, i) => s + i.icms_vICMSST, 0);
-  const totalFcpSt = xmlItems.reduce((s, i) => s + i.icms_vFCPST, 0);
-  const totalIcmsUfDest = xmlItems.reduce((s, i) => s + i.icms_vICMSUFDest, 0);
-  const avgIcmsAliq = totalVProd > 0 ? (totalICMS / totalVProd) * 100 : 0;
-  const avgPisAliq = totalVProd > 0 ? (totalPIS / totalVProd) * 100 : 0;
-  const avgCofinsAliq = totalVProd > 0 ? (totalCOFINS / totalVProd) * 100 : 0;
-  const avgIpiAliq = totalVProd > 0 ? (totalIPI / totalVProd) * 100 : 0;
-  const freteRate = totalVProd > 0 ? (xmlFrete / totalVProd) * 100 : 0;
-  const icmsBasePerc = totalVProd > 0 ? (totalBaseICMS / totalVProd) * 100 : 100;
-  // taxas rateadas (sobre vProd) para seguros/outros/ST/DIFAL/desc
-  const segRate = totalVProd > 0 ? totalSeg / totalVProd : 0;
-  const outroRate = totalVProd > 0 ? totalOutro / totalVProd : 0;
-  const descRate = totalVProd > 0 ? totalDesc / totalVProd : 0;
-  const icmsStRate = totalVProd > 0 ? totalIcmsSt / totalVProd : 0;
-  const fcpStRate = totalVProd > 0 ? totalFcpSt / totalVProd : 0;
-  const difalRate = totalVProd > 0 ? totalIcmsUfDest / totalVProd : 0;
-
-  const ref = xmlItems[0];
-  const qtd = item.quantidade || 1;
-  const valorProd = item.valor_total || item.valor_custo * qtd;
-  const valorUnit = qtd > 0 ? valorProd / qtd : valorProd;
-  const icmsUnit = isSN ? 0 : valorUnit * (avgIcmsAliq / 100);
-  const pisUnit = isSN ? 0 : valorUnit * (avgPisAliq / 100);
-  const cofinsUnit = isSN ? 0 : valorUnit * (avgCofinsAliq / 100);
-  const ipiUnit = valorUnit * (avgIpiAliq / 100);
-  const freteUnit = valorUnit * (freteRate / 100);
-  const custoEfetivo = valorUnit + ipiUnit + freteUnit - icmsUnit - pisUnit - cofinsUnit;
-
-  // Bloco 1.9 — custo variável real no rateio (sem qTrib específico → fator=1)
-  const vSegUnit = valorUnit * segRate;
-  const vOutroUnit = valorUnit * outroRate;
-  const vDescUnit = valorUnit * descRate;
-  const vIcmsStUnit = valorUnit * icmsStRate;
-  const vFcpStUnit = valorUnit * fcpStRate;
-  const vDifalUnit = valorUnit * difalRate;
-  const custoVariavelReal = valorUnit + ipiUnit + freteUnit
-    + vSegUnit + vOutroUnit + vIcmsStUnit + vFcpStUnit + vDifalUnit
-    - vDescUnit - icmsUnit - pisUnit - cofinsUnit;
-
-  const existing = productTaxMap.get(gcProdId);
-  if (existing && existing.nf_data_emissao > (xmlMeta.data_emissao || "")) return;
-
-  productTaxMap.set(gcProdId, {
-    gc_produto_id: gcProdId,
-    nome_produto: item.nome_produto || "",
-    ncm: ref?.NCM || "",
-    cfop: ref?.CFOP || "",
-    nf_gc_id: meta.chave || xmlMeta.chave,
-    nf_numero: meta.numero_nf || xmlMeta.numero_nf || "",
-    nf_chave: xmlMeta.chave,
-    nf_data_emissao: xmlMeta.data_emissao || "",
-    compra_gc_id: compra.gc_id,
-    fornecedor_nome: xmlMeta.nome_emitente || compra.nome_fornecedor || "",
-    regime_fornecedor: isSN ? "simples_nacional" : "normal",
-    sem_credito: isSN,
-    icms_aliquota: isSN ? 0 : r(avgIcmsAliq),
-    icms_base: isSN ? 0 : r(icmsBasePerc),
-    pis_aliquota: isSN ? 0 : r(avgPisAliq),
-    cofins_aliquota: isSN ? 0 : r(avgCofinsAliq),
-    ipi_aliquota: r(avgIpiAliq),
-    frete_percentual: r(freteRate),
-    valor_unitario_nf: r(valorUnit),
-    valor_icms_unit: r(icmsUnit),
-    valor_pis_unit: r(pisUnit),
-    valor_cofins_unit: r(cofinsUnit),
-    valor_ipi_unit: r(ipiUnit),
-    valor_frete_unit: r(freteUnit),
-    custo_efetivo_unit: r(custoEfetivo),
-    match_rule: `${matchRuleTag}+xml_rateio`,
-    // Bloco 1.9
-    q_com: r(qtd),
-    v_un_com: r(valorUnit),
-    q_trib: r(qtd),
-    v_un_trib: r(valorUnit),
-    fator_conversao: 1,
-    v_seg: r(vSegUnit * qtd),
-    v_outro: r(vOutroUnit * qtd),
-    v_desc: r(vDescUnit * qtd),
-    v_icms_st: r(vIcmsStUnit * qtd),
-    v_fcp_st: r(vFcpStUnit * qtd),
-    v_icms_uf_dest: r(vDifalUnit * qtd),
-    v_icms_uf_remet: 0,
-    custo_variavel_real: r(custoVariavelReal),
-  });
-}
