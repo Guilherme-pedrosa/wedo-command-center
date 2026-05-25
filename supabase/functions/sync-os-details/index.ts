@@ -14,6 +14,36 @@ let lastCallTime = 0;
 const DESLOCAMENTO_SERVICO_CODIGO = "2094836555801";
 const DESLOCAMENTO_SERVICO_ID = "66773231";
 
+// Itens de reembolso — NÃO contam como faturamento do técnico
+// Match por nome (normalizado: sem acento, lowercase, contains)
+const REEMBOLSO_KEYWORDS = [
+  "deslocament",
+  "hotel",
+  "hosped",
+  "aliment",
+  "refei",
+  "pedagi",
+  "passagem",
+  "combust",
+];
+
+function normalize(s: string): string {
+  return (s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function isReembolsoServico(srv: { nome?: string; descricao?: string; codigo?: string; id?: string; servico_id?: string }): boolean {
+  const srvId = String(srv.servico_id || srv.id || "");
+  const srvCodigo = String(srv.codigo || "");
+  if (srvCodigo === DESLOCAMENTO_SERVICO_CODIGO || srvId === DESLOCAMENTO_SERVICO_ID) return true;
+  const nome = normalize(srv.nome || srv.descricao || "");
+  if (!nome) return false;
+  return REEMBOLSO_KEYWORDS.some((kw) => nome.includes(kw));
+}
+
 async function rateLimitedFetch(url: string, options: RequestInit): Promise<Response> {
   const now = Date.now();
   const elapsed = now - lastCallTime;
@@ -25,15 +55,13 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
 }
 
 function computeDeslocamento(os: Record<string, unknown>): number {
-  const servicos = os.servicos as Array<{ servico?: { codigo?: string; id?: string; servico_id?: string; valor_total?: string } }> | undefined;
+  const servicos = os.servicos as Array<{ servico?: { nome?: string; descricao?: string; codigo?: string; id?: string; servico_id?: string; valor_total?: string } }> | undefined;
   if (!Array.isArray(servicos)) return 0;
   let total = 0;
   for (const s of servicos) {
     const srv = s?.servico;
     if (!srv) continue;
-    const srvId = String(srv.servico_id || srv.id || "");
-    const srvCodigo = String(srv.codigo || "");
-    if (srvCodigo === DESLOCAMENTO_SERVICO_CODIGO || srvId === DESLOCAMENTO_SERVICO_ID) {
+    if (isReembolsoServico(srv)) {
       total += parseFloat(String(srv.valor_total || "0")) || 0;
     }
   }
