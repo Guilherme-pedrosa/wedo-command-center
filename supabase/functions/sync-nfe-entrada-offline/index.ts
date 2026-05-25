@@ -353,6 +353,7 @@ serve(async (req) => {
       if (!payload) continue;
 
       const compraId = String(compraDb.gc_id);
+      const compraCodigo = String((compraDb as any).codigo || "");
       const fornecedorNome = normalizeText(compraDb.nome_fornecedor) || normalizeText(payload.nome_fornecedor);
       const fornecedorId = String(compraDb.fornecedor_id || payload.fornecedor_id || "");
       const fornecedorCnpj = fornecedorIdToCnpj.get(fornecedorId);
