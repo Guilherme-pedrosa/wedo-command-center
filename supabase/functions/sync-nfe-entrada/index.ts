@@ -690,6 +690,7 @@ function processarXml(
   compra: CompraRow,
   matchRuleTag: string,
   productTaxMap: Map<string, ProductTaxRecord>,
+  codigoPorProdutoId: Map<string, string>,
 ) {
   const r = (v: number) => Math.round(v * 100) / 100;
   const xmlItems = parseXmlItems(xml);
@@ -702,6 +703,17 @@ function processarXml(
   const compraItens = compra.itens;
   const usedXmlIdx = new Set<number>();
 
+  // Pré-indexa XML items por cProd normalizado
+  const xmlPorCProd = new Map<string, number[]>();
+  for (let i = 0; i < xmlItems.length; i++) {
+    const norm = normalizarCodigoProduto(xmlItems[i].cProd);
+    if (norm) {
+      const arr = xmlPorCProd.get(norm) || [];
+      arr.push(i);
+      xmlPorCProd.set(norm, arr);
+    }
+  }
+
   for (const item of compraItens) {
     // só grava tributos para itens com gc_produto_id
     const gcProdId = item.produto_gc_id;
@@ -712,23 +724,33 @@ function processarXml(
     const compraUnit = compraQtd > 0 ? compraValorTotal / compraQtd : compraValorTotal;
 
     let pick: { xi: XmlItemTax; idx: number; rule: string } | null = null;
-    let bestDiff = Infinity;
-    const tolTotal = Math.max(compraValorTotal * 0.05, 0.5);
-    const tolUnit = Math.max(compraUnit * 0.05, 0.1);
 
-    // 1) match por valor total
-    for (let i = 0; i < xmlItems.length; i++) {
-      if (usedXmlIdx.has(i)) continue;
-      const xi = xmlItems[i];
-      const diff = Math.abs(xi.vProd - compraValorTotal);
-      if (diff <= tolTotal && diff < bestDiff) {
-        bestDiff = diff;
-        pick = { xi, idx: i, rule: "valor_total" };
+    // ── PRIORIDADE 1: cProd EXATO (codigo_interno do cadastro = cProd do XML) ──
+    const codigoCompra = codigoPorProdutoId.get(gcProdId);
+    if (codigoCompra) {
+      const candidatos = xmlPorCProd.get(codigoCompra) || [];
+      const livres = candidatos.filter((idx) => !usedXmlIdx.has(idx));
+      if (livres.length === 1) {
+        pick = { xi: xmlItems[livres[0]], idx: livres[0], rule: "cprod_normalizado" };
+      } else if (livres.length > 1) {
+        let bestScore = Infinity;
+        for (const idx of livres) {
+          const xi = xmlItems[idx];
+          const diffQtd = Math.abs(xi.qCom - compraQtd);
+          const diffUnit = Math.abs(xi.vUnCom - compraUnit);
+          const score = diffQtd * 1000 + diffUnit;
+          if (score < bestScore) {
+            bestScore = score;
+            pick = { xi, idx, rule: "cprod_multi_desempate_qtd" };
+          }
+        }
       }
     }
 
-    // 2) match por unitário+qtd
+    // ── PRIORIDADE 2: qtd exata + unitário próximo ──
     if (!pick) {
+      const tolUnit = Math.max(compraUnit * 0.05, 0.1);
+      let bestDiff = Infinity;
       for (let i = 0; i < xmlItems.length; i++) {
         if (usedXmlIdx.has(i)) continue;
         const xi = xmlItems[i];
@@ -736,15 +758,31 @@ function processarXml(
         const diff = Math.abs(xi.vUnCom - compraUnit);
         if (sameQtd && diff <= tolUnit && diff < bestDiff) {
           bestDiff = diff;
-          pick = { xi, idx: i, rule: "valor_unit_qtd" };
+          pick = { xi, idx: i, rule: "qtd_unitario" };
         }
       }
     }
 
-    // 3) 1x1
+    // ── PRIORIDADE 3: 1x1 ──
     if (!pick && compraItens.length === 1 && xmlItems.length === 1 && usedXmlIdx.size === 0) {
       pick = { xi: xmlItems[0], idx: 0, rule: "unico_1x1" };
     }
+
+    // ── PRIORIDADE 4 (fallback): valor_total mais próximo ──
+    if (!pick) {
+      const tolTotal = Math.max(compraValorTotal * 0.05, 0.5);
+      let bestDiff = Infinity;
+      for (let i = 0; i < xmlItems.length; i++) {
+        if (usedXmlIdx.has(i)) continue;
+        const xi = xmlItems[i];
+        const diff = Math.abs(xi.vProd - compraValorTotal);
+        if (diff <= tolTotal && diff < bestDiff) {
+          bestDiff = diff;
+          pick = { xi, idx: i, rule: "valor_total_fallback" };
+        }
+      }
+    }
+
 
     if (!pick) {
       // rateio proporcional pelas médias do XML
