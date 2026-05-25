@@ -847,12 +847,25 @@ function processarRateio(
   const totalCOFINS = xmlItems.reduce((s, i) => s + i.cofins_vCOFINS, 0);
   const totalIPI = xmlItems.reduce((s, i) => s + i.ipi_vIPI, 0);
   const totalBaseICMS = xmlItems.reduce((s, i) => s + i.icms_vBC, 0);
+  const totalSeg = xmlItems.reduce((s, i) => s + i.vSeg, 0);
+  const totalOutro = xmlItems.reduce((s, i) => s + i.vOutro, 0);
+  const totalDesc = xmlItems.reduce((s, i) => s + i.vDesc, 0);
+  const totalIcmsSt = xmlItems.reduce((s, i) => s + i.icms_vICMSST, 0);
+  const totalFcpSt = xmlItems.reduce((s, i) => s + i.icms_vFCPST, 0);
+  const totalIcmsUfDest = xmlItems.reduce((s, i) => s + i.icms_vICMSUFDest, 0);
   const avgIcmsAliq = totalVProd > 0 ? (totalICMS / totalVProd) * 100 : 0;
   const avgPisAliq = totalVProd > 0 ? (totalPIS / totalVProd) * 100 : 0;
   const avgCofinsAliq = totalVProd > 0 ? (totalCOFINS / totalVProd) * 100 : 0;
   const avgIpiAliq = totalVProd > 0 ? (totalIPI / totalVProd) * 100 : 0;
   const freteRate = totalVProd > 0 ? (xmlFrete / totalVProd) * 100 : 0;
   const icmsBasePerc = totalVProd > 0 ? (totalBaseICMS / totalVProd) * 100 : 100;
+  // taxas rateadas (sobre vProd) para seguros/outros/ST/DIFAL/desc
+  const segRate = totalVProd > 0 ? totalSeg / totalVProd : 0;
+  const outroRate = totalVProd > 0 ? totalOutro / totalVProd : 0;
+  const descRate = totalVProd > 0 ? totalDesc / totalVProd : 0;
+  const icmsStRate = totalVProd > 0 ? totalIcmsSt / totalVProd : 0;
+  const fcpStRate = totalVProd > 0 ? totalFcpSt / totalVProd : 0;
+  const difalRate = totalVProd > 0 ? totalIcmsUfDest / totalVProd : 0;
 
   const ref = xmlItems[0];
   const qtd = item.quantidade || 1;
@@ -864,6 +877,17 @@ function processarRateio(
   const ipiUnit = valorUnit * (avgIpiAliq / 100);
   const freteUnit = valorUnit * (freteRate / 100);
   const custoEfetivo = valorUnit + ipiUnit + freteUnit - icmsUnit - pisUnit - cofinsUnit;
+
+  // Bloco 1.9 — custo variável real no rateio (sem qTrib específico → fator=1)
+  const vSegUnit = valorUnit * segRate;
+  const vOutroUnit = valorUnit * outroRate;
+  const vDescUnit = valorUnit * descRate;
+  const vIcmsStUnit = valorUnit * icmsStRate;
+  const vFcpStUnit = valorUnit * fcpStRate;
+  const vDifalUnit = valorUnit * difalRate;
+  const custoVariavelReal = valorUnit + ipiUnit + freteUnit
+    + vSegUnit + vOutroUnit + vIcmsStUnit + vFcpStUnit + vDifalUnit
+    - vDescUnit - icmsUnit - pisUnit - cofinsUnit;
 
   const existing = productTaxMap.get(gcProdId);
   if (existing && existing.nf_data_emissao > (xmlMeta.data_emissao || "")) return;
@@ -895,5 +919,19 @@ function processarRateio(
     valor_frete_unit: r(freteUnit),
     custo_efetivo_unit: r(custoEfetivo),
     match_rule: `${matchRuleTag}+xml_rateio`,
+    // Bloco 1.9
+    q_com: r(qtd),
+    v_un_com: r(valorUnit),
+    q_trib: r(qtd),
+    v_un_trib: r(valorUnit),
+    fator_conversao: 1,
+    v_seg: r(vSegUnit * qtd),
+    v_outro: r(vOutroUnit * qtd),
+    v_desc: r(vDescUnit * qtd),
+    v_icms_st: r(vIcmsStUnit * qtd),
+    v_fcp_st: r(vFcpStUnit * qtd),
+    v_icms_uf_dest: r(vDifalUnit * qtd),
+    v_icms_uf_remet: 0,
+    custo_variavel_real: r(custoVariavelReal),
   });
 }
