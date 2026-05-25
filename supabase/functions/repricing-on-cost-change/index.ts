@@ -188,7 +188,9 @@ Deno.serve(async (req) => {
           margem_resultante: margemResultante,
           margem_minima_politica: margemMin,
           justificativa: `Auto: custo subiu de ${body.custo_anterior ?? "?"} → ${custo_novo}, margem caiu para ${(margemAtual * 100).toFixed(2)}%`,
-          status: "aprovado",
+          // IMPORTANTE: constraint fin_gc_price_aprovacoes_status_check aceita ('pendente','aprovada','rejeitada')
+          // NÃO trocar para "aprovado" — quebra check constraint.
+          status: "aprovada",
           decidido_em: new Date().toISOString(),
           decisao_observacao: "Auto-aprovado por política sugerir + !exige_aprov_ceo",
           payload: { source: "repricing-on-cost-change", custo_anterior: body.custo_anterior },
