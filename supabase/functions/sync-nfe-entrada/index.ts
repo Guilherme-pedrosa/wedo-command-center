@@ -129,12 +129,23 @@ interface XmlItemTax {
   qCom: number;
   vProd: number;
   vUnCom: number;
+  uCom: string;
+  uTrib: string;
+  qTrib: number;
+  vUnTrib: number;
+  vSeg: number;
+  vOutro: number;
+  vDesc: number;
   icms_orig: string;
   icms_cst: string;
   icms_pRedBC: number;
   icms_vBC: number;
   icms_pICMS: number;
   icms_vICMS: number;
+  icms_vICMSST: number;
+  icms_vFCPST: number;
+  icms_vICMSUFDest: number;
+  icms_vICMSUFRemet: number;
   ipi_cst: string;
   ipi_vBC: number;
   ipi_pIPI: number;
@@ -167,6 +178,13 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const qCom = parseFloat(getTag(prod, "qCom")) || 1;
     const vProd = parseFloat(getTag(prod, "vProd")) || 0;
     const vUnCom = parseFloat(getTag(prod, "vUnCom")) || 0;
+    const uCom = getTag(prod, "uCom");
+    const uTrib = getTag(prod, "uTrib");
+    const qTrib = parseFloat(getTag(prod, "qTrib")) || 0;
+    const vUnTrib = parseFloat(getTag(prod, "vUnTrib")) || 0;
+    const vSeg = parseFloat(getTag(prod, "vSeg")) || 0;
+    const vOutro = parseFloat(getTag(prod, "vOutro")) || 0;
+    const vDesc = parseFloat(getTag(prod, "vDesc")) || 0;
 
     const icmsBlock = getBlock(imposto, "ICMS");
     const icmsInner = icmsBlock.replace(/<\/?(?:[a-zA-Z0-9]+:)?ICMS>/gi, "").trim();
@@ -176,6 +194,13 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const icms_vBC = parseFloat(getTag(icmsInner, "vBC")) || 0;
     const icms_pICMS = parseFloat(getTag(icmsInner, "pICMS")) || 0;
     const icms_vICMS = parseFloat(getTag(icmsInner, "vICMS")) || 0;
+    // ICMS-ST e FCP-ST (entram no custo)
+    const icms_vICMSST = parseFloat(getTag(icmsInner, "vICMSST")) || 0;
+    const icms_vFCPST = parseFloat(getTag(icmsInner, "vFCPST")) || 0;
+    // DIFAL (ICMSUFDest)
+    const icmsUfDestBlock = getBlock(imposto, "ICMSUFDest");
+    const icms_vICMSUFDest = parseFloat(getTag(icmsUfDestBlock, "vICMSUFDest")) || 0;
+    const icms_vICMSUFRemet = parseFloat(getTag(icmsUfDestBlock, "vICMSUFRemet")) || 0;
 
     const ipiBlock = getBlock(imposto, "IPI");
     const ipiTrib = getBlock(ipiBlock, "IPITrib") || ipiBlock;
@@ -204,32 +229,15 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const cofins_vCOFINS = parseFloat(getTag(cofinsInner, "vCOFINS")) || 0;
 
     items.push({
-      nItem,
-      cProd,
-      xProd,
-      NCM,
-      CFOP,
-      qCom,
-      vProd,
-      vUnCom,
-      icms_orig,
-      icms_cst,
-      icms_pRedBC,
-      icms_vBC,
-      icms_pICMS,
-      icms_vICMS,
-      ipi_cst,
-      ipi_vBC,
-      ipi_pIPI,
-      ipi_vIPI,
-      pis_cst,
-      pis_vBC,
-      pis_pPIS,
-      pis_vPIS,
-      cofins_cst,
-      cofins_vBC,
-      cofins_pCOFINS,
-      cofins_vCOFINS,
+      nItem, cProd, xProd, NCM, CFOP,
+      qCom, vProd, vUnCom,
+      uCom, uTrib, qTrib, vUnTrib,
+      vSeg, vOutro, vDesc,
+      icms_orig, icms_cst, icms_pRedBC, icms_vBC, icms_pICMS, icms_vICMS,
+      icms_vICMSST, icms_vFCPST, icms_vICMSUFDest, icms_vICMSUFRemet,
+      ipi_cst, ipi_vBC, ipi_pIPI, ipi_vIPI,
+      pis_cst, pis_vBC, pis_pPIS, pis_vPIS,
+      cofins_cst, cofins_vBC, cofins_pCOFINS, cofins_vCOFINS,
     });
   }
 
