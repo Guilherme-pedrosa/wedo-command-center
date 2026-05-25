@@ -115,8 +115,45 @@ Deno.serve(async (req) => {
     }
 
     if (precoAtual <= 0) {
+      // Preço inicial ausente — sempre exige aprovação CEO (nunca auto-publica preço novo)
       novosValores.push(entry);
-      skipped.push({ tipo_id: tipoId, motivo: "preço atual zero" });
+      const margemMinZ = Number(pol.margem_minima);
+      const precoSugeridoZ = round2(custo_novo / (1 - margemMinZ));
+      const margemResZ = (precoSugeridoZ - custo_novo) / precoSugeridoZ;
+
+      const { data: aprovZ, error: errApZ } = await supabase
+        .from("fin_gc_price_aprovacoes")
+        .insert({
+          gc_produto_id,
+          nome_produto: prod.nome,
+          tipo_id: tipoId,
+          modo_calculo: "completo",
+          custo_referencia: custo_novo,
+          preco_atual: 0,
+          preco_solicitado: precoSugeridoZ,
+          margem_resultante: margemResZ,
+          margem_minima_politica: margemMinZ,
+          justificativa: `Preço inicial ausente em ${pol.nome_tabela}. Custo R$ ${custo_novo.toFixed(2)}. Sugerido R$ ${precoSugeridoZ.toFixed(2)} (margem mín ${(margemMinZ * 100).toFixed(2)}%).`,
+          status: "pendente",
+          payload: { source: "repricing-on-cost-change", motivo: "preco_inicial_ausente", custo_anterior: body.custo_anterior },
+        })
+        .select("id")
+        .single();
+
+      if (!errApZ && aprovZ) {
+        await supabase.from("fin_acoes_pendentes").insert({
+          tipo: "aprovacao_preco_inicial",
+          destinatario_role: "ceo",
+          titulo: `Definir preço inicial: ${prod.nome ?? gc_produto_id} - ${pol.nome_tabela}`,
+          descricao: `Tabela sem preço cadastrado. Custo R$ ${custo_novo.toFixed(2)} → sugerido R$ ${precoSugeridoZ.toFixed(2)} (margem mín ${(margemMinZ * 100).toFixed(2)}%).`,
+          entidade_tipo: "fin_gc_price_aprovacoes",
+          entidade_id: aprovZ.id,
+          payload: { gc_produto_id, tipo_id: tipoId, nome_tabela: pol.nome_tabela, custo_novo, preco_sugerido: precoSugeridoZ, margem_minima: margemMinZ, aprovacao_id: aprovZ.id, motivo: "preco_inicial_ausente" },
+        });
+        pendentes.push({ tipo_id: tipoId, nome_tabela: pol.nome_tabela, preco_atual: 0, preco_sugerido: precoSugeridoZ, aprovacao_id: aprovZ.id, motivo: "preco_inicial_ausente" });
+      } else {
+        skipped.push({ tipo_id: tipoId, motivo: "erro_aprovacao_preco_zero", erro: errApZ?.message });
+      }
       continue;
     }
 
