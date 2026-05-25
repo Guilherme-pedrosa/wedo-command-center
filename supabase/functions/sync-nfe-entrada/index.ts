@@ -466,7 +466,8 @@ serve(async (req) => {
         .is("ipi_aliquota_manual", null)
         .eq("sem_credito", false);
       // Limpa pendências antigas para reprocessar
-      await supabase.from("fin_nfe_match_pendentes").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      // Preserva pendências de custo zero (criadas pela migration / fora do escopo do matcher de NF)
+      await supabase.from("fin_nfe_match_pendentes").delete().neq("motivo", "custo_zero_no_cadastro_gc");
     }
 
     // ── Step 5: Matcher determinístico ──
