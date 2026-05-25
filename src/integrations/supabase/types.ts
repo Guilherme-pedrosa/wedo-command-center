@@ -2231,6 +2231,7 @@ export type Database = {
           cfop: string | null
           cofins_aliquota: number | null
           cofins_aliquota_manual: number | null
+          compra_codigo: string | null
           compra_gc_id: string | null
           created_at: string | null
           custo_efetivo_unit: number | null
@@ -2282,6 +2283,7 @@ export type Database = {
           cfop?: string | null
           cofins_aliquota?: number | null
           cofins_aliquota_manual?: number | null
+          compra_codigo?: string | null
           compra_gc_id?: string | null
           created_at?: string | null
           custo_efetivo_unit?: number | null
@@ -2333,6 +2335,7 @@ export type Database = {
           cfop?: string | null
           cofins_aliquota?: number | null
           cofins_aliquota_manual?: number | null
+          compra_codigo?: string | null
           compra_gc_id?: string | null
           created_at?: string | null
           custo_efetivo_unit?: number | null

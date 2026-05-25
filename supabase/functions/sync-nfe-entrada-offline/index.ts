@@ -66,6 +66,7 @@ interface ProductTaxRecord {
   nf_chave: string;
   nf_data_emissao: string | null;
   compra_gc_id: string;
+  compra_codigo: string;
   fornecedor_nome: string;
   regime_fornecedor: string;
   sem_credito: boolean;
@@ -282,7 +283,7 @@ serve(async (req) => {
     // ── Step 2: Fetch batch of compras from BD (only with NF-e + valid status + date filter) ──
     const { data: comprasDb, error: compraErr } = await supabase
       .from("gc_compras")
-      .select("gc_id, nome_fornecedor, fornecedor_id, valor_total, valor_produtos, valor_frete, gc_payload_raw")
+      .select("gc_id, codigo, nome_fornecedor, fornecedor_id, valor_total, valor_produtos, valor_frete, gc_payload_raw")
       .not("gc_payload_raw", "is", null)
       .neq("gc_payload_raw->Compra->>numero_nfe", "")
       .in("situacao_id", ALLOWED_SITUACAO_IDS)
@@ -353,6 +354,7 @@ serve(async (req) => {
       if (!payload) continue;
 
       const compraId = String(compraDb.gc_id);
+      const compraCodigo = String((compraDb as any).codigo || "");
       const fornecedorNome = normalizeText(compraDb.nome_fornecedor) || normalizeText(payload.nome_fornecedor);
       const fornecedorId = String(compraDb.fornecedor_id || payload.fornecedor_id || "");
       const fornecedorCnpj = fornecedorIdToCnpj.get(fornecedorId);
@@ -462,34 +464,8 @@ serve(async (req) => {
           }
         }
 
-        // ── PRIORIDADE 3: Match por valor total ou unitário (tolerância 5%) ──
-        if (!xmlItem) {
-          const matchTolerance = Math.max(compraProdValor * 0.05, 0.50);
-          const unitTolerance = Math.max(compraProdUnitario * 0.05, 0.10);
-          let bestDiff = Infinity;
-
-          for (let i = 0; i < xmlItems.length; i++) {
-            if (usedXmlIndices.has(i)) continue;
-            const xi = xmlItems[i];
-            const diffTotal = Math.abs(xi.vProd - compraProdValor);
-            if (diffTotal <= matchTolerance && diffTotal < bestDiff) {
-              bestDiff = diffTotal;
-              bestIdx = i;
-              xmlItem = xi;
-              matchRule = "valor_total";
-            }
-            if (!xmlItem || diffTotal > matchTolerance) {
-              const diffUnit = Math.abs(xi.vUnCom - compraProdUnitario);
-              const sameQtd = Math.abs(xi.qCom - compraProdQtd) < 0.01;
-              if (sameQtd && diffUnit <= unitTolerance && diffUnit < bestDiff) {
-                bestDiff = diffUnit;
-                bestIdx = i;
-                xmlItem = xi;
-                matchRule = "valor_unit_qtd";
-              }
-            }
-          }
-        }
+        // ── PRIORIDADE 3 (REMOVIDA): Match por valor era fonte de erros (produtos diferentes com mesmo preço) ──
+        // Política "não inferir": só vinculamos se houver confirmação por código, por nome ou item único 1:1.
 
         // ── PRIORIDADE 4: Produto único na compra + item único no XML ──
         if (!xmlItem && compraProdutos.length === 1 && xmlItems.length === 1 && usedXmlIndices.size === 0) {
@@ -532,6 +508,7 @@ serve(async (req) => {
             nf_chave: matchedChave,
             nf_data_emissao: xmlDataEmissao,
             compra_gc_id: compraId,
+            compra_codigo: compraCodigo,
             fornecedor_nome: fornecedorNome || "",
             regime_fornecedor: isSN ? "simples_nacional" : "normal",
             sem_credito: isSN,
@@ -596,6 +573,7 @@ serve(async (req) => {
             nf_chave: matchedChave,
             nf_data_emissao: xmlDataEmissao,
             compra_gc_id: compraId,
+            compra_codigo: compraCodigo,
             fornecedor_nome: fornecedorNome || "",
             regime_fornecedor: isSN ? "simples_nacional" : "normal",
             sem_credito: isSN,
