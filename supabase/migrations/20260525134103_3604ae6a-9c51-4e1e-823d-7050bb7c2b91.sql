@@ -1,0 +1,4 @@
+CREATE OR REPLACE FUNCTION public.normalizar_codigo_produto(c TEXT)
+RETURNS TEXT LANGUAGE sql IMMUTABLE AS $$
+  SELECT UPPER(REGEXP_REPLACE(TRIM(COALESCE(c, '')), '[^A-Z0-9]', '', 'gi'))
+$$;

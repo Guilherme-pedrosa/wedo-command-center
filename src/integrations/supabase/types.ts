@@ -3818,6 +3818,7 @@ export type Database = {
       }
       next_negociacao_number: { Args: never; Returns: number }
       normalizar_cnpj: { Args: { c: string }; Returns: string }
+      normalizar_codigo_produto: { Args: { c: string }; Returns: string }
       normalizar_numero_nf: { Args: { n: string }; Returns: string }
     }
     Enums: {
