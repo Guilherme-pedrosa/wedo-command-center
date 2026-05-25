@@ -567,7 +567,7 @@ serve(async (req) => {
       }
       xmlsLidos++;
 
-      processarXml(xml, matched, compra, matchRuleTag, productTaxMap);
+      processarXml(xml, matched, compra, matchRuleTag, productTaxMap, codigoPorProdutoId);
     }
 
     // ── Step 6: Upsert tributos ──
