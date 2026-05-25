@@ -1796,6 +1796,54 @@ export type Database = {
         }
         Relationships: []
       }
+      fin_nfe_match_pendentes: {
+        Row: {
+          candidatos: Json | null
+          cnpj_fornecedor: string | null
+          compra_gc_id: string
+          created_at: string
+          data_compra: string | null
+          id: string
+          motivo: string
+          nome_fornecedor: string | null
+          numero_nfe: string | null
+          resolvido: boolean
+          resolvido_em: string | null
+          updated_at: string
+          valor_compra: number | null
+        }
+        Insert: {
+          candidatos?: Json | null
+          cnpj_fornecedor?: string | null
+          compra_gc_id: string
+          created_at?: string
+          data_compra?: string | null
+          id?: string
+          motivo: string
+          nome_fornecedor?: string | null
+          numero_nfe?: string | null
+          resolvido?: boolean
+          resolvido_em?: string | null
+          updated_at?: string
+          valor_compra?: number | null
+        }
+        Update: {
+          candidatos?: Json | null
+          cnpj_fornecedor?: string | null
+          compra_gc_id?: string
+          created_at?: string
+          data_compra?: string | null
+          id?: string
+          motivo?: string
+          nome_fornecedor?: string | null
+          numero_nfe?: string | null
+          resolvido?: boolean
+          resolvido_em?: string | null
+          updated_at?: string
+          valor_compra?: number | null
+        }
+        Relationships: []
+      }
       fin_nfe_xml_index: {
         Row: {
           chave: string
@@ -1803,6 +1851,7 @@ export type Database = {
           data_emissao: string | null
           id: string
           nome_emitente: string | null
+          numero_nf: string | null
           parsed_at: string | null
           qtd_itens: number | null
           storage_path: string
@@ -1815,6 +1864,7 @@ export type Database = {
           data_emissao?: string | null
           id?: string
           nome_emitente?: string | null
+          numero_nf?: string | null
           parsed_at?: string | null
           qtd_itens?: number | null
           storage_path: string
@@ -1827,6 +1877,7 @@ export type Database = {
           data_emissao?: string | null
           id?: string
           nome_emitente?: string | null
+          numero_nf?: string | null
           parsed_at?: string | null
           qtd_itens?: number | null
           storage_path?: string
