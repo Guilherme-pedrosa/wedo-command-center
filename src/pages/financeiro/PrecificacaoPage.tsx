@@ -772,7 +772,9 @@ export default function PrecificacaoPage() {
       const custoCan = custoCanonicoMap.get(p.id);
       const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
       const tributoRaw = tributosMap.get(p.id);
-      const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
+      const tributoBase = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
+      const kitRatio = detectKitRatio(tributoBase, parseFloat(p.valor_custo) || 0);
+      const tributo = tributoBase ? ajustarTributoPorKit(tributoBase, kitRatio) : undefined;
       const hasNF = !!tributo;
       let calc: ReturnType<typeof calcPricing>;
       if (hasNF) {
