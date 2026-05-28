@@ -1243,6 +1243,23 @@ export default function PrecificacaoPage() {
                 onChange={(e) => setSearch(e.target.value)} className="pl-9 bg-secondary" />
             </div>
             <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Margem:</Label>
+              <Select value={marginFilter} onValueChange={(v) => setMarginFilter(v as typeof marginFilter)}>
+                <SelectTrigger className="w-[180px] h-8 text-xs bg-secondary">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os produtos</SelectItem>
+                  <SelectItem value="fora">
+                    <span className="flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-destructive" /> Fora da margem mínima</span>
+                  </SelectItem>
+                  <SelectItem value="negativa">
+                    <span className="flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-destructive" /> Margem negativa</span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Tipo saída:</Label>
               <Select value={tipoSaidaGlobal} onValueChange={(v) => setTipoSaidaGlobal(v as TipoSaida)}>
                 <SelectTrigger className="w-[160px] h-8 text-xs bg-secondary">
