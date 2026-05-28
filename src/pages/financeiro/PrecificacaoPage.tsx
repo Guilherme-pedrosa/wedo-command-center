@@ -1290,6 +1290,15 @@ export default function PrecificacaoPage() {
             <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={isSyncing}>
               {syncingOffline ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
               Reprocessar Tributos
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => corrigirPrecoBatch(allOutOfMargin, `TODOS fora da margem (${allOutOfMargin.length})`, "global")}
+              disabled={!!bulkCorrigindo || !!corrigindoKey || allOutOfMargin.length === 0}
+              title={`Aceita o preço sugerido para todas as tabelas fora da margem em todos os produtos filtrados (${allOutOfMargin.length} correções)`}
+            >
+              {bulkCorrigindo === "global" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <TrendingUp className="h-4 w-4 mr-1" />}
+              Aplicar sugestão a TODOS ({allOutOfMargin.length})
             </Button>
             {isSyncing && syncProgress && (
               <span className="text-xs text-muted-foreground font-mono animate-pulse">{syncProgress}</span>
