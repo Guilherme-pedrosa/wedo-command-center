@@ -957,6 +957,80 @@ export default function PrecificacaoPage() {
     return `ISS ${taxSaida.iss}% + PIS ${taxSaida.pisSaidaServico}% + COFINS ${taxSaida.cofinsSaidaServico}%`;
   };
 
+  // ── Corrigir preço por produto+tabela: cria aprovação 'aprovada' + write_job (worker faz GET-before-PUT no GC) ──
+  const [corrigindoKey, setCorrigindoKey] = useState<string | null>(null);
+  const corrigirPreco = async (args: {
+    gc_produto_id: string;
+    nome_produto: string;
+    tipo_id: string;
+    nome_tabela: string;
+    preco_atual: number;
+    preco_sugerido: number;
+    margem_minima: number;
+    margem_resultante: number;
+    custo_referencia: number;
+  }) => {
+    const key = `${args.gc_produto_id}:${args.tipo_id}`;
+    if (corrigindoKey) return;
+    if (!(args.preco_sugerido > 0) || !(args.custo_referencia > 0)) {
+      toast.error("Custo ou preço sugerido inválido");
+      return;
+    }
+    setCorrigindoKey(key);
+    try {
+      const { data: aprov, error: errAp } = await supabase
+        .from("fin_gc_price_aprovacoes")
+        .insert({
+          gc_produto_id: args.gc_produto_id,
+          nome_produto: args.nome_produto,
+          tipo_id: args.tipo_id,
+          modo_calculo: "completo",
+          custo_referencia: args.custo_referencia,
+          preco_atual: args.preco_atual,
+          preco_solicitado: args.preco_sugerido,
+          margem_resultante: args.margem_resultante,
+          margem_minima_politica: args.margem_minima,
+          justificativa: `Correção manual via UI: ${args.nome_tabela}. Preço ${args.preco_atual.toFixed(2)} → ${args.preco_sugerido.toFixed(2)} (margem mín ${(args.margem_minima * 100).toFixed(2)}%).`,
+          status: "aprovada",
+          decidido_em: new Date().toISOString(),
+          decisao_observacao: "Correção manual disparada pelo CEO na UI de Precificação",
+          payload: { source: "precificacao-ui-corrigir", nome_tabela: args.nome_tabela },
+        })
+        .select("id")
+        .single();
+      if (errAp) throw errAp;
+
+      await supabase.from("fin_gc_price_history").insert({
+        gc_produto_id: args.gc_produto_id,
+        tipo_id: args.tipo_id,
+        preco_anterior: args.preco_atual,
+        preco_novo: args.preco_sugerido,
+        margem_aplicada: args.margem_resultante,
+        source: "precificacao-ui-corrigir",
+        motivo: "Correção manual via UI",
+        aprovacao_id: aprov.id,
+      });
+
+      // Worker faz GET-before-PUT; sem lucro_utilizado; valor_custo apenas top-level (omitido aqui — custo do GC permanece).
+      await supabase.from("fin_gc_write_jobs").insert({
+        recurso: "produtos",
+        recurso_id: args.gc_produto_id,
+        payload: {
+          valores: [{ tipo_id: String(args.tipo_id), valor_venda: args.preco_sugerido.toFixed(2) }],
+        },
+        payload_hash: `corrigir-ui-${args.gc_produto_id}-${args.tipo_id}-${Date.now()}`,
+        status: "pendente",
+      });
+
+      toast.success(`${args.nome_tabela}: enviado ${formatCurrency(args.preco_sugerido)} pro GC`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`Falha ao corrigir: ${msg}`);
+    } finally {
+      setCorrigindoKey(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1410,9 +1484,34 @@ export default function PrecificacaoPage() {
                               </TableCell>
                               <TableCell className="text-right font-mono text-[10px] text-orange-400">-{formatCurrency(trib)}</TableCell>
                               <TableCell className="text-center">
-                                <Badge className={`text-[10px] gap-0.5 ${okMin ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>
-                                  {okMin ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margem.toFixed(1)}%
-                                </Badge>
+                                <div className="flex flex-col items-center gap-1">
+                                  <Badge className={`text-[10px] gap-0.5 ${okMin ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>
+                                    {okMin ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margem.toFixed(1)}%
+                                  </Badge>
+                                  {!okMin && precoSugerido > 0 && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-5 px-1.5 text-[9px] gap-1"
+                                      disabled={corrigindoKey === `${p.id}:${pol.tipo_id}`}
+                                      onClick={() => corrigirPreco({
+                                        gc_produto_id: String(p.id),
+                                        nome_produto: p.nome,
+                                        tipo_id: String(pol.tipo_id),
+                                        nome_tabela: pol.nome_tabela,
+                                        preco_atual: vendaReal,
+                                        preco_sugerido: precoSugerido,
+                                        margem_minima: margemMin,
+                                        margem_resultante: margemMin,
+                                        custo_referencia: calc.custoTotal,
+                                      })}
+                                      title={`Enviar ${formatCurrency(precoSugerido)} pro GC (margem mín ${(margemMin*100).toFixed(0)}%)`}
+                                    >
+                                      {corrigindoKey === `${p.id}:${pol.tipo_id}` ? <Loader2 className="h-2.5 w-2.5 animate-spin"/> : <RefreshCw className="h-2.5 w-2.5"/>}
+                                      Corrigir
+                                    </Button>
+                                  )}
+                                </div>
                               </TableCell>
                             </Fragment>
                           );
