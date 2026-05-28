@@ -109,11 +109,10 @@ function calcPricing(
   entrada: TaxConfigEntrada,
   saida: TaxConfigSaida,
   tipo: TipoSaida,
-  margemDesejada: number
+  margemDesejada: number,
+  custoFixoPct: number = 0 // fração (0.08 = 8%) — entra no DIVISOR do mark-up
 ) {
   // Sem NF para consultar → NUNCA inferir crédito de entrada. Zerado.
-  // Crédito de entrada só existe quando a NF foi importada e os tributos foram apurados
-  // (esse caminho é tratado em calcPricingComNF, não aqui).
   const creditoIcms = 0;
   const creditoPis = 0;
   const creditoCofins = 0;
@@ -121,6 +120,8 @@ function calcPricing(
 
   const custoLiquido = custoBruto - totalCreditosEntrada;
   const custoFrete = custoBruto * (entrada.frete / 100);
+  // custoFixoUnit (override flat manual) ainda soma direto no custo, se setado.
+  // O rateio proporcional (custoFixoPct) é embutido NO DIVISOR — não no custo.
   const custoTotal = custoLiquido + custoFrete + entrada.custoFixoUnit;
 
   // Alíquotas de saída (incidem sobre faturamento)
@@ -131,18 +132,19 @@ function calcPricing(
     aliquotaSaidaFaturamento = (saida.iss + saida.pisSaidaServico + saida.cofinsSaidaServico) / 100;
   }
 
-  // IRPJ/CSLL incide sobre lucro, não faturamento — simplificamos como % do faturamento
-  // Na prática Lucro Real: IRPJ 15% + adicional 10% + CSLL 9% sobre lucro líquido
-  // Para markup inverso, tratamos como % do faturamento para simplificar
   const irpjPct = saida.irpjCsll / 100;
 
   const margemDecimal = margemDesejada / 100;
-  // Preço = CustoTotal / (1 - tributos_saida - margem)
-  const divisor = 1 - aliquotaSaidaFaturamento - margemDecimal;
+  // Mark-up Divisor (padrão de mercado para custo fixo):
+  // Preço = CustoTotal / (1 - tributos_saida - custoFixo% - margem)
+  // CustoFixo% = CustoFixoMensal / FaturamentoMensalMédio
+  // Assim, cada R$ vendido contribui na mesma proporção pra cobrir o custo fixo.
+  const divisor = 1 - aliquotaSaidaFaturamento - custoFixoPct - margemDecimal;
   const precoMinimo = divisor > 0 ? custoTotal / divisor : custoTotal * 3;
 
   const tributosSaida = precoMinimo * aliquotaSaidaFaturamento;
-  const lucroAnteIR = precoMinimo - custoTotal - tributosSaida;
+  const custoFixoEmbutido = precoMinimo * custoFixoPct;
+  const lucroAnteIR = precoMinimo - custoTotal - tributosSaida - custoFixoEmbutido;
   const impostoRenda = Math.max(0, lucroAnteIR * irpjPct);
   const lucroLiquido = lucroAnteIR - impostoRenda;
 
@@ -156,11 +158,13 @@ function calcPricing(
     custoTotal,
     precoMinimo,
     tributosSaida,
+    custoFixoEmbutido,
     impostoRenda,
     lucroAnteIR,
     lucroLiquido,
     margemReal: precoMinimo > 0 ? (lucroLiquido / precoMinimo) * 100 : 0,
     aliquotaSaidaFaturamento,
+    custoFixoPct,
   };
 }
 
