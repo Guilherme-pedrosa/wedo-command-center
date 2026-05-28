@@ -1617,6 +1617,24 @@ export default function PrecificacaoPage() {
                           {statusCusto === "pendente_custo_zero" && (
                             <Badge className="ml-2 text-[10px] py-0 bg-red-500/20 text-red-400 border-red-500/30">⚠ Custo zero no GC</Badge>
                           )}
+                          {(() => {
+                            const items = outOfMarginByProduct.get(String(p.id)) || [];
+                            if (items.length === 0) return null;
+                            const bulkKey = `produto:${p.id}`;
+                            return (
+                              <Button
+                                size="sm"
+                                variant="default"
+                                className="ml-2 h-6 px-2 text-[10px] gap-1"
+                                disabled={!!bulkCorrigindo || !!corrigindoKey}
+                                onClick={() => corrigirPrecoBatch(items, `${p.nome.slice(0, 24)} (${items.length} tabela${items.length > 1 ? "s" : ""})`, bulkKey)}
+                                title={`Aplica preço sugerido em ${items.length} tabela(s) fora da margem deste produto`}
+                              >
+                                {bulkCorrigindo === bulkKey ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                                Corrigir {items.length} tabela{items.length > 1 ? "s" : ""}
+                              </Button>
+                            );
+                          })()}
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{estoque}</TableCell>
