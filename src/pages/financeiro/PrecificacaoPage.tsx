@@ -1290,6 +1290,7 @@ export default function PrecificacaoPage() {
             <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={isSyncing}>
               {syncingOffline ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
               Reprocessar Tributos
+            </Button>
             <Button
               variant="default"
               size="sm"
