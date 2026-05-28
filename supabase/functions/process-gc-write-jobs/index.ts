@@ -90,7 +90,7 @@ Deno.serve(async (req) => {
     let url: string;
     let method: string;
     if (job.recurso === "produtos") {
-      url = `${GC_BASE_URL}/produtos/${job.recurso_id}`;
+      url = `${GC_BASE_URL}/api/produtos/${job.recurso_id}`;
       method = "PUT";
     } else {
       await supabase.from("fin_gc_write_jobs").update({
@@ -159,11 +159,13 @@ Deno.serve(async (req) => {
       // 2. Mesclar payload do job (mínimo) com produto completo do GC
       const payload = job.payload as { valor_custo?: string | number; valores?: Array<Record<string, unknown>> };
       const valoresPayload = payload.valores ?? [];
+      const tiposAlterados = new Set<string>();
       const valoresMerged = (produtoBase.valores as Array<Record<string, unknown>>).map((vBase) => {
         const override = valoresPayload.find(
           (vp) => String(vp.tipo_id) === String(vBase.tipo_id),
         );
         if (!override) return vBase; // tabela não tocada, manter exatamente como o GC retornou
+        tiposAlterados.add(String(vBase.tipo_id));
         // OMITIR lucro_utilizado (read-only no GC)
         const { lucro_utilizado: _ignored, ...semLucro } = vBase as Record<string, unknown>;
         return {
@@ -172,6 +174,12 @@ Deno.serve(async (req) => {
           valor_custo: "0.00", // entradas sempre "0.00"; custo real vai no top-level
         };
       });
+
+      for (const override of valoresPayload) {
+        if (!tiposAlterados.has(String(override.tipo_id))) {
+          valoresMerged.push({ ...override, valor_custo: "0.00" });
+        }
+      }
 
       // 3. Custo top-level: do payload, fallback pro atual do GC
       const novoCustoTopLevel = payload.valor_custo ?? produtoBase.valor_custo;
@@ -220,6 +228,35 @@ Deno.serve(async (req) => {
     }
 
     if (success) {
+      const payload = job.payload as { valor_custo?: string | number; valores?: Array<Record<string, unknown>> };
+      const valoresPayload = payload.valores ?? [];
+
+      if (job.recurso === "produtos" && valoresPayload.length > 0) {
+        const { data: cacheRow } = await supabase
+          .from("gc_produtos_cache")
+          .select("valores")
+          .eq("produto_gc_id", job.recurso_id)
+          .maybeSingle();
+
+        const valoresAtuais = Array.isArray(cacheRow?.valores) ? cacheRow.valores as Array<Record<string, unknown>> : [];
+        const tiposAlterados = new Set<string>();
+        const valoresAtualizados = valoresAtuais.map((vBase) => {
+          const override = valoresPayload.find((vp) => String(vp.tipo_id) === String(vBase.tipo_id));
+          if (!override) return vBase;
+          tiposAlterados.add(String(vBase.tipo_id));
+          return { ...vBase, ...override };
+        });
+
+        for (const override of valoresPayload) {
+          if (!tiposAlterados.has(String(override.tipo_id))) valoresAtualizados.push(override);
+        }
+
+        await supabase
+          .from("gc_produtos_cache")
+          .update({ valores: valoresAtualizados, updated_at: new Date().toISOString() })
+          .eq("produto_gc_id", job.recurso_id);
+      }
+
       await supabase.from("fin_gc_write_jobs").update({
         status: "sucesso",
         ultimo_erro: null,
