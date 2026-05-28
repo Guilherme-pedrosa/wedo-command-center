@@ -234,21 +234,20 @@ function calcPricingWithNF(
   saida: TaxConfigSaida,
   tipo: TipoSaida,
   custoFixo: number,
-  margemDesejada: number
+  margemDesejada: number,
+  custoFixoPct: number = 0
 ) {
   const eff = getEffectiveRates(tributo);
   const valorUnit = tributo.valor_unitario_nf;
   
-  // Recalculate credits based on effective rates — serviço não aproveita nenhum crédito fiscal
   const creditoIcms = tipo === "servico" ? 0 : valorUnit * (eff.icms / 100);
   const creditoPis = tipo === "servico" ? 0 : valorUnit * (eff.pis / 100);
   const creditoCofins = tipo === "servico" ? 0 : valorUnit * (eff.cofins / 100);
   const ipiUnit = tributo.valor_ipi_unit;
   const freteUnit = tributo.valor_frete_unit;
   
-  // Custo efetivo recalculado com alíquotas efetivas
   const custoEfetivo = valorUnit + ipiUnit + freteUnit - creditoIcms - creditoPis - creditoCofins;
-  const custoTotal = custoEfetivo + custoFixo;
+  const custoTotal = custoEfetivo + custoFixo; // custoFixo aqui = override flat manual
 
   let aliquotaSaidaFaturamento: number;
   if (tipo === "venda") {
@@ -259,11 +258,13 @@ function calcPricingWithNF(
 
   const irpjPct = saida.irpjCsll / 100;
   const margemDecimal = margemDesejada / 100;
-  const divisor = 1 - aliquotaSaidaFaturamento - margemDecimal;
+  // Mark-up Divisor com custo fixo embutido
+  const divisor = 1 - aliquotaSaidaFaturamento - custoFixoPct - margemDecimal;
   const precoMinimo = divisor > 0 ? custoTotal / divisor : custoTotal * 3;
 
   const tributosSaida = precoMinimo * aliquotaSaidaFaturamento;
-  const lucroAnteIR = precoMinimo - custoTotal - tributosSaida;
+  const custoFixoEmbutido = precoMinimo * custoFixoPct;
+  const lucroAnteIR = precoMinimo - custoTotal - tributosSaida - custoFixoEmbutido;
   const impostoRenda = Math.max(0, lucroAnteIR * irpjPct);
   const lucroLiquido = lucroAnteIR - impostoRenda;
 
@@ -276,10 +277,12 @@ function calcPricingWithNF(
     custoTotal,
     precoMinimo,
     tributosSaida,
+    custoFixoEmbutido,
     impostoRenda,
     lucroAnteIR,
     lucroLiquido,
     aliquotaSaidaFaturamento,
+    custoFixoPct,
   };
 }
 
