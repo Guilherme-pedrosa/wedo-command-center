@@ -757,9 +757,37 @@ export default function PrecificacaoPage() {
       .reduce((sum, p) => sum + (Number(p.estoque) || 0), 0) || 1;
   }, [produtos]);
 
-  // Custo fixo só é rateado se temos dados de estoque; caso contrário, só usa override manual
+  // ── Custo fixo PROPORCIONAL ao valor do produto (não flat por unidade) ──
+  // Calcula valor total do estoque (Σ estoque × custo) usando custo canônico quando disponível.
+  // O custo fixo mensal vira uma % do valor de estoque, e cada produto absorve sua fatia
+  // proporcional ao próprio custo unitário. Assim, um produto de R$100.000 absorve muito mais
+  // custo fixo do que um de R$0,40 — sem distorcer a margem dos itens baratos.
+  const totalValorEstoque = useMemo(() => {
+    if (!produtos) return null;
+    return produtos
+      .filter(p => !EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k)))
+      .reduce((sum, p) => {
+        const custoCan = custoCanonicoMap.get(p.id);
+        const custo = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
+        const est = Number(p.estoque) || 0;
+        return sum + custo * est;
+      }, 0) || 0;
+  }, [produtos, custoCanonicoMap]);
+
+  // Percentual do custo fixo sobre valor de estoque (fração: 0.03 = 3%)
+  const custoFixoPct = (custoFixoMensal && totalValorEstoque) ? custoFixoMensal / totalValorEstoque : 0;
+
+  // Compat: continua exposto um "/un médio" só para display no header (custo fixo ÷ unidades),
+  // mas o cálculo real por linha agora usa custoFixoPct × custoBase.
   const custoFixoAutoUnit = (custoFixoMensal && totalProdutosEstoque) ? custoFixoMensal / totalProdutosEstoque : 0;
-  const activeEntrada = { ...taxEntrada, custoFixoUnit: taxEntrada.custoFixoUnit || custoFixoAutoUnit };
+  const activeEntrada = { ...taxEntrada, custoFixoUnit: taxEntrada.custoFixoUnit || 0 };
+
+  // Helper: custo fixo unitário PROPORCIONAL para um dado custoBase.
+  // Override manual (taxEntrada.custoFixoUnit > 0) ainda funciona como flat.
+  const calcCustoFixoUnitProp = (custoBase: number) =>
+    (taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0)
+      ? taxEntrada.custoFixoUnit
+      : custoBase * custoFixoPct;
 
   // ── Itens fora da margem: replica a lógica de cada linha (politicas × produto) para alimentar botões "Corrigir tudo" ──
   const outOfMarginByProduct = useMemo(() => {
