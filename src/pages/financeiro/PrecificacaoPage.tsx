@@ -810,26 +810,27 @@ export default function PrecificacaoPage() {
       const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const hasNF = !!tributo;
       let calc: ReturnType<typeof calcPricing>;
-      const cfuProp = calcCustoFixoUnitProp(hasNF ? (tributo!.valor_unitario_nf || 0) : custoBruto);
+      const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuProp, margemAlvo);
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo);
         calc = {
           creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
           totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
           custoFrete: tributo!.valor_frete_unit, custoTotal: nfCalc.custoTotal, precoMinimo: nfCalc.precoMinimo,
-          tributosSaida: nfCalc.tributosSaida, impostoRenda: nfCalc.impostoRenda, lucroAnteIR: nfCalc.lucroAnteIR,
-          lucroLiquido: nfCalc.lucroLiquido,
+          tributosSaida: nfCalc.tributosSaida, custoFixoEmbutido: nfCalc.custoFixoEmbutido, impostoRenda: nfCalc.impostoRenda,
+          lucroAnteIR: nfCalc.lucroAnteIR, lucroLiquido: nfCalc.lucroLiquido,
           margemReal: nfCalc.precoMinimo > 0 ? (nfCalc.lucroLiquido / nfCalc.precoMinimo) * 100 : 0,
           aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
+          custoFixoPct: nfCalc.custoFixoPct,
         };
       } else {
-        calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuProp }, taxSaida, tipoSaidaGlobal, margemAlvo);
+        calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
       }
       const valoresProd = valoresMap.get(p.id);
       const items: typeof map extends Map<string, infer V> ? V : never = [];
       for (const pol of politicas) {
         const margemMin = Number(pol.margem_minima) || 0;
-        const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - margemMin) : 0;
+        const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin) : 0;
         const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
         const temPrecoCadastrado = vendaReal > 0;
         const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
