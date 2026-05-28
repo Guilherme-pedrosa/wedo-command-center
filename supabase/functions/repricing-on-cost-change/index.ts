@@ -301,11 +301,21 @@ Deno.serve(async (req) => {
       .update({ valores: novosValores, updated_at: new Date().toISOString() })
       .eq("produto_gc_id", gc_produto_id);
 
-    // Enqueue write job to push to GC
+    // Enqueue write job to push to GC — PAYLOAD MÍNIMO
+    // Só as tabelas auto-aprovadas + custo novo top-level.
+    // Worker faz GET-before-PUT pra mesclar com produto completo do GC.
+    // NÃO incluir lucro_utilizado (read-only no GC).
+    const tabelasAlteradas = (auto as Array<{ tipo_id: string; preco_novo: number }>).map((a) => ({
+      tipo_id: String(a.tipo_id),
+      valor_venda: a.preco_novo.toFixed(2),
+    }));
     await supabase.from("fin_gc_write_jobs").insert({
       recurso: "produtos",
       recurso_id: gc_produto_id,
-      payload: { valores: novosValores },
+      payload: {
+        valor_custo: String(custo_novo),
+        valores: tabelasAlteradas,
+      },
       payload_hash: `repricing-${gc_produto_id}-${Date.now()}`,
       status: "pendente",
     });
