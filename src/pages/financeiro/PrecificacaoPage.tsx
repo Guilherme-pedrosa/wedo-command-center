@@ -364,7 +364,7 @@ export default function PrecificacaoPage() {
 
   const handleSyncEstoque = async () => {
     try {
-      toast.info("Sincronizando estoque do GC...");
+      toast("Sincronizando estoque do GC...");
       const data = await refetchProdutos();
       toast.success(`Estoque sincronizado: ${data.data?.length ?? 0} produtos`);
     } catch (err) {
