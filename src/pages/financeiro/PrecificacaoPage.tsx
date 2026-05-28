@@ -12,7 +12,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Search, Calculator, Package, TrendingUp, AlertTriangle, DollarSign, BarChart3, RefreshCw, FileText, Info, ShoppingCart, Wrench, Upload } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Loader2, Search, Calculator, Package, TrendingUp, AlertTriangle, DollarSign, BarChart3, RefreshCw, FileText, Info, ShoppingCart, Wrench, Upload, Pencil, Plus } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 import toast from "react-hot-toast";
 
@@ -258,6 +259,96 @@ export default function PrecificacaoPage() {
   const [calcTipoSaida, setCalcTipoSaida] = useState<TipoSaida>("venda");
   const [calcMargens] = useState([10, 15, 20, 25, 30]);
   const activeSyncRef = useRef<"gc" | "offline" | null>(null);
+
+  // ── Manual tributo (crédito manual quando não há NF) ──
+  const [manualTributoOpen, setManualTributoOpen] = useState(false);
+  const [manualTributoProduto, setManualTributoProduto] = useState<GCProduto | null>(null);
+  const [manualTributoForm, setManualTributoForm] = useState({
+    valor_unitario_nf: "",
+    icms_aliquota: "",
+    pis_aliquota: "1.65",
+    cofins_aliquota: "7.60",
+    ipi_aliquota: "0",
+    frete_percentual: "0",
+    fornecedor_nome: "",
+    nf_numero: "",
+    regime: "normal" as "normal" | "simples_nacional",
+  });
+  const [savingManualTributo, setSavingManualTributo] = useState(false);
+
+  function abrirManualTributo(produto: GCProduto, existente?: ProdutoTributo) {
+    setManualTributoProduto(produto);
+    setManualTributoForm({
+      valor_unitario_nf: existente ? String(existente.valor_unitario_nf || "") : String(Number(produto.valor_custo) || ""),
+      icms_aliquota: existente ? String(existente.icms_aliquota_manual ?? existente.icms_aliquota ?? "") : "",
+      pis_aliquota: existente ? String(existente.pis_aliquota_manual ?? existente.pis_aliquota ?? "1.65") : "1.65",
+      cofins_aliquota: existente ? String(existente.cofins_aliquota_manual ?? existente.cofins_aliquota ?? "7.60") : "7.60",
+      ipi_aliquota: existente ? String(existente.ipi_aliquota_manual ?? existente.ipi_aliquota ?? "0") : "0",
+      frete_percentual: existente ? String(existente.frete_percentual ?? "0") : "0",
+      fornecedor_nome: existente?.fornecedor_nome || "",
+      nf_numero: existente?.nf_numero || "",
+      regime: (existente?.regime_fornecedor === "simples_nacional" ? "simples_nacional" : "normal"),
+    });
+    setManualTributoOpen(true);
+  }
+
+  async function salvarManualTributo() {
+    if (!manualTributoProduto) return;
+    const valorUnit = parseFloat(manualTributoForm.valor_unitario_nf);
+    if (!valorUnit || valorUnit <= 0) {
+      toast.error("Informe um custo unitário válido");
+      return;
+    }
+    setSavingManualTributo(true);
+    try {
+      const semCredito = manualTributoForm.regime === "simples_nacional";
+      const icms = parseFloat(manualTributoForm.icms_aliquota) || 0;
+      const pis = parseFloat(manualTributoForm.pis_aliquota) || 0;
+      const cofins = parseFloat(manualTributoForm.cofins_aliquota) || 0;
+      const ipi = parseFloat(manualTributoForm.ipi_aliquota) || 0;
+      const frete = parseFloat(manualTributoForm.frete_percentual) || 0;
+
+      const payload = {
+        gc_produto_id: String(manualTributoProduto.id),
+        nome_produto: manualTributoProduto.nome,
+        valor_unitario_nf: valorUnit,
+        icms_aliquota: icms,
+        pis_aliquota: pis,
+        cofins_aliquota: cofins,
+        ipi_aliquota: ipi,
+        icms_aliquota_manual: icms,
+        pis_aliquota_manual: pis,
+        cofins_aliquota_manual: cofins,
+        ipi_aliquota_manual: ipi,
+        frete_percentual: frete,
+        valor_icms_unit: semCredito ? 0 : valorUnit * (icms / 100),
+        valor_pis_unit: semCredito ? 0 : valorUnit * (pis / 100),
+        valor_cofins_unit: semCredito ? 0 : valorUnit * (cofins / 100),
+        valor_ipi_unit: valorUnit * (ipi / 100),
+        valor_frete_unit: valorUnit * (frete / 100),
+        fornecedor_nome: manualTributoForm.fornecedor_nome || "Manual",
+        nf_numero: manualTributoForm.nf_numero || null,
+        regime_fornecedor: manualTributoForm.regime,
+        sem_credito: semCredito,
+        match_rule: "manual",
+        ultima_atualizacao: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from("fin_produto_tributos")
+        .upsert(payload, { onConflict: "gc_produto_id" });
+
+      if (error) throw error;
+      toast.success("Crédito manual salvo");
+      setManualTributoOpen(false);
+      await refetchTributos();
+    } catch (e: any) {
+      toast.error(`Falha ao salvar: ${e.message || e}`);
+    } finally {
+      setSavingManualTributo(false);
+    }
+  }
+
   const isSyncing = activeSync !== null;
   const syncingGC = activeSync === "gc";
   const syncingOffline = activeSync === "offline";
@@ -1499,7 +1590,26 @@ export default function PrecificacaoPage() {
                             </TooltipContent>
                           </Tooltip>
                         ) : (
-                          <Badge variant="outline" className="text-[10px] text-muted-foreground">Manual</Badge>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-[10px] gap-1 border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10"
+                            onClick={() => abrirManualTributo(p)}
+                          >
+                            <Plus className="h-3 w-3" />
+                            Adicionar crédito
+                          </Button>
+                        )}
+                        {hasNF && tributo.match_rule === "manual" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 mt-1"
+                            onClick={() => abrirManualTributo(p, tributo)}
+                            title="Editar crédito manual"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </Button>
                         )}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm text-green-400">
@@ -1852,6 +1962,101 @@ export default function PrecificacaoPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={manualTributoOpen} onOpenChange={setManualTributoOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Crédito manual de tributos</DialogTitle>
+            <DialogDescription>
+              {manualTributoProduto?.nome}
+              <span className="block text-xs text-muted-foreground mt-1">
+                Use quando não há NF de entrada importada. Os valores informados aqui geram crédito de entrada na precificação.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Custo unitário (R$) *</Label>
+                <Input
+                  type="number" step="0.0001" min="0"
+                  value={manualTributoForm.valor_unitario_nf}
+                  onChange={(e) => setManualTributoForm(f => ({ ...f, valor_unitario_nf: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Regime fornecedor</Label>
+                <Select
+                  value={manualTributoForm.regime}
+                  onValueChange={(v) => setManualTributoForm(f => ({ ...f, regime: v as any }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="normal">Normal (gera crédito)</SelectItem>
+                    <SelectItem value="simples_nacional">Simples Nacional (sem crédito)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2">
+              <div>
+                <Label className="text-xs">ICMS %</Label>
+                <Input type="number" step="0.01" disabled={manualTributoForm.regime === "simples_nacional"}
+                  value={manualTributoForm.icms_aliquota}
+                  onChange={(e) => setManualTributoForm(f => ({ ...f, icms_aliquota: e.target.value }))} />
+              </div>
+              <div>
+                <Label className="text-xs">PIS %</Label>
+                <Input type="number" step="0.01" disabled={manualTributoForm.regime === "simples_nacional"}
+                  value={manualTributoForm.pis_aliquota}
+                  onChange={(e) => setManualTributoForm(f => ({ ...f, pis_aliquota: e.target.value }))} />
+              </div>
+              <div>
+                <Label className="text-xs">COFINS %</Label>
+                <Input type="number" step="0.01" disabled={manualTributoForm.regime === "simples_nacional"}
+                  value={manualTributoForm.cofins_aliquota}
+                  onChange={(e) => setManualTributoForm(f => ({ ...f, cofins_aliquota: e.target.value }))} />
+              </div>
+              <div>
+                <Label className="text-xs">IPI %</Label>
+                <Input type="number" step="0.01"
+                  value={manualTributoForm.ipi_aliquota}
+                  onChange={(e) => setManualTributoForm(f => ({ ...f, ipi_aliquota: e.target.value }))} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label className="text-xs">Frete %</Label>
+                <Input type="number" step="0.01"
+                  value={manualTributoForm.frete_percentual}
+                  onChange={(e) => setManualTributoForm(f => ({ ...f, frete_percentual: e.target.value }))} />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs">Fornecedor (opcional)</Label>
+                <Input value={manualTributoForm.fornecedor_nome}
+                  onChange={(e) => setManualTributoForm(f => ({ ...f, fornecedor_nome: e.target.value }))} />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">Nº NF de referência (opcional)</Label>
+              <Input value={manualTributoForm.nf_numero}
+                onChange={(e) => setManualTributoForm(f => ({ ...f, nf_numero: e.target.value }))} />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setManualTributoOpen(false)}>Cancelar</Button>
+            <Button onClick={salvarManualTributo} disabled={savingManualTributo}>
+              {savingManualTributo && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+              Salvar crédito
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
