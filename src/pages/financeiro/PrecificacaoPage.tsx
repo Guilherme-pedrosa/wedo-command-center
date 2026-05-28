@@ -1628,7 +1628,9 @@ export default function PrecificacaoPage() {
                   const statusCusto = custoCan?.status || "ok_sem_tributo";
                   const estoque = Number(p.estoque) || 0;
                    const tributoRaw = tributosMap.get(p.id);
-                   const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
+                   const tributoBase = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
+                   const kitRatio = detectKitRatio(tributoBase, parseFloat(p.valor_custo) || 0);
+                   const tributo = tributoBase ? ajustarTributoPorKit(tributoBase, kitRatio) : undefined;
                    const hasNF = !!tributo;
                    const custoBase = hasNF ? tributo.valor_unitario_nf : custoBruto;
                    // Tabelas dinâmicas — preços reais vêm de valoresMap por tipo_id (não há mais markup hardcoded A/B/P)
