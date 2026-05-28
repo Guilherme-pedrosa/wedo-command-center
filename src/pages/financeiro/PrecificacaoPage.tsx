@@ -1962,6 +1962,101 @@ export default function PrecificacaoPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={manualTributoOpen} onOpenChange={setManualTributoOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Crédito manual de tributos</DialogTitle>
+            <DialogDescription>
+              {manualTributoProduto?.nome}
+              <span className="block text-xs text-muted-foreground mt-1">
+                Use quando não há NF de entrada importada. Os valores informados aqui geram crédito de entrada na precificação.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Custo unitário (R$) *</Label>
+                <Input
+                  type="number" step="0.0001" min="0"
+                  value={manualTributoForm.valor_unitario_nf}
+                  onChange={(e) => setManualTributoForm(f => ({ ...f, valor_unitario_nf: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Regime fornecedor</Label>
+                <Select
+                  value={manualTributoForm.regime}
+                  onValueChange={(v) => setManualTributoForm(f => ({ ...f, regime: v as any }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="normal">Normal (gera crédito)</SelectItem>
+                    <SelectItem value="simples_nacional">Simples Nacional (sem crédito)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2">
+              <div>
+                <Label className="text-xs">ICMS %</Label>
+                <Input type="number" step="0.01" disabled={manualTributoForm.regime === "simples_nacional"}
+                  value={manualTributoForm.icms_aliquota}
+                  onChange={(e) => setManualTributoForm(f => ({ ...f, icms_aliquota: e.target.value }))} />
+              </div>
+              <div>
+                <Label className="text-xs">PIS %</Label>
+                <Input type="number" step="0.01" disabled={manualTributoForm.regime === "simples_nacional"}
+                  value={manualTributoForm.pis_aliquota}
+                  onChange={(e) => setManualTributoForm(f => ({ ...f, pis_aliquota: e.target.value }))} />
+              </div>
+              <div>
+                <Label className="text-xs">COFINS %</Label>
+                <Input type="number" step="0.01" disabled={manualTributoForm.regime === "simples_nacional"}
+                  value={manualTributoForm.cofins_aliquota}
+                  onChange={(e) => setManualTributoForm(f => ({ ...f, cofins_aliquota: e.target.value }))} />
+              </div>
+              <div>
+                <Label className="text-xs">IPI %</Label>
+                <Input type="number" step="0.01"
+                  value={manualTributoForm.ipi_aliquota}
+                  onChange={(e) => setManualTributoForm(f => ({ ...f, ipi_aliquota: e.target.value }))} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label className="text-xs">Frete %</Label>
+                <Input type="number" step="0.01"
+                  value={manualTributoForm.frete_percentual}
+                  onChange={(e) => setManualTributoForm(f => ({ ...f, frete_percentual: e.target.value }))} />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs">Fornecedor (opcional)</Label>
+                <Input value={manualTributoForm.fornecedor_nome}
+                  onChange={(e) => setManualTributoForm(f => ({ ...f, fornecedor_nome: e.target.value }))} />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">Nº NF de referência (opcional)</Label>
+              <Input value={manualTributoForm.nf_numero}
+                onChange={(e) => setManualTributoForm(f => ({ ...f, nf_numero: e.target.value }))} />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setManualTributoOpen(false)}>Cancelar</Button>
+            <Button onClick={salvarManualTributo} disabled={savingManualTributo}>
+              {savingManualTributo && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+              Salvar crédito
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
