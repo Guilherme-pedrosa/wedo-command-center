@@ -684,7 +684,7 @@ export default function PrecificacaoPage() {
           if (custoB !== custoA) return custoB - custoA;
           return estoqueB - estoqueA;
         })
-        .slice(0, 100);
+        .slice(0, 1000);
     }
     return tributosXml
       .filter((t) => {
