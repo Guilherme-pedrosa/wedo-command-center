@@ -1207,6 +1207,10 @@ export default function PrecificacaoPage() {
               {fetchingProdutos ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Package className="h-4 w-4 mr-1" />}
               Sincronizar Estoque
             </Button>
+            <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={isSyncing}>
+              {syncingOffline ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+              Reprocessar Tributos
+            </Button>
             {isSyncing && syncProgress && (
               <span className="text-xs text-muted-foreground font-mono animate-pulse">{syncProgress}</span>
             )}
