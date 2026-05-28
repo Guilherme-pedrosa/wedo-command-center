@@ -1347,8 +1347,8 @@ export default function PrecificacaoPage() {
         </div>
         <div className="flex items-center gap-3">
           {custoFixoMensal !== undefined && (
-            <Badge variant="outline" className="text-xs" title={`Rateado proporcional ao custo: ${(custoFixoPct * 100).toFixed(2)}% sobre o custo de cada produto. Média/un (referência): ${formatCurrency(custoFixoAutoUnit)}`}>
-              Custo fixo: {formatCurrency(custoFixoMensal)} · {(custoFixoPct * 100).toFixed(2)}% do custo
+            <Badge variant="outline" className="text-xs" title={`Mark-up Divisor: ${(custoFixoPct * 100).toFixed(2)}% do faturamento mensal médio (R$ ${(faturamentoMensalMedio || 0).toLocaleString('pt-BR', {maximumFractionDigits: 0})}) é embutido no preço pra cobrir o custo fixo. ${usarOverrideFlat ? `Override flat ativo: ${formatCurrency(taxEntrada.custoFixoUnit || 0)}/un` : ''}`}>
+              Custo fixo: {formatCurrency(custoFixoMensal)} · {(custoFixoPctEfetivo * 100).toFixed(2)}% do faturamento{usarOverrideFlat ? ' (override flat)' : ''}
             </Badge>
           )}
           <Badge variant="outline" className="text-xs">
