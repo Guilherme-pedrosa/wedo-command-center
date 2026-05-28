@@ -259,6 +259,96 @@ export default function PrecificacaoPage() {
   const [calcTipoSaida, setCalcTipoSaida] = useState<TipoSaida>("venda");
   const [calcMargens] = useState([10, 15, 20, 25, 30]);
   const activeSyncRef = useRef<"gc" | "offline" | null>(null);
+
+  // ── Manual tributo (crédito manual quando não há NF) ──
+  const [manualTributoOpen, setManualTributoOpen] = useState(false);
+  const [manualTributoProduto, setManualTributoProduto] = useState<GCProduto | null>(null);
+  const [manualTributoForm, setManualTributoForm] = useState({
+    valor_unitario_nf: "",
+    icms_aliquota: "",
+    pis_aliquota: "1.65",
+    cofins_aliquota: "7.60",
+    ipi_aliquota: "0",
+    frete_percentual: "0",
+    fornecedor_nome: "",
+    nf_numero: "",
+    regime: "normal" as "normal" | "simples_nacional",
+  });
+  const [savingManualTributo, setSavingManualTributo] = useState(false);
+
+  function abrirManualTributo(produto: GCProduto, existente?: ProdutoTributo) {
+    setManualTributoProduto(produto);
+    setManualTributoForm({
+      valor_unitario_nf: existente ? String(existente.valor_unitario_nf || "") : String(Number(produto.valor_custo) || ""),
+      icms_aliquota: existente ? String(existente.icms_aliquota_manual ?? existente.icms_aliquota ?? "") : "",
+      pis_aliquota: existente ? String(existente.pis_aliquota_manual ?? existente.pis_aliquota ?? "1.65") : "1.65",
+      cofins_aliquota: existente ? String(existente.cofins_aliquota_manual ?? existente.cofins_aliquota ?? "7.60") : "7.60",
+      ipi_aliquota: existente ? String(existente.ipi_aliquota_manual ?? existente.ipi_aliquota ?? "0") : "0",
+      frete_percentual: existente ? String(existente.frete_percentual ?? "0") : "0",
+      fornecedor_nome: existente?.fornecedor_nome || "",
+      nf_numero: existente?.nf_numero || "",
+      regime: (existente?.regime_fornecedor === "simples_nacional" ? "simples_nacional" : "normal"),
+    });
+    setManualTributoOpen(true);
+  }
+
+  async function salvarManualTributo() {
+    if (!manualTributoProduto) return;
+    const valorUnit = parseFloat(manualTributoForm.valor_unitario_nf);
+    if (!valorUnit || valorUnit <= 0) {
+      toast.error("Informe um custo unitário válido");
+      return;
+    }
+    setSavingManualTributo(true);
+    try {
+      const semCredito = manualTributoForm.regime === "simples_nacional";
+      const icms = parseFloat(manualTributoForm.icms_aliquota) || 0;
+      const pis = parseFloat(manualTributoForm.pis_aliquota) || 0;
+      const cofins = parseFloat(manualTributoForm.cofins_aliquota) || 0;
+      const ipi = parseFloat(manualTributoForm.ipi_aliquota) || 0;
+      const frete = parseFloat(manualTributoForm.frete_percentual) || 0;
+
+      const payload = {
+        gc_produto_id: String(manualTributoProduto.id),
+        nome_produto: manualTributoProduto.nome,
+        valor_unitario_nf: valorUnit,
+        icms_aliquota: icms,
+        pis_aliquota: pis,
+        cofins_aliquota: cofins,
+        ipi_aliquota: ipi,
+        icms_aliquota_manual: icms,
+        pis_aliquota_manual: pis,
+        cofins_aliquota_manual: cofins,
+        ipi_aliquota_manual: ipi,
+        frete_percentual: frete,
+        valor_icms_unit: semCredito ? 0 : valorUnit * (icms / 100),
+        valor_pis_unit: semCredito ? 0 : valorUnit * (pis / 100),
+        valor_cofins_unit: semCredito ? 0 : valorUnit * (cofins / 100),
+        valor_ipi_unit: valorUnit * (ipi / 100),
+        valor_frete_unit: valorUnit * (frete / 100),
+        fornecedor_nome: manualTributoForm.fornecedor_nome || "Manual",
+        nf_numero: manualTributoForm.nf_numero || null,
+        regime_fornecedor: manualTributoForm.regime,
+        sem_credito: semCredito,
+        match_rule: "manual",
+        ultima_atualizacao: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from("fin_produto_tributos")
+        .upsert(payload, { onConflict: "gc_produto_id" });
+
+      if (error) throw error;
+      toast.success("Crédito manual salvo");
+      setManualTributoOpen(false);
+      await refetchTributos();
+    } catch (e: any) {
+      toast.error(`Falha ao salvar: ${e.message || e}`);
+    } finally {
+      setSavingManualTributo(false);
+    }
+  }
+
   const isSyncing = activeSync !== null;
   const syncingGC = activeSync === "gc";
   const syncingOffline = activeSync === "offline";
