@@ -1645,6 +1645,27 @@ export default function PrecificacaoPage() {
                             <Badge className="ml-2 text-[10px] py-0 bg-red-500/20 text-red-400 border-red-500/30">⚠ Custo zero no GC</Badge>
                           )}
                           {(() => {
+                            if (!hasNF) return null;
+                            const nfCusto = Number(tributo.valor_unitario_nf) || 0;
+                            const gcCusto = Number(p.valor_custo) || 0;
+                            if (nfCusto <= 0 || gcCusto <= 0) return null;
+                            const diffPct = ((gcCusto - nfCusto) / nfCusto) * 100;
+                            if (Math.abs(diffPct) < 1) return null;
+                            const acima = diffPct > 0;
+                            return (
+                              <Badge
+                                className={`ml-2 text-[10px] py-0 ${
+                                  acima
+                                    ? "bg-red-500/20 text-red-400 border-red-500/30"
+                                    : "bg-orange-500/20 text-orange-400 border-orange-500/30"
+                                }`}
+                                title={`GC: ${formatCurrency(gcCusto)} · NF: ${formatCurrency(nfCusto)} · diff: ${diffPct.toFixed(1)}%`}
+                              >
+                                ⚠ Custo GC {acima ? "acima" : "abaixo"} da NF ({diffPct > 0 ? "+" : ""}{diffPct.toFixed(1)}%)
+                              </Badge>
+                            );
+                          })()}
+                          {(() => {
                             const items = outOfMarginByProduct.get(String(p.id)) || [];
                             if (items.length === 0) return null;
                             const bulkKey = `produto:${p.id}`;
