@@ -354,13 +354,23 @@ export default function PrecificacaoPage() {
   const syncingOffline = activeSync === "offline";
 
   // ── Fetch products from GC ──
-  const { data: produtos, isLoading: loadingProdutos } = useQuery({
+  const { data: produtos, isLoading: loadingProdutos, refetch: refetchProdutos, isFetching: fetchingProdutos } = useQuery({
     queryKey: ["gc-produtos"],
     queryFn: () => fetchAllGCPages<GCProduto>("/api/produtos"),
     staleTime: 30 * 60_000,
     refetchOnWindowFocus: false,
     retry: false,
   });
+
+  const handleSyncEstoque = async () => {
+    try {
+      toast.info("Sincronizando estoque do GC...");
+      const data = await refetchProdutos();
+      toast.success(`Estoque sincronizado: ${data.data?.length ?? 0} produtos`);
+    } catch (err) {
+      toast.error(`Falha ao sincronizar estoque: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
 
   const { data: tributos, refetch: refetchTributos } = useQuery({
