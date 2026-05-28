@@ -757,9 +757,37 @@ export default function PrecificacaoPage() {
       .reduce((sum, p) => sum + (Number(p.estoque) || 0), 0) || 1;
   }, [produtos]);
 
-  // Custo fixo só é rateado se temos dados de estoque; caso contrário, só usa override manual
+  // ── Custo fixo PROPORCIONAL ao valor do produto (não flat por unidade) ──
+  // Calcula valor total do estoque (Σ estoque × custo) usando custo canônico quando disponível.
+  // O custo fixo mensal vira uma % do valor de estoque, e cada produto absorve sua fatia
+  // proporcional ao próprio custo unitário. Assim, um produto de R$100.000 absorve muito mais
+  // custo fixo do que um de R$0,40 — sem distorcer a margem dos itens baratos.
+  const totalValorEstoque = useMemo(() => {
+    if (!produtos) return null;
+    return produtos
+      .filter(p => !EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k)))
+      .reduce((sum, p) => {
+        const custoCan = custoCanonicoMap.get(p.id);
+        const custo = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
+        const est = Number(p.estoque) || 0;
+        return sum + custo * est;
+      }, 0) || 0;
+  }, [produtos, custoCanonicoMap]);
+
+  // Percentual do custo fixo sobre valor de estoque (fração: 0.03 = 3%)
+  const custoFixoPct = (custoFixoMensal && totalValorEstoque) ? custoFixoMensal / totalValorEstoque : 0;
+
+  // Compat: continua exposto um "/un médio" só para display no header (custo fixo ÷ unidades),
+  // mas o cálculo real por linha agora usa custoFixoPct × custoBase.
   const custoFixoAutoUnit = (custoFixoMensal && totalProdutosEstoque) ? custoFixoMensal / totalProdutosEstoque : 0;
-  const activeEntrada = { ...taxEntrada, custoFixoUnit: taxEntrada.custoFixoUnit || custoFixoAutoUnit };
+  const activeEntrada = { ...taxEntrada, custoFixoUnit: taxEntrada.custoFixoUnit || 0 };
+
+  // Helper: custo fixo unitário PROPORCIONAL para um dado custoBase.
+  // Override manual (taxEntrada.custoFixoUnit > 0) ainda funciona como flat.
+  const calcCustoFixoUnitProp = (custoBase: number) =>
+    (taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0)
+      ? taxEntrada.custoFixoUnit
+      : custoBase * custoFixoPct;
 
   // ── Itens fora da margem: replica a lógica de cada linha (politicas × produto) para alimentar botões "Corrigir tudo" ──
   const outOfMarginByProduct = useMemo(() => {
@@ -775,8 +803,9 @@ export default function PrecificacaoPage() {
       const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const hasNF = !!tributo;
       let calc: ReturnType<typeof calcPricing>;
+      const cfuProp = calcCustoFixoUnitProp(hasNF ? (tributo!.valor_unitario_nf || 0) : custoBruto);
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, activeEntrada.custoFixoUnit, margemAlvo);
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuProp, margemAlvo);
         calc = {
           creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
           totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
@@ -787,7 +816,7 @@ export default function PrecificacaoPage() {
           aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
         };
       } else {
-        calc = calcPricing(custoBruto, activeEntrada, taxSaida, tipoSaidaGlobal, margemAlvo);
+        calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuProp }, taxSaida, tipoSaidaGlobal, margemAlvo);
       }
       const valoresProd = valoresMap.get(p.id);
       const items: typeof map extends Map<string, infer V> ? V : never = [];
@@ -811,7 +840,7 @@ export default function PrecificacaoPage() {
       if (items.length > 0) map.set(String(p.id), items);
     }
     return map;
-  }, [filtered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, activeEntrada.custoFixoUnit, margemAlvo]);
+  }, [filtered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPct, taxEntrada.custoFixoUnit, margemAlvo]);
 
   const allOutOfMargin = useMemo(() => Array.from(outOfMarginByProduct.values()).flat(), [outOfMarginByProduct]);
 
@@ -1310,8 +1339,8 @@ export default function PrecificacaoPage() {
         </div>
         <div className="flex items-center gap-3">
           {custoFixoMensal !== undefined && (
-            <Badge variant="outline" className="text-xs">
-              Custo fixo: {formatCurrency(custoFixoMensal)} · /un: {formatCurrency(custoFixoAutoUnit)}
+            <Badge variant="outline" className="text-xs" title={`Rateado proporcional ao custo: ${(custoFixoPct * 100).toFixed(2)}% sobre o custo de cada produto. Média/un (referência): ${formatCurrency(custoFixoAutoUnit)}`}>
+              Custo fixo: {formatCurrency(custoFixoMensal)} · {(custoFixoPct * 100).toFixed(2)}% do custo
             </Badge>
           )}
           <Badge variant="outline" className="text-xs">
@@ -1633,8 +1662,9 @@ export default function PrecificacaoPage() {
 
 
                   let calc: ReturnType<typeof calcPricing>;
+                  const cfuPropLinha = calcCustoFixoUnitProp(custoBase);
                   if (hasNF) {
-                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, activeEntrada.custoFixoUnit, margemAlvo);
+                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, cfuPropLinha, margemAlvo);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
                       creditoPis: nfCalc.creditoPis,
@@ -1652,7 +1682,7 @@ export default function PrecificacaoPage() {
                       aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
                     };
                   } else {
-                    calc = calcPricing(custoBruto, activeEntrada, taxSaida, tipoSaidaGlobal, margemAlvo);
+                    calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuPropLinha }, taxSaida, tipoSaidaGlobal, margemAlvo);
                   }
 
 
