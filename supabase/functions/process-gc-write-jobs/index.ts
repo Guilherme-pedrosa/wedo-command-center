@@ -26,6 +26,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  const body = await req.json().catch(() => ({})) as { job_id?: string };
+
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -43,13 +45,22 @@ Deno.serve(async (req) => {
   }
 
   // 1. Buscar jobs pendentes
-  const { data: jobs, error: errJobs } = await supabase
+  let jobsQuery = supabase
     .from("fin_gc_write_jobs")
     .select("id, recurso, recurso_id, payload, status, tentativas")
     .in("status", ["pendente", "erro_retentavel"])
-    .lt("tentativas", MAX_RETRIES)
+    .lt("tentativas", MAX_RETRIES);
+
+  if (body.job_id) {
+    jobsQuery = jobsQuery.eq("id", body.job_id).limit(1);
+  } else {
+    jobsQuery = jobsQuery
     .order("created_at", { ascending: true })
     .limit(BATCH_SIZE);
+
+  }
+
+  const { data: jobs, error: errJobs } = await jobsQuery;
 
   if (errJobs) {
     return new Response(JSON.stringify({ error: errJobs.message }), {
