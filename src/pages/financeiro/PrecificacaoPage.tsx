@@ -1678,14 +1678,6 @@ export default function PrecificacaoPage() {
                           {statusCusto === "pendente_custo_zero" && (
                             <Badge className="ml-2 text-[10px] py-0 bg-red-500/20 text-red-400 border-red-500/30">⚠ Custo zero no GC</Badge>
                           )}
-                          {kitRatio > 1 && tributoBase && (
-                            <Badge
-                              className="ml-2 text-[10px] py-0 bg-blue-500/20 text-blue-400 border-blue-500/30"
-                              title={`NF unitário: ${formatCurrency(Number(tributoBase.valor_unitario_nf))} ÷ ${kitRatio} = ${formatCurrency(Number(tributoBase.valor_unitario_nf) / kitRatio)} (GC: ${formatCurrency(parseFloat(p.valor_custo) || 0)})`}
-                            >
-                              📦 NF em kit ({kitRatio}x) — dividido p/ unidade
-                            </Badge>
-                          )}
                           {(() => {
                             if (!hasNF) return null;
                             const nfCusto = Number(tributo.valor_unitario_nf) || 0;
