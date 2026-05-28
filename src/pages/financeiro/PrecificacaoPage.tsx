@@ -803,8 +803,9 @@ export default function PrecificacaoPage() {
       const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const hasNF = !!tributo;
       let calc: ReturnType<typeof calcPricing>;
+      const cfuProp = calcCustoFixoUnitProp(hasNF ? (tributo!.valor_unitario_nf || 0) : custoBruto);
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, activeEntrada.custoFixoUnit, margemAlvo);
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuProp, margemAlvo);
         calc = {
           creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
           totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
@@ -815,7 +816,7 @@ export default function PrecificacaoPage() {
           aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
         };
       } else {
-        calc = calcPricing(custoBruto, activeEntrada, taxSaida, tipoSaidaGlobal, margemAlvo);
+        calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuProp }, taxSaida, tipoSaidaGlobal, margemAlvo);
       }
       const valoresProd = valoresMap.get(p.id);
       const items: typeof map extends Map<string, infer V> ? V : never = [];
