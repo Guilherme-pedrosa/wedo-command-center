@@ -108,6 +108,85 @@ Deno.serve(async (req) => {
     let httpStatus = 0;
 
     try {
+      // ===== GET-before-PUT =====
+      // 1. GET produto completo do GC (PUT parcial é rejeitado com HTTP 500)
+      const getRes = await fetch(url, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "access-token": GC_ACCESS_TOKEN,
+          "secret-access-token": GC_SECRET_TOKEN,
+        },
+      });
+
+      if (!getRes.ok) {
+        const getBody = await getRes.json().catch(() => null);
+        const errMsg = `GET pré-PUT falhou HTTP ${getRes.status}: ${JSON.stringify(getBody)}`;
+        const isRetentavel = getRes.status === 429 || getRes.status >= 500;
+        const novasTentativas = (job.tentativas ?? 0) + 1;
+        const novoStatus = !isRetentavel
+          ? "erro_fatal"
+          : novasTentativas >= MAX_RETRIES
+          ? "erro_fatal"
+          : "erro_retentavel";
+        await supabase.from("fin_gc_write_jobs").update({
+          status: novoStatus,
+          ultimo_erro: errMsg,
+          response_body: getBody as never,
+          finalizado_em: novoStatus === "erro_fatal" ? new Date().toISOString() : null,
+        }).eq("id", job.id);
+        results.push({ id: job.id, status: novoStatus, erro: errMsg, http: getRes.status });
+        await sleep(RATE_LIMIT_MS);
+        continue;
+      }
+
+      const getJson = await getRes.json();
+      const produtoBase = (getJson?.data ?? getJson) as Record<string, unknown>;
+
+      if (!Array.isArray((produtoBase as { valores?: unknown }).valores)) {
+        const errMsg = "GET retornou produto sem campo 'valores' (array). Anormal.";
+        await supabase.from("fin_gc_write_jobs").update({
+          status: "erro_fatal",
+          ultimo_erro: errMsg,
+          response_body: getJson as never,
+          finalizado_em: new Date().toISOString(),
+        }).eq("id", job.id);
+        results.push({ id: job.id, status: "erro_fatal", erro: errMsg });
+        await sleep(RATE_LIMIT_MS);
+        continue;
+      }
+
+      // 2. Mesclar payload do job (mínimo) com produto completo do GC
+      const payload = job.payload as { valor_custo?: string | number; valores?: Array<Record<string, unknown>> };
+      const valoresPayload = payload.valores ?? [];
+      const valoresMerged = (produtoBase.valores as Array<Record<string, unknown>>).map((vBase) => {
+        const override = valoresPayload.find(
+          (vp) => String(vp.tipo_id) === String(vBase.tipo_id),
+        );
+        if (!override) return vBase; // tabela não tocada, manter exatamente como o GC retornou
+        // OMITIR lucro_utilizado (read-only no GC)
+        const { lucro_utilizado: _ignored, ...semLucro } = vBase as Record<string, unknown>;
+        return {
+          ...semLucro,
+          ...override,
+          valor_custo: "0.00", // entradas sempre "0.00"; custo real vai no top-level
+        };
+      });
+
+      // 3. Custo top-level: do payload, fallback pro atual do GC
+      const novoCustoTopLevel = payload.valor_custo ?? produtoBase.valor_custo;
+
+      // 4. Montar PUT completo
+      const putBody = {
+        ...produtoBase,
+        valor_custo: String(novoCustoTopLevel),
+        valores: valoresMerged,
+      };
+
+      // 5. Pequeno respiro entre GET e PUT do mesmo produto
+      await sleep(150);
+
+      // 6. PUT
       const response = await fetch(url, {
         method,
         headers: {
@@ -115,7 +194,7 @@ Deno.serve(async (req) => {
           "access-token": GC_ACCESS_TOKEN,
           "secret-access-token": GC_SECRET_TOKEN,
         },
-        body: JSON.stringify(job.payload),
+        body: JSON.stringify(putBody),
       });
       httpStatus = response.status;
       responseBody = await response.json().catch(() => null);
