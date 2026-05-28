@@ -523,7 +523,9 @@ export default function PrecificacaoPage() {
   // Mantém apenas tributos com NF que existe no índice de XML de entrada
   const tributosXml = useMemo(() => {
     return (tributos || []).filter(
-      (t) => Boolean(t.nf_chave) && indexedNfChaves.has(t.nf_chave as string)
+      (t) =>
+        t.match_rule === "manual" ||
+        (Boolean(t.nf_chave) && indexedNfChaves.has(t.nf_chave as string))
     );
   }, [tributos, indexedNfChaves]);
 
