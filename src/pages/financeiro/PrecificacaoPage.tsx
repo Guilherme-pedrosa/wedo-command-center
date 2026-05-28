@@ -1088,7 +1088,103 @@ export default function PrecificacaoPage() {
   };
 
   // ── Corrigir preço por produto+tabela: cria aprovação 'aprovada' + write_job (worker faz GET-before-PUT no GC) ──
+  type CorrigirArgs = {
+    gc_produto_id: string;
+    nome_produto: string;
+    tipo_id: string;
+    nome_tabela: string;
+    preco_atual: number;
+    preco_sugerido: number;
+    margem_minima: number;
+    margem_resultante: number;
+    custo_referencia: number;
+  };
   const [corrigindoKey, setCorrigindoKey] = useState<string | null>(null);
+  const [bulkCorrigindo, setBulkCorrigindo] = useState<string | null>(null); // 'produto:<id>' ou 'global'
+
+  // Núcleo: corrige UM item, sem refetch nem estado. Retorna ok/erro.
+  const corrigirPrecoCore = async (args: CorrigirArgs): Promise<{ ok: boolean; erro?: string }> => {
+    if (!(args.preco_sugerido > 0) || !(args.custo_referencia > 0)) {
+      return { ok: false, erro: "custo ou preço sugerido inválido" };
+    }
+    try {
+      const { data: aprov, error: errAp } = await supabase
+        .from("fin_gc_price_aprovacoes")
+        .insert({
+          gc_produto_id: args.gc_produto_id,
+          nome_produto: args.nome_produto,
+          tipo_id: args.tipo_id,
+          modo_calculo: "completo",
+          custo_referencia: args.custo_referencia,
+          preco_atual: args.preco_atual,
+          preco_solicitado: args.preco_sugerido,
+          margem_resultante: args.margem_resultante,
+          margem_minima_politica: args.margem_minima,
+          justificativa: `Correção manual via UI: ${args.nome_tabela}. Preço ${args.preco_atual.toFixed(2)} → ${args.preco_sugerido.toFixed(2)} (margem mín ${(args.margem_minima * 100).toFixed(2)}%).`,
+          status: "aprovada",
+          decidido_em: new Date().toISOString(),
+          decisao_observacao: "Correção manual disparada pelo CEO na UI de Precificação",
+          payload: { source: "precificacao-ui-corrigir", nome_tabela: args.nome_tabela },
+        })
+        .select("id")
+        .single();
+      if (errAp) throw errAp;
+
+      await supabase.from("fin_gc_price_history").insert({
+        gc_produto_id: args.gc_produto_id,
+        tipo_id: args.tipo_id,
+        preco_anterior: args.preco_atual,
+        preco_novo: args.preco_sugerido,
+        margem_aplicada: args.margem_resultante,
+        source: "precificacao-ui-corrigir",
+        motivo: "Correção manual via UI",
+        aprovacao_id: aprov.id,
+      });
+
+      const { data: job, error: errJob } = await supabase.from("fin_gc_write_jobs").insert({
+        recurso: "produtos",
+        recurso_id: args.gc_produto_id,
+        payload: { valores: [{ tipo_id: String(args.tipo_id), valor_venda: args.preco_sugerido.toFixed(2) }] },
+        payload_hash: `corrigir-ui-${args.gc_produto_id}-${args.tipo_id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        status: "pendente",
+      }).select("id").single();
+      if (errJob) throw errJob;
+
+      const { data: workerResult, error: errWorker } = await supabase.functions.invoke("process-gc-write-jobs", {
+        body: { source: "precificacao-ui-corrigir", job_id: job.id },
+      });
+      if (errWorker) throw errWorker;
+      if (!workerResult?.sucessos) {
+        const erro = workerResult?.results?.[0]?.erro || workerResult?.message || "worker não confirmou sucesso";
+        return { ok: false, erro: String(erro) };
+      }
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, erro: e instanceof Error ? e.message : String(e) };
+    }
+  };
+
+  // Batch: processa lista sequencialmente, com toast de progresso.
+  const corrigirPrecoBatch = async (items: CorrigirArgs[], scopeLabel: string, bulkKey: string) => {
+    if (bulkCorrigindo || corrigindoKey) return;
+    if (items.length === 0) { toast("Nada fora da margem para corrigir"); return; }
+    setBulkCorrigindo(bulkKey);
+    let ok = 0, fail = 0;
+    const erros: string[] = [];
+    try {
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        toast(`${scopeLabel}: ${i + 1}/${items.length} — ${it.nome_produto.slice(0, 30)} (${it.nome_tabela})`);
+        const r = await corrigirPrecoCore(it);
+        if (r.ok) ok++; else { fail++; erros.push(`${it.nome_produto} [${it.nome_tabela}]: ${r.erro}`); }
+      }
+      await refetchProdutosCacheValores();
+      if (fail === 0) toast.success(`${scopeLabel}: ${ok} preço(s) atualizado(s) no GC`);
+      else toast.error(`${scopeLabel}: ${ok} ok, ${fail} falha(s). Ex: ${erros[0]}`);
+    } finally {
+      setBulkCorrigindo(null);
+    }
+  };
   const corrigirPreco = async (args: {
     gc_produto_id: string;
     nome_produto: string;
