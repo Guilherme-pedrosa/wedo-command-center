@@ -1449,11 +1449,32 @@ export default function PrecificacaoPage() {
         {/* ── TAB: Análise Estoque ── */}
         <TabsContent value="estoque" className="space-y-4">
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="relative flex-1 min-w-[200px] max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Buscar produto por nome ou código..." value={search}
-                onChange={(e) => setSearch(e.target.value)} className="pl-9 bg-secondary" />
-            </div>
+            <form
+              className="relative flex-1 min-w-[200px] max-w-md flex gap-2"
+              onSubmit={(e) => { e.preventDefault(); setSearch(searchInput.trim()); }}
+            >
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar produto por nome ou código... (Enter)"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  className="pl-9 pr-9 bg-secondary"
+                />
+                {searchInput && (
+                  <button
+                    type="button"
+                    onClick={() => { setSearchInput(""); setSearch(""); }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs px-1"
+                    aria-label="Limpar busca"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <Button type="submit" size="sm" variant="secondary">OK</Button>
+            </form>
+
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Margem:</Label>
               <Select value={marginFilter} onValueChange={(v) => setMarginFilter(v as typeof marginFilter)}>
