@@ -1590,7 +1590,26 @@ export default function PrecificacaoPage() {
                             </TooltipContent>
                           </Tooltip>
                         ) : (
-                          <Badge variant="outline" className="text-[10px] text-muted-foreground">Manual</Badge>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-[10px] gap-1 border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10"
+                            onClick={() => abrirManualTributo(p)}
+                          >
+                            <Plus className="h-3 w-3" />
+                            Adicionar crédito
+                          </Button>
+                        )}
+                        {hasNF && tributo.match_rule === "manual" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 mt-1"
+                            onClick={() => abrirManualTributo(p, tributo)}
+                            title="Editar crédito manual"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </Button>
                         )}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm text-green-400">
