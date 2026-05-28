@@ -726,6 +726,59 @@ export default function PrecificacaoPage() {
   const custoFixoAutoUnit = (custoFixoMensal && totalProdutosEstoque) ? custoFixoMensal / totalProdutosEstoque : 0;
   const activeEntrada = { ...taxEntrada, custoFixoUnit: taxEntrada.custoFixoUnit || custoFixoAutoUnit };
 
+  // ── Itens fora da margem: replica a lógica de cada linha (politicas × produto) para alimentar botões "Corrigir tudo" ──
+  const outOfMarginByProduct = useMemo(() => {
+    const map = new Map<string, Array<{
+      gc_produto_id: string; nome_produto: string; tipo_id: string; nome_tabela: string;
+      preco_atual: number; preco_sugerido: number; margem_minima: number; margem_resultante: number; custo_referencia: number;
+    }>>();
+    if (!filtered || !politicas) return map;
+    for (const p of filtered) {
+      const custoCan = custoCanonicoMap.get(p.id);
+      const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
+      const tributoRaw = tributosMap.get(p.id);
+      const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
+      const hasNF = !!tributo;
+      let calc: ReturnType<typeof calcPricing>;
+      if (hasNF) {
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, activeEntrada.custoFixoUnit, margemAlvo);
+        calc = {
+          creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
+          totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
+          custoFrete: tributo!.valor_frete_unit, custoTotal: nfCalc.custoTotal, precoMinimo: nfCalc.precoMinimo,
+          tributosSaida: nfCalc.tributosSaida, impostoRenda: nfCalc.impostoRenda, lucroAnteIR: nfCalc.lucroAnteIR,
+          lucroLiquido: nfCalc.lucroLiquido,
+          margemReal: nfCalc.precoMinimo > 0 ? (nfCalc.lucroLiquido / nfCalc.precoMinimo) * 100 : 0,
+          aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
+        };
+      } else {
+        calc = calcPricing(custoBruto, activeEntrada, taxSaida, tipoSaidaGlobal, margemAlvo);
+      }
+      const valoresProd = valoresMap.get(p.id);
+      const items: typeof map extends Map<string, infer V> ? V : never = [];
+      for (const pol of politicas) {
+        const margemMin = Number(pol.margem_minima) || 0;
+        const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - margemMin) : 0;
+        const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
+        const venda = vendaReal > 0 ? vendaReal : precoSugerido;
+        const trib = venda * calc.aliquotaSaidaFaturamento;
+        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
+        const okMin = venda > 0 && margem >= (margemMin * 100 - 0.05);
+        if (!okMin && precoSugerido > 0 && calc.custoTotal > 0) {
+          items.push({
+            gc_produto_id: String(p.id), nome_produto: p.nome, tipo_id: String(pol.tipo_id), nome_tabela: pol.nome_tabela,
+            preco_atual: vendaReal, preco_sugerido: precoSugerido,
+            margem_minima: margemMin, margem_resultante: margemMin, custo_referencia: calc.custoTotal,
+          });
+        }
+      }
+      if (items.length > 0) map.set(String(p.id), items);
+    }
+    return map;
+  }, [filtered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, activeEntrada.custoFixoUnit, margemAlvo]);
+
+  const allOutOfMargin = useMemo(() => Array.from(outOfMarginByProduct.values()).flat(), [outOfMarginByProduct]);
+
   // ── Upload XMLs de NF para o bucket (suporta ZIP + lotes) ──
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
@@ -1088,8 +1141,7 @@ export default function PrecificacaoPage() {
   };
 
   // ── Corrigir preço por produto+tabela: cria aprovação 'aprovada' + write_job (worker faz GET-before-PUT no GC) ──
-  const [corrigindoKey, setCorrigindoKey] = useState<string | null>(null);
-  const corrigirPreco = async (args: {
+  type CorrigirArgs = {
     gc_produto_id: string;
     nome_produto: string;
     tipo_id: string;
@@ -1099,14 +1151,15 @@ export default function PrecificacaoPage() {
     margem_minima: number;
     margem_resultante: number;
     custo_referencia: number;
-  }) => {
-    const key = `${args.gc_produto_id}:${args.tipo_id}`;
-    if (corrigindoKey) return;
+  };
+  const [corrigindoKey, setCorrigindoKey] = useState<string | null>(null);
+  const [bulkCorrigindo, setBulkCorrigindo] = useState<string | null>(null); // 'produto:<id>' ou 'global'
+
+  // Núcleo: corrige UM item, sem refetch nem estado. Retorna ok/erro.
+  const corrigirPrecoCore = async (args: CorrigirArgs): Promise<{ ok: boolean; erro?: string }> => {
     if (!(args.preco_sugerido > 0) || !(args.custo_referencia > 0)) {
-      toast.error("Custo ou preço sugerido inválido");
-      return;
+      return { ok: false, erro: "custo ou preço sugerido inválido" };
     }
-    setCorrigindoKey(key);
     try {
       const { data: aprov, error: errAp } = await supabase
         .from("fin_gc_price_aprovacoes")
@@ -1141,35 +1194,62 @@ export default function PrecificacaoPage() {
         aprovacao_id: aprov.id,
       });
 
-      // Worker faz GET-before-PUT; sem lucro_utilizado; valor_custo apenas top-level (omitido aqui — custo do GC permanece).
       const { data: job, error: errJob } = await supabase.from("fin_gc_write_jobs").insert({
         recurso: "produtos",
         recurso_id: args.gc_produto_id,
-        payload: {
-          valores: [{ tipo_id: String(args.tipo_id), valor_venda: args.preco_sugerido.toFixed(2) }],
-        },
-        payload_hash: `corrigir-ui-${args.gc_produto_id}-${args.tipo_id}-${Date.now()}`,
+        payload: { valores: [{ tipo_id: String(args.tipo_id), valor_venda: args.preco_sugerido.toFixed(2) }] },
+        payload_hash: `corrigir-ui-${args.gc_produto_id}-${args.tipo_id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         status: "pendente",
       }).select("id").single();
-
       if (errJob) throw errJob;
 
       const { data: workerResult, error: errWorker } = await supabase.functions.invoke("process-gc-write-jobs", {
         body: { source: "precificacao-ui-corrigir", job_id: job.id },
       });
-
       if (errWorker) throw errWorker;
       if (!workerResult?.sucessos) {
         const erro = workerResult?.results?.[0]?.erro || workerResult?.message || "worker não confirmou sucesso";
-        throw new Error(String(erro));
+        return { ok: false, erro: String(erro) };
       }
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, erro: e instanceof Error ? e.message : String(e) };
+    }
+  };
 
+  // Batch: processa lista sequencialmente, com toast de progresso.
+  const corrigirPrecoBatch = async (items: CorrigirArgs[], scopeLabel: string, bulkKey: string) => {
+    if (bulkCorrigindo || corrigindoKey) return;
+    if (items.length === 0) { toast("Nada fora da margem para corrigir"); return; }
+    setBulkCorrigindo(bulkKey);
+    let ok = 0, fail = 0;
+    const erros: string[] = [];
+    try {
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        toast(`${scopeLabel}: ${i + 1}/${items.length} — ${it.nome_produto.slice(0, 30)} (${it.nome_tabela})`);
+        const r = await corrigirPrecoCore(it);
+        if (r.ok) ok++; else { fail++; erros.push(`${it.nome_produto} [${it.nome_tabela}]: ${r.erro}`); }
+      }
       await refetchProdutosCacheValores();
-
-      toast.success(`${args.nome_tabela}: atualizado no GC e no sistema (${formatCurrency(args.preco_sugerido)})`);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast.error(`Falha ao corrigir: ${msg}`);
+      if (fail === 0) toast.success(`${scopeLabel}: ${ok} preço(s) atualizado(s) no GC`);
+      else toast.error(`${scopeLabel}: ${ok} ok, ${fail} falha(s). Ex: ${erros[0]}`);
+    } finally {
+      setBulkCorrigindo(null);
+    }
+  };
+  const corrigirPreco = async (args: CorrigirArgs) => {
+    const key = `${args.gc_produto_id}:${args.tipo_id}`;
+    if (corrigindoKey || bulkCorrigindo) return;
+    setCorrigindoKey(key);
+    try {
+      const r = await corrigirPrecoCore(args);
+      if (r.ok) {
+        await refetchProdutosCacheValores();
+        toast.success(`${args.nome_tabela}: atualizado no GC (${formatCurrency(args.preco_sugerido)})`);
+      } else {
+        toast.error(`Falha ao corrigir: ${r.erro}`);
+      }
     } finally {
       setCorrigindoKey(null);
     }
@@ -1210,6 +1290,16 @@ export default function PrecificacaoPage() {
             <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={isSyncing}>
               {syncingOffline ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
               Reprocessar Tributos
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => corrigirPrecoBatch(allOutOfMargin, `TODOS fora da margem (${allOutOfMargin.length})`, "global")}
+              disabled={!!bulkCorrigindo || !!corrigindoKey || allOutOfMargin.length === 0}
+              title={`Aceita o preço sugerido para todas as tabelas fora da margem em todos os produtos filtrados (${allOutOfMargin.length} correções)`}
+            >
+              {bulkCorrigindo === "global" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <TrendingUp className="h-4 w-4 mr-1" />}
+              Aplicar sugestão a TODOS ({allOutOfMargin.length})
             </Button>
             {isSyncing && syncProgress && (
               <span className="text-xs text-muted-foreground font-mono animate-pulse">{syncProgress}</span>
@@ -1527,6 +1617,24 @@ export default function PrecificacaoPage() {
                           {statusCusto === "pendente_custo_zero" && (
                             <Badge className="ml-2 text-[10px] py-0 bg-red-500/20 text-red-400 border-red-500/30">⚠ Custo zero no GC</Badge>
                           )}
+                          {(() => {
+                            const items = outOfMarginByProduct.get(String(p.id)) || [];
+                            if (items.length === 0) return null;
+                            const bulkKey = `produto:${p.id}`;
+                            return (
+                              <Button
+                                size="sm"
+                                variant="default"
+                                className="ml-2 h-6 px-2 text-[10px] gap-1"
+                                disabled={!!bulkCorrigindo || !!corrigindoKey}
+                                onClick={() => corrigirPrecoBatch(items, `${p.nome.slice(0, 24)} (${items.length} tabela${items.length > 1 ? "s" : ""})`, bulkKey)}
+                                title={`Aplica preço sugerido em ${items.length} tabela(s) fora da margem deste produto`}
+                              >
+                                {bulkCorrigindo === bulkKey ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                                Corrigir {items.length} tabela{items.length > 1 ? "s" : ""}
+                              </Button>
+                            );
+                          })()}
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{estoque}</TableCell>
