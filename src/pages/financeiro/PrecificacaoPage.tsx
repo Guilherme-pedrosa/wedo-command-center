@@ -1198,7 +1198,7 @@ export default function PrecificacaoPage() {
       margem: m,
       ...calcPricing(custo, activeEntrada, taxSaida, calcTipoSaida, m, custoFixoPctEfetivo),
     }));
-  }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida]);
+  }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida, custoFixoPctEfetivo]);
 
   const totalComTributoNF = tributosXml.length;
 
