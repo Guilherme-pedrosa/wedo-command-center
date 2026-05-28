@@ -726,6 +726,59 @@ export default function PrecificacaoPage() {
   const custoFixoAutoUnit = (custoFixoMensal && totalProdutosEstoque) ? custoFixoMensal / totalProdutosEstoque : 0;
   const activeEntrada = { ...taxEntrada, custoFixoUnit: taxEntrada.custoFixoUnit || custoFixoAutoUnit };
 
+  // ── Itens fora da margem: replica a lógica de cada linha (politicas × produto) para alimentar botões "Corrigir tudo" ──
+  const outOfMarginByProduct = useMemo(() => {
+    const map = new Map<string, Array<{
+      gc_produto_id: string; nome_produto: string; tipo_id: string; nome_tabela: string;
+      preco_atual: number; preco_sugerido: number; margem_minima: number; margem_resultante: number; custo_referencia: number;
+    }>>();
+    if (!filtered || !politicas) return map;
+    for (const p of filtered) {
+      const custoCan = custoCanonicoMap.get(p.id);
+      const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
+      const tributoRaw = tributosMap.get(p.id);
+      const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
+      const hasNF = !!tributo;
+      let calc: ReturnType<typeof calcPricing>;
+      if (hasNF) {
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, activeEntrada.custoFixoUnit, margemAlvo);
+        calc = {
+          creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
+          totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
+          custoFrete: tributo!.valor_frete_unit, custoTotal: nfCalc.custoTotal, precoMinimo: nfCalc.precoMinimo,
+          tributosSaida: nfCalc.tributosSaida, impostoRenda: nfCalc.impostoRenda, lucroAnteIR: nfCalc.lucroAnteIR,
+          lucroLiquido: nfCalc.lucroLiquido,
+          margemReal: nfCalc.precoMinimo > 0 ? (nfCalc.lucroLiquido / nfCalc.precoMinimo) * 100 : 0,
+          aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
+        };
+      } else {
+        calc = calcPricing(custoBruto, activeEntrada, taxSaida, tipoSaidaGlobal, margemAlvo);
+      }
+      const valoresProd = valoresMap.get(p.id);
+      const items: typeof map extends Map<string, infer V> ? V : never = [];
+      for (const pol of politicas) {
+        const margemMin = Number(pol.margem_minima) || 0;
+        const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - margemMin) : 0;
+        const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
+        const venda = vendaReal > 0 ? vendaReal : precoSugerido;
+        const trib = venda * calc.aliquotaSaidaFaturamento;
+        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
+        const okMin = venda > 0 && margem >= (margemMin * 100 - 0.05);
+        if (!okMin && precoSugerido > 0 && calc.custoTotal > 0) {
+          items.push({
+            gc_produto_id: String(p.id), nome_produto: p.nome, tipo_id: String(pol.tipo_id), nome_tabela: pol.nome_tabela,
+            preco_atual: vendaReal, preco_sugerido: precoSugerido,
+            margem_minima: margemMin, margem_resultante: margemMin, custo_referencia: calc.custoTotal,
+          });
+        }
+      }
+      if (items.length > 0) map.set(String(p.id), items);
+    }
+    return map;
+  }, [filtered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, activeEntrada.custoFixoUnit, margemAlvo]);
+
+  const allOutOfMargin = useMemo(() => Array.from(outOfMarginByProduct.values()).flat(), [outOfMarginByProduct]);
+
   // ── Upload XMLs de NF para o bucket (suporta ZIP + lotes) ──
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
