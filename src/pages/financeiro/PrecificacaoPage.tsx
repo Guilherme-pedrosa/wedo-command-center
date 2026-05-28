@@ -354,13 +354,23 @@ export default function PrecificacaoPage() {
   const syncingOffline = activeSync === "offline";
 
   // ── Fetch products from GC ──
-  const { data: produtos, isLoading: loadingProdutos } = useQuery({
+  const { data: produtos, isLoading: loadingProdutos, refetch: refetchProdutos, isFetching: fetchingProdutos } = useQuery({
     queryKey: ["gc-produtos"],
     queryFn: () => fetchAllGCPages<GCProduto>("/api/produtos"),
     staleTime: 30 * 60_000,
     refetchOnWindowFocus: false,
     retry: false,
   });
+
+  const handleSyncEstoque = async () => {
+    try {
+      toast("Sincronizando estoque do GC...");
+      const data = await refetchProdutos();
+      toast.success(`Estoque sincronizado: ${data.data?.length ?? 0} produtos`);
+    } catch (err) {
+      toast.error(`Falha ao sincronizar estoque: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
 
   const { data: tributos, refetch: refetchTributos } = useQuery({
@@ -1192,6 +1202,10 @@ export default function PrecificacaoPage() {
             <Button variant="outline" size="sm" onClick={handleSyncGC} disabled={isSyncing}>
               {syncingGC ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
               Sync NFs Entrada (GC)
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleSyncEstoque} disabled={fetchingProdutos}>
+              {fetchingProdutos ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Package className="h-4 w-4 mr-1" />}
+              Sincronizar Estoque
             </Button>
             <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={isSyncing}>
               {syncingOffline ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
