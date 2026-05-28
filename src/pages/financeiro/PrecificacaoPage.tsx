@@ -447,7 +447,7 @@ export default function PrecificacaoPage() {
   });
 
   // Snapshot dos valores de venda por tabela vindos do cache GC
-  const { data: produtosCacheValores } = useQuery({
+  const { data: produtosCacheValores, refetch: refetchProdutosCacheValores } = useQuery({
     queryKey: ["gc-produtos-cache-valores"],
     queryFn: async () => {
       const pageSize = 1000;
@@ -1132,7 +1132,7 @@ export default function PrecificacaoPage() {
       });
 
       // Worker faz GET-before-PUT; sem lucro_utilizado; valor_custo apenas top-level (omitido aqui — custo do GC permanece).
-      await supabase.from("fin_gc_write_jobs").insert({
+      const { data: job, error: errJob } = await supabase.from("fin_gc_write_jobs").insert({
         recurso: "produtos",
         recurso_id: args.gc_produto_id,
         payload: {
@@ -1140,9 +1140,23 @@ export default function PrecificacaoPage() {
         },
         payload_hash: `corrigir-ui-${args.gc_produto_id}-${args.tipo_id}-${Date.now()}`,
         status: "pendente",
+      }).select("id").single();
+
+      if (errJob) throw errJob;
+
+      const { data: workerResult, error: errWorker } = await supabase.functions.invoke("process-gc-write-jobs", {
+        body: { source: "precificacao-ui-corrigir", job_id: job.id },
       });
 
-      toast.success(`${args.nome_tabela}: enviado ${formatCurrency(args.preco_sugerido)} pro GC`);
+      if (errWorker) throw errWorker;
+      if (!workerResult?.sucessos) {
+        const erro = workerResult?.results?.[0]?.erro || workerResult?.message || "worker não confirmou sucesso";
+        throw new Error(String(erro));
+      }
+
+      await refetchProdutosCacheValores();
+
+      toast.success(`${args.nome_tabela}: atualizado no GC e no sistema (${formatCurrency(args.preco_sugerido)})`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       toast.error(`Falha ao corrigir: ${msg}`);
