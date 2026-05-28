@@ -1670,9 +1670,9 @@ export default function PrecificacaoPage() {
 
 
                   let calc: ReturnType<typeof calcPricing>;
-                  const cfuPropLinha = calcCustoFixoUnitProp(custoBase);
+                  const cfuFlatLinha = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
                   if (hasNF) {
-                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, cfuPropLinha, margemAlvo);
+                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
                       creditoPis: nfCalc.creditoPis,
@@ -1683,14 +1683,16 @@ export default function PrecificacaoPage() {
                       custoTotal: nfCalc.custoTotal,
                       precoMinimo: nfCalc.precoMinimo,
                       tributosSaida: nfCalc.tributosSaida,
+                      custoFixoEmbutido: nfCalc.custoFixoEmbutido,
                       impostoRenda: nfCalc.impostoRenda,
                       lucroAnteIR: nfCalc.lucroAnteIR,
                       lucroLiquido: nfCalc.lucroLiquido,
                       margemReal: nfCalc.precoMinimo > 0 ? (nfCalc.lucroLiquido / nfCalc.precoMinimo) * 100 : 0,
                       aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
+                      custoFixoPct: nfCalc.custoFixoPct,
                     };
                   } else {
-                    calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuPropLinha }, taxSaida, tipoSaidaGlobal, margemAlvo);
+                    calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlatLinha }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
                   }
 
 
