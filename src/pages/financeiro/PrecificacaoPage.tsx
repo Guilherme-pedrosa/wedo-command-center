@@ -109,11 +109,10 @@ function calcPricing(
   entrada: TaxConfigEntrada,
   saida: TaxConfigSaida,
   tipo: TipoSaida,
-  margemDesejada: number
+  margemDesejada: number,
+  custoFixoPct: number = 0 // fração (0.08 = 8%) — entra no DIVISOR do mark-up
 ) {
   // Sem NF para consultar → NUNCA inferir crédito de entrada. Zerado.
-  // Crédito de entrada só existe quando a NF foi importada e os tributos foram apurados
-  // (esse caminho é tratado em calcPricingComNF, não aqui).
   const creditoIcms = 0;
   const creditoPis = 0;
   const creditoCofins = 0;
@@ -121,6 +120,8 @@ function calcPricing(
 
   const custoLiquido = custoBruto - totalCreditosEntrada;
   const custoFrete = custoBruto * (entrada.frete / 100);
+  // custoFixoUnit (override flat manual) ainda soma direto no custo, se setado.
+  // O rateio proporcional (custoFixoPct) é embutido NO DIVISOR — não no custo.
   const custoTotal = custoLiquido + custoFrete + entrada.custoFixoUnit;
 
   // Alíquotas de saída (incidem sobre faturamento)
@@ -131,18 +132,19 @@ function calcPricing(
     aliquotaSaidaFaturamento = (saida.iss + saida.pisSaidaServico + saida.cofinsSaidaServico) / 100;
   }
 
-  // IRPJ/CSLL incide sobre lucro, não faturamento — simplificamos como % do faturamento
-  // Na prática Lucro Real: IRPJ 15% + adicional 10% + CSLL 9% sobre lucro líquido
-  // Para markup inverso, tratamos como % do faturamento para simplificar
   const irpjPct = saida.irpjCsll / 100;
 
   const margemDecimal = margemDesejada / 100;
-  // Preço = CustoTotal / (1 - tributos_saida - margem)
-  const divisor = 1 - aliquotaSaidaFaturamento - margemDecimal;
+  // Mark-up Divisor (padrão de mercado para custo fixo):
+  // Preço = CustoTotal / (1 - tributos_saida - custoFixo% - margem)
+  // CustoFixo% = CustoFixoMensal / FaturamentoMensalMédio
+  // Assim, cada R$ vendido contribui na mesma proporção pra cobrir o custo fixo.
+  const divisor = 1 - aliquotaSaidaFaturamento - custoFixoPct - margemDecimal;
   const precoMinimo = divisor > 0 ? custoTotal / divisor : custoTotal * 3;
 
   const tributosSaida = precoMinimo * aliquotaSaidaFaturamento;
-  const lucroAnteIR = precoMinimo - custoTotal - tributosSaida;
+  const custoFixoEmbutido = precoMinimo * custoFixoPct;
+  const lucroAnteIR = precoMinimo - custoTotal - tributosSaida - custoFixoEmbutido;
   const impostoRenda = Math.max(0, lucroAnteIR * irpjPct);
   const lucroLiquido = lucroAnteIR - impostoRenda;
 
@@ -156,11 +158,13 @@ function calcPricing(
     custoTotal,
     precoMinimo,
     tributosSaida,
+    custoFixoEmbutido,
     impostoRenda,
     lucroAnteIR,
     lucroLiquido,
     margemReal: precoMinimo > 0 ? (lucroLiquido / precoMinimo) * 100 : 0,
     aliquotaSaidaFaturamento,
+    custoFixoPct,
   };
 }
 
@@ -230,21 +234,20 @@ function calcPricingWithNF(
   saida: TaxConfigSaida,
   tipo: TipoSaida,
   custoFixo: number,
-  margemDesejada: number
+  margemDesejada: number,
+  custoFixoPct: number = 0
 ) {
   const eff = getEffectiveRates(tributo);
   const valorUnit = tributo.valor_unitario_nf;
   
-  // Recalculate credits based on effective rates — serviço não aproveita nenhum crédito fiscal
   const creditoIcms = tipo === "servico" ? 0 : valorUnit * (eff.icms / 100);
   const creditoPis = tipo === "servico" ? 0 : valorUnit * (eff.pis / 100);
   const creditoCofins = tipo === "servico" ? 0 : valorUnit * (eff.cofins / 100);
   const ipiUnit = tributo.valor_ipi_unit;
   const freteUnit = tributo.valor_frete_unit;
   
-  // Custo efetivo recalculado com alíquotas efetivas
   const custoEfetivo = valorUnit + ipiUnit + freteUnit - creditoIcms - creditoPis - creditoCofins;
-  const custoTotal = custoEfetivo + custoFixo;
+  const custoTotal = custoEfetivo + custoFixo; // custoFixo aqui = override flat manual
 
   let aliquotaSaidaFaturamento: number;
   if (tipo === "venda") {
@@ -255,11 +258,13 @@ function calcPricingWithNF(
 
   const irpjPct = saida.irpjCsll / 100;
   const margemDecimal = margemDesejada / 100;
-  const divisor = 1 - aliquotaSaidaFaturamento - margemDecimal;
+  // Mark-up Divisor com custo fixo embutido
+  const divisor = 1 - aliquotaSaidaFaturamento - custoFixoPct - margemDecimal;
   const precoMinimo = divisor > 0 ? custoTotal / divisor : custoTotal * 3;
 
   const tributosSaida = precoMinimo * aliquotaSaidaFaturamento;
-  const lucroAnteIR = precoMinimo - custoTotal - tributosSaida;
+  const custoFixoEmbutido = precoMinimo * custoFixoPct;
+  const lucroAnteIR = precoMinimo - custoTotal - tributosSaida - custoFixoEmbutido;
   const impostoRenda = Math.max(0, lucroAnteIR * irpjPct);
   const lucroLiquido = lucroAnteIR - impostoRenda;
 
@@ -272,10 +277,12 @@ function calcPricingWithNF(
     custoTotal,
     precoMinimo,
     tributosSaida,
+    custoFixoEmbutido,
     impostoRenda,
     lucroAnteIR,
     lucroLiquido,
     aliquotaSaidaFaturamento,
+    custoFixoPct,
   };
 }
 
@@ -757,37 +764,37 @@ export default function PrecificacaoPage() {
       .reduce((sum, p) => sum + (Number(p.estoque) || 0), 0) || 1;
   }, [produtos]);
 
-  // ── Custo fixo PROPORCIONAL ao valor do produto (não flat por unidade) ──
-  // Calcula valor total do estoque (Σ estoque × custo) usando custo canônico quando disponível.
-  // O custo fixo mensal vira uma % do valor de estoque, e cada produto absorve sua fatia
-  // proporcional ao próprio custo unitário. Assim, um produto de R$100.000 absorve muito mais
-  // custo fixo do que um de R$0,40 — sem distorcer a margem dos itens baratos.
-  const totalValorEstoque = useMemo(() => {
-    if (!produtos) return null;
-    return produtos
-      .filter(p => !EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k)))
-      .reduce((sum, p) => {
-        const custoCan = custoCanonicoMap.get(p.id);
-        const custo = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
-        const est = Number(p.estoque) || 0;
-        return sum + custo * est;
-      }, 0) || 0;
-  }, [produtos, custoCanonicoMap]);
+  // ── Faturamento mensal médio (últimos 90 dias / 3) — base para rateio do custo fixo ──
+  // Padrão de mercado: custo fixo é recuperado como % do faturamento, não do estoque.
+  // Cada R$ vendido contribui na mesma proporção pra pagar o custo fixo, independente
+  // do produto ser caro ou barato. A fórmula é embutida no DIVISOR do mark-up.
+  const { data: faturamentoMensalMedio } = useQuery({
+    queryKey: ["faturamento-mensal-medio-90d"],
+    queryFn: async () => {
+      const d = new Date(); d.setDate(d.getDate() - 90);
+      const start = d.toISOString().slice(0, 10);
+      const { data } = await supabase
+        .from("gc_recebimentos")
+        .select("valor_total, valor")
+        .gte("data_vencimento", start);
+      const total = (data || []).reduce((s: number, r: any) => s + (Number(r.valor_total) || Number(r.valor) || 0), 0);
+      return total / 3; // média mensal
+    },
+    staleTime: 10 * 60 * 1000,
+  });
 
-  // Percentual do custo fixo sobre valor de estoque (fração: 0.03 = 3%)
-  const custoFixoPct = (custoFixoMensal && totalValorEstoque) ? custoFixoMensal / totalValorEstoque : 0;
+  // % do custo fixo sobre faturamento (fração: 0.08 = 8%). Entra direto no divisor do mark-up.
+  const custoFixoPct = (custoFixoMensal && faturamentoMensalMedio && faturamentoMensalMedio > 0)
+    ? custoFixoMensal / faturamentoMensalMedio
+    : 0;
 
-  // Compat: continua exposto um "/un médio" só para display no header (custo fixo ÷ unidades),
-  // mas o cálculo real por linha agora usa custoFixoPct × custoBase.
+  // Custo fixo /un médio (só display)
   const custoFixoAutoUnit = (custoFixoMensal && totalProdutosEstoque) ? custoFixoMensal / totalProdutosEstoque : 0;
   const activeEntrada = { ...taxEntrada, custoFixoUnit: taxEntrada.custoFixoUnit || 0 };
 
-  // Helper: custo fixo unitário PROPORCIONAL para um dado custoBase.
-  // Override manual (taxEntrada.custoFixoUnit > 0) ainda funciona como flat.
-  const calcCustoFixoUnitProp = (custoBase: number) =>
-    (taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0)
-      ? taxEntrada.custoFixoUnit
-      : custoBase * custoFixoPct;
+  // Override manual flat (taxEntrada.custoFixoUnit > 0): se setado, ignora rateio % e usa flat.
+  const usarOverrideFlat = !!(taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0);
+  const custoFixoPctEfetivo = usarOverrideFlat ? 0 : custoFixoPct;
 
   // ── Itens fora da margem: replica a lógica de cada linha (politicas × produto) para alimentar botões "Corrigir tudo" ──
   const outOfMarginByProduct = useMemo(() => {
@@ -803,26 +810,27 @@ export default function PrecificacaoPage() {
       const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const hasNF = !!tributo;
       let calc: ReturnType<typeof calcPricing>;
-      const cfuProp = calcCustoFixoUnitProp(hasNF ? (tributo!.valor_unitario_nf || 0) : custoBruto);
+      const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuProp, margemAlvo);
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo);
         calc = {
           creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
           totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
           custoFrete: tributo!.valor_frete_unit, custoTotal: nfCalc.custoTotal, precoMinimo: nfCalc.precoMinimo,
-          tributosSaida: nfCalc.tributosSaida, impostoRenda: nfCalc.impostoRenda, lucroAnteIR: nfCalc.lucroAnteIR,
-          lucroLiquido: nfCalc.lucroLiquido,
+          tributosSaida: nfCalc.tributosSaida, custoFixoEmbutido: nfCalc.custoFixoEmbutido, impostoRenda: nfCalc.impostoRenda,
+          lucroAnteIR: nfCalc.lucroAnteIR, lucroLiquido: nfCalc.lucroLiquido,
           margemReal: nfCalc.precoMinimo > 0 ? (nfCalc.lucroLiquido / nfCalc.precoMinimo) * 100 : 0,
           aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
+          custoFixoPct: nfCalc.custoFixoPct,
         };
       } else {
-        calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuProp }, taxSaida, tipoSaidaGlobal, margemAlvo);
+        calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
       }
       const valoresProd = valoresMap.get(p.id);
       const items: typeof map extends Map<string, infer V> ? V : never = [];
       for (const pol of politicas) {
         const margemMin = Number(pol.margem_minima) || 0;
-        const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - margemMin) : 0;
+        const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin) : 0;
         const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
         const temPrecoCadastrado = vendaReal > 0;
         const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
@@ -840,7 +848,7 @@ export default function PrecificacaoPage() {
       if (items.length > 0) map.set(String(p.id), items);
     }
     return map;
-  }, [filtered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPct, taxEntrada.custoFixoUnit, margemAlvo]);
+  }, [filtered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo]);
 
   const allOutOfMargin = useMemo(() => Array.from(outOfMarginByProduct.values()).flat(), [outOfMarginByProduct]);
 
@@ -1188,9 +1196,9 @@ export default function PrecificacaoPage() {
     if (custo <= 0) return [];
     return calcMargens.map((m) => ({
       margem: m,
-      ...calcPricing(custo, activeEntrada, taxSaida, calcTipoSaida, m),
+      ...calcPricing(custo, activeEntrada, taxSaida, calcTipoSaida, m, custoFixoPctEfetivo),
     }));
-  }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida]);
+  }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida, custoFixoPctEfetivo]);
 
   const totalComTributoNF = tributosXml.length;
 
@@ -1339,8 +1347,8 @@ export default function PrecificacaoPage() {
         </div>
         <div className="flex items-center gap-3">
           {custoFixoMensal !== undefined && (
-            <Badge variant="outline" className="text-xs" title={`Rateado proporcional ao custo: ${(custoFixoPct * 100).toFixed(2)}% sobre o custo de cada produto. Média/un (referência): ${formatCurrency(custoFixoAutoUnit)}`}>
-              Custo fixo: {formatCurrency(custoFixoMensal)} · {(custoFixoPct * 100).toFixed(2)}% do custo
+            <Badge variant="outline" className="text-xs" title={`Mark-up Divisor: ${(custoFixoPct * 100).toFixed(2)}% do faturamento mensal médio (R$ ${(faturamentoMensalMedio || 0).toLocaleString('pt-BR', {maximumFractionDigits: 0})}) é embutido no preço pra cobrir o custo fixo. ${usarOverrideFlat ? `Override flat ativo: ${formatCurrency(taxEntrada.custoFixoUnit || 0)}/un` : ''}`}>
+              Custo fixo: {formatCurrency(custoFixoMensal)} · {(custoFixoPctEfetivo * 100).toFixed(2)}% do faturamento{usarOverrideFlat ? ' (override flat)' : ''}
             </Badge>
           )}
           <Badge variant="outline" className="text-xs">
@@ -1662,9 +1670,9 @@ export default function PrecificacaoPage() {
 
 
                   let calc: ReturnType<typeof calcPricing>;
-                  const cfuPropLinha = calcCustoFixoUnitProp(custoBase);
+                  const cfuFlatLinha = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
                   if (hasNF) {
-                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, cfuPropLinha, margemAlvo);
+                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
                       creditoPis: nfCalc.creditoPis,
@@ -1675,14 +1683,16 @@ export default function PrecificacaoPage() {
                       custoTotal: nfCalc.custoTotal,
                       precoMinimo: nfCalc.precoMinimo,
                       tributosSaida: nfCalc.tributosSaida,
+                      custoFixoEmbutido: nfCalc.custoFixoEmbutido,
                       impostoRenda: nfCalc.impostoRenda,
                       lucroAnteIR: nfCalc.lucroAnteIR,
                       lucroLiquido: nfCalc.lucroLiquido,
                       margemReal: nfCalc.precoMinimo > 0 ? (nfCalc.lucroLiquido / nfCalc.precoMinimo) * 100 : 0,
                       aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
+                      custoFixoPct: nfCalc.custoFixoPct,
                     };
                   } else {
-                    calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuPropLinha }, taxSaida, tipoSaidaGlobal, margemAlvo);
+                    calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlatLinha }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
                   }
 
 
@@ -1874,7 +1884,7 @@ export default function PrecificacaoPage() {
                         const valoresProd = valoresMap.get(p.id);
                         return (politicas ?? []).map((pol, idx) => {
                           const margemMin = Number(pol.margem_minima) || 0;
-                          const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - margemMin) : 0;
+                          const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin) : 0;
                           const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
                           const temPrecoCadastrado = vendaReal > 0;
                           const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
