@@ -761,10 +761,11 @@ export default function PrecificacaoPage() {
         const margemMin = Number(pol.margem_minima) || 0;
         const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - margemMin) : 0;
         const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
-        const venda = vendaReal > 0 ? vendaReal : precoSugerido;
+        const temPrecoCadastrado = vendaReal > 0;
+        const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
         const trib = venda * calc.aliquotaSaidaFaturamento;
         const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
-        const okMin = venda > 0 && margem >= (margemMin * 100 - 0.05);
+        const okMin = temPrecoCadastrado && margem >= (margemMin * 100 - 0.05);
         if (!okMin && precoSugerido > 0 && calc.custoTotal > 0) {
           items.push({
             gc_produto_id: String(p.id), nome_produto: p.nome, tipo_id: String(pol.tipo_id), nome_tabela: pol.nome_tabela,
@@ -1790,11 +1791,12 @@ export default function PrecificacaoPage() {
                           const margemMin = Number(pol.margem_minima) || 0;
                           const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - margemMin) : 0;
                           const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
-                          const venda = vendaReal > 0 ? vendaReal : precoSugerido;
+                          const temPrecoCadastrado = vendaReal > 0;
+                          const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
                           const trib = venda * calc.aliquotaSaidaFaturamento;
                           const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
                           // Tolerância de 0.05pp para evitar que 4.97% exibido como "5.0%" apareça como fora da margem
-                          const okMin = venda > 0 && margem >= (margemMin * 100 - 0.05);
+                          const okMin = temPrecoCadastrado && margem >= (margemMin * 100 - 0.05);
                           const cor = idx % 3 === 0 ? "text-blue-400" : idx % 3 === 1 ? "text-yellow-400" : "text-purple-400";
                           return (
                             <Fragment key={pol.tipo_id}>
