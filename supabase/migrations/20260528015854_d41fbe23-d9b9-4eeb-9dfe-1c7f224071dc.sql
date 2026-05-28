@@ -1,0 +1,1 @@
+CREATE POLICY "precif_jobs_insert" ON public.fin_gc_write_jobs FOR INSERT TO authenticated WITH CHECK (true);
