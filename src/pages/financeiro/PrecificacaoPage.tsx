@@ -1662,8 +1662,9 @@ export default function PrecificacaoPage() {
 
 
                   let calc: ReturnType<typeof calcPricing>;
+                  const cfuPropLinha = calcCustoFixoUnitProp(custoBase);
                   if (hasNF) {
-                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, activeEntrada.custoFixoUnit, margemAlvo);
+                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, cfuPropLinha, margemAlvo);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
                       creditoPis: nfCalc.creditoPis,
@@ -1681,7 +1682,7 @@ export default function PrecificacaoPage() {
                       aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
                     };
                   } else {
-                    calc = calcPricing(custoBruto, activeEntrada, taxSaida, tipoSaidaGlobal, margemAlvo);
+                    calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuPropLinha }, taxSaida, tipoSaidaGlobal, margemAlvo);
                   }
 
 
