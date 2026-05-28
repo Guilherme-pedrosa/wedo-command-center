@@ -654,7 +654,7 @@ export default function PrecificacaoPage() {
     if (produtos) {
       return produtos
         .filter((p) => {
-          if ((Number(p.estoque) || 0) <= 0) return false;
+          // Removido filtro de estoque > 0: GC tem ~3 mil produtos, maioria com estoque 0 mas válidos para precificar
           if (EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k))) return false;
           const nome = (p.nome || "").toLowerCase();
           if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
