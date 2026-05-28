@@ -1484,9 +1484,34 @@ export default function PrecificacaoPage() {
                               </TableCell>
                               <TableCell className="text-right font-mono text-[10px] text-orange-400">-{formatCurrency(trib)}</TableCell>
                               <TableCell className="text-center">
-                                <Badge className={`text-[10px] gap-0.5 ${okMin ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>
-                                  {okMin ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margem.toFixed(1)}%
-                                </Badge>
+                                <div className="flex flex-col items-center gap-1">
+                                  <Badge className={`text-[10px] gap-0.5 ${okMin ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>
+                                    {okMin ? <TrendingUp className="h-3 w-3"/> : <AlertTriangle className="h-3 w-3"/>} {margem.toFixed(1)}%
+                                  </Badge>
+                                  {!okMin && precoSugerido > 0 && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-5 px-1.5 text-[9px] gap-1"
+                                      disabled={corrigindoKey === `${p.id}:${pol.tipo_id}`}
+                                      onClick={() => corrigirPreco({
+                                        gc_produto_id: String(p.id),
+                                        nome_produto: p.nome,
+                                        tipo_id: String(pol.tipo_id),
+                                        nome_tabela: pol.nome_tabela,
+                                        preco_atual: vendaReal,
+                                        preco_sugerido: precoSugerido,
+                                        margem_minima: margemMin,
+                                        margem_resultante: margemMin,
+                                        custo_referencia: calc.custoTotal,
+                                      })}
+                                      title={`Enviar ${formatCurrency(precoSugerido)} pro GC (margem mín ${(margemMin*100).toFixed(0)}%)`}
+                                    >
+                                      {corrigindoKey === `${p.id}:${pol.tipo_id}` ? <Loader2 className="h-2.5 w-2.5 animate-spin"/> : <RefreshCw className="h-2.5 w-2.5"/>}
+                                      Corrigir
+                                    </Button>
+                                  )}
+                                </div>
                               </TableCell>
                             </Fragment>
                           );
