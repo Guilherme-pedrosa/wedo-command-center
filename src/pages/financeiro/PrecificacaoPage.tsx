@@ -190,6 +190,40 @@ function isTributoCompativelComProduto(produto: GCProduto, tributo?: ProdutoTrib
   return tributo.gc_produto_id === produto.id;
 }
 
+/**
+ * Detecta quando o valor_unitario_nf representa um KIT/embalagem maior do que a
+ * unidade que o GC vende. Heurística: ratio nf/gc >= 2 e desvio do múltiplo
+ * inteiro mais próximo <= 25% — significa que a NF veio em kit (ex.: caixa,
+ * milheiro) e o preço unitário precisa ser dividido para casar com a unidade GC.
+ * Retorna 1 quando não é kit (ou quando faltam dados pra inferir).
+ */
+function detectKitRatio(tributo: ProdutoTributo | undefined, gcCusto: number): number {
+  if (!tributo || !gcCusto || gcCusto <= 0) return 1;
+  const nfUnit = Number(tributo.valor_unitario_nf) || 0;
+  if (nfUnit <= 0) return 1;
+  const ratio = nfUnit / gcCusto;
+  if (ratio < 1.8) return 1;
+  const r = Math.round(ratio);
+  if (r < 2) return 1;
+  const dev = Math.abs(nfUnit - r * gcCusto) / nfUnit;
+  if (dev > 0.25) return 1;
+  return r;
+}
+
+function ajustarTributoPorKit(tributo: ProdutoTributo, ratio: number): ProdutoTributo {
+  if (ratio <= 1) return tributo;
+  return {
+    ...tributo,
+    valor_unitario_nf: (Number(tributo.valor_unitario_nf) || 0) / ratio,
+    valor_icms_unit: (Number(tributo.valor_icms_unit) || 0) / ratio,
+    valor_pis_unit: (Number(tributo.valor_pis_unit) || 0) / ratio,
+    valor_cofins_unit: (Number(tributo.valor_cofins_unit) || 0) / ratio,
+    valor_ipi_unit: (Number(tributo.valor_ipi_unit) || 0) / ratio,
+    valor_frete_unit: (Number(tributo.valor_frete_unit) || 0) / ratio,
+    custo_efetivo_unit: (Number(tributo.custo_efetivo_unit) || 0) / ratio,
+  };
+}
+
 
 function calcPricingWithNF(
   tributo: ProdutoTributo,
