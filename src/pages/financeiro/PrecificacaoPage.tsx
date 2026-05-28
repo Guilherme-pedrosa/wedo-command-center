@@ -1196,7 +1196,7 @@ export default function PrecificacaoPage() {
     if (custo <= 0) return [];
     return calcMargens.map((m) => ({
       margem: m,
-      ...calcPricing(custo, activeEntrada, taxSaida, calcTipoSaida, m),
+      ...calcPricing(custo, activeEntrada, taxSaida, calcTipoSaida, m, custoFixoPctEfetivo),
     }));
   }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida]);
 
