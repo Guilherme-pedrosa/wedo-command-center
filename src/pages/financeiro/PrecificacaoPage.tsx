@@ -520,17 +520,49 @@ export default function PrecificacaoPage() {
   const EXCLUDED_NAME_KEYWORDS = ["consignado", "garantia metalfrio", "lona plastica"];
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
+    const pols = politicas ?? [];
+
+    // Avalia margem de um produto contra todas as políticas ativas (aproximação: ignora tributo de saída).
+    // Retorna { negativa, fora } onde:
+    //  - negativa = alguma tabela com venda > 0 mas (venda - custo) < 0
+    //  - fora     = alguma tabela sem preço cadastrado OU margem aprox < margem_minima da política
+    const avaliarMargem = (produtoId: string, custoBase: number): { negativa: boolean; fora: boolean } => {
+      if (pols.length === 0 || custoBase <= 0) return { negativa: false, fora: false };
+      const vendaPorTipo = valoresMap.get(produtoId);
+      let negativa = false;
+      let fora = false;
+      for (const pol of pols) {
+        const venda = Number(vendaPorTipo?.get(String(pol.tipo_id)) ?? 0);
+        if (venda <= 0) { fora = true; continue; }
+        const margem = (venda - custoBase) / venda;
+        if (margem < 0) negativa = true;
+        if (margem < Number(pol.margem_minima)) fora = true;
+      }
+      return { negativa, fora };
+    };
+
+    const aplicarFiltroMargem = (id: string, custoBase: number) => {
+      if (marginFilter === "todos") return true;
+      const { negativa, fora } = avaliarMargem(id, custoBase);
+      if (marginFilter === "negativa") return negativa;
+      return fora; // 'fora' inclui negativas (margem < mínima)
+    };
+
     if (produtos) {
       return produtos
         .filter((p) => {
-          // Mostra TODOS os produtos do cadastro, com ou sem NF de entrada.
-          // Sem NF → cálculo usa valor_custo do ERP e zera o crédito de entrada.
           if ((Number(p.estoque) || 0) <= 0) return false;
           if (EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k))) return false;
           const nome = (p.nome || "").toLowerCase();
           if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
           const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
-          return nome.includes(q) || codigo.includes(q);
+          if (!(nome.includes(q) || codigo.includes(q))) return false;
+
+          const tributo = tributosMap.get(p.id);
+          const custoBase = isTributoCompativelComProduto(p, tributo)
+            ? Number(tributo?.valor_unitario_nf) || 0
+            : (custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0);
+          return aplicarFiltroMargem(p.id, custoBase);
         })
         .sort((a, b) => {
           const estoqueA = Number(a.estoque) || 0;
@@ -539,7 +571,6 @@ export default function PrecificacaoPage() {
           const tributoA = tributosMap.get(a.id);
           const tributoB = tributosMap.get(b.id);
 
-          // Usa custo de NF quando o tributo pertence ao produto
           const custoA = isTributoCompativelComProduto(a, tributoA)
             ? Number(tributoA?.valor_unitario_nf) || 0
             : Number(a.valor_custo) || 0;
@@ -550,28 +581,24 @@ export default function PrecificacaoPage() {
           const valorEstoqueA = estoqueA * custoA;
           const valorEstoqueB = estoqueB * custoB;
 
-          // Refator v3: pendente_custo_zero sobe ao topo
           const statusA = custoCanonicoMap.get(a.id)?.status;
           const statusB = custoCanonicoMap.get(b.id)?.status;
           const pendA = statusA === "pendente_custo_zero" ? 1 : 0;
           const pendB = statusB === "pendente_custo_zero" ? 1 : 0;
           if (pendA !== pendB) return pendB - pendA;
 
-          // Regra principal: maior valor em estoque (qtd × custo)
           if (valorEstoqueB !== valorEstoqueA) return valorEstoqueB - valorEstoqueA;
-          // Desempate: maior custo unitário
           if (custoB !== custoA) return custoB - custoA;
-          // Último desempate: maior quantidade
           return estoqueB - estoqueA;
         })
         .slice(0, 100);
     }
-    // Sem produtos GC → usa tributos como fonte (modo offline)
     return tributosXml
       .filter((t) => {
         const nome = (t.nome_produto || "").toLowerCase();
         if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
-        return nome.includes(q) || (t.gc_produto_id || "").includes(q);
+        if (!(nome.includes(q) || (t.gc_produto_id || "").includes(q))) return false;
+        return aplicarFiltroMargem(t.gc_produto_id, Number(t.valor_unitario_nf) || 0);
       })
       .map((t) => ({
         id: t.gc_produto_id,
@@ -581,10 +608,9 @@ export default function PrecificacaoPage() {
         valor_custo: String(t.valor_unitario_nf || "0"),
         valor_venda: "0",
       } as GCProduto))
-      // deduplicate by id
       .filter((p, i, arr) => arr.findIndex((x) => x.id === p.id) === i)
       .slice(0, 100);
-  }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap]);
+  }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap, marginFilter, politicas, valoresMap]);
 
   const totalProdutosEstoque = useMemo(() => {
     if (!produtos) return null; // sem dados de estoque carregados
