@@ -764,37 +764,37 @@ export default function PrecificacaoPage() {
       .reduce((sum, p) => sum + (Number(p.estoque) || 0), 0) || 1;
   }, [produtos]);
 
-  // ── Custo fixo PROPORCIONAL ao valor do produto (não flat por unidade) ──
-  // Calcula valor total do estoque (Σ estoque × custo) usando custo canônico quando disponível.
-  // O custo fixo mensal vira uma % do valor de estoque, e cada produto absorve sua fatia
-  // proporcional ao próprio custo unitário. Assim, um produto de R$100.000 absorve muito mais
-  // custo fixo do que um de R$0,40 — sem distorcer a margem dos itens baratos.
-  const totalValorEstoque = useMemo(() => {
-    if (!produtos) return null;
-    return produtos
-      .filter(p => !EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k)))
-      .reduce((sum, p) => {
-        const custoCan = custoCanonicoMap.get(p.id);
-        const custo = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
-        const est = Number(p.estoque) || 0;
-        return sum + custo * est;
-      }, 0) || 0;
-  }, [produtos, custoCanonicoMap]);
+  // ── Faturamento mensal médio (últimos 90 dias / 3) — base para rateio do custo fixo ──
+  // Padrão de mercado: custo fixo é recuperado como % do faturamento, não do estoque.
+  // Cada R$ vendido contribui na mesma proporção pra pagar o custo fixo, independente
+  // do produto ser caro ou barato. A fórmula é embutida no DIVISOR do mark-up.
+  const { data: faturamentoMensalMedio } = useQuery({
+    queryKey: ["faturamento-mensal-medio-90d"],
+    queryFn: async () => {
+      const d = new Date(); d.setDate(d.getDate() - 90);
+      const start = d.toISOString().slice(0, 10);
+      const { data } = await supabase
+        .from("gc_recebimentos")
+        .select("valor_total, valor")
+        .gte("data_vencimento", start);
+      const total = (data || []).reduce((s: number, r: any) => s + (Number(r.valor_total) || Number(r.valor) || 0), 0);
+      return total / 3; // média mensal
+    },
+    staleTime: 10 * 60 * 1000,
+  });
 
-  // Percentual do custo fixo sobre valor de estoque (fração: 0.03 = 3%)
-  const custoFixoPct = (custoFixoMensal && totalValorEstoque) ? custoFixoMensal / totalValorEstoque : 0;
+  // % do custo fixo sobre faturamento (fração: 0.08 = 8%). Entra direto no divisor do mark-up.
+  const custoFixoPct = (custoFixoMensal && faturamentoMensalMedio && faturamentoMensalMedio > 0)
+    ? custoFixoMensal / faturamentoMensalMedio
+    : 0;
 
-  // Compat: continua exposto um "/un médio" só para display no header (custo fixo ÷ unidades),
-  // mas o cálculo real por linha agora usa custoFixoPct × custoBase.
+  // Custo fixo /un médio (só display)
   const custoFixoAutoUnit = (custoFixoMensal && totalProdutosEstoque) ? custoFixoMensal / totalProdutosEstoque : 0;
   const activeEntrada = { ...taxEntrada, custoFixoUnit: taxEntrada.custoFixoUnit || 0 };
 
-  // Helper: custo fixo unitário PROPORCIONAL para um dado custoBase.
-  // Override manual (taxEntrada.custoFixoUnit > 0) ainda funciona como flat.
-  const calcCustoFixoUnitProp = (custoBase: number) =>
-    (taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0)
-      ? taxEntrada.custoFixoUnit
-      : custoBase * custoFixoPct;
+  // Override manual flat (taxEntrada.custoFixoUnit > 0): se setado, ignora rateio % e usa flat.
+  const usarOverrideFlat = !!(taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0);
+  const custoFixoPctEfetivo = usarOverrideFlat ? 0 : custoFixoPct;
 
   // ── Itens fora da margem: replica a lógica de cada linha (politicas × produto) para alimentar botões "Corrigir tudo" ──
   const outOfMarginByProduct = useMemo(() => {
