@@ -840,7 +840,7 @@ export default function PrecificacaoPage() {
       if (items.length > 0) map.set(String(p.id), items);
     }
     return map;
-  }, [filtered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, activeEntrada.custoFixoUnit, margemAlvo]);
+  }, [filtered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPct, taxEntrada.custoFixoUnit, margemAlvo]);
 
   const allOutOfMargin = useMemo(() => Array.from(outOfMarginByProduct.values()).flat(), [outOfMarginByProduct]);
 
