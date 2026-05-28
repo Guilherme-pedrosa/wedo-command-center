@@ -1223,17 +1223,21 @@ export default function PrecificacaoPage() {
     if (bulkCorrigindo || corrigindoKey) return;
     if (items.length === 0) { toast("Nada fora da margem para corrigir"); return; }
     setBulkCorrigindo(bulkKey);
+    console.log(`[corrigirPrecoBatch] ${scopeLabel} → ${items.length} item(s)`, items);
     let ok = 0, fail = 0;
     const erros: string[] = [];
+    const okProdutos = new Set<string>();
     try {
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
         toast(`${scopeLabel}: ${i + 1}/${items.length} — ${it.nome_produto.slice(0, 30)} (${it.nome_tabela})`);
         const r = await corrigirPrecoCore(it);
-        if (r.ok) ok++; else { fail++; erros.push(`${it.nome_produto} [${it.nome_tabela}]: ${r.erro}`); }
+        if (r.ok) { ok++; okProdutos.add(it.nome_produto); }
+        else { fail++; erros.push(`${it.nome_produto} [${it.nome_tabela}]: ${r.erro}`); }
       }
-      await refetchProdutosCacheValores();
-      if (fail === 0) toast.success(`${scopeLabel}: ${ok} preço(s) atualizado(s) no GC`);
+      await Promise.all([refetchProdutosCacheValores(), refetchProdutos()]);
+      const amostra = Array.from(okProdutos).slice(0, 3).join(", ") + (okProdutos.size > 3 ? ` +${okProdutos.size - 3}` : "");
+      if (fail === 0) toast.success(`${scopeLabel}: ${ok} preço(s) no GC — ${okProdutos.size} produto(s): ${amostra}`);
       else toast.error(`${scopeLabel}: ${ok} ok, ${fail} falha(s). Ex: ${erros[0]}`);
     } finally {
       setBulkCorrigindo(null);
@@ -1246,7 +1250,7 @@ export default function PrecificacaoPage() {
     try {
       const r = await corrigirPrecoCore(args);
       if (r.ok) {
-        await refetchProdutosCacheValores();
+        await Promise.all([refetchProdutosCacheValores(), refetchProdutos()]);
         toast.success(`${args.nome_tabela}: atualizado no GC (${formatCurrency(args.preco_sugerido)})`);
       } else {
         toast.error(`Falha ao corrigir: ${r.erro}`);
