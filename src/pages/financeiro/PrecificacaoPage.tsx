@@ -684,7 +684,7 @@ export default function PrecificacaoPage() {
           if (custoB !== custoA) return custoB - custoA;
           return estoqueB - estoqueA;
         })
-        .slice(0, 100);
+        .slice(0, 1000);
     }
     return tributosXml
       .filter((t) => {
@@ -702,7 +702,7 @@ export default function PrecificacaoPage() {
         valor_venda: "0",
       } as GCProduto))
       .filter((p, i, arr) => arr.findIndex((x) => x.id === p.id) === i)
-      .slice(0, 100);
+      .slice(0, 1000);
   }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap, marginFilter, politicas, valoresMap]);
 
   const totalProdutosEstoque = useMemo(() => {
