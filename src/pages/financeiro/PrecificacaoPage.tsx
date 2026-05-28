@@ -1645,7 +1645,8 @@ export default function PrecificacaoPage() {
                           const venda = vendaReal > 0 ? vendaReal : precoSugerido;
                           const trib = venda * calc.aliquotaSaidaFaturamento;
                           const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
-                          const okMin = venda > 0 && (margem / 100) >= margemMin;
+                          // Tolerância de 0.05pp para evitar que 4.97% exibido como "5.0%" apareça como fora da margem
+                          const okMin = venda > 0 && margem >= (margemMin * 100 - 0.05);
                           const cor = idx % 3 === 0 ? "text-blue-400" : idx % 3 === 1 ? "text-yellow-400" : "text-purple-400";
                           return (
                             <Fragment key={pol.tipo_id}>
