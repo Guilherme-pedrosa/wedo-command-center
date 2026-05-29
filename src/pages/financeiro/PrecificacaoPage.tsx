@@ -1432,12 +1432,22 @@ export default function PrecificacaoPage() {
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Custo fixo/un (R$)</Label>
+                <Label className="text-xs text-muted-foreground">Custo fixo % (faturamento)</Label>
+                <Input type="number" step="0.1" placeholder={(custoFixoPctAutoCapeado * 100).toFixed(2)}
+                  value={custoFixoPctOverride}
+                  onChange={(e) => setCustoFixoPctOverride(e.target.value)}
+                  className="h-8 bg-secondary text-sm" />
+                <p className="text-[10px] text-muted-foreground">
+                  {usarOverrideFlat ? 'Ignorado (flat ativo)' : (usarOverridePct ? `Override: ${pctOverrideNum.toFixed(2)}%` : (foiCapeado ? `Auto cap em ${(CUSTO_FIXO_PCT_MAX*100).toFixed(0)}% (real: ${(custoFixoPctRaw*100).toFixed(1)}%)` : `Auto: ${(custoFixoPct*100).toFixed(2)}%`))}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Custo fixo/un (R$) — override flat</Label>
                 <Input type="number" placeholder={custoFixoAutoUnit.toFixed(2)}
                   value={taxEntrada.custoFixoUnit || ""}
                   onChange={(e) => setTaxEntrada({ ...taxEntrada, custoFixoUnit: parseFloat(e.target.value) || 0 })}
                   className="h-8 bg-secondary text-sm" />
-                <p className="text-[10px] text-muted-foreground">Vazio = rateio auto</p>
+                <p className="text-[10px] text-muted-foreground">Vazio = usa o % acima</p>
               </div>
             </div>
           </CardContent>
