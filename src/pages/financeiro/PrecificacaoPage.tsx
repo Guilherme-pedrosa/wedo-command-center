@@ -140,7 +140,10 @@ function calcPricing(
   // CustoFixo% = CustoFixoMensal / FaturamentoMensalMédio
   // Assim, cada R$ vendido contribui na mesma proporção pra cobrir o custo fixo.
   const divisor = 1 - aliquotaSaidaFaturamento - custoFixoPct - margemDecimal;
-  const precoMinimo = divisor > 0 ? custoTotal / divisor : custoTotal * 3;
+  // Safety: divisor pequeno gera preços absurdos. Trava em no máx 5x o custo.
+  const PRECO_MAX_MULTIPLICADOR = 5;
+  const precoMinimoCalculado = divisor > 0.05 ? custoTotal / divisor : custoTotal * PRECO_MAX_MULTIPLICADOR;
+  const precoMinimo = Math.min(precoMinimoCalculado, custoTotal * PRECO_MAX_MULTIPLICADOR);
 
   const tributosSaida = precoMinimo * aliquotaSaidaFaturamento;
   const custoFixoEmbutido = precoMinimo * custoFixoPct;
@@ -260,7 +263,10 @@ function calcPricingWithNF(
   const margemDecimal = margemDesejada / 100;
   // Mark-up Divisor com custo fixo embutido
   const divisor = 1 - aliquotaSaidaFaturamento - custoFixoPct - margemDecimal;
-  const precoMinimo = divisor > 0 ? custoTotal / divisor : custoTotal * 3;
+  // Safety: divisor pequeno gera preços absurdos. Trava em no máx 5x o custo.
+  const PRECO_MAX_MULTIPLICADOR = 5;
+  const precoMinimoCalculado = divisor > 0.05 ? custoTotal / divisor : custoTotal * PRECO_MAX_MULTIPLICADOR;
+  const precoMinimo = Math.min(precoMinimoCalculado, custoTotal * PRECO_MAX_MULTIPLICADOR);
 
   const tributosSaida = precoMinimo * aliquotaSaidaFaturamento;
   const custoFixoEmbutido = precoMinimo * custoFixoPct;
@@ -294,6 +300,8 @@ export default function PrecificacaoPage() {
   const [taxSaida, setTaxSaida] = useState<TaxConfigSaida>(DEFAULT_SAIDA);
   const [tipoSaidaGlobal, setTipoSaidaGlobal] = useState<TipoSaida>("venda");
   const [margemAlvo, setMargemAlvo] = useState(30);
+  // Override manual do % de custo fixo (vazio = usa rateio auto cap'd em CUSTO_FIXO_PCT_MAX)
+  const [custoFixoPctOverride, setCustoFixoPctOverride] = useState<string>("");
   const [tabelaVenda, setTabelaVenda] = useState<"A" | "B" | "P">("B");
   // MARKUP_TABELAS removido — tabelas vêm de fin_politica_markup_tabela (dinâmico)
   const [activeSync, setActiveSync] = useState<"gc" | "offline" | null>(null);
@@ -784,9 +792,14 @@ export default function PrecificacaoPage() {
   });
 
   // % do custo fixo sobre faturamento (fração: 0.08 = 8%). Entra direto no divisor do mark-up.
-  const custoFixoPct = (custoFixoMensal && faturamentoMensalMedio && faturamentoMensalMedio > 0)
+  // Cap: muito faturamento vem de serviço (OS), então ratear 100% no produto distorce — limita em 10%.
+  const CUSTO_FIXO_PCT_MAX = 0.10;
+  const custoFixoPctRaw = (custoFixoMensal && faturamentoMensalMedio && faturamentoMensalMedio > 0)
     ? custoFixoMensal / faturamentoMensalMedio
     : 0;
+  const custoFixoPctAutoCapeado = Math.min(custoFixoPctRaw, CUSTO_FIXO_PCT_MAX);
+  const custoFixoPct = custoFixoPctAutoCapeado;
+  const foiCapeado = custoFixoPctRaw > CUSTO_FIXO_PCT_MAX;
 
   // Custo fixo /un médio (só display)
   const custoFixoAutoUnit = (custoFixoMensal && totalProdutosEstoque) ? custoFixoMensal / totalProdutosEstoque : 0;
@@ -794,7 +807,10 @@ export default function PrecificacaoPage() {
 
   // Override manual flat (taxEntrada.custoFixoUnit > 0): se setado, ignora rateio % e usa flat.
   const usarOverrideFlat = !!(taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0);
-  const custoFixoPctEfetivo = usarOverrideFlat ? 0 : custoFixoPct;
+  // Override manual % (custoFixoPctOverride): se setado, ignora rateio auto.
+  const pctOverrideNum = parseFloat(custoFixoPctOverride);
+  const usarOverridePct = !usarOverrideFlat && !isNaN(pctOverrideNum) && pctOverrideNum > 0;
+  const custoFixoPctEfetivo = usarOverrideFlat ? 0 : (usarOverridePct ? pctOverrideNum / 100 : custoFixoPct);
 
   // ── Itens fora da margem: replica a lógica de cada linha (politicas × produto) para alimentar botões "Corrigir tudo" ──
   const outOfMarginByProduct = useMemo(() => {
@@ -830,7 +846,9 @@ export default function PrecificacaoPage() {
       const items: typeof map extends Map<string, infer V> ? V : never = [];
       for (const pol of politicas) {
         const margemMin = Number(pol.margem_minima) || 0;
-        const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin) : 0;
+        const divLinha = 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin;
+        const precoSugeridoBruto = calc.custoTotal > 0 && divLinha > 0.05 ? calc.custoTotal / divLinha : calc.custoTotal * 5;
+        const precoSugerido = calc.custoTotal > 0 ? Math.min(precoSugeridoBruto, calc.custoTotal * 5) : 0;
         const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
         const temPrecoCadastrado = vendaReal > 0;
         const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
@@ -1414,12 +1432,22 @@ export default function PrecificacaoPage() {
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Custo fixo/un (R$)</Label>
+                <Label className="text-xs text-muted-foreground">Custo fixo % (faturamento)</Label>
+                <Input type="number" step="0.1" placeholder={(custoFixoPctAutoCapeado * 100).toFixed(2)}
+                  value={custoFixoPctOverride}
+                  onChange={(e) => setCustoFixoPctOverride(e.target.value)}
+                  className="h-8 bg-secondary text-sm" />
+                <p className="text-[10px] text-muted-foreground">
+                  {usarOverrideFlat ? 'Ignorado (flat ativo)' : (usarOverridePct ? `Override: ${pctOverrideNum.toFixed(2)}%` : (foiCapeado ? `Auto cap em ${(CUSTO_FIXO_PCT_MAX*100).toFixed(0)}% (real: ${(custoFixoPctRaw*100).toFixed(1)}%)` : `Auto: ${(custoFixoPct*100).toFixed(2)}%`))}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Custo fixo/un (R$) — override flat</Label>
                 <Input type="number" placeholder={custoFixoAutoUnit.toFixed(2)}
                   value={taxEntrada.custoFixoUnit || ""}
                   onChange={(e) => setTaxEntrada({ ...taxEntrada, custoFixoUnit: parseFloat(e.target.value) || 0 })}
                   className="h-8 bg-secondary text-sm" />
-                <p className="text-[10px] text-muted-foreground">Vazio = rateio auto</p>
+                <p className="text-[10px] text-muted-foreground">Vazio = usa o % acima</p>
               </div>
             </div>
           </CardContent>
@@ -1884,7 +1912,9 @@ export default function PrecificacaoPage() {
                         const valoresProd = valoresMap.get(p.id);
                         return (politicas ?? []).map((pol, idx) => {
                           const margemMin = Number(pol.margem_minima) || 0;
-                          const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin) : 0;
+                          const divInline = 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin;
+                          const precoBruto = calc.custoTotal > 0 && divInline > 0.05 ? calc.custoTotal / divInline : calc.custoTotal * 5;
+                          const precoSugerido = calc.custoTotal > 0 ? Math.min(precoBruto, calc.custoTotal * 5) : 0;
                           const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
                           const temPrecoCadastrado = vendaReal > 0;
                           const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
