@@ -786,9 +786,14 @@ export default function PrecificacaoPage() {
   });
 
   // % do custo fixo sobre faturamento (fração: 0.08 = 8%). Entra direto no divisor do mark-up.
-  const custoFixoPct = (custoFixoMensal && faturamentoMensalMedio && faturamentoMensalMedio > 0)
+  // Cap: muito faturamento vem de serviço (OS), então ratear 100% no produto distorce — limita em 10%.
+  const CUSTO_FIXO_PCT_MAX = 0.10;
+  const custoFixoPctRaw = (custoFixoMensal && faturamentoMensalMedio && faturamentoMensalMedio > 0)
     ? custoFixoMensal / faturamentoMensalMedio
     : 0;
+  const custoFixoPctAutoCapeado = Math.min(custoFixoPctRaw, CUSTO_FIXO_PCT_MAX);
+  const custoFixoPct = custoFixoPctAutoCapeado;
+  const foiCapeado = custoFixoPctRaw > CUSTO_FIXO_PCT_MAX;
 
   // Custo fixo /un médio (só display)
   const custoFixoAutoUnit = (custoFixoMensal && totalProdutosEstoque) ? custoFixoMensal / totalProdutosEstoque : 0;
@@ -796,7 +801,10 @@ export default function PrecificacaoPage() {
 
   // Override manual flat (taxEntrada.custoFixoUnit > 0): se setado, ignora rateio % e usa flat.
   const usarOverrideFlat = !!(taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0);
-  const custoFixoPctEfetivo = usarOverrideFlat ? 0 : custoFixoPct;
+  // Override manual % (custoFixoPctOverride): se setado, ignora rateio auto.
+  const pctOverrideNum = parseFloat(custoFixoPctOverride);
+  const usarOverridePct = !usarOverrideFlat && !isNaN(pctOverrideNum) && pctOverrideNum > 0;
+  const custoFixoPctEfetivo = usarOverrideFlat ? 0 : (usarOverridePct ? pctOverrideNum / 100 : custoFixoPct);
 
   // ── Itens fora da margem: replica a lógica de cada linha (politicas × produto) para alimentar botões "Corrigir tudo" ──
   const outOfMarginByProduct = useMemo(() => {
