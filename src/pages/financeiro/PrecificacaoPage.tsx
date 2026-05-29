@@ -846,7 +846,9 @@ export default function PrecificacaoPage() {
       const items: typeof map extends Map<string, infer V> ? V : never = [];
       for (const pol of politicas) {
         const margemMin = Number(pol.margem_minima) || 0;
-        const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin) : 0;
+        const divLinha = 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin;
+        const precoSugeridoBruto = calc.custoTotal > 0 && divLinha > 0.05 ? calc.custoTotal / divLinha : calc.custoTotal * 5;
+        const precoSugerido = calc.custoTotal > 0 ? Math.min(precoSugeridoBruto, calc.custoTotal * 5) : 0;
         const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
         const temPrecoCadastrado = vendaReal > 0;
         const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
