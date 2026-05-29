@@ -263,7 +263,10 @@ function calcPricingWithNF(
   const margemDecimal = margemDesejada / 100;
   // Mark-up Divisor com custo fixo embutido
   const divisor = 1 - aliquotaSaidaFaturamento - custoFixoPct - margemDecimal;
-  const precoMinimo = divisor > 0 ? custoTotal / divisor : custoTotal * 3;
+  // Safety: divisor pequeno gera preços absurdos. Trava em no máx 5x o custo.
+  const PRECO_MAX_MULTIPLICADOR = 5;
+  const precoMinimoCalculado = divisor > 0.05 ? custoTotal / divisor : custoTotal * PRECO_MAX_MULTIPLICADOR;
+  const precoMinimo = Math.min(precoMinimoCalculado, custoTotal * PRECO_MAX_MULTIPLICADOR);
 
   const tributosSaida = precoMinimo * aliquotaSaidaFaturamento;
   const custoFixoEmbutido = precoMinimo * custoFixoPct;
