@@ -1902,7 +1902,9 @@ export default function PrecificacaoPage() {
                         const valoresProd = valoresMap.get(p.id);
                         return (politicas ?? []).map((pol, idx) => {
                           const margemMin = Number(pol.margem_minima) || 0;
-                          const precoSugerido = calc.custoTotal > 0 ? calc.custoTotal / Math.max(0.01, 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin) : 0;
+                          const divInline = 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin;
+                          const precoBruto = calc.custoTotal > 0 && divInline > 0.05 ? calc.custoTotal / divInline : calc.custoTotal * 5;
+                          const precoSugerido = calc.custoTotal > 0 ? Math.min(precoBruto, calc.custoTotal * 5) : 0;
                           const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
                           const temPrecoCadastrado = vendaReal > 0;
                           const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
