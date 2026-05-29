@@ -294,6 +294,8 @@ export default function PrecificacaoPage() {
   const [taxSaida, setTaxSaida] = useState<TaxConfigSaida>(DEFAULT_SAIDA);
   const [tipoSaidaGlobal, setTipoSaidaGlobal] = useState<TipoSaida>("venda");
   const [margemAlvo, setMargemAlvo] = useState(30);
+  // Override manual do % de custo fixo (vazio = usa rateio auto cap'd em CUSTO_FIXO_PCT_MAX)
+  const [custoFixoPctOverride, setCustoFixoPctOverride] = useState<string>("");
   const [tabelaVenda, setTabelaVenda] = useState<"A" | "B" | "P">("B");
   // MARKUP_TABELAS removido — tabelas vêm de fin_politica_markup_tabela (dinâmico)
   const [activeSync, setActiveSync] = useState<"gc" | "offline" | null>(null);
