@@ -23,6 +23,12 @@ interface WriteJob {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+function numericOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -243,13 +249,19 @@ Deno.serve(async (req) => {
       const valoresPayload = payload.valores ?? [];
 
       if (job.recurso === "produtos" && valoresPayload.length > 0) {
+        const responseProduto = (responseBody as { data?: Record<string, unknown> } | null)?.data;
         const { data: cacheRow } = await supabase
           .from("gc_produtos_cache")
           .select("valores")
           .eq("produto_gc_id", job.recurso_id)
           .maybeSingle();
 
-        const valoresAtuais = Array.isArray(cacheRow?.valores) ? cacheRow.valores as Array<Record<string, unknown>> : [];
+        const valoresDoGc = Array.isArray(responseProduto?.valores)
+          ? responseProduto.valores as Array<Record<string, unknown>>
+          : [];
+        const valoresAtuais = valoresDoGc.length > 0
+          ? valoresDoGc
+          : Array.isArray(cacheRow?.valores) ? cacheRow.valores as Array<Record<string, unknown>> : [];
         const tiposAlterados = new Set<string>();
         const valoresAtualizados = valoresAtuais.map((vBase) => {
           const override = valoresPayload.find((vp) => String(vp.tipo_id) === String(vBase.tipo_id));
@@ -262,10 +274,35 @@ Deno.serve(async (req) => {
           if (!tiposAlterados.has(String(override.tipo_id))) valoresAtualizados.push(override);
         }
 
-        await supabase
-          .from("gc_produtos_cache")
-          .update({ valores: valoresAtualizados, updated_at: new Date().toISOString() })
-          .eq("produto_gc_id", job.recurso_id);
+        if (responseProduto) {
+          await supabase.from("gc_produtos_cache").upsert({
+            produto_gc_id: String(responseProduto.id ?? job.recurso_id),
+            nome: String(responseProduto.nome ?? "(sem nome)"),
+            codigo_interno: responseProduto.codigo_interno ? String(responseProduto.codigo_interno) : null,
+            codigo_barra: responseProduto.codigo_barra ? String(responseProduto.codigo_barra) : null,
+            nome_grupo: responseProduto.nome_grupo ? String(responseProduto.nome_grupo) : null,
+            grupo_id: responseProduto.grupo_id ? String(responseProduto.grupo_id) : null,
+            ncm: (responseProduto.fiscal as { ncm?: unknown } | undefined)?.ncm ? String((responseProduto.fiscal as { ncm?: unknown }).ncm) : responseProduto.ncm ? String(responseProduto.ncm) : null,
+            unidade: responseProduto.unidade ? String(responseProduto.unidade) : null,
+            estoque: numericOrNull(responseProduto.estoque),
+            valor_custo: numericOrNull(responseProduto.valor_custo),
+            valor_venda_padrao: numericOrNull(responseProduto.valor_venda),
+            valores: valoresAtualizados,
+            possui_variacao: responseProduto.possui_variacao === "1" || responseProduto.possui_variacao === true,
+            possui_composicao: responseProduto.possui_composicao === "1" || responseProduto.possui_composicao === true,
+            movimenta_estoque: responseProduto.movimenta_estoque !== "0" && responseProduto.movimenta_estoque !== false,
+            peso: numericOrNull(responseProduto.peso),
+            ativo: responseProduto.ativo !== "0" && responseProduto.ativo !== false && responseProduto.ativo !== 0,
+            raw_gc: responseProduto as never,
+            ultima_sincronizacao: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "produto_gc_id" });
+        } else {
+          await supabase
+            .from("gc_produtos_cache")
+            .update({ valores: valoresAtualizados, updated_at: new Date().toISOString() })
+            .eq("produto_gc_id", job.recurso_id);
+        }
       }
 
       await supabase.from("fin_gc_write_jobs").update({
