@@ -779,16 +779,8 @@ function processarXml(
       }
     }
 
-    // PRIORIDADE 2: ordem do array (Pedido GC e XML costumam vir na mesma ordem)
-    // Sanity: qtd ±5% para evitar match cruzado em pedidos desalinhados
-    if (!pick && pIdx < xmlItems.length && !usedXmlIdx.has(pIdx)) {
-      const xi = xmlItems[pIdx];
-      const compraQtd = item.quantidade || 1;
-      const diffPct = compraQtd > 0 ? Math.abs(xi.qCom - compraQtd) / compraQtd : 1;
-      if (diffPct <= 0.05) {
-        pick = { xi, idx: pIdx, rule: "ordem_item" };
-      }
-    }
+    // Sem fallback por nome/valor/ordem: a NF só enriquece tributos quando o
+    // item do pedido GC aponta para um produto cadastrado e o XML traz o mesmo código.
 
     if (!pick) {
       // Sem correspondência confiável → grava tributo vazio mas com produto_gc_id
@@ -824,7 +816,7 @@ function processarXml(
 
     productTaxMap.set(gcProdId, {
       gc_produto_id: gcProdId,
-      nome_produto: xi.xProd || item.nome_produto || "",
+      nome_produto: item.nome_produto || "",
       ncm: xi.NCM || "",
       cfop: xi.CFOP || "",
       nf_gc_id: meta.chave || xmlMeta.chave,
