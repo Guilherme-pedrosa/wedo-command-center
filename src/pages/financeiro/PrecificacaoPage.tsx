@@ -741,25 +741,15 @@ export default function PrecificacaoPage() {
           const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
           if (!(nome.includes(q) || codigo.includes(q))) return false;
 
-          const tributo = tributosMap.get(p.id);
-          const custoBase = isTributoCompativelComProduto(p, tributo)
-            ? Number(tributo?.valor_unitario_nf) || 0
-            : (custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0);
+          const custoBase = custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0;
           return aplicarFiltroMargem(p.id, custoBase);
         })
         .sort((a, b) => {
           const estoqueA = Number(a.estoque) || 0;
           const estoqueB = Number(b.estoque) || 0;
 
-          const tributoA = tributosMap.get(a.id);
-          const tributoB = tributosMap.get(b.id);
-
-          const custoA = isTributoCompativelComProduto(a, tributoA)
-            ? Number(tributoA?.valor_unitario_nf) || 0
-            : Number(a.valor_custo) || 0;
-          const custoB = isTributoCompativelComProduto(b, tributoB)
-            ? Number(tributoB?.valor_unitario_nf) || 0
-            : Number(b.valor_custo) || 0;
+          const custoA = custoCanonicoMap.get(a.id)?.custo || Number(a.valor_custo) || 0;
+          const custoB = custoCanonicoMap.get(b.id)?.custo || Number(b.valor_custo) || 0;
 
           const valorEstoqueA = estoqueA * custoA;
           const valorEstoqueB = estoqueB * custoB;
@@ -776,23 +766,7 @@ export default function PrecificacaoPage() {
         })
         .slice(0, 1000);
     }
-    return tributosXml
-      .filter((t) => {
-        const nome = (t.nome_produto || "").toLowerCase();
-        if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
-        if (!(nome.includes(q) || (t.gc_produto_id || "").includes(q))) return false;
-        return aplicarFiltroMargem(t.gc_produto_id, Number(t.valor_unitario_nf) || 0);
-      })
-      .map((t) => ({
-        id: t.gc_produto_id,
-        nome: t.nome_produto,
-        codigo: t.gc_produto_id,
-        estoque: 0,
-        valor_custo: String(t.valor_unitario_nf || "0"),
-        valor_venda: "0",
-      } as GCProduto))
-      .filter((p, i, arr) => arr.findIndex((x) => x.id === p.id) === i)
-      .slice(0, 1000);
+    return [];
   }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap, marginFilter, politicas, valoresMap]);
 
   const totalProdutosEstoque = useMemo(() => {
