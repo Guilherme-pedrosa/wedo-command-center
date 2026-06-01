@@ -782,7 +782,17 @@ export default function PrecificacaoPage() {
         .slice(0, 1000);
     }
     return [];
-  }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap, marginFilter, politicas, valoresMap]);
+  }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap, marginFilter, grupoFilter, politicas, valoresMap]);
+
+  const gruposDisponiveis = useMemo(() => {
+    if (!produtos) return [] as string[];
+    const set = new Set<string>();
+    for (const p of produtos) {
+      if (EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k))) continue;
+      set.add(p.nome_grupo || "(sem grupo)");
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [produtos]);
 
   const totalProdutosEstoque = useMemo(() => {
     if (!produtos) return null; // sem dados de estoque carregados
