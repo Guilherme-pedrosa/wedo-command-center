@@ -1392,11 +1392,11 @@ export default function PrecificacaoPage() {
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={handleSyncGC} disabled={isSyncing}>
               {syncingGC ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-              Sync NFs Entrada (GC)
+              Cruzar Pedidos GC + XML
             </Button>
             <Button variant="outline" size="sm" onClick={handleSyncEstoque} disabled={fetchingProdutos}>
               {fetchingProdutos ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Package className="h-4 w-4 mr-1" />}
-              Sincronizar Estoque
+              Sincronizar Cadastro GC
             </Button>
             <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={isSyncing}>
               {syncingOffline ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
@@ -1987,7 +1987,7 @@ export default function PrecificacaoPage() {
           </Card>
 
           <p className="text-xs text-muted-foreground">
-            {produtos ? `${produtos.length} produtos GC · ` : "Modo offline (sem dados de estoque) · "}
+            {produtos ? `${produtos.length} produtos do cadastro GC · ` : "Sem cadastro GC carregado · "}
             {totalComTributoNF} com tributo NF · Mostrando {filtered.length} · Tipo saída: {getTipoSaidaLabel(tipoSaidaGlobal)}
           </p>
         </TabsContent>
