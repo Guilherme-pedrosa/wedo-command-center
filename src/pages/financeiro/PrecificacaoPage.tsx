@@ -1627,6 +1627,20 @@ export default function PrecificacaoPage() {
               </Select>
             </div>
             <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Grupo:</Label>
+              <Select value={grupoFilter} onValueChange={setGrupoFilter}>
+                <SelectTrigger className="w-[220px] h-8 text-xs bg-secondary">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-h-[400px]">
+                  <SelectItem value="todos">Todos os grupos</SelectItem>
+                  {gruposDisponiveis.map((g) => (
+                    <SelectItem key={g} value={g}>{g}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Tipo saída:</Label>
               <Select value={tipoSaidaGlobal} onValueChange={(v) => setTipoSaidaGlobal(v as TipoSaida)}>
                 <SelectTrigger className="w-[160px] h-8 text-xs bg-secondary">
