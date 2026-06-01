@@ -1,6 +1,5 @@
 import { useState, useMemo, useRef, Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchAllGCPages } from "@/lib/gc-client";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -238,16 +237,17 @@ function calcPricingWithNF(
   tipo: TipoSaida,
   custoFixo: number,
   margemDesejada: number,
-  custoFixoPct: number = 0
+  custoFixoPct: number = 0,
+  custoBaseUnit?: number
 ) {
   const eff = getEffectiveRates(tributo);
-  const valorUnit = tributo.valor_unitario_nf;
+  const valorUnit = custoBaseUnit && custoBaseUnit > 0 ? custoBaseUnit : tributo.valor_unitario_nf;
   
   const creditoIcms = tipo === "servico" ? 0 : valorUnit * (eff.icms / 100);
   const creditoPis = tipo === "servico" ? 0 : valorUnit * (eff.pis / 100);
   const creditoCofins = tipo === "servico" ? 0 : valorUnit * (eff.cofins / 100);
-  const ipiUnit = tributo.valor_ipi_unit;
-  const freteUnit = tributo.valor_frete_unit;
+  const ipiUnit = valorUnit * (eff.ipi / 100);
+  const freteUnit = valorUnit * ((tributo.frete_percentual || 0) / 100);
   
   const custoEfetivo = valorUnit + ipiUnit + freteUnit - creditoIcms - creditoPis - creditoCofins;
   const custoTotal = custoEfetivo + custoFixo; // custoFixo aqui = override flat manual
