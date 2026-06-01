@@ -116,7 +116,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <StatCard title="A Receber" value={totalAReceber} count={countAReceber} icon={Receipt} color="blue" />
         <StatCard title="Aguardando PIX" value={0} count={gruposAguardando || 0} icon={Layers} color="orange" />
-        <StatCard title="Vencido" value={totalVencido} count={vencidos.length} icon={AlertTriangle} color="red" />
+        <StatCard title="Vencido" value={totalVencido} count={countVencido} icon={AlertTriangle} color="red" />
         <StatCard title="Recebido (mês)" value={recebidoMes} count={countRecebidoMes} icon={CheckCircle} color="green" />
         <StatCard title="A Pagar" value={totalAPagar} count={countAPagar} icon={CreditCard} color="purple" />
         <StatCard title="Pago (mês)" value={pagoMes} count={countPagoMes} icon={TrendingUp} color="green" />
