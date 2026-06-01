@@ -786,6 +786,17 @@ export default function PrecificacaoPage() {
     return [];
   }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap, marginFilter, grupoFilter, politicas, valoresMap]);
 
+  // Reseta página ao mudar filtros para evitar ficar fora do range
+  useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, tipoSaidaGlobal]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const paged = useMemo(
+    () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [filtered, currentPage]
+  );
+
+
   const gruposDisponiveis = useMemo(() => {
     if (!produtos) return [] as string[];
     const set = new Set<string>();
