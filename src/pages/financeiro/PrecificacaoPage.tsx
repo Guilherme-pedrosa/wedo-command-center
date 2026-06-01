@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Loader2, Search, Calculator, Package, TrendingUp, AlertTriangle, DollarSign, BarChart3, RefreshCw, FileText, Info, ShoppingCart, Wrench, Upload, Pencil, Plus } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
@@ -806,6 +807,11 @@ export default function PrecificacaoPage() {
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [produtos]);
+
+  const grupoOptions = useMemo(() => [
+    { value: "todos", label: "Todos os grupos" },
+    ...gruposDisponiveis.map((g) => ({ value: g, label: g })),
+  ], [gruposDisponiveis]);
 
   const totalProdutosEstoque = useMemo(() => {
     if (!produtos) return null; // sem dados de estoque carregados
@@ -1641,17 +1647,15 @@ export default function PrecificacaoPage() {
             </div>
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Grupo:</Label>
-              <Select value={grupoFilter} onValueChange={setGrupoFilter}>
-                <SelectTrigger className="w-[220px] h-8 text-xs bg-secondary">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="max-h-[400px]">
-                  <SelectItem value="todos">Todos os grupos</SelectItem>
-                  {gruposDisponiveis.map((g) => (
-                    <SelectItem key={g} value={g}>{g}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                options={grupoOptions}
+                value={grupoFilter}
+                onValueChange={(value) => setGrupoFilter(value || "todos")}
+                placeholder="Todos os grupos"
+                searchPlaceholder="Pesquisar grupo..."
+                emptyMessage="Nenhum grupo encontrado."
+                className="w-[220px] h-8 text-xs bg-secondary"
+              />
             </div>
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Tipo saída:</Label>
