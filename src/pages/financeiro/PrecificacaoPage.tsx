@@ -297,6 +297,8 @@ export default function PrecificacaoPage() {
   const [searchInput, setSearchInput] = useState("");
   const [marginFilter, setMarginFilter] = useState<"todos" | "fora" | "negativa">("todos");
   const [grupoFilter, setGrupoFilter] = useState<string>("todos");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [taxEntrada, setTaxEntrada] = useState<TaxConfigEntrada>(DEFAULT_ENTRADA);
   const [taxSaida, setTaxSaida] = useState<TaxConfigSaida>(DEFAULT_SAIDA);
   const [tipoSaidaGlobal, setTipoSaidaGlobal] = useState<TipoSaida>("venda");
