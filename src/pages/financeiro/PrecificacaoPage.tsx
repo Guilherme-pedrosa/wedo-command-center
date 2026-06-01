@@ -1741,7 +1741,7 @@ export default function PrecificacaoPage() {
                     </TableCell>
                   </TableRow>
                 )}
-                {filtered.map((p) => {
+                {paged.map((p) => {
                   // Refator v3: custo canônico vem da view v_produto_custo_atual (fonte = gc_produtos_cache.valor_custo)
                   const custoCan = custoCanonicoMap.get(p.id);
                   const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
