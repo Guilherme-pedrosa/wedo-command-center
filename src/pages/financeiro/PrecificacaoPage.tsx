@@ -296,6 +296,7 @@ export default function PrecificacaoPage() {
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [marginFilter, setMarginFilter] = useState<"todos" | "fora" | "negativa">("todos");
+  const [grupoFilter, setGrupoFilter] = useState<string>("todos");
   const [taxEntrada, setTaxEntrada] = useState<TaxConfigEntrada>(DEFAULT_ENTRADA);
   const [taxSaida, setTaxSaida] = useState<TaxConfigSaida>(DEFAULT_SAIDA);
   const [tipoSaidaGlobal, setTipoSaidaGlobal] = useState<TipoSaida>("venda");
@@ -753,6 +754,8 @@ export default function PrecificacaoPage() {
           const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
           if (!(nome.includes(q) || codigo.includes(q))) return false;
 
+          if (grupoFilter !== "todos" && (p.nome_grupo || "(sem grupo)") !== grupoFilter) return false;
+
           const custoBase = custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0;
           return aplicarFiltroMargem(p.id, custoBase);
         })
@@ -779,7 +782,17 @@ export default function PrecificacaoPage() {
         .slice(0, 1000);
     }
     return [];
-  }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap, marginFilter, politicas, valoresMap]);
+  }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap, marginFilter, grupoFilter, politicas, valoresMap]);
+
+  const gruposDisponiveis = useMemo(() => {
+    if (!produtos) return [] as string[];
+    const set = new Set<string>();
+    for (const p of produtos) {
+      if (EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k))) continue;
+      set.add(p.nome_grupo || "(sem grupo)");
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [produtos]);
 
   const totalProdutosEstoque = useMemo(() => {
     if (!produtos) return null; // sem dados de estoque carregados
@@ -1595,6 +1608,7 @@ export default function PrecificacaoPage() {
               <Button type="submit" size="sm" variant="secondary">OK</Button>
             </form>
 
+
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Margem:</Label>
               <Select value={marginFilter} onValueChange={(v) => setMarginFilter(v as typeof marginFilter)}>
@@ -1609,6 +1623,20 @@ export default function PrecificacaoPage() {
                   <SelectItem value="negativa">
                     <span className="flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-destructive" /> Margem negativa</span>
                   </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Grupo:</Label>
+              <Select value={grupoFilter} onValueChange={setGrupoFilter}>
+                <SelectTrigger className="w-[220px] h-8 text-xs bg-secondary">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-h-[400px]">
+                  <SelectItem value="todos">Todos os grupos</SelectItem>
+                  {gruposDisponiveis.map((g) => (
+                    <SelectItem key={g} value={g}>{g}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
