@@ -1831,20 +1831,14 @@ export default function PrecificacaoPage() {
                                     )}
                                     {tributo.match_rule && (
                                       <Badge variant="outline" className={`text-[9px] ${
-                                        ["codigo_produto", "unico_1x1"].includes(tributo.match_rule) ? "border-green-500/40 text-green-400" :
-                                        ["valor_total", "valor_unit_qtd"].includes(tributo.match_rule) ? "border-blue-500/40 text-blue-400" :
-                                        ["xml_rateio", "sem_xml_proporcional"].includes(tributo.match_rule) ? "border-orange-500/40 text-orange-400" :
+                                        tributo.match_rule.startsWith("pedido_compra_gc+cprod") ? "border-green-500/40 text-green-400" :
+                                        tributo.match_rule === "pedido_compra_gc_sem_xml_item" ? "border-orange-500/40 text-orange-400" :
                                         "border-muted-foreground/40 text-muted-foreground"
                                       }`}>
                                         {({
-                                          codigo_produto: "✓ Código",
-                                          unico_1x1: "✓ 1:1",
-                                          valor_total: "≈ Valor",
-                                          valor_unit_qtd: "≈ Unit",
-                                          nome_similar: "≈ Nome",
-                                          ncm_valor: "~ NCM",
-                                          xml_rateio: "⚠ Rateio",
-                                          sem_xml_proporcional: "⚠ s/XML",
+                                          "pedido_compra_gc+cprod": "✓ Pedido+Código",
+                                          "pedido_compra_gc+cprod_multi": "✓ Pedido+Código",
+                                          pedido_compra_gc_sem_xml_item: "Pedido GC s/XML",
                                         } as Record<string, string>)[tributo.match_rule] || tributo.match_rule}
                                       </Badge>
                                     )}
@@ -1858,25 +1852,14 @@ export default function PrecificacaoPage() {
                                 <p className="mt-1">
                                   <span className="font-semibold">Match: </span>
                                   <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono ${
-                                    tributo.match_rule === "codigo_produto" ? "bg-green-500/20 text-green-400" :
-                                    tributo.match_rule === "unico_1x1" ? "bg-green-500/20 text-green-400" :
-                                    tributo.match_rule === "valor_total" ? "bg-blue-500/20 text-blue-400" :
-                                    tributo.match_rule === "valor_unit_qtd" ? "bg-blue-500/20 text-blue-400" :
-                                    tributo.match_rule === "nome_similar" ? "bg-cyan-500/20 text-cyan-400" :
-                                    tributo.match_rule === "ncm_valor" ? "bg-yellow-500/20 text-yellow-400" :
-                                    tributo.match_rule === "xml_rateio" ? "bg-orange-500/20 text-orange-400" :
-                                    tributo.match_rule === "sem_xml_proporcional" ? "bg-red-500/20 text-red-400" :
+                                    tributo.match_rule.startsWith("pedido_compra_gc+cprod") ? "bg-green-500/20 text-green-400" :
+                                    tributo.match_rule === "pedido_compra_gc_sem_xml_item" ? "bg-orange-500/20 text-orange-400" :
                                     "bg-muted text-muted-foreground"
                                   }`}>
                                     {({
-                                      codigo_produto: "✓ Código exato",
-                                      unico_1x1: "✓ Único 1:1",
-                                      valor_total: "≈ Valor total",
-                                      valor_unit_qtd: "≈ Valor unit+qtd",
-                                      nome_similar: "≈ Nome similar",
-                                      ncm_valor: "~ NCM+valor",
-                                      xml_rateio: "⚠ Rateio XML",
-                                      sem_xml_proporcional: "⚠ Sem XML",
+                                      "pedido_compra_gc+cprod": "✓ Pedido GC + código XML",
+                                      "pedido_compra_gc+cprod_multi": "✓ Pedido GC + código XML",
+                                      pedido_compra_gc_sem_xml_item: "Pedido GC sem item XML confiável",
                                     } as Record<string, string>)[tributo.match_rule] || tributo.match_rule}
                                   </span>
                                 </p>
