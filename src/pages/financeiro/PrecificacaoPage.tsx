@@ -2010,10 +2010,20 @@ export default function PrecificacaoPage() {
             </Table>
           </Card>
 
-          <p className="text-xs text-muted-foreground">
-            {produtos ? `${produtos.length} produtos do cadastro GC · ` : "Sem cadastro GC carregado · "}
-            {totalComTributoNF} com tributo NF · Mostrando {filtered.length} · Tipo saída: {getTipoSaidaLabel(tipoSaidaGlobal)}
-          </p>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-xs text-muted-foreground">
+              {produtos ? `${produtos.length} produtos do cadastro GC · ` : "Sem cadastro GC carregado · "}
+              {totalComTributoNF} com tributo NF · Filtrados {filtered.length} · Mostrando {paged.length} (pág. {currentPage}/{totalPages}) · Tipo saída: {getTipoSaidaLabel(tipoSaidaGlobal)}
+            </p>
+            <div className="flex items-center gap-1">
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={currentPage <= 1} onClick={() => setPage(1)}>«</Button>
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={currentPage <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>‹ Ant</Button>
+              <span className="text-xs font-mono px-2">{currentPage} / {totalPages}</span>
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={currentPage >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Próx ›</Button>
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={currentPage >= totalPages} onClick={() => setPage(totalPages)}>»</Button>
+            </div>
+          </div>
+
         </TabsContent>
 
         {/* ── TAB: Calculadora ── */}
