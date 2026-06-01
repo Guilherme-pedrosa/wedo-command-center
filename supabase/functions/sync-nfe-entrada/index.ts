@@ -62,6 +62,7 @@ interface ProductTaxRecord {
   nf_chave: string;
   nf_data_emissao: string;
   compra_gc_id: string;
+  compra_codigo: string;
   fornecedor_nome: string;
   regime_fornecedor: string;
   sem_credito: boolean;
@@ -737,6 +738,7 @@ function processarXml(
       nf_chave: xmlMeta.chave,
       nf_data_emissao: xmlMeta.data_emissao || meta.data_emissao || "",
       compra_gc_id: compra.gc_id,
+      compra_codigo: compra.codigo,
       fornecedor_nome: xmlMeta.nome_emitente || compra.nome_fornecedor || "",
       regime_fornecedor: isSN ? "simples_nacional" : "normal",
       sem_credito: isSN,
@@ -824,6 +826,7 @@ function processarXml(
       nf_chave: xmlMeta.chave,
       nf_data_emissao: xmlMeta.data_emissao || meta.data_emissao || "",
       compra_gc_id: compra.gc_id,
+      compra_codigo: compra.codigo,
       fornecedor_nome: xmlMeta.nome_emitente || compra.nome_fornecedor || "",
       regime_fornecedor: isSN ? "simples_nacional" : "normal",
       sem_credito: isSN,
