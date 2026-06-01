@@ -1697,14 +1697,14 @@ export default function PrecificacaoPage() {
                    const tributoRaw = tributosMap.get(p.id);
                    const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
                    const hasNF = !!tributo;
-                   const custoBase = hasNF ? tributo.valor_unitario_nf : custoBruto;
+                    const custoBase = custoBruto;
                    // Tabelas dinâmicas — preços reais vêm de valoresMap por tipo_id (não há mais markup hardcoded A/B/P)
 
 
                   let calc: ReturnType<typeof calcPricing>;
                   const cfuFlatLinha = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
                   if (hasNF) {
-                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo);
+                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, custoBruto);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
                       creditoPis: nfCalc.creditoPis,
