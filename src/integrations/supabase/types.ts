@@ -3869,6 +3869,7 @@ export type Database = {
       }
     }
     Functions: {
+      fn_dashboard_stats: { Args: never; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

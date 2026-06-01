@@ -23,20 +23,13 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [syncing, setSyncing] = useState(false);
 
-  // ─── Queries ──────────────────────────────────────────────────────
-  const { data: recebimentos } = useQuery({
-    queryKey: ["dashboard-recebimentos"],
+  // ─── Queries (aggregadas server-side via RPC para evitar limite de 1000 linhas) ─
+  const { data: stats } = useQuery({
+    queryKey: ["dashboard-stats-rpc"],
     queryFn: async () => {
-      const { data } = await supabase.from("gc_recebimentos").select("valor, liquidado, data_vencimento, data_liquidacao, data_competencia");
-      return data || [];
-    },
-  });
-
-  const { data: pagamentos } = useQuery({
-    queryKey: ["dashboard-pagamentos"],
-    queryFn: async () => {
-      const { data } = await supabase.from("gc_pagamentos").select("valor, liquidado, data_vencimento, data_liquidacao");
-      return data || [];
+      const { data, error } = await supabase.rpc("fn_dashboard_stats");
+      if (error) throw error;
+      return data as any;
     },
   });
 
@@ -74,30 +67,25 @@ export default function Dashboard() {
     },
   });
 
-  // ─── Stats ────────────────────────────────────────────────────────
-  const hoje = new Date();
-  const mesAtual = format(hoje, "yyyy-MM");
-
-  const totalAReceber = recebimentos?.filter((r) => !r.liquidado).reduce((s, r) => s + (r.valor || 0), 0) || 0;
-  const countAReceber = recebimentos?.filter((r) => !r.liquidado).length || 0;
-  const vencidos = recebimentos?.filter((r) => !r.liquidado && r.data_vencimento && r.data_vencimento < hoje.toISOString().split("T")[0]) || [];
-  const totalVencido = vencidos.reduce((s, r) => s + (r.valor || 0), 0);
-  const recebidoMes = recebimentos?.filter((r) => r.liquidado && r.data_liquidacao?.startsWith(mesAtual)).reduce((s, r) => s + (r.valor || 0), 0) || 0;
-  const countRecebidoMes = recebimentos?.filter((r) => r.liquidado && r.data_liquidacao?.startsWith(mesAtual)).length || 0;
-  const totalAPagar = pagamentos?.filter((p) => !p.liquidado).reduce((s, p) => s + (p.valor || 0), 0) || 0;
-  const countAPagar = pagamentos?.filter((p) => !p.liquidado).length || 0;
-  const pagoMes = pagamentos?.filter((p) => p.liquidado && p.data_liquidacao?.startsWith(mesAtual)).reduce((s, p) => s + (p.valor || 0), 0) || 0;
-  const countPagoMes = pagamentos?.filter((p) => p.liquidado && p.data_liquidacao?.startsWith(mesAtual)).length || 0;
+  // ─── Stats (do RPC) ───────────────────────────────────────────────
+  const totalAReceber = Number(stats?.total_a_receber || 0);
+  const countAReceber = Number(stats?.count_a_receber || 0);
+  const totalVencido = Number(stats?.total_vencido || 0);
+  const countVencido = Number(stats?.count_vencido || 0);
+  const recebidoMes = Number(stats?.recebido_mes || 0);
+  const countRecebidoMes = Number(stats?.count_recebido_mes || 0);
+  const totalAPagar = Number(stats?.total_a_pagar || 0);
+  const countAPagar = Number(stats?.count_a_pagar || 0);
+  const pagoMes = Number(stats?.pago_mes || 0);
+  const countPagoMes = Number(stats?.count_pago_mes || 0);
 
   // ─── Charts ───────────────────────────────────────────────────────
-  const chartData = Array.from({ length: 6 }, (_, i) => {
-    const d = subMonths(hoje, 5 - i);
-    const key = format(d, "yyyy-MM");
-    const label = format(d, "MMM", { locale: ptBR });
-    const rec = recebimentos?.filter((r) => r.liquidado && r.data_liquidacao?.startsWith(key)).reduce((s, r) => s + (r.valor || 0), 0) || 0;
-    const pag = pagamentos?.filter((p) => p.liquidado && p.data_liquidacao?.startsWith(key)).reduce((s, p) => s + (p.valor || 0), 0) || 0;
-    return { name: label, recebimentos: rec, pagamentos: pag };
-  });
+  const chartData = (stats?.chart || []).map((d: any) => ({
+    name: format(new Date(d.ym + "-01"), "MMM", { locale: ptBR }),
+    recebimentos: Number(d.recebimentos || 0),
+    pagamentos: Number(d.pagamentos || 0),
+  }));
+
 
   // ─── Sync ─────────────────────────────────────────────────────────
   const handleSyncAll = async () => {
@@ -128,7 +116,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <StatCard title="A Receber" value={totalAReceber} count={countAReceber} icon={Receipt} color="blue" />
         <StatCard title="Aguardando PIX" value={0} count={gruposAguardando || 0} icon={Layers} color="orange" />
-        <StatCard title="Vencido" value={totalVencido} count={vencidos.length} icon={AlertTriangle} color="red" />
+        <StatCard title="Vencido" value={totalVencido} count={countVencido} icon={AlertTriangle} color="red" />
         <StatCard title="Recebido (mês)" value={recebidoMes} count={countRecebidoMes} icon={CheckCircle} color="green" />
         <StatCard title="A Pagar" value={totalAPagar} count={countAPagar} icon={CreditCard} color="purple" />
         <StatCard title="Pago (mês)" value={pagoMes} count={countPagoMes} icon={TrendingUp} color="green" />
