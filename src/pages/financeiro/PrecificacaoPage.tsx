@@ -754,6 +754,8 @@ export default function PrecificacaoPage() {
           const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
           if (!(nome.includes(q) || codigo.includes(q))) return false;
 
+          if (grupoFilter !== "todos" && (p.nome_grupo || "(sem grupo)") !== grupoFilter) return false;
+
           const custoBase = custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0;
           return aplicarFiltroMargem(p.id, custoBase);
         })
