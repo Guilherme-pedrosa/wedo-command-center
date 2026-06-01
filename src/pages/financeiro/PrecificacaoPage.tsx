@@ -1,6 +1,5 @@
 import { useState, useMemo, useRef, Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchAllGCPages } from "@/lib/gc-client";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -238,16 +237,17 @@ function calcPricingWithNF(
   tipo: TipoSaida,
   custoFixo: number,
   margemDesejada: number,
-  custoFixoPct: number = 0
+  custoFixoPct: number = 0,
+  custoBaseUnit?: number
 ) {
   const eff = getEffectiveRates(tributo);
-  const valorUnit = tributo.valor_unitario_nf;
+  const valorUnit = custoBaseUnit && custoBaseUnit > 0 ? custoBaseUnit : tributo.valor_unitario_nf;
   
   const creditoIcms = tipo === "servico" ? 0 : valorUnit * (eff.icms / 100);
   const creditoPis = tipo === "servico" ? 0 : valorUnit * (eff.pis / 100);
   const creditoCofins = tipo === "servico" ? 0 : valorUnit * (eff.cofins / 100);
-  const ipiUnit = tributo.valor_ipi_unit;
-  const freteUnit = tributo.valor_frete_unit;
+  const ipiUnit = valorUnit * (eff.ipi / 100);
+  const freteUnit = valorUnit * ((tributo.frete_percentual || 0) / 100);
   
   const custoEfetivo = valorUnit + ipiUnit + freteUnit - creditoIcms - creditoPis - creditoCofins;
   const custoTotal = custoEfetivo + custoFixo; // custoFixo aqui = override flat manual
@@ -403,10 +403,40 @@ export default function PrecificacaoPage() {
   const syncingGC = activeSync === "gc";
   const syncingOffline = activeSync === "offline";
 
-  // ── Fetch products from GC ──
+  // ── Produtos: sempre do cadastro cacheado do GC (não dos itens da NF) ──
   const { data: produtos, isLoading: loadingProdutos, refetch: refetchProdutos, isFetching: fetchingProdutos } = useQuery({
     queryKey: ["gc-produtos"],
-    queryFn: () => fetchAllGCPages<GCProduto>("/api/produtos"),
+    queryFn: async () => {
+      const pageSize = 1000;
+      let from = 0;
+      const allRows: GCProduto[] = [];
+      while (true) {
+        const { data, error } = await supabase
+          .from("gc_produtos_cache")
+          .select("produto_gc_id, nome, codigo_interno, codigo_barra, estoque, valor_custo, valor_venda_padrao, nome_grupo, ncm, unidade")
+          .eq("ativo", true)
+          .order("nome")
+          .range(from, from + pageSize - 1);
+
+        if (error) throw error;
+        const batch = (data || []).map((p) => ({
+          id: String(p.produto_gc_id),
+          nome: p.nome,
+          codigo: p.codigo_interno || p.codigo_barra || undefined,
+          codigo_interno: p.codigo_interno || undefined,
+          estoque: p.estoque ?? 0,
+          valor_custo: String(p.valor_custo ?? 0),
+          valor_venda: String(p.valor_venda_padrao ?? 0),
+          nome_grupo: p.nome_grupo || undefined,
+          ncm: p.ncm || undefined,
+          unidade: p.unidade || undefined,
+        })) as GCProduto[];
+        allRows.push(...batch);
+        if (batch.length < pageSize) break;
+        from += pageSize;
+      }
+      return allRows;
+    },
     staleTime: 30 * 60_000,
     refetchOnWindowFocus: false,
     retry: false,
@@ -414,11 +444,23 @@ export default function PrecificacaoPage() {
 
   const handleSyncEstoque = async () => {
     try {
-      toast("Sincronizando estoque do GC...");
+      toast("Sincronizando cadastro de produtos do GC...");
+      let paginaInicial: number | undefined;
+      let total = 0;
+      for (let tentativa = 0; tentativa < 20; tentativa++) {
+        const { data, error } = await supabase.functions.invoke("sync-gc-produtos", {
+          body: paginaInicial ? { pagina_inicial: paginaInicial } : {},
+        });
+        if (error) throw error;
+        total += Number(data?.produtos_sincronizados || 0);
+        if (data?.status !== "em_progresso") break;
+        paginaInicial = Number(data?.proxima_pagina || 0) || undefined;
+      }
       const data = await refetchProdutos();
-      toast.success(`Estoque sincronizado: ${data.data?.length ?? 0} produtos`);
+      await refetchProdutosCacheValores();
+      toast.success(`Cadastro GC sincronizado: ${data.data?.length ?? total} produtos`);
     } catch (err) {
-      toast.error(`Falha ao sincronizar estoque: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`Falha ao sincronizar cadastro GC: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -711,25 +753,15 @@ export default function PrecificacaoPage() {
           const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
           if (!(nome.includes(q) || codigo.includes(q))) return false;
 
-          const tributo = tributosMap.get(p.id);
-          const custoBase = isTributoCompativelComProduto(p, tributo)
-            ? Number(tributo?.valor_unitario_nf) || 0
-            : (custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0);
+          const custoBase = custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0;
           return aplicarFiltroMargem(p.id, custoBase);
         })
         .sort((a, b) => {
           const estoqueA = Number(a.estoque) || 0;
           const estoqueB = Number(b.estoque) || 0;
 
-          const tributoA = tributosMap.get(a.id);
-          const tributoB = tributosMap.get(b.id);
-
-          const custoA = isTributoCompativelComProduto(a, tributoA)
-            ? Number(tributoA?.valor_unitario_nf) || 0
-            : Number(a.valor_custo) || 0;
-          const custoB = isTributoCompativelComProduto(b, tributoB)
-            ? Number(tributoB?.valor_unitario_nf) || 0
-            : Number(b.valor_custo) || 0;
+          const custoA = custoCanonicoMap.get(a.id)?.custo || Number(a.valor_custo) || 0;
+          const custoB = custoCanonicoMap.get(b.id)?.custo || Number(b.valor_custo) || 0;
 
           const valorEstoqueA = estoqueA * custoA;
           const valorEstoqueB = estoqueB * custoB;
@@ -746,23 +778,7 @@ export default function PrecificacaoPage() {
         })
         .slice(0, 1000);
     }
-    return tributosXml
-      .filter((t) => {
-        const nome = (t.nome_produto || "").toLowerCase();
-        if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
-        if (!(nome.includes(q) || (t.gc_produto_id || "").includes(q))) return false;
-        return aplicarFiltroMargem(t.gc_produto_id, Number(t.valor_unitario_nf) || 0);
-      })
-      .map((t) => ({
-        id: t.gc_produto_id,
-        nome: t.nome_produto,
-        codigo: t.gc_produto_id,
-        estoque: 0,
-        valor_custo: String(t.valor_unitario_nf || "0"),
-        valor_venda: "0",
-      } as GCProduto))
-      .filter((p, i, arr) => arr.findIndex((x) => x.id === p.id) === i)
-      .slice(0, 1000);
+    return [];
   }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap, marginFilter, politicas, valoresMap]);
 
   const totalProdutosEstoque = useMemo(() => {
@@ -828,7 +844,7 @@ export default function PrecificacaoPage() {
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo);
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBruto);
         calc = {
           creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
           totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
@@ -1105,7 +1121,7 @@ export default function PrecificacaoPage() {
     }
   };
 
-  // ── Sync NFs de entrada via API GC ──
+  // ── Sync NFs de entrada: cruza pedido de compra GC + XML vinculado ──
   const handleSyncGC = async () => {
     if (activeSyncRef.current) {
       toast.error("Já existe uma sincronização em andamento.");
@@ -1125,7 +1141,7 @@ export default function PrecificacaoPage() {
       }
 
       markSyncStarted("sync-nfe-entrada-gc");
-      setSyncProgress("Sincronizando com GC...");
+      setSyncProgress("Cruzando pedidos GC com XMLs vinculados...");
 
       let offset = 0;
       const batchSize = 80;
@@ -1140,7 +1156,7 @@ export default function PrecificacaoPage() {
         if (!data.has_more) break;
         offset = data.next_offset;
       }
-      toast.success(`Sincronizado (GC): ${totalProdutos} produtos processados`);
+      toast.success(`Tributos reprocessados por Pedido GC + XML: ${totalProdutos} produtos`);
       setSyncProgress("");
       refetchTributos();
     } catch (err: unknown) {
@@ -1152,7 +1168,7 @@ export default function PrecificacaoPage() {
     }
   };
 
-  // ── Sync NFs de entrada OFFLINE (usa BD local + XMLs, sem chamar API GC) ──
+  // ── Reprocessa tributos usando apenas itens do pedido GC + XML vinculado ──
   const [syncProgress, setSyncProgress] = useState("");
   const handleSyncNFEntrada = async () => {
     if (activeSyncRef.current) {
@@ -1173,7 +1189,7 @@ export default function PrecificacaoPage() {
       }
       markSyncStarted("sync-nfe-entrada");
 
-      setSyncProgress("Iniciando (modo offline)...");
+      setSyncProgress("Reprocessando Pedido GC + XML vinculado...");
       let offset = 0;
       const batchSize = 80;
       let totalProdutos = 0;
@@ -1181,14 +1197,14 @@ export default function PrecificacaoPage() {
       let totalXmls = 0;
 
       while (true) {
-        const { data, error } = await supabase.functions.invoke("sync-nfe-entrada-offline", {
+        const { data, error } = await supabase.functions.invoke("sync-nfe-entrada", {
           body: { offset, batch_size: batchSize },
         });
         if (error) throw error;
 
         totalCompras = data.total_compras || 0;
-        totalProdutos += data.produtos_processados || 0;
-        totalXmls += data.xmls_usados || 0;
+        totalProdutos += data.produtos_processados || data.produtos_atualizados || 0;
+        totalXmls += data.xmls_lidos || data.xmls_usados || 0;
         const processed = offset + (data.processed || 0);
         setSyncProgress(`Processando compras ${processed}/${totalCompras}...`);
 
@@ -1196,7 +1212,7 @@ export default function PrecificacaoPage() {
         offset = data.next_offset;
       }
 
-      toast.success(`Sincronizado (offline): ${totalProdutos} produtos de ${totalCompras} compras (${totalXmls} XMLs usados)`);
+      toast.success(`Reprocessado: ${totalProdutos} produtos de ${totalCompras} compras (${totalXmls} XMLs vinculados)`);
       setSyncProgress("");
       refetchTributos();
     } catch (err: unknown) {
@@ -1376,11 +1392,11 @@ export default function PrecificacaoPage() {
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={handleSyncGC} disabled={isSyncing}>
               {syncingGC ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-              Sync NFs Entrada (GC)
+              Cruzar Pedidos GC + XML
             </Button>
             <Button variant="outline" size="sm" onClick={handleSyncEstoque} disabled={fetchingProdutos}>
               {fetchingProdutos ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Package className="h-4 w-4 mr-1" />}
-              Sincronizar Estoque
+              Sincronizar Cadastro GC
             </Button>
             <Button variant="outline" size="sm" onClick={handleSyncNFEntrada} disabled={isSyncing}>
               {syncingOffline ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
@@ -1693,14 +1709,14 @@ export default function PrecificacaoPage() {
                    const tributoRaw = tributosMap.get(p.id);
                    const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
                    const hasNF = !!tributo;
-                   const custoBase = hasNF ? tributo.valor_unitario_nf : custoBruto;
+                    const custoBase = custoBruto;
                    // Tabelas dinâmicas — preços reais vêm de valoresMap por tipo_id (não há mais markup hardcoded A/B/P)
 
 
                   let calc: ReturnType<typeof calcPricing>;
                   const cfuFlatLinha = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
                   if (hasNF) {
-                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo);
+                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, custoBruto);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
                       creditoPis: nfCalc.creditoPis,
@@ -1815,20 +1831,14 @@ export default function PrecificacaoPage() {
                                     )}
                                     {tributo.match_rule && (
                                       <Badge variant="outline" className={`text-[9px] ${
-                                        ["codigo_produto", "unico_1x1"].includes(tributo.match_rule) ? "border-green-500/40 text-green-400" :
-                                        ["valor_total", "valor_unit_qtd"].includes(tributo.match_rule) ? "border-blue-500/40 text-blue-400" :
-                                        ["xml_rateio", "sem_xml_proporcional"].includes(tributo.match_rule) ? "border-orange-500/40 text-orange-400" :
+                                        tributo.match_rule.startsWith("pedido_compra_gc+cprod") ? "border-green-500/40 text-green-400" :
+                                        tributo.match_rule === "pedido_compra_gc_sem_xml_item" ? "border-orange-500/40 text-orange-400" :
                                         "border-muted-foreground/40 text-muted-foreground"
                                       }`}>
                                         {({
-                                          codigo_produto: "✓ Código",
-                                          unico_1x1: "✓ 1:1",
-                                          valor_total: "≈ Valor",
-                                          valor_unit_qtd: "≈ Unit",
-                                          nome_similar: "≈ Nome",
-                                          ncm_valor: "~ NCM",
-                                          xml_rateio: "⚠ Rateio",
-                                          sem_xml_proporcional: "⚠ s/XML",
+                                          "pedido_compra_gc+cprod": "✓ Pedido+Código",
+                                          "pedido_compra_gc+cprod_multi": "✓ Pedido+Código",
+                                          pedido_compra_gc_sem_xml_item: "Pedido GC s/XML",
                                         } as Record<string, string>)[tributo.match_rule] || tributo.match_rule}
                                       </Badge>
                                     )}
@@ -1842,25 +1852,14 @@ export default function PrecificacaoPage() {
                                 <p className="mt-1">
                                   <span className="font-semibold">Match: </span>
                                   <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono ${
-                                    tributo.match_rule === "codigo_produto" ? "bg-green-500/20 text-green-400" :
-                                    tributo.match_rule === "unico_1x1" ? "bg-green-500/20 text-green-400" :
-                                    tributo.match_rule === "valor_total" ? "bg-blue-500/20 text-blue-400" :
-                                    tributo.match_rule === "valor_unit_qtd" ? "bg-blue-500/20 text-blue-400" :
-                                    tributo.match_rule === "nome_similar" ? "bg-cyan-500/20 text-cyan-400" :
-                                    tributo.match_rule === "ncm_valor" ? "bg-yellow-500/20 text-yellow-400" :
-                                    tributo.match_rule === "xml_rateio" ? "bg-orange-500/20 text-orange-400" :
-                                    tributo.match_rule === "sem_xml_proporcional" ? "bg-red-500/20 text-red-400" :
+                                    tributo.match_rule.startsWith("pedido_compra_gc+cprod") ? "bg-green-500/20 text-green-400" :
+                                    tributo.match_rule === "pedido_compra_gc_sem_xml_item" ? "bg-orange-500/20 text-orange-400" :
                                     "bg-muted text-muted-foreground"
                                   }`}>
                                     {({
-                                      codigo_produto: "✓ Código exato",
-                                      unico_1x1: "✓ Único 1:1",
-                                      valor_total: "≈ Valor total",
-                                      valor_unit_qtd: "≈ Valor unit+qtd",
-                                      nome_similar: "≈ Nome similar",
-                                      ncm_valor: "~ NCM+valor",
-                                      xml_rateio: "⚠ Rateio XML",
-                                      sem_xml_proporcional: "⚠ Sem XML",
+                                      "pedido_compra_gc+cprod": "✓ Pedido GC + código XML",
+                                      "pedido_compra_gc+cprod_multi": "✓ Pedido GC + código XML",
+                                      pedido_compra_gc_sem_xml_item: "Pedido GC sem item XML confiável",
                                     } as Record<string, string>)[tributo.match_rule] || tributo.match_rule}
                                   </span>
                                 </p>
@@ -1971,7 +1970,7 @@ export default function PrecificacaoPage() {
           </Card>
 
           <p className="text-xs text-muted-foreground">
-            {produtos ? `${produtos.length} produtos GC · ` : "Modo offline (sem dados de estoque) · "}
+            {produtos ? `${produtos.length} produtos do cadastro GC · ` : "Sem cadastro GC carregado · "}
             {totalComTributoNF} com tributo NF · Mostrando {filtered.length} · Tipo saída: {getTipoSaidaLabel(tipoSaidaGlobal)}
           </p>
         </TabsContent>
