@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, Fragment } from "react";
+import { useState, useMemo, useRef, useEffect, Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -297,6 +297,8 @@ export default function PrecificacaoPage() {
   const [searchInput, setSearchInput] = useState("");
   const [marginFilter, setMarginFilter] = useState<"todos" | "fora" | "negativa">("todos");
   const [grupoFilter, setGrupoFilter] = useState<string>("todos");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [taxEntrada, setTaxEntrada] = useState<TaxConfigEntrada>(DEFAULT_ENTRADA);
   const [taxSaida, setTaxSaida] = useState<TaxConfigSaida>(DEFAULT_SAIDA);
   const [tipoSaidaGlobal, setTipoSaidaGlobal] = useState<TipoSaida>("venda");
@@ -783,6 +785,17 @@ export default function PrecificacaoPage() {
     }
     return [];
   }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap, marginFilter, grupoFilter, politicas, valoresMap]);
+
+  // Reseta página ao mudar filtros para evitar ficar fora do range
+  useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, tipoSaidaGlobal]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const paged = useMemo(
+    () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [filtered, currentPage]
+  );
+
 
   const gruposDisponiveis = useMemo(() => {
     if (!produtos) return [] as string[];
@@ -1728,7 +1741,7 @@ export default function PrecificacaoPage() {
                     </TableCell>
                   </TableRow>
                 )}
-                {filtered.map((p) => {
+                {paged.map((p) => {
                   // Refator v3: custo canônico vem da view v_produto_custo_atual (fonte = gc_produtos_cache.valor_custo)
                   const custoCan = custoCanonicoMap.get(p.id);
                   const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
@@ -1997,10 +2010,20 @@ export default function PrecificacaoPage() {
             </Table>
           </Card>
 
-          <p className="text-xs text-muted-foreground">
-            {produtos ? `${produtos.length} produtos do cadastro GC · ` : "Sem cadastro GC carregado · "}
-            {totalComTributoNF} com tributo NF · Mostrando {filtered.length} · Tipo saída: {getTipoSaidaLabel(tipoSaidaGlobal)}
-          </p>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-xs text-muted-foreground">
+              {produtos ? `${produtos.length} produtos do cadastro GC · ` : "Sem cadastro GC carregado · "}
+              {totalComTributoNF} com tributo NF · Filtrados {filtered.length} · Mostrando {paged.length} (pág. {currentPage}/{totalPages}) · Tipo saída: {getTipoSaidaLabel(tipoSaidaGlobal)}
+            </p>
+            <div className="flex items-center gap-1">
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={currentPage <= 1} onClick={() => setPage(1)}>«</Button>
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={currentPage <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>‹ Ant</Button>
+              <span className="text-xs font-mono px-2">{currentPage} / {totalPages}</span>
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={currentPage >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Próx ›</Button>
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={currentPage >= totalPages} onClick={() => setPage(totalPages)}>»</Button>
+            </div>
+          </div>
+
         </TabsContent>
 
         {/* ── TAB: Calculadora ── */}
