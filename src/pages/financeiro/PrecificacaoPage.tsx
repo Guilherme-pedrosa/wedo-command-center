@@ -444,11 +444,23 @@ export default function PrecificacaoPage() {
 
   const handleSyncEstoque = async () => {
     try {
-      toast("Sincronizando estoque do GC...");
+      toast("Sincronizando cadastro de produtos do GC...");
+      let paginaInicial: number | undefined;
+      let total = 0;
+      for (let tentativa = 0; tentativa < 20; tentativa++) {
+        const { data, error } = await supabase.functions.invoke("sync-gc-produtos", {
+          body: paginaInicial ? { pagina_inicial: paginaInicial } : {},
+        });
+        if (error) throw error;
+        total += Number(data?.produtos_sincronizados || 0);
+        if (data?.status !== "em_progresso") break;
+        paginaInicial = Number(data?.proxima_pagina || 0) || undefined;
+      }
       const data = await refetchProdutos();
-      toast.success(`Estoque sincronizado: ${data.data?.length ?? 0} produtos`);
+      await refetchProdutosCacheValores();
+      toast.success(`Cadastro GC sincronizado: ${data.data?.length ?? total} produtos`);
     } catch (err) {
-      toast.error(`Falha ao sincronizar estoque: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`Falha ao sincronizar cadastro GC: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
