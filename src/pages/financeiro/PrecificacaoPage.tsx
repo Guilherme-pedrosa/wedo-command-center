@@ -403,10 +403,40 @@ export default function PrecificacaoPage() {
   const syncingGC = activeSync === "gc";
   const syncingOffline = activeSync === "offline";
 
-  // ── Fetch products from GC ──
+  // ── Produtos: sempre do cadastro cacheado do GC (não dos itens da NF) ──
   const { data: produtos, isLoading: loadingProdutos, refetch: refetchProdutos, isFetching: fetchingProdutos } = useQuery({
     queryKey: ["gc-produtos"],
-    queryFn: () => fetchAllGCPages<GCProduto>("/api/produtos"),
+    queryFn: async () => {
+      const pageSize = 1000;
+      let from = 0;
+      const allRows: GCProduto[] = [];
+      while (true) {
+        const { data, error } = await supabase
+          .from("gc_produtos_cache")
+          .select("produto_gc_id, nome, codigo_interno, codigo_barra, estoque, valor_custo, valor_venda_padrao, nome_grupo, ncm, unidade")
+          .eq("ativo", true)
+          .order("nome")
+          .range(from, from + pageSize - 1);
+
+        if (error) throw error;
+        const batch = (data || []).map((p) => ({
+          id: String(p.produto_gc_id),
+          nome: p.nome,
+          codigo: p.codigo_interno || p.codigo_barra || undefined,
+          codigo_interno: p.codigo_interno || undefined,
+          estoque: p.estoque ?? 0,
+          valor_custo: String(p.valor_custo ?? 0),
+          valor_venda: String(p.valor_venda_padrao ?? 0),
+          nome_grupo: p.nome_grupo || undefined,
+          ncm: p.ncm || undefined,
+          unidade: p.unidade || undefined,
+        })) as GCProduto[];
+        allRows.push(...batch);
+        if (batch.length < pageSize) break;
+        from += pageSize;
+      }
+      return allRows;
+    },
     staleTime: 30 * 60_000,
     refetchOnWindowFocus: false,
     retry: false,
