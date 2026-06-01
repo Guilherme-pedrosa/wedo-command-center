@@ -1121,7 +1121,7 @@ export default function PrecificacaoPage() {
     }
   };
 
-  // ── Sync NFs de entrada via API GC ──
+  // ── Sync NFs de entrada: cruza pedido de compra GC + XML vinculado ──
   const handleSyncGC = async () => {
     if (activeSyncRef.current) {
       toast.error("Já existe uma sincronização em andamento.");
@@ -1141,7 +1141,7 @@ export default function PrecificacaoPage() {
       }
 
       markSyncStarted("sync-nfe-entrada-gc");
-      setSyncProgress("Sincronizando com GC...");
+      setSyncProgress("Cruzando pedidos GC com XMLs vinculados...");
 
       let offset = 0;
       const batchSize = 80;
@@ -1156,7 +1156,7 @@ export default function PrecificacaoPage() {
         if (!data.has_more) break;
         offset = data.next_offset;
       }
-      toast.success(`Sincronizado (GC): ${totalProdutos} produtos processados`);
+      toast.success(`Tributos reprocessados por Pedido GC + XML: ${totalProdutos} produtos`);
       setSyncProgress("");
       refetchTributos();
     } catch (err: unknown) {
@@ -1168,7 +1168,7 @@ export default function PrecificacaoPage() {
     }
   };
 
-  // ── Sync NFs de entrada OFFLINE (usa BD local + XMLs, sem chamar API GC) ──
+  // ── Reprocessa tributos usando apenas itens do pedido GC + XML vinculado ──
   const [syncProgress, setSyncProgress] = useState("");
   const handleSyncNFEntrada = async () => {
     if (activeSyncRef.current) {
@@ -1189,7 +1189,7 @@ export default function PrecificacaoPage() {
       }
       markSyncStarted("sync-nfe-entrada");
 
-      setSyncProgress("Iniciando (modo offline)...");
+      setSyncProgress("Reprocessando Pedido GC + XML vinculado...");
       let offset = 0;
       const batchSize = 80;
       let totalProdutos = 0;
@@ -1197,14 +1197,14 @@ export default function PrecificacaoPage() {
       let totalXmls = 0;
 
       while (true) {
-        const { data, error } = await supabase.functions.invoke("sync-nfe-entrada-offline", {
+        const { data, error } = await supabase.functions.invoke("sync-nfe-entrada", {
           body: { offset, batch_size: batchSize },
         });
         if (error) throw error;
 
         totalCompras = data.total_compras || 0;
-        totalProdutos += data.produtos_processados || 0;
-        totalXmls += data.xmls_usados || 0;
+        totalProdutos += data.produtos_processados || data.produtos_atualizados || 0;
+        totalXmls += data.xmls_lidos || data.xmls_usados || 0;
         const processed = offset + (data.processed || 0);
         setSyncProgress(`Processando compras ${processed}/${totalCompras}...`);
 
@@ -1212,7 +1212,7 @@ export default function PrecificacaoPage() {
         offset = data.next_offset;
       }
 
-      toast.success(`Sincronizado (offline): ${totalProdutos} produtos de ${totalCompras} compras (${totalXmls} XMLs usados)`);
+      toast.success(`Reprocessado: ${totalProdutos} produtos de ${totalCompras} compras (${totalXmls} XMLs vinculados)`);
       setSyncProgress("");
       refetchTributos();
     } catch (err: unknown) {
