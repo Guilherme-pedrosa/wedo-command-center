@@ -227,12 +227,17 @@ Deno.serve(async (req) => {
 
     const { data: retornosData, error: retornosError } = await supabase
       .from("fin_os_retornos")
-      .select("os_codigo")
+      .select("os_codigo, tecnico_original, tecnico_retorno, valor")
       .eq("ano", y)
       .eq("mes", m);
     if (retornosError) throw retornosError;
 
-    const retornoCodes = new Set((retornosData || []).map((r: any) => String(r.os_codigo || "").trim()).filter(Boolean));
+    const retornoByCodigo = new Map<string, any>();
+    for (const r of retornosData || []) {
+      const code = String(r.os_codigo || "").trim();
+      if (code) retornoByCodigo.set(code, r);
+    }
+    const retornoCodes = new Set(Array.from(retornoByCodigo.keys()));
 
     const { data: baseRows, error: baseError } = await supabase
       .from("os_index")
@@ -253,6 +258,20 @@ Deno.serve(async (req) => {
         .in("os_codigo", missingRetornoCodes);
       if (error) throw error;
       retornoRows = data || [];
+      const foundCodes = new Set(retornoRows.map((row: any) => String(row.os_codigo || "").trim()).filter(Boolean));
+      for (const code of missingRetornoCodes) {
+        if (!foundCodes.has(code)) {
+          const retorno = retornoByCodigo.get(code);
+          retornoRows.push({
+            os_id: `retorno:${code}`,
+            os_codigo: code,
+            nome_cliente: null,
+            nome_situacao: "RETORNO LANÇADO",
+            nome_vendedor: retorno?.tecnico_original || null,
+            data_saida: null,
+          });
+        }
+      }
     }
 
     const byOsId = new Map<string, any>();
@@ -265,7 +284,10 @@ Deno.serve(async (req) => {
     const PAR = 6;
     for (let i = 0; i < rows.length; i += PAR) {
       const batch = rows.slice(i, i + PAR);
-      const fetched = await Promise.all(batch.map((row: any) => fetchOsDetail(String(row.os_id), gcHeaders)));
+      const fetched = await Promise.all(batch.map((row: any) => {
+        const osId = String(row.os_id || "");
+        return osId.startsWith("retorno:") ? Promise.resolve(null) : fetchOsDetail(osId, gcHeaders);
+      }));
       batch.forEach((row: any, idx: number) => {
         if (fetched[idx]) details.set(String(row.os_id), fetched[idx]!);
       });
@@ -274,10 +296,11 @@ Deno.serve(async (req) => {
     const ordens = [];
     for (const row of rows) {
       const detail = details.get(String(row.os_id));
-      if (!detail) continue;
-      const codigo = String(row.os_codigo || detail.codigo || "").trim();
+      const codigo = String(row.os_codigo || detail?.codigo || "").trim();
       const dataSaida = String(detail.data_saida || row.data_saida || "").split("T")[0];
       const isRetorno = retornoCodes.has(codigo);
+      const retorno = retornoByCodigo.get(codigo);
+      if (!detail && !isRetorno) continue;
 
       if (!isRetorno) {
         if (!dataSaida || dataSaida < start || dataSaida > end) continue;
@@ -286,13 +309,14 @@ Deno.serve(async (req) => {
         if (dow === 0 || dow === 6) continue;
       }
 
-      const valor = computeFaturamentoPremiacao(detail);
+      const valorCalculado = detail ? computeFaturamentoPremiacao(detail) : 0;
+      const valor = isRetorno && valorCalculado <= 0 ? toNum(retorno?.valor) : valorCalculado;
       if (valor <= 0) continue;
 
       ordens.push({
         os_codigo: codigo,
-        nome_vendedor: String(detail.nome_vendedor || row.nome_vendedor || "") || null,
-        nome_situacao: String(detail.nome_situacao || row.nome_situacao || "") || null,
+        nome_vendedor: String(detail?.nome_vendedor || row.nome_vendedor || retorno?.tecnico_original || "") || null,
+        nome_situacao: String(detail?.nome_situacao || row.nome_situacao || "") || null,
         data_saida: dataSaida || row.data_saida || null,
         valor_total: valor,
         valor_deslocamento: 0,
