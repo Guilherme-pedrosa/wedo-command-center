@@ -895,10 +895,12 @@ export default function PrecificacaoPage() {
         calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
       }
       const valoresProd = valoresMap.get(p.id);
-      const items: typeof map extends Map<string, infer V> ? V : never = [];
+      const itemsOut: Array<{ gc_produto_id: string; nome_produto: string; tipo_id: string; nome_tabela: string; preco_atual: number; preco_sugerido: number; margem_minima: number; margem_resultante: number; custo_referencia: number; }> = [];
       for (const pol of politicas) {
         const margemMin = Number(pol.margem_minima) || 0;
-        const divLinha = 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin;
+        // Divisor SEM custoFixoPct: alinha com o cálculo de margem exibida na linha.
+        // Custo fixo % entra só no "Preço Mín." global (coluna), não no preço por tabela.
+        const divLinha = 1 - calc.aliquotaSaidaFaturamento - margemMin;
         const precoSugeridoBruto = calc.custoTotal > 0 && divLinha > 0.05 ? calc.custoTotal / divLinha : calc.custoTotal * 5;
         const precoSugerido = calc.custoTotal > 0 ? Math.min(precoSugeridoBruto, calc.custoTotal * 5) : 0;
         const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
@@ -908,19 +910,66 @@ export default function PrecificacaoPage() {
         const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
         const okMin = temPrecoCadastrado && margem >= (margemMin * 100 - 0.05);
         if (!okMin && precoSugerido > 0 && calc.custoTotal > 0) {
-          items.push({
+          itemsOut.push({
             gc_produto_id: String(p.id), nome_produto: p.nome, tipo_id: String(pol.tipo_id), nome_tabela: pol.nome_tabela,
             preco_atual: vendaReal, preco_sugerido: precoSugerido,
             margem_minima: margemMin, margem_resultante: margemMin, custo_referencia: calc.custoTotal,
           });
         }
       }
-      if (items.length > 0) map.set(String(p.id), items);
+      if (itemsOut.length > 0) map.set(String(p.id), itemsOut);
     }
     return map;
   }, [filtered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo]);
 
+  // ── Itens ACIMA da margem (preço alto demais — sugere reduzir pro mínimo) ──
+  const aboveMarginByProduct = useMemo(() => {
+    const map = new Map<string, Array<{
+      gc_produto_id: string; nome_produto: string; tipo_id: string; nome_tabela: string;
+      preco_atual: number; preco_sugerido: number; margem_minima: number; margem_resultante: number; custo_referencia: number;
+    }>>();
+    if (!filtered || !politicas) return map;
+    for (const p of filtered) {
+      const custoCan = custoCanonicoMap.get(p.id);
+      const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
+      const tributoRaw = tributosMap.get(p.id);
+      const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
+      const hasNF = !!tributo;
+      let calc: ReturnType<typeof calcPricing>;
+      const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
+      if (hasNF) {
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBruto);
+        calc = { ...nfCalc, custoLiquido: nfCalc.custoEfetivo, custoFrete: tributo!.valor_frete_unit, margemReal: 0 } as ReturnType<typeof calcPricing>;
+      } else {
+        calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
+      }
+      const valoresProd = valoresMap.get(p.id);
+      const itemsAbove: Array<{ gc_produto_id: string; nome_produto: string; tipo_id: string; nome_tabela: string; preco_atual: number; preco_sugerido: number; margem_minima: number; margem_resultante: number; custo_referencia: number; }> = [];
+      for (const pol of politicas) {
+        const margemMin = Number(pol.margem_minima) || 0;
+        const divLinha = 1 - calc.aliquotaSaidaFaturamento - margemMin;
+        const precoSugeridoBruto = calc.custoTotal > 0 && divLinha > 0.05 ? calc.custoTotal / divLinha : calc.custoTotal * 5;
+        const precoSugerido = calc.custoTotal > 0 ? Math.min(precoSugeridoBruto, calc.custoTotal * 5) : 0;
+        const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
+        if (vendaReal <= 0 || precoSugerido <= 0) continue;
+        const trib = vendaReal * calc.aliquotaSaidaFaturamento;
+        const margem = ((vendaReal - calc.custoTotal - trib) / vendaReal) * 100;
+        // ACIMA: margem > margemMin + 0.5pp E preço atual maior que o sugerido (mais que R$0,01)
+        if (margem > margemMin * 100 + 0.5 && vendaReal - precoSugerido > 0.01) {
+          itemsAbove.push({
+            gc_produto_id: String(p.id), nome_produto: p.nome, tipo_id: String(pol.tipo_id), nome_tabela: pol.nome_tabela,
+            preco_atual: vendaReal, preco_sugerido: precoSugerido,
+            margem_minima: margemMin, margem_resultante: margemMin, custo_referencia: calc.custoTotal,
+          });
+        }
+      }
+      if (itemsAbove.length > 0) map.set(String(p.id), itemsAbove);
+    }
+    return map;
+  }, [filtered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo, activeEntrada]);
+
   const allOutOfMargin = useMemo(() => Array.from(outOfMarginByProduct.values()).flat(), [outOfMarginByProduct]);
+  const allAboveMargin = useMemo(() => Array.from(aboveMarginByProduct.values()).flat(), [aboveMarginByProduct]);
 
   // ── Upload XMLs de NF para o bucket (suporta ZIP + lotes) ──
   const [uploading, setUploading] = useState(false);
