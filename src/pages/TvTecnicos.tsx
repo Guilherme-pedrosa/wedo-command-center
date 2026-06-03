@@ -242,6 +242,12 @@ export default function TvTecnicos() {
     for (const os of osData) {
       const nomeCompleto = os.nome_vendedor?.trim().toUpperCase();
       if (!nomeCompleto) continue;
+      // Ignora OS executadas em finais de semana (sábado/domingo) — não contam pro faturamento
+      if ((os as any).data_saida) {
+        const [y, m, d] = String((os as any).data_saida).slice(0, 10).split('-').map(Number);
+        const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+        if (dow === 0 || dow === 6) continue;
+      }
       const valorBruto = os.valor_total ?? 0;
       const deslocamento = os.valor_deslocamento ?? 0;
       const valor = valorBruto - deslocamento;
