@@ -1918,6 +1918,24 @@ export default function PrecificacaoPage() {
                               </Button>
                             );
                           })()}
+                          {(() => {
+                            const itemsAbove = aboveMarginByProduct.get(String(p.id)) || [];
+                            if (itemsAbove.length === 0) return null;
+                            const bulkKey = `produto-reduzir:${p.id}`;
+                            return (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="ml-2 h-6 px-2 text-[10px] gap-1 border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+                                disabled={!!bulkCorrigindo || !!corrigindoKey}
+                                onClick={() => corrigirPrecoBatch(itemsAbove, `${p.nome.slice(0, 24)} reduzir ${itemsAbove.length} tab.`, bulkKey)}
+                                title={`Reduz preço em ${itemsAbove.length} tabela(s) acima da margem mínima deste produto`}
+                              >
+                                {bulkCorrigindo === bulkKey ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                                Reduzir {itemsAbove.length} tabela{itemsAbove.length > 1 ? "s" : ""}
+                              </Button>
+                            );
+                          })()}
                           {tipoSaidaGlobal === "venda" && (
                             <div className="mt-1.5 flex items-center gap-1.5 text-[10px]">
                               <span className="text-muted-foreground">ICMS saída:</span>
