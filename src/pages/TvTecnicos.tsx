@@ -13,7 +13,7 @@ const formatBRL = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
 interface TecnicoMeta { nome_tecnico: string; meta_faturamento: number; }
-interface OsRow { nome_vendedor: string | null; valor_total: number | null; valor_deslocamento: number | null; os_codigo: string; nome_situacao: string | null; }
+interface OsRow { nome_vendedor: string | null; valor_total: number | null; valor_deslocamento: number | null; os_codigo: string; nome_situacao: string | null; data_saida: string | null; }
 
 const OS_EXECUTADOS_STATUS = [
   'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
