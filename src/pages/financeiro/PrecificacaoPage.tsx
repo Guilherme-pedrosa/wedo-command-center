@@ -312,6 +312,10 @@ export default function PrecificacaoPage() {
   const [calcCusto, setCalcCusto] = useState<string>("");
   const [calcTipoSaida, setCalcTipoSaida] = useState<TipoSaida>("venda");
   const [calcMargens] = useState([10, 15, 20, 25, 30]);
+  // Override de ICMS de saída na Calculadora (vazio = usa o global do header)
+  const [calcIcmsSaida, setCalcIcmsSaida] = useState<string>("");
+  // Override de ICMS de saída por produto na tabela (Map<gc_produto_id, %>)
+  const [icmsSaidaOverrides, setIcmsSaidaOverrides] = useState<Map<string, number>>(new Map());
   const activeSyncRef = useRef<"gc" | "offline" | null>(null);
 
   // ── Manual tributo (crédito manual quando não há NF) ──
