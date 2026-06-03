@@ -1525,6 +1525,37 @@ export default function PrecificacaoPage() {
               {bulkCorrigindo === "global-reduzir" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
               Reduzir TODOS p/ margem mín ({allAboveMargin.length})
             </Button>
+            {selectedProductIds.size > 0 && (
+              <>
+                <Badge variant="outline" className="border-primary/40 text-primary">
+                  {selectedProductIds.size} selecionado{selectedProductIds.size > 1 ? "s" : ""}
+                </Badge>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => corrigirPrecoBatch(selectedOutOfMargin, `SELECIONADOS fora da margem (${selectedOutOfMargin.length})`, "selected")}
+                  disabled={!!bulkCorrigindo || !!corrigindoKey || selectedOutOfMargin.length === 0}
+                  title={`Aplica preço sugerido nas tabelas fora da margem dos ${selectedProductIds.size} produto(s) selecionado(s) (${selectedOutOfMargin.length} correções)`}
+                >
+                  {bulkCorrigindo === "selected" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <TrendingUp className="h-4 w-4 mr-1" />}
+                  Corrigir selecionados ({selectedOutOfMargin.length})
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+                  onClick={() => corrigirPrecoBatch(selectedAboveMargin, `REDUZIR selecionados (${selectedAboveMargin.length})`, "selected-reduzir")}
+                  disabled={!!bulkCorrigindo || !!corrigindoKey || selectedAboveMargin.length === 0}
+                  title={`Reduz preço das tabelas acima da margem dos ${selectedProductIds.size} produto(s) selecionado(s) (${selectedAboveMargin.length} ajustes)`}
+                >
+                  {bulkCorrigindo === "selected-reduzir" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                  Reduzir selecionados ({selectedAboveMargin.length})
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedProductIds(new Set())} title="Limpar seleção">
+                  Limpar
+                </Button>
+              </>
+            )}
             {isSyncing && syncProgress && (
               <span className="text-xs text-muted-foreground font-mono animate-pulse">{syncProgress}</span>
             )}
