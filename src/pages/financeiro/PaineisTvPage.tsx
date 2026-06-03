@@ -64,25 +64,12 @@ export default function PaineisTvPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('os_index')
-        .select('os_codigo, nome_vendedor, valor_total, valor_deslocamento')
+        .select('os_codigo, nome_vendedor, valor_total')
         .gte('data_saida', retornoStart)
         .lte('data_saida', retornoEnd)
         .order('os_codigo', { ascending: false });
       if (error) throw error;
-      // Valor exibido = líquido (igual ao TvTecnicos): bruto menos reembolsos
-      // (deslocamento, hospedagem, alimentação, refeição, pedágio, passagem, combustível, hotel)
-      return (data || []).map((o: any) => {
-        const bruto = Number(o.valor_total) || 0;
-        const desloc = Number(o.valor_deslocamento) || 0;
-        // sentinel -0.001 = processado sem reembolso → trata como 0
-        const reembolsos = desloc > 0 ? desloc : 0;
-        return {
-          os_codigo: o.os_codigo,
-          nome_vendedor: o.nome_vendedor,
-          valor_total: Math.max(0, bruto - reembolsos),
-          valor_bruto: bruto,
-        };
-      }) as { os_codigo: string; nome_vendedor: string | null; valor_total: number; valor_bruto: number }[];
+      return (data || []) as { os_codigo: string; nome_vendedor: string | null; valor_total: number }[];
     },
     staleTime: 2 * 60 * 1000,
   });
