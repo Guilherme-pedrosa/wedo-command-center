@@ -2058,15 +2058,16 @@ export default function PrecificacaoPage() {
                             Adicionar crédito
                           </Button>
                         )}
-                        {hasNF && tributo.match_rule === "manual" && (
+                        {hasNF && (
                           <Button
                             size="sm"
-                            variant="ghost"
-                            className="h-6 w-6 p-0 mt-1"
+                            variant="outline"
+                            className="h-6 px-2 mt-1 text-[10px] gap-1 border-blue-500/40 text-blue-400 hover:bg-blue-500/10"
                             onClick={() => abrirManualTributo(p, tributo)}
-                            title="Editar crédito manual"
+                            title={tributo.match_rule === "manual" ? "Editar crédito manual" : "Editar valores (frete, alíquotas) — vira override manual"}
                           >
                             <Pencil className="h-3 w-3" />
+                            Editar valores
                           </Button>
                         )}
                       </TableCell>
