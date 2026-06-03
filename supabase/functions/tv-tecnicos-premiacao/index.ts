@@ -297,7 +297,7 @@ Deno.serve(async (req) => {
     for (const row of rows) {
       const detail = details.get(String(row.os_id));
       const codigo = String(row.os_codigo || detail?.codigo || "").trim();
-      const dataSaida = String(detail.data_saida || row.data_saida || "").split("T")[0];
+      const dataSaida = String(detail?.data_saida || row.data_saida || "").split("T")[0];
       const isRetorno = retornoCodes.has(codigo);
       const retorno = retornoByCodigo.get(codigo);
       if (!detail && !isRetorno) continue;
