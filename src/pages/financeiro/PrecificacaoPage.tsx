@@ -312,6 +312,10 @@ export default function PrecificacaoPage() {
   const [calcCusto, setCalcCusto] = useState<string>("");
   const [calcTipoSaida, setCalcTipoSaida] = useState<TipoSaida>("venda");
   const [calcMargens] = useState([10, 15, 20, 25, 30]);
+  // Override de ICMS de saída na Calculadora (vazio = usa o global do header)
+  const [calcIcmsSaida, setCalcIcmsSaida] = useState<string>("");
+  // Override de ICMS de saída por produto na tabela (Map<gc_produto_id, %>)
+  const [icmsSaidaOverrides, setIcmsSaidaOverrides] = useState<Map<string, number>>(new Map());
   const activeSyncRef = useRef<"gc" | "offline" | null>(null);
 
   // ── Manual tributo (crédito manual quando não há NF) ──
@@ -1260,11 +1264,15 @@ export default function PrecificacaoPage() {
   const calcResults = useMemo(() => {
     const custo = parseFloat(calcCusto) || 0;
     if (custo <= 0) return [];
+    const icmsOv = calcIcmsSaida.trim() === "" ? undefined : parseFloat(calcIcmsSaida.replace(",", "."));
+    const taxSaidaCalc = icmsOv !== undefined && isFinite(icmsOv)
+      ? { ...taxSaida, icmsSaida: icmsOv }
+      : taxSaida;
     return calcMargens.map((m) => ({
       margem: m,
-      ...calcPricing(custo, activeEntrada, taxSaida, calcTipoSaida, m, custoFixoPctEfetivo),
+      ...calcPricing(custo, activeEntrada, taxSaidaCalc, calcTipoSaida, m, custoFixoPctEfetivo),
     }));
-  }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida, custoFixoPctEfetivo]);
+  }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida, custoFixoPctEfetivo, calcIcmsSaida]);
 
   const totalComTributoNF = tributosXml.length;
 
@@ -1760,8 +1768,12 @@ export default function PrecificacaoPage() {
 
                   let calc: ReturnType<typeof calcPricing>;
                   const cfuFlatLinha = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
+                  const icmsOvLinha = icmsSaidaOverrides.get(p.id);
+                  const taxSaidaLinha = icmsOvLinha !== undefined
+                    ? { ...taxSaida, icmsSaida: icmsOvLinha }
+                    : taxSaida;
                   if (hasNF) {
-                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, custoBruto);
+                    const nfCalc = calcPricingWithNF(tributo, taxSaidaLinha, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, custoBruto);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
                       creditoPis: nfCalc.creditoPis,
@@ -1781,7 +1793,7 @@ export default function PrecificacaoPage() {
                       custoFixoPct: nfCalc.custoFixoPct,
                     };
                   } else {
-                    calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlatLinha }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
+                    calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlatLinha }, taxSaidaLinha, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
                   }
 
 
@@ -1846,6 +1858,42 @@ export default function PrecificacaoPage() {
                               </Button>
                             );
                           })()}
+                          {tipoSaidaGlobal === "venda" && (
+                            <div className="mt-1.5 flex items-center gap-1.5 text-[10px]">
+                              <span className="text-muted-foreground">ICMS saída:</span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                className="h-6 w-16 px-1.5 text-[10px] font-mono bg-secondary"
+                                placeholder={String(taxSaida.icmsSaida)}
+                                defaultValue={icmsSaidaOverrides.get(p.id) ?? ""}
+                                key={`icms-ov-${p.id}-${icmsSaidaOverrides.get(p.id) ?? "x"}`}
+                                onBlur={(e) => {
+                                  const raw = e.target.value.trim().replace(",", ".");
+                                  setIcmsSaidaOverrides((prev) => {
+                                    const next = new Map(prev);
+                                    if (raw === "") { next.delete(p.id); return next; }
+                                    const n = parseFloat(raw);
+                                    if (!isFinite(n) || n < 0 || n > 50) { toast.error("ICMS saída inválido (0–50%)"); return prev; }
+                                    next.set(p.id, n);
+                                    return next;
+                                  });
+                                }}
+                                title="Override de ICMS de saída para este produto (vazio = usa global)"
+                              />
+                              <span className="text-muted-foreground">%</span>
+                              {icmsSaidaOverrides.has(p.id) && (
+                                <button
+                                  type="button"
+                                  className="text-muted-foreground hover:text-foreground"
+                                  onClick={() => setIcmsSaidaOverrides((prev) => { const next = new Map(prev); next.delete(p.id); return next; })}
+                                  title="Limpar override"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{estoque}</TableCell>
@@ -2064,6 +2112,28 @@ export default function PrecificacaoPage() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {calcTipoSaida === "venda" && (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5">
+                      ICMS de saída (%)
+                      <Tooltip>
+                        <TooltipTrigger><Info className="h-3 w-3 text-muted-foreground" /></TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-xs">
+                          Sobrepõe o ICMS de saída global ({taxSaida.icmsSaida}%) só nesta calculadora. Deixe vazio para usar o global.
+                        </TooltipContent>
+                      </Tooltip>
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder={`Padrão: ${taxSaida.icmsSaida}`}
+                      value={calcIcmsSaida}
+                      onChange={(e) => setCalcIcmsSaida(e.target.value)}
+                      className="bg-secondary font-mono"
+                    />
+                  </div>
+                )}
 
                 {calcCusto && parseFloat(calcCusto) > 0 && (
                   <div className="bg-secondary/50 rounded-lg p-4 space-y-2 text-sm">
