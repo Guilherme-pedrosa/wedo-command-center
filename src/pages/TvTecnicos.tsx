@@ -13,7 +13,7 @@ const formatBRL = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
 interface TecnicoMeta { nome_tecnico: string; meta_faturamento: number; }
-interface OsRow { nome_vendedor: string | null; valor_total: number | null; valor_deslocamento: number | null; os_codigo: string; nome_situacao: string | null; }
+interface OsRow { nome_vendedor: string | null; valor_total: number | null; valor_deslocamento: number | null; os_codigo: string; nome_situacao: string | null; data_saida: string | null; }
 
 const OS_EXECUTADOS_STATUS = [
   'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
@@ -88,7 +88,7 @@ export default function TvTecnicos() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('os_index')
-        .select('nome_vendedor, valor_total, valor_deslocamento, os_codigo, nome_situacao')
+        .select('nome_vendedor, valor_total, valor_deslocamento, os_codigo, nome_situacao, data_saida')
         .in('nome_situacao', OS_EXECUTADOS_STATUS)
         .gte('data_saida', start)
         .lte('data_saida', end);
@@ -242,6 +242,12 @@ export default function TvTecnicos() {
     for (const os of osData) {
       const nomeCompleto = os.nome_vendedor?.trim().toUpperCase();
       if (!nomeCompleto) continue;
+      // Ignora OS executadas em finais de semana (sábado/domingo) — não contam pro faturamento
+      if ((os as any).data_saida) {
+        const [y, m, d] = String((os as any).data_saida).slice(0, 10).split('-').map(Number);
+        const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+        if (dow === 0 || dow === 6) continue;
+      }
       const valorBruto = os.valor_total ?? 0;
       const deslocamento = os.valor_deslocamento ?? 0;
       const valor = valorBruto - deslocamento;
