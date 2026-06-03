@@ -1768,8 +1768,12 @@ export default function PrecificacaoPage() {
 
                   let calc: ReturnType<typeof calcPricing>;
                   const cfuFlatLinha = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
+                  const icmsOvLinha = icmsSaidaOverrides.get(p.id);
+                  const taxSaidaLinha = icmsOvLinha !== undefined
+                    ? { ...taxSaida, icmsSaida: icmsOvLinha }
+                    : taxSaida;
                   if (hasNF) {
-                    const nfCalc = calcPricingWithNF(tributo, taxSaida, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, custoBruto);
+                    const nfCalc = calcPricingWithNF(tributo, taxSaidaLinha, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, custoBruto);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
                       creditoPis: nfCalc.creditoPis,
@@ -1789,7 +1793,7 @@ export default function PrecificacaoPage() {
                       custoFixoPct: nfCalc.custoFixoPct,
                     };
                   } else {
-                    calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlatLinha }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
+                    calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlatLinha }, taxSaidaLinha, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
                   }
 
 
