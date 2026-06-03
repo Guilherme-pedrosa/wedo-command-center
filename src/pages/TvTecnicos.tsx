@@ -86,14 +86,12 @@ export default function TvTecnicos() {
   const { data: osData = [], isLoading: loadingOs, dataUpdatedAt } = useQuery({
     queryKey: ['os_index_tecnicos', year, month],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('os_index')
-        .select('nome_vendedor, valor_total, valor_deslocamento, os_codigo, nome_situacao, data_saida')
-        .in('nome_situacao', OS_EXECUTADOS_STATUS)
-        .gte('data_saida', start)
-        .lte('data_saida', end);
+      const { data, error } = await supabase.functions.invoke('tv-tecnicos-premiacao', {
+        body: { year, month },
+      });
       if (error) throw error;
-      return (data || []) as OsRow[];
+      if (data?.ok === false) throw new Error(data.error || 'Erro ao calcular premiação da TV');
+      return (data?.ordens || []) as OsRow[];
     },
     staleTime: 2 * 60 * 1000,
     refetchInterval: 60 * 1000,
