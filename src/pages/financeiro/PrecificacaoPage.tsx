@@ -1931,10 +1931,10 @@ export default function PrecificacaoPage() {
                           const outCount = outOfMarginByProduct.get(pid)?.length || 0;
                           const aboveCount = aboveMarginByProduct.get(pid)?.length || 0;
                           const hasAny = outCount + aboveCount > 0;
-                          if (!hasAny) return null;
                           return (
                             <Checkbox
                               checked={selectedProductIds.has(pid)}
+                              disabled={!hasAny}
                               onCheckedChange={(checked) => {
                                 setSelectedProductIds((prev) => {
                                   const next = new Set(prev);
@@ -1943,6 +1943,7 @@ export default function PrecificacaoPage() {
                                 });
                               }}
                               aria-label={`Selecionar ${p.nome}`}
+                              title={hasAny ? `${outCount + aboveCount} tabela(s) p/ corrigir` : "Sem tabelas fora/acima da margem"}
                             />
                           );
                         })()}
