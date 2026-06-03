@@ -1925,6 +1925,28 @@ export default function PrecificacaoPage() {
 
                   return (
                     <TableRow key={p.id} className="border-border">
+                      <TableCell className="w-8">
+                        {(() => {
+                          const pid = String(p.id);
+                          const outCount = outOfMarginByProduct.get(pid)?.length || 0;
+                          const aboveCount = aboveMarginByProduct.get(pid)?.length || 0;
+                          const hasAny = outCount + aboveCount > 0;
+                          if (!hasAny) return null;
+                          return (
+                            <Checkbox
+                              checked={selectedProductIds.has(pid)}
+                              onCheckedChange={(checked) => {
+                                setSelectedProductIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (checked) next.add(pid); else next.delete(pid);
+                                  return next;
+                                });
+                              }}
+                              aria-label={`Selecionar ${p.nome}`}
+                            />
+                          );
+                        })()}
+                      </TableCell>
                       <TableCell>
                         <div>
                           <span className="font-medium text-foreground text-sm">{p.nome}</span>
