@@ -317,6 +317,8 @@ export default function PrecificacaoPage() {
   const [calcIcmsSaida, setCalcIcmsSaida] = useState<string>("");
   // Override de ICMS de saída por produto na tabela (Map<gc_produto_id, %>)
   const [icmsSaidaOverrides, setIcmsSaidaOverrides] = useState<Map<string, number>>(new Map());
+  // Seleção de produtos para correção em lote (checkboxes)
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const activeSyncRef = useRef<"gc" | "offline" | null>(null);
 
   // ── Manual tributo (crédito manual quando não há NF) ──
