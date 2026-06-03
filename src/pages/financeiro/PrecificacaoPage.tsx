@@ -974,6 +974,16 @@ export default function PrecificacaoPage() {
   const allOutOfMargin = useMemo(() => Array.from(outOfMarginByProduct.values()).flat(), [outOfMarginByProduct]);
   const allAboveMargin = useMemo(() => Array.from(aboveMarginByProduct.values()).flat(), [aboveMarginByProduct]);
 
+  // Itens fora/acima da margem restritos aos produtos selecionados via checkbox
+  const selectedOutOfMargin = useMemo(
+    () => Array.from(selectedProductIds).flatMap((id) => outOfMarginByProduct.get(id) || []),
+    [selectedProductIds, outOfMarginByProduct]
+  );
+  const selectedAboveMargin = useMemo(
+    () => Array.from(selectedProductIds).flatMap((id) => aboveMarginByProduct.get(id) || []),
+    [selectedProductIds, aboveMarginByProduct]
+  );
+
   // ── Upload XMLs de NF para o bucket (suporta ZIP + lotes) ──
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
