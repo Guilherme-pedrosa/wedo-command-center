@@ -235,7 +235,7 @@ export default function TvTecnicos() {
       // Skip OS with zero/null value — they have no financial data yet
       if (valor <= 0) continue;
       if (!nomeCompleto && !retorno) continue;
-      const primeiroNome = norm(nomeCompleto.split(' ')[0]);
+      const primeiroNome = nomeCompleto ? norm(nomeCompleto.split(' ')[0]) : '';
 
       if (nomeCompleto && !vendedorMap[primeiroNome]) vendedorMap[primeiroNome] = { total: 0, osList: [] };
 
