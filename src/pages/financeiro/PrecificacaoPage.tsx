@@ -2113,6 +2113,28 @@ export default function PrecificacaoPage() {
                   </Select>
                 </div>
 
+                {calcTipoSaida === "venda" && (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5">
+                      ICMS de saída (%)
+                      <Tooltip>
+                        <TooltipTrigger><Info className="h-3 w-3 text-muted-foreground" /></TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-xs">
+                          Sobrepõe o ICMS de saída global ({taxSaida.icmsSaida}%) só nesta calculadora. Deixe vazio para usar o global.
+                        </TooltipContent>
+                      </Tooltip>
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder={`Padrão: ${taxSaida.icmsSaida}`}
+                      value={calcIcmsSaida}
+                      onChange={(e) => setCalcIcmsSaida(e.target.value)}
+                      className="bg-secondary font-mono"
+                    />
+                  </div>
+                )}
+
                 {calcCusto && parseFloat(calcCusto) > 0 && (
                   <div className="bg-secondary/50 rounded-lg p-4 space-y-2 text-sm">
                     <p className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider mb-2">Composição de custo</p>
