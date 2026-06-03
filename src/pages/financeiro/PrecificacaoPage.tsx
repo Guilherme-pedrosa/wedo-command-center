@@ -1858,6 +1858,42 @@ export default function PrecificacaoPage() {
                               </Button>
                             );
                           })()}
+                          {tipoSaidaGlobal === "venda" && (
+                            <div className="mt-1.5 flex items-center gap-1.5 text-[10px]">
+                              <span className="text-muted-foreground">ICMS saída:</span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                className="h-6 w-16 px-1.5 text-[10px] font-mono bg-secondary"
+                                placeholder={String(taxSaida.icmsSaida)}
+                                defaultValue={icmsSaidaOverrides.get(p.id) ?? ""}
+                                key={`icms-ov-${p.id}-${icmsSaidaOverrides.get(p.id) ?? "x"}`}
+                                onBlur={(e) => {
+                                  const raw = e.target.value.trim().replace(",", ".");
+                                  setIcmsSaidaOverrides((prev) => {
+                                    const next = new Map(prev);
+                                    if (raw === "") { next.delete(p.id); return next; }
+                                    const n = parseFloat(raw);
+                                    if (!isFinite(n) || n < 0 || n > 50) { toast.error("ICMS saída inválido (0–50%)"); return prev; }
+                                    next.set(p.id, n);
+                                    return next;
+                                  });
+                                }}
+                                title="Override de ICMS de saída para este produto (vazio = usa global)"
+                              />
+                              <span className="text-muted-foreground">%</span>
+                              {icmsSaidaOverrides.has(p.id) && (
+                                <button
+                                  type="button"
+                                  className="text-muted-foreground hover:text-foreground"
+                                  onClick={() => setIcmsSaidaOverrides((prev) => { const next = new Map(prev); next.delete(p.id); return next; })}
+                                  title="Limpar override"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{estoque}</TableCell>
