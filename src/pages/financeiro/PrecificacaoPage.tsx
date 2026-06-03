@@ -1821,6 +1821,26 @@ export default function PrecificacaoPage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-border hover:bg-transparent [&>th]:sticky [&>th]:top-0 [&>th]:z-30 [&>th]:bg-card">
+                  <TableHead className="text-xs w-8" rowSpan={2}>
+                    <Checkbox
+                      checked={(() => {
+                        const eligible = paged.filter((p) => (outOfMarginByProduct.get(String(p.id))?.length || 0) + (aboveMarginByProduct.get(String(p.id))?.length || 0) > 0);
+                        if (eligible.length === 0) return false;
+                        const allSel = eligible.every((p) => selectedProductIds.has(String(p.id)));
+                        return allSel ? true : (eligible.some((p) => selectedProductIds.has(String(p.id))) ? "indeterminate" : false);
+                      })()}
+                      onCheckedChange={(checked) => {
+                        setSelectedProductIds((prev) => {
+                          const next = new Set(prev);
+                          const eligible = paged.filter((p) => (outOfMarginByProduct.get(String(p.id))?.length || 0) + (aboveMarginByProduct.get(String(p.id))?.length || 0) > 0);
+                          if (checked) eligible.forEach((p) => next.add(String(p.id)));
+                          else eligible.forEach((p) => next.delete(String(p.id)));
+                          return next;
+                        });
+                      }}
+                      aria-label="Selecionar todos visíveis"
+                    />
+                  </TableHead>
                   <TableHead className="text-xs" rowSpan={2}>Produto</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Estoque</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo</TableHead>
