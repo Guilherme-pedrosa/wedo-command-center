@@ -14,19 +14,6 @@ const formatBRL = (v: number) =>
 
 interface TecnicoMeta { nome_tecnico: string; meta_faturamento: number; }
 interface OsRow { nome_vendedor: string | null; valor_total: number | null; valor_deslocamento: number | null; os_codigo: string; nome_situacao: string | null; data_saida: string | null; }
-
-const OS_EXECUTADOS_STATUS = [
-  'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
-  'EXECUTADO - AGUARDANDO PAGAMENTO',
-  'EXECUTADO COM NOTA EMITIDA',
-  'EXECUTADO - FINANCEIRO SEPARADO',
-  'EXECUTADO - CIGAM',
-  'EXECUTADO POR CONTRATO',
-  'EXECUTADO - FECHADO CHAMADO',
-  'EXECUTADO EM GARANTIA',
-  'EXECUTADO -PATRIMÔNIO',
-  'EXECUTADO - LIBERADO P/ FATURAMENTO (CIGAM SEM BAIXA ESTOQ)',
-];
 interface RetornoRow { os_codigo: string; tecnico_original: string; tecnico_retorno: string; valor: number; }
 
 export default function TvTecnicos() {
@@ -61,10 +48,6 @@ export default function TvTecnicos() {
   };
 
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
-  const start = `${year}-${String(month).padStart(2, '0')}-01`;
-  const lastDay = new Date(year, month, 0).getDate();
-  const end = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
-
   // Fetch metas
   const { data: metas = [] } = useQuery({
     queryKey: ['fin_metas_tecnicos'],
@@ -86,14 +69,12 @@ export default function TvTecnicos() {
   const { data: osData = [], isLoading: loadingOs, dataUpdatedAt } = useQuery({
     queryKey: ['os_index_tecnicos', year, month],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('os_index')
-        .select('nome_vendedor, valor_total, valor_deslocamento, os_codigo, nome_situacao, data_saida')
-        .in('nome_situacao', OS_EXECUTADOS_STATUS)
-        .gte('data_saida', start)
-        .lte('data_saida', end);
+      const { data, error } = await supabase.functions.invoke('tv-tecnicos-premiacao', {
+        body: { year, month },
+      });
       if (error) throw error;
-      return (data || []) as OsRow[];
+      if (data?.ok === false) throw new Error(data.error || 'Erro ao calcular premiação da TV');
+      return (data?.ordens || []) as OsRow[];
     },
     staleTime: 2 * 60 * 1000,
     refetchInterval: 60 * 1000,
@@ -161,7 +142,10 @@ export default function TvTecnicos() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'fin_os_retornos' },
-        () => qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] })
+        () => {
+          qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] });
+          qc.invalidateQueries({ queryKey: ['os_index_tecnicos', year, month] });
+        }
       )
       .on(
         'postgres_changes',
@@ -203,6 +187,7 @@ export default function TvTecnicos() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] });
+      qc.invalidateQueries({ queryKey: ['os_index_tecnicos', year, month] });
       toast.success('OS marcada como retorno');
     },
     onError: (e: any) => toast.error(e.message || 'Erro ao marcar retorno'),
@@ -220,6 +205,7 @@ export default function TvTecnicos() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] });
+      qc.invalidateQueries({ queryKey: ['os_index_tecnicos', year, month] });
       toast.success('Retorno desfeito');
     },
     onError: (e: any) => toast.error(e.message || 'Erro ao desfazer'),
@@ -240,10 +226,10 @@ export default function TvTecnicos() {
     const vendedorMap: Record<string, { total: number; osList: { codigo: string; valor: number; isRetorno?: boolean; retornoFrom?: string }[] }> = {};
 
     for (const os of osData) {
-      const nomeCompleto = os.nome_vendedor?.trim().toUpperCase();
-      if (!nomeCompleto) continue;
-      // Ignora OS executadas em finais de semana (sábado/domingo) — não contam pro faturamento
-      if ((os as any).data_saida) {
+      const retorno = retornoMap[os.os_codigo];
+      const nomeCompleto = os.nome_vendedor?.trim().toUpperCase() || retorno?.tecnico_original?.trim().toUpperCase();
+      // Ignora OS normais executadas em finais de semana; OS lançada como retorno continua visível
+      if (!retorno && (os as any).data_saida) {
         const [y, m, d] = String((os as any).data_saida).slice(0, 10).split('-').map(Number);
         const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
         if (dow === 0 || dow === 6) continue;
@@ -253,14 +239,14 @@ export default function TvTecnicos() {
       const valor = valorBruto - deslocamento;
       // Skip OS with zero/null value — they have no financial data yet
       if (valor <= 0) continue;
-      const primeiroNome = norm(nomeCompleto.split(' ')[0]);
+      if (!nomeCompleto && !retorno) continue;
+      const primeiroNome = nomeCompleto ? norm(nomeCompleto.split(' ')[0]) : '';
 
-      if (!vendedorMap[primeiroNome]) vendedorMap[primeiroNome] = { total: 0, osList: [] };
-      const retorno = retornoMap[os.os_codigo];
+      if (nomeCompleto && !vendedorMap[primeiroNome]) vendedorMap[primeiroNome] = { total: 0, osList: [] };
 
       if (retorno) {
         // This OS is marked as retorno — show strikethrough, don't count value
-        vendedorMap[primeiroNome].osList.push({ codigo: os.os_codigo, valor, isRetorno: true });
+        if (nomeCompleto) vendedorMap[primeiroNome].osList.push({ codigo: os.os_codigo, valor, isRetorno: true });
         // Add value to the retorno technician
         const tecRetorno = norm(retorno.tecnico_retorno.trim().toUpperCase());
         if (!vendedorMap[tecRetorno]) vendedorMap[tecRetorno] = { total: 0, osList: [] };
