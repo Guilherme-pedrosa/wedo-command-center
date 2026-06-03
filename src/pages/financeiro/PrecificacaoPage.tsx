@@ -1264,11 +1264,15 @@ export default function PrecificacaoPage() {
   const calcResults = useMemo(() => {
     const custo = parseFloat(calcCusto) || 0;
     if (custo <= 0) return [];
+    const icmsOv = calcIcmsSaida.trim() === "" ? undefined : parseFloat(calcIcmsSaida.replace(",", "."));
+    const taxSaidaCalc = icmsOv !== undefined && isFinite(icmsOv)
+      ? { ...taxSaida, icmsSaida: icmsOv }
+      : taxSaida;
     return calcMargens.map((m) => ({
       margem: m,
-      ...calcPricing(custo, activeEntrada, taxSaida, calcTipoSaida, m, custoFixoPctEfetivo),
+      ...calcPricing(custo, activeEntrada, taxSaidaCalc, calcTipoSaida, m, custoFixoPctEfetivo),
     }));
-  }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida, custoFixoPctEfetivo]);
+  }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida, custoFixoPctEfetivo, calcIcmsSaida]);
 
   const totalComTributoNF = tributosXml.length;
 
