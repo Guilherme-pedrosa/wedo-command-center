@@ -1501,6 +1501,17 @@ export default function PrecificacaoPage() {
               {bulkCorrigindo === "global" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <TrendingUp className="h-4 w-4 mr-1" />}
               Aplicar sugestão a TODOS ({allOutOfMargin.length})
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+              onClick={() => corrigirPrecoBatch(allAboveMargin, `REDUZIR p/ margem mín (${allAboveMargin.length})`, "global-reduzir")}
+              disabled={!!bulkCorrigindo || !!corrigindoKey || allAboveMargin.length === 0}
+              title={`Reduz o preço de TODAS as tabelas acima da margem para bater exatamente na margem mínima (${allAboveMargin.length} ajustes)`}
+            >
+              {bulkCorrigindo === "global-reduzir" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+              Reduzir TODOS p/ margem mín ({allAboveMargin.length})
+            </Button>
             {isSyncing && syncProgress && (
               <span className="text-xs text-muted-foreground font-mono animate-pulse">{syncProgress}</span>
             )}
