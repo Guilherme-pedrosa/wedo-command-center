@@ -142,7 +142,10 @@ export default function TvTecnicos() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'fin_os_retornos' },
-        () => qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] })
+        () => {
+          qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] });
+          qc.invalidateQueries({ queryKey: ['os_index_tecnicos', year, month] });
+        }
       )
       .on(
         'postgres_changes',
@@ -184,6 +187,7 @@ export default function TvTecnicos() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] });
+      qc.invalidateQueries({ queryKey: ['os_index_tecnicos', year, month] });
       toast.success('OS marcada como retorno');
     },
     onError: (e: any) => toast.error(e.message || 'Erro ao marcar retorno'),
@@ -201,6 +205,7 @@ export default function TvTecnicos() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] });
+      qc.invalidateQueries({ queryKey: ['os_index_tecnicos', year, month] });
       toast.success('Retorno desfeito');
     },
     onError: (e: any) => toast.error(e.message || 'Erro ao desfazer'),
