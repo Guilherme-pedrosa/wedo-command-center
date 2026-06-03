@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Loader2, Search, Calculator, Package, TrendingUp, AlertTriangle, DollarSign, BarChart3, RefreshCw, FileText, Info, ShoppingCart, Wrench, Upload, Pencil, Plus } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { formatCurrency } from "@/lib/format";
 import toast from "react-hot-toast";
 
@@ -316,6 +317,8 @@ export default function PrecificacaoPage() {
   const [calcIcmsSaida, setCalcIcmsSaida] = useState<string>("");
   // Override de ICMS de saída por produto na tabela (Map<gc_produto_id, %>)
   const [icmsSaidaOverrides, setIcmsSaidaOverrides] = useState<Map<string, number>>(new Map());
+  // Seleção de produtos para correção em lote (checkboxes)
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const activeSyncRef = useRef<"gc" | "offline" | null>(null);
 
   // ── Manual tributo (crédito manual quando não há NF) ──
@@ -971,6 +974,16 @@ export default function PrecificacaoPage() {
   const allOutOfMargin = useMemo(() => Array.from(outOfMarginByProduct.values()).flat(), [outOfMarginByProduct]);
   const allAboveMargin = useMemo(() => Array.from(aboveMarginByProduct.values()).flat(), [aboveMarginByProduct]);
 
+  // Itens fora/acima da margem restritos aos produtos selecionados via checkbox
+  const selectedOutOfMargin = useMemo(
+    () => Array.from(selectedProductIds).flatMap((id) => outOfMarginByProduct.get(id) || []),
+    [selectedProductIds, outOfMarginByProduct]
+  );
+  const selectedAboveMargin = useMemo(
+    () => Array.from(selectedProductIds).flatMap((id) => aboveMarginByProduct.get(id) || []),
+    [selectedProductIds, aboveMarginByProduct]
+  );
+
   // ── Upload XMLs de NF para o bucket (suporta ZIP + lotes) ──
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
@@ -1512,6 +1525,37 @@ export default function PrecificacaoPage() {
               {bulkCorrigindo === "global-reduzir" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
               Reduzir TODOS p/ margem mín ({allAboveMargin.length})
             </Button>
+            {selectedProductIds.size > 0 && (
+              <>
+                <Badge variant="outline" className="border-primary/40 text-primary">
+                  {selectedProductIds.size} selecionado{selectedProductIds.size > 1 ? "s" : ""}
+                </Badge>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => corrigirPrecoBatch(selectedOutOfMargin, `SELECIONADOS fora da margem (${selectedOutOfMargin.length})`, "selected")}
+                  disabled={!!bulkCorrigindo || !!corrigindoKey || selectedOutOfMargin.length === 0}
+                  title={`Aplica preço sugerido nas tabelas fora da margem dos ${selectedProductIds.size} produto(s) selecionado(s) (${selectedOutOfMargin.length} correções)`}
+                >
+                  {bulkCorrigindo === "selected" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <TrendingUp className="h-4 w-4 mr-1" />}
+                  Corrigir selecionados ({selectedOutOfMargin.length})
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+                  onClick={() => corrigirPrecoBatch(selectedAboveMargin, `REDUZIR selecionados (${selectedAboveMargin.length})`, "selected-reduzir")}
+                  disabled={!!bulkCorrigindo || !!corrigindoKey || selectedAboveMargin.length === 0}
+                  title={`Reduz preço das tabelas acima da margem dos ${selectedProductIds.size} produto(s) selecionado(s) (${selectedAboveMargin.length} ajustes)`}
+                >
+                  {bulkCorrigindo === "selected-reduzir" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                  Reduzir selecionados ({selectedAboveMargin.length})
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedProductIds(new Set())} title="Limpar seleção">
+                  Limpar
+                </Button>
+              </>
+            )}
             {isSyncing && syncProgress && (
               <span className="text-xs text-muted-foreground font-mono animate-pulse">{syncProgress}</span>
             )}
@@ -1777,6 +1821,26 @@ export default function PrecificacaoPage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-border hover:bg-transparent [&>th]:sticky [&>th]:top-0 [&>th]:z-30 [&>th]:bg-card">
+                  <TableHead className="text-xs w-8" rowSpan={2}>
+                    <Checkbox
+                      checked={(() => {
+                        const eligible = paged.filter((p) => (outOfMarginByProduct.get(String(p.id))?.length || 0) + (aboveMarginByProduct.get(String(p.id))?.length || 0) > 0);
+                        if (eligible.length === 0) return false;
+                        const allSel = eligible.every((p) => selectedProductIds.has(String(p.id)));
+                        return allSel ? true : (eligible.some((p) => selectedProductIds.has(String(p.id))) ? "indeterminate" : false);
+                      })()}
+                      onCheckedChange={(checked) => {
+                        setSelectedProductIds((prev) => {
+                          const next = new Set(prev);
+                          const eligible = paged.filter((p) => (outOfMarginByProduct.get(String(p.id))?.length || 0) + (aboveMarginByProduct.get(String(p.id))?.length || 0) > 0);
+                          if (checked) eligible.forEach((p) => next.add(String(p.id)));
+                          else eligible.forEach((p) => next.delete(String(p.id)));
+                          return next;
+                        });
+                      }}
+                      aria-label="Selecionar todos visíveis"
+                    />
+                  </TableHead>
                   <TableHead className="text-xs" rowSpan={2}>Produto</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Estoque</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo</TableHead>
@@ -1808,7 +1872,7 @@ export default function PrecificacaoPage() {
               <TableBody>
                 {filtered.length === 0 && !loadingProdutos && (
                   <TableRow>
-                    <TableCell colSpan={16} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={17} className="text-center text-muted-foreground py-8">
                       {search ? "Nenhum produto encontrado" : "Busque produtos do estoque GestãoClick"}
                     </TableCell>
                   </TableRow>
@@ -1861,6 +1925,28 @@ export default function PrecificacaoPage() {
 
                   return (
                     <TableRow key={p.id} className="border-border">
+                      <TableCell className="w-8">
+                        {(() => {
+                          const pid = String(p.id);
+                          const outCount = outOfMarginByProduct.get(pid)?.length || 0;
+                          const aboveCount = aboveMarginByProduct.get(pid)?.length || 0;
+                          const hasAny = outCount + aboveCount > 0;
+                          if (!hasAny) return null;
+                          return (
+                            <Checkbox
+                              checked={selectedProductIds.has(pid)}
+                              onCheckedChange={(checked) => {
+                                setSelectedProductIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (checked) next.add(pid); else next.delete(pid);
+                                  return next;
+                                });
+                              }}
+                              aria-label={`Selecionar ${p.nome}`}
+                            />
+                          );
+                        })()}
+                      </TableCell>
                       <TableCell>
                         <div>
                           <span className="font-medium text-foreground text-sm">{p.nome}</span>
