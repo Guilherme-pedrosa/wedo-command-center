@@ -221,10 +221,10 @@ export default function TvTecnicos() {
     const vendedorMap: Record<string, { total: number; osList: { codigo: string; valor: number; isRetorno?: boolean; retornoFrom?: string }[] }> = {};
 
     for (const os of osData) {
-      const nomeCompleto = os.nome_vendedor?.trim().toUpperCase();
-      if (!nomeCompleto) continue;
-      // Ignora OS executadas em finais de semana (sábado/domingo) — não contam pro faturamento
-      if ((os as any).data_saida) {
+      const retorno = retornoMap[os.os_codigo];
+      const nomeCompleto = os.nome_vendedor?.trim().toUpperCase() || retorno?.tecnico_original?.trim().toUpperCase();
+      // Ignora OS normais executadas em finais de semana; OS lançada como retorno continua visível
+      if (!retorno && (os as any).data_saida) {
         const [y, m, d] = String((os as any).data_saida).slice(0, 10).split('-').map(Number);
         const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
         if (dow === 0 || dow === 6) continue;
@@ -234,14 +234,14 @@ export default function TvTecnicos() {
       const valor = valorBruto - deslocamento;
       // Skip OS with zero/null value — they have no financial data yet
       if (valor <= 0) continue;
+      if (!nomeCompleto && !retorno) continue;
       const primeiroNome = norm(nomeCompleto.split(' ')[0]);
 
-      if (!vendedorMap[primeiroNome]) vendedorMap[primeiroNome] = { total: 0, osList: [] };
-      const retorno = retornoMap[os.os_codigo];
+      if (nomeCompleto && !vendedorMap[primeiroNome]) vendedorMap[primeiroNome] = { total: 0, osList: [] };
 
       if (retorno) {
         // This OS is marked as retorno — show strikethrough, don't count value
-        vendedorMap[primeiroNome].osList.push({ codigo: os.os_codigo, valor, isRetorno: true });
+        if (nomeCompleto) vendedorMap[primeiroNome].osList.push({ codigo: os.os_codigo, valor, isRetorno: true });
         // Add value to the retorno technician
         const tecRetorno = norm(retorno.tecnico_retorno.trim().toUpperCase());
         if (!vendedorMap[tecRetorno]) vendedorMap[tecRetorno] = { total: 0, osList: [] };
