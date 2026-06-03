@@ -2053,7 +2053,8 @@ export default function PrecificacaoPage() {
                         const valoresProd = valoresMap.get(p.id);
                         return (politicas ?? []).map((pol, idx) => {
                           const margemMin = Number(pol.margem_minima) || 0;
-                          const divInline = 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin;
+                          // Divisor SEM custoFixoPct — alinha com a margem exibida (venda - custo - trib)/venda
+                          const divInline = 1 - calc.aliquotaSaidaFaturamento - margemMin;
                           const precoBruto = calc.custoTotal > 0 && divInline > 0.05 ? calc.custoTotal / divInline : calc.custoTotal * 5;
                           const precoSugerido = calc.custoTotal > 0 ? Math.min(precoBruto, calc.custoTotal * 5) : 0;
                           const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
