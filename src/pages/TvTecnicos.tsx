@@ -14,19 +14,6 @@ const formatBRL = (v: number) =>
 
 interface TecnicoMeta { nome_tecnico: string; meta_faturamento: number; }
 interface OsRow { nome_vendedor: string | null; valor_total: number | null; valor_deslocamento: number | null; os_codigo: string; nome_situacao: string | null; data_saida: string | null; }
-
-const OS_EXECUTADOS_STATUS = [
-  'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
-  'EXECUTADO - AGUARDANDO PAGAMENTO',
-  'EXECUTADO COM NOTA EMITIDA',
-  'EXECUTADO - FINANCEIRO SEPARADO',
-  'EXECUTADO - CIGAM',
-  'EXECUTADO POR CONTRATO',
-  'EXECUTADO - FECHADO CHAMADO',
-  'EXECUTADO EM GARANTIA',
-  'EXECUTADO -PATRIMÔNIO',
-  'EXECUTADO - LIBERADO P/ FATURAMENTO (CIGAM SEM BAIXA ESTOQ)',
-];
 interface RetornoRow { os_codigo: string; tecnico_original: string; tecnico_retorno: string; valor: number; }
 
 export default function TvTecnicos() {
@@ -61,10 +48,6 @@ export default function TvTecnicos() {
   };
 
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
-  const start = `${year}-${String(month).padStart(2, '0')}-01`;
-  const lastDay = new Date(year, month, 0).getDate();
-  const end = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
-
   // Fetch metas
   const { data: metas = [] } = useQuery({
     queryKey: ['fin_metas_tecnicos'],
