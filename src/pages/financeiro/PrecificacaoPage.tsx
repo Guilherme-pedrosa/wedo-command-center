@@ -732,6 +732,11 @@ export default function PrecificacaoPage() {
     // Retorna { negativa, fora } onde:
     //  - negativa = alguma tabela com venda > 0 mas (venda - custo) < 0
     //  - fora     = alguma tabela sem preço cadastrado OU margem aprox < margem_minima da política
+    // Alíquota de saída para descontar do faturamento (alinha com cálculo da linha).
+    const aliqSaida = tipoSaidaGlobal === "venda"
+      ? (taxSaida.icmsSaida + taxSaida.pisSaida + taxSaida.cofinsSaida) / 100
+      : (taxSaida.iss + taxSaida.pisSaidaServico + taxSaida.cofinsSaidaServico) / 100;
+
     const avaliarMargem = (produtoId: string, custoBase: number): { negativa: boolean; fora: boolean } => {
       if (pols.length === 0 || custoBase <= 0) return { negativa: false, fora: false };
       const vendaPorTipo = valoresMap.get(produtoId);
@@ -740,9 +745,11 @@ export default function PrecificacaoPage() {
       for (const pol of pols) {
         const venda = Number(vendaPorTipo?.get(String(pol.tipo_id)) ?? 0);
         if (venda <= 0) { fora = true; continue; }
-        const margem = (venda - custoBase) / venda;
+        const trib = venda * aliqSaida;
+        const margem = (venda - custoBase - trib) / venda;
         if (margem < 0) negativa = true;
-        if (margem < Number(pol.margem_minima)) fora = true;
+        // Tolerância 0.05pp pra casar com display da linha
+        if (margem < Number(pol.margem_minima) - 0.0005) fora = true;
       }
       return { negativa, fora };
     };
