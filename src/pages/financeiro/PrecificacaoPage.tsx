@@ -897,7 +897,9 @@ export default function PrecificacaoPage() {
     if (!preFiltered || !politicas) return map;
     for (const p of preFiltered) {
       const custoCan = custoCanonicoMap.get(p.id);
-      const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
+      const ultimaCompra = ultimaCompraMap.get(p.id);
+      const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+      const custoBruto = custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0));
       const tributoRaw = tributosMap.get(p.id);
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const kitRatio = detectKitRatio(tributoCompat, custoBruto);
@@ -946,7 +948,7 @@ export default function PrecificacaoPage() {
       if (itemsOut.length > 0) map.set(String(p.id), itemsOut);
     }
     return map;
-  }, [preFiltered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo]);
+  }, [preFiltered, politicas, custoCanonicoMap, ultimaCompraMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo]);
 
   // ── Itens ACIMA da margem (preço alto demais — sugere reduzir pro mínimo) ──
   const aboveMarginByProduct = useMemo(() => {
@@ -957,7 +959,9 @@ export default function PrecificacaoPage() {
     if (!preFiltered || !politicas) return map;
     for (const p of preFiltered) {
       const custoCan = custoCanonicoMap.get(p.id);
-      const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
+      const ultimaCompra = ultimaCompraMap.get(p.id);
+      const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+      const custoBruto = custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0));
       const tributoRaw = tributosMap.get(p.id);
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const kitRatio = detectKitRatio(tributoCompat, custoBruto);
@@ -994,7 +998,7 @@ export default function PrecificacaoPage() {
       if (itemsAbove.length > 0) map.set(String(p.id), itemsAbove);
     }
     return map;
-  }, [preFiltered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo, activeEntrada]);
+  }, [preFiltered, politicas, custoCanonicoMap, ultimaCompraMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo, activeEntrada]);
 
   const allOutOfMargin = useMemo(() => Array.from(outOfMarginByProduct.values()).flat(), [outOfMarginByProduct]);
   const allAboveMargin = useMemo(() => Array.from(aboveMarginByProduct.values()).flat(), [aboveMarginByProduct]);
