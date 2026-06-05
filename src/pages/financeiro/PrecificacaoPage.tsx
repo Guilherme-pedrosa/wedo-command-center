@@ -1947,11 +1947,16 @@ export default function PrecificacaoPage() {
                 {paged.map((p) => {
                   // Refator v3: custo canônico vem da view v_produto_custo_atual (fonte = gc_produtos_cache.valor_custo)
                   const custoCan = custoCanonicoMap.get(p.id);
-                  const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
+                  const custoCache = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
                   const statusCusto = custoCan?.status || "ok_sem_tributo";
                   const estoque = Number(p.estoque) || 0;
                    const tributoRaw = tributosMap.get(p.id);
                    const ultimaCompra = ultimaCompraMap.get(p.id);
+                   // Prioriza valor do ÚLTIMO pedido de compras (mais recente) sobre o cache do GC
+                   const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0
+                     ? ultimaCompra.valor_custo
+                     : 0;
+                   const custoBruto = custoUltimaCompra > 0 ? custoUltimaCompra : custoCache;
                    const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
                    const kitRatio = detectKitRatio(tributoCompat, custoBruto);
                    const tributo = tributoCompat && kitRatio > 1 ? ajustarTributoPorKit(tributoCompat, kitRatio) : tributoCompat;
