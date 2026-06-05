@@ -863,6 +863,12 @@ export interface SyncFinanceiroResult {
     falha: number;
     error?: string;
   };
+  conciliacao?: {
+    ok: boolean;
+    conciliados: number;
+    revisar: number;
+    error?: string;
+  };
 }
 
 async function resetExtratosByLancamentos(
@@ -1004,11 +1010,36 @@ export async function syncByMonthChunks(
     }
   }
 
+  // Dispara conciliação automática para vincular extratos aos lançamentos recém-sincronizados
+  try {
+    onStep?.("Conciliando extratos com lançamentos...");
+    const { data: recData, error: recError } = await supabase.functions.invoke(
+      "reconciliation-engine",
+      { body: {} }
+    );
+    if (recError) {
+      totals.conciliacao = { ok: false, conciliados: 0, revisar: 0, error: recError.message };
+      console.warn("[syncByMonthChunks] reconciliation-engine falhou:", recError.message);
+    } else {
+      const conciliados = Number(
+        recData?.conciliados ?? recData?.matched ?? recData?.reconciled ?? 0
+      );
+      const revisar = Number(recData?.revisar ?? recData?.review ?? recData?.pending ?? 0);
+      totals.conciliacao = { ok: true, conciliados, revisar };
+      console.log("[syncByMonthChunks] reconciliation-engine:", recData);
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    totals.conciliacao = { ok: false, conciliados: 0, revisar: 0, error: message };
+    console.warn("[syncByMonthChunks] não conseguiu rodar conciliação:", e);
+  }
+
   try {
     onStep?.("Baixando conciliados no GC...");
     const { data, error } = await supabase.functions.invoke("argus-baixa-confirmada", {
       body: { mode: "auto" },
     });
+
 
     if (error) {
       totals.baixaGC = {
