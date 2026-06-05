@@ -24,6 +24,7 @@ interface GCProduto {
   nome: string;
   codigo?: string;
   codigo_interno?: string;
+  codigo_barra?: string;
   estoque: number | string;
   valor_custo: string;
   valor_venda: string;
@@ -447,6 +448,7 @@ export default function PrecificacaoPage() {
           nome: p.nome,
           codigo: p.codigo_interno || p.codigo_barra || undefined,
           codigo_interno: p.codigo_interno || undefined,
+          codigo_barra: p.codigo_barra || undefined,
           estoque: p.estoque ?? 0,
           valor_custo: String(p.valor_custo ?? 0),
           valor_venda: String(p.valor_venda_padrao ?? 0),
