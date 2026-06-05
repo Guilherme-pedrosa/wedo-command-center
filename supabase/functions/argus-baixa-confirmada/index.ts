@@ -60,11 +60,17 @@ interface BaixaResult {
   gc_id?: string;
 }
 
+type BaixaScope = "pagamentos" | "recebimentos" | "ambos";
+
 function normalizeTabela(t: string): "fin_pagamentos" | "fin_recebimentos" | null {
   const clean = (t || "").replace(/^fin_/, "");
   if (clean === "pagamentos") return "fin_pagamentos";
   if (clean === "recebimentos") return "fin_recebimentos";
   return null;
+}
+
+function normalizeScope(value: unknown): BaixaScope {
+  return value === "pagamentos" || value === "recebimentos" || value === "ambos" ? value : "ambos";
 }
 
 // Converte ISO UTC para data (yyyy-mm-dd) no fuso de Brasília (UTC-3).
