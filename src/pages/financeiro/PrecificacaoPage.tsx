@@ -674,6 +674,7 @@ export default function PrecificacaoPage() {
         const { data, error } = await supabase
           .from("gc_compras" as any)
           .select("gc_id, codigo, numero_nfe, data, nome_fornecedor, nome_situacao")
+          .order("gc_id", { ascending: true })
           .range(from, from + pageSize - 1);
         if (error) throw error;
         for (const row of (data || []) as any[]) compraMeta.set(String(row.gc_id), row);
@@ -687,6 +688,7 @@ export default function PrecificacaoPage() {
           .from("gc_compras_itens" as any)
           .select("produto_gc_id, compra_gc_id, quantidade, valor_custo")
           .not("produto_gc_id", "is", null)
+          .order("compra_gc_id", { ascending: true })
           .range(from, from + pageSize - 1);
         if (error) throw error;
         const batch = ((data || []) as any[]).map((row) => {
