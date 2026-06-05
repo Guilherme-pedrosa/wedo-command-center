@@ -313,6 +313,7 @@ export default function PrecificacaoPage() {
   const [marginFilter, setMarginFilter] = useState<"todos" | "fora" | "negativa">("todos");
   const [grupoFilter, setGrupoFilter] = useState<string>("todos");
   const [estoqueFilter, setEstoqueFilter] = useState<"todos" | "com_estoque" | "sem_estoque">("todos");
+  const [divergenciaFilter, setDivergenciaFilter] = useState<"todos" | "divergentes" | "ok">("todos");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
   const [taxEntrada, setTaxEntrada] = useState<TaxConfigEntrada>(DEFAULT_ENTRADA);
