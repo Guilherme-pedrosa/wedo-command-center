@@ -814,8 +814,8 @@ export default function PrecificacaoPage() {
       gc_produto_id: string; nome_produto: string; tipo_id: string; nome_tabela: string;
       preco_atual: number; preco_sugerido: number; margem_minima: number; margem_resultante: number; custo_referencia: number;
     }>>();
-    if (!filtered || !politicas) return map;
-    for (const p of filtered) {
+    if (!preFiltered || !politicas) return map;
+    for (const p of preFiltered) {
       const custoCan = custoCanonicoMap.get(p.id);
       const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
       const tributoRaw = tributosMap.get(p.id);
@@ -874,8 +874,8 @@ export default function PrecificacaoPage() {
       gc_produto_id: string; nome_produto: string; tipo_id: string; nome_tabela: string;
       preco_atual: number; preco_sugerido: number; margem_minima: number; margem_resultante: number; custo_referencia: number;
     }>>();
-    if (!filtered || !politicas) return map;
-    for (const p of filtered) {
+    if (!preFiltered || !politicas) return map;
+    for (const p of preFiltered) {
       const custoCan = custoCanonicoMap.get(p.id);
       const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
       const tributoRaw = tributosMap.get(p.id);
