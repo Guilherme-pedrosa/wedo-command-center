@@ -2137,8 +2137,9 @@ export default function PrecificacaoPage() {
                           <Tooltip>
                             <TooltipTrigger>
                               {(() => {
-                                const nfNum = tributo.nf_numero || (tributo.nf_chave?.length === 44 ? String(parseInt(tributo.nf_chave.substring(25, 34))) : "");
-                                const pedidoNum = tributo.compra_codigo || "";
+                                const nfNum = ultimaCompra?.numero_nfe || tributo.nf_numero || (tributo.nf_chave?.length === 44 ? String(parseInt(tributo.nf_chave.substring(25, 34))) : "");
+                                const pedidoNum = ultimaCompra?.compra_codigo || tributo.compra_codigo || "";
+                                const fornecedorFonte = ultimaCompra?.fornecedor_nome || tributo.fornecedor_nome || "NF";
                                 return (
                                   <div className="flex flex-col items-center gap-0.5">
                                     <Badge className={`text-[10px] gap-1 ${
@@ -2147,13 +2148,13 @@ export default function PrecificacaoPage() {
                                         : "bg-primary/20 text-primary"
                                     }`}>
                                       <FileText className="h-3 w-3" />
-                                      {tributo.fornecedor_nome || "NF"}
+                                      {fornecedorFonte}
                                       {nfNum ? ` · NF #${nfNum}` : ""}
                                       {(tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito) ? " ·SN" : ""}
                                     </Badge>
                                     {pedidoNum && (
-                                      <Badge variant="outline" className="text-[9px] border-purple-500/40 text-purple-400">
-                                        Pedido #{pedidoNum}
+                                      <Badge variant="outline" className="text-[9px] border-purple-500/40 text-purple-400" title={ultimaCompra?.data ? `Última compra em ${ultimaCompra.data}` : undefined}>
+                                        Pedido atual #{pedidoNum}
                                       </Badge>
                                     )}
                                     {tributo.match_rule && (() => {
