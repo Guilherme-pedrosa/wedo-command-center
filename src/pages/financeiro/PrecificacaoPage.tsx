@@ -866,7 +866,7 @@ export default function PrecificacaoPage() {
       if (itemsOut.length > 0) map.set(String(p.id), itemsOut);
     }
     return map;
-  }, [filtered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo]);
+  }, [preFiltered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo]);
 
   // ── Itens ACIMA da margem (preço alto demais — sugere reduzir pro mínimo) ──
   const aboveMarginByProduct = useMemo(() => {
@@ -914,7 +914,7 @@ export default function PrecificacaoPage() {
       if (itemsAbove.length > 0) map.set(String(p.id), itemsAbove);
     }
     return map;
-  }, [filtered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo, activeEntrada]);
+  }, [preFiltered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo, activeEntrada]);
 
   const allOutOfMargin = useMemo(() => Array.from(outOfMarginByProduct.values()).flat(), [outOfMarginByProduct]);
   const allAboveMargin = useMemo(() => Array.from(aboveMarginByProduct.values()).flat(), [aboveMarginByProduct]);
