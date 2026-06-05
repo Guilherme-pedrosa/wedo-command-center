@@ -710,8 +710,30 @@ export default function PrecificacaoPage() {
         from += pageSize;
       }
 
-      const latest = new Map<string, UltimaCompraProduto>();
+      const grouped = new Map<string, { row: UltimaCompraProduto; qtdPeso: number; custoPonderado: number }>();
       for (const row of allRows) {
+        const key = `${row.produto_gc_id}|${row.compra_gc_id}`;
+        const qtd = row.quantidade ?? 0;
+        const custo = row.valor_custo ?? 0;
+        const current = grouped.get(key);
+        if (current) {
+          current.row.quantidade = (current.row.quantidade ?? 0) + qtd;
+          if (qtd > 0 && custo > 0) {
+            current.qtdPeso += qtd;
+            current.custoPonderado += custo * qtd;
+            current.row.valor_custo = current.custoPonderado / current.qtdPeso;
+          }
+        } else {
+          grouped.set(key, {
+            row: { ...row },
+            qtdPeso: qtd > 0 && custo > 0 ? qtd : 0,
+            custoPonderado: qtd > 0 && custo > 0 ? custo * qtd : 0,
+          });
+        }
+      }
+
+      const latest = new Map<string, UltimaCompraProduto>();
+      for (const { row } of grouped.values()) {
         const current = latest.get(row.produto_gc_id);
         const rowKey = `${row.data || ""}|${row.compra_gc_id}`;
         const curKey = current ? `${current.data || ""}|${current.compra_gc_id}` : "";
@@ -897,7 +919,9 @@ export default function PrecificacaoPage() {
     if (!preFiltered || !politicas) return map;
     for (const p of preFiltered) {
       const custoCan = custoCanonicoMap.get(p.id);
-      const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
+      const ultimaCompra = ultimaCompraMap.get(p.id);
+      const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+      const custoBruto = custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0));
       const tributoRaw = tributosMap.get(p.id);
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const kitRatio = detectKitRatio(tributoCompat, custoBruto);
@@ -946,7 +970,7 @@ export default function PrecificacaoPage() {
       if (itemsOut.length > 0) map.set(String(p.id), itemsOut);
     }
     return map;
-  }, [preFiltered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo]);
+  }, [preFiltered, politicas, custoCanonicoMap, ultimaCompraMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo]);
 
   // ── Itens ACIMA da margem (preço alto demais — sugere reduzir pro mínimo) ──
   const aboveMarginByProduct = useMemo(() => {
@@ -957,7 +981,9 @@ export default function PrecificacaoPage() {
     if (!preFiltered || !politicas) return map;
     for (const p of preFiltered) {
       const custoCan = custoCanonicoMap.get(p.id);
-      const custoBruto = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
+      const ultimaCompra = ultimaCompraMap.get(p.id);
+      const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+      const custoBruto = custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0));
       const tributoRaw = tributosMap.get(p.id);
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const kitRatio = detectKitRatio(tributoCompat, custoBruto);
@@ -994,7 +1020,7 @@ export default function PrecificacaoPage() {
       if (itemsAbove.length > 0) map.set(String(p.id), itemsAbove);
     }
     return map;
-  }, [preFiltered, politicas, custoCanonicoMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo, activeEntrada]);
+  }, [preFiltered, politicas, custoCanonicoMap, ultimaCompraMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo, activeEntrada]);
 
   const allOutOfMargin = useMemo(() => Array.from(outOfMarginByProduct.values()).flat(), [outOfMarginByProduct]);
   const allAboveMargin = useMemo(() => Array.from(aboveMarginByProduct.values()).flat(), [aboveMarginByProduct]);
@@ -1006,7 +1032,9 @@ export default function PrecificacaoPage() {
       const outs = outOfMarginByProduct.get(String(p.id));
       if (marginFilter === "fora") return !!outs && outs.length > 0;
       if (marginFilter === "negativa") {
-        const custo = custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0;
+        const ultimaCompra = ultimaCompraMap.get(p.id);
+        const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+        const custo = custoUltimaCompra > 0 ? custoUltimaCompra : (custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0);
         if (custo <= 0) return false;
         const vendaPorTipo = valoresMap.get(p.id);
         if (!vendaPorTipo) return false;
@@ -1020,8 +1048,12 @@ export default function PrecificacaoPage() {
     return base.sort((a, b) => {
       const estoqueA = Number(a.estoque) || 0;
       const estoqueB = Number(b.estoque) || 0;
-      const custoA = custoCanonicoMap.get(a.id)?.custo || Number(a.valor_custo) || 0;
-      const custoB = custoCanonicoMap.get(b.id)?.custo || Number(b.valor_custo) || 0;
+      const ultimaCompraA = ultimaCompraMap.get(a.id);
+      const ultimaCompraB = ultimaCompraMap.get(b.id);
+      const custoUltimaCompraA = ultimaCompraA?.valor_custo && ultimaCompraA.valor_custo > 0 ? ultimaCompraA.valor_custo : 0;
+      const custoUltimaCompraB = ultimaCompraB?.valor_custo && ultimaCompraB.valor_custo > 0 ? ultimaCompraB.valor_custo : 0;
+      const custoA = custoUltimaCompraA > 0 ? custoUltimaCompraA : (custoCanonicoMap.get(a.id)?.custo || Number(a.valor_custo) || 0);
+      const custoB = custoUltimaCompraB > 0 ? custoUltimaCompraB : (custoCanonicoMap.get(b.id)?.custo || Number(b.valor_custo) || 0);
       const valorEstoqueA = estoqueA * custoA;
       const valorEstoqueB = estoqueB * custoB;
       const pendA = custoCanonicoMap.get(a.id)?.status === "pendente_custo_zero" ? 1 : 0;
@@ -1031,7 +1063,7 @@ export default function PrecificacaoPage() {
       if (custoB !== custoA) return custoB - custoA;
       return estoqueB - estoqueA;
     }).slice(0, 1000);
-  }, [preFiltered, marginFilter, outOfMarginByProduct, custoCanonicoMap, valoresMap]);
+  }, [preFiltered, marginFilter, outOfMarginByProduct, custoCanonicoMap, ultimaCompraMap, valoresMap]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);

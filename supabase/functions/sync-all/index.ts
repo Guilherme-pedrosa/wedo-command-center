@@ -26,6 +26,35 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
   return fetch(url, options);
 }
 
+function parseNumber(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const s = String(raw).trim();
+  const normalized = s.includes(",") ? s.replace(/\./g, "").replace(",", ".") : s;
+  const n = parseFloat(normalized);
+  return Number.isFinite(n) ? n : null;
+}
+
+function extrairItensCompra(compraGcId: string, compraRaw: any) {
+  const c = compraRaw?.Compra ?? compraRaw ?? {};
+  const produtos = Array.isArray(c.produtos) ? c.produtos : [];
+  return produtos.map((wrap: any, idx: number) => {
+    const p = wrap?.produto ?? wrap ?? {};
+    const rawProdutoId = (p.produto_id ?? p.id_produto ?? "").toString().trim();
+    const temVinculo = !!rawProdutoId && rawProdutoId !== "0";
+    return {
+      compra_gc_id: compraGcId,
+      produto_gc_id: temVinculo ? rawProdutoId : null,
+      nome_produto: (p.nome_produto ?? p.nome ?? "").toString().trim() || null,
+      unidade: p.unidade ?? null,
+      quantidade: parseNumber(p.quantidade),
+      valor_custo: parseNumber(p.valor_custo),
+      valor_total: parseNumber(p.valor_total),
+      ordem_item: idx,
+      origem_vinculo: temVinculo ? "produto_id_gc" : "legacy_sem_produto_id",
+    };
+  });
+}
+
 // ── GC paginated fetch ──
 async function fetchAllPages(
   endpoint: string,
@@ -462,6 +491,7 @@ async function syncCompras(
       totalPages = data?.meta?.total_paginas || 1;
 
       const batch = [];
+      const itensPorCompra = new Map<string, ReturnType<typeof extrairItensCompra>>();
       for (const compra of records) {
         totalFetched++;
         const c = (compra as any).Compra ?? compra;
@@ -499,6 +529,9 @@ async function syncCompras(
           gc_payload_raw: compra,
           last_synced_at: new Date().toISOString(),
         });
+
+        const itens = extrairItensCompra(gcId, compra);
+        if (itens.length > 0) itensPorCompra.set(gcId, itens);
       }
 
       if (batch.length > 0) {
@@ -510,6 +543,26 @@ async function syncCompras(
           errors += batch.length;
         } else {
           upserted += count || batch.length;
+        }
+
+        for (const [compraGcId, itens] of itensPorCompra.entries()) {
+          const { error: delErr } = await supabase
+            .from("gc_compras_itens")
+            .delete()
+            .eq("compra_gc_id", compraGcId);
+          if (delErr) {
+            console.error(`[sync-all/compras] Delete itens ${compraGcId}: ${delErr.message}`);
+            errors++;
+            continue;
+          }
+
+          const { error: itensErr } = await supabase
+            .from("gc_compras_itens")
+            .insert(itens);
+          if (itensErr) {
+            console.error(`[sync-all/compras] Insert itens ${compraGcId}: ${itensErr.message}`);
+            errors++;
+          }
         }
       }
 
