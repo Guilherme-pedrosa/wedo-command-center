@@ -13,7 +13,9 @@ let lastCallTime = 0;
 
 function parseNumber(raw: unknown): number | null {
   if (raw === null || raw === undefined || raw === "") return null;
-  const n = parseFloat(String(raw).replace(".", "").replace(",", "."));
+  const s = String(raw).trim();
+  const normalized = s.includes(",") ? s.replace(/\./g, "").replace(",", ".") : s;
+  const n = parseFloat(normalized);
   return Number.isFinite(n) ? n : null;
 }
 
