@@ -1037,7 +1037,7 @@ export async function syncByMonthChunks(
   try {
     onStep?.("Baixando conciliados no GC...");
     const { data, error } = await supabase.functions.invoke("argus-baixa-confirmada", {
-      body: { mode: "auto" },
+      body: { mode: "auto", scope },
     });
 
 

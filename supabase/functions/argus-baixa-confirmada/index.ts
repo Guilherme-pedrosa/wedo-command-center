@@ -60,11 +60,17 @@ interface BaixaResult {
   gc_id?: string;
 }
 
+type BaixaScope = "pagamentos" | "recebimentos" | "ambos";
+
 function normalizeTabela(t: string): "fin_pagamentos" | "fin_recebimentos" | null {
   const clean = (t || "").replace(/^fin_/, "");
   if (clean === "pagamentos") return "fin_pagamentos";
   if (clean === "recebimentos") return "fin_recebimentos";
   return null;
+}
+
+function normalizeScope(value: unknown): BaixaScope {
+  return value === "pagamentos" || value === "recebimentos" || value === "ambos" ? value : "ambos";
 }
 
 // Converte ISO UTC para data (yyyy-mm-dd) no fuso de Brasília (UTC-3).
@@ -298,65 +304,70 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
   return { ...link, ok: true, gc_id: lanc.gc_id };
 }
 
-async function buscarPendentes(dataInicio?: string, dataFim?: string): Promise<LinkInput[]> {
-  // dataInicio/dataFim em yyyy-mm-dd. Default: a partir do CUTOFF_DATE.
+async function buscarPendentes(dataInicio?: string, dataFim?: string, scope: BaixaScope = "ambos"): Promise<LinkInput[]> {
+  // Busca a partir dos lançamentos confirmados localmente. Antes a varredura partia do extrato,
+  // o que deixava títulos pago_sistema=true fora da baixa quando a consulta de extratos não os alcançava.
   const inicio = dataInicio && dataInicio >= CUTOFF_DATE ? dataInicio : CUTOFF_DATE;
-  let q = supabase
-    .from("fin_extrato_inter")
-    .select("id, data_hora")
-    .gte("data_hora", `${inicio}T00:00:00+00:00`)
-    .eq("reconciliado", true)
-    .limit(5000);
-  if (dataFim) {
-    q = q.lte("data_hora", `${dataFim}T23:59:59+00:00`);
-  }
-  const { data: extratosRecentes } = await q;
-
-  const extratoIds = Array.from(new Set((extratosRecentes || []).map((e: any) => e.id).filter(Boolean)));
-  if (extratoIds.length === 0) return [];
-
-  const { data: links } = await supabase
-    .from("fin_extrato_lancamentos")
-    .select("extrato_id, lancamento_id, tabela")
-    .in("extrato_id", extratoIds)
-    .limit(10000);
-
-  const linksNorm = ((links || []) as any[])
-    .map((l) => ({ ...l, tabela: normalizeTabela(l.tabela) }))
-    .filter((l) => l.tabela && l.lancamento_id);
-
-  const byTabela = {
-    fin_pagamentos: Array.from(new Set(linksNorm.filter((l) => l.tabela === "fin_pagamentos").map((l) => l.lancamento_id))),
-    fin_recebimentos: Array.from(new Set(linksNorm.filter((l) => l.tabela === "fin_recebimentos").map((l) => l.lancamento_id))),
-  };
-
-  const [pagRes, recRes] = await Promise.all([
-    byTabela.fin_pagamentos.length
-      ? supabase.from("fin_pagamentos").select("id, status, gc_baixado, gc_id, liquidado").in("id", byTabela.fin_pagamentos)
-      : Promise.resolve({ data: [] as any[] }),
-    byTabela.fin_recebimentos.length
-      ? supabase.from("fin_recebimentos").select("id, status, gc_baixado, gc_id, liquidado").in("id", byTabela.fin_recebimentos)
-      : Promise.resolve({ data: [] as any[] }),
-  ]);
-
-  const valid = new Set<string>();
-  for (const row of (pagRes.data || []) as any[]) {
-    if (!row.gc_id || row.gc_baixado || isLiquidadoGC(row.liquidado) || String(row.status || "").toLowerCase() === "cancelado") continue;
-    valid.add(`fin_pagamentos|${row.id}`);
-  }
-  for (const row of (recRes.data || []) as any[]) {
-    if (!row.gc_id || row.gc_baixado || isLiquidadoGC(row.liquidado) || String(row.status || "").toLowerCase() === "cancelado") continue;
-    valid.add(`fin_recebimentos|${row.id}`);
-  }
-
   const out: LinkInput[] = [];
   const seen = new Set<string>();
-  for (const link of linksNorm) {
-    const key = `${link.tabela}|${link.lancamento_id}`;
-    if (!valid.has(key) || seen.has(key)) continue;
-    seen.add(key);
-    out.push({ lancamento_id: link.lancamento_id, tabela: link.tabela });
+
+  async function collect(table: "fin_pagamentos" | "fin_recebimentos", aliases: string[]) {
+    const { data: rows, error } = await supabase
+      .from(table)
+      .select("id, gc_id, status, gc_baixado, liquidado, pago_sistema")
+      .eq("pago_sistema", true)
+      .not("gc_id", "is", null)
+      .or("gc_baixado.is.null,gc_baixado.eq.false")
+      .limit(10000);
+
+    if (error) {
+      console.warn(`[buscarPendentes] Falha ao buscar ${table}:`, error.message);
+      return;
+    }
+
+    const candidates = ((rows || []) as any[]).filter((row) =>
+      !isLiquidadoGC(row.liquidado) && String(row.status || "").toLowerCase() !== "cancelado"
+    );
+    if (candidates.length === 0) return;
+
+    const ids = candidates.map((row) => row.id).filter(Boolean);
+    const links: any[] = [];
+    for (let i = 0; i < ids.length; i += 500) {
+      const { data: batchLinks } = await supabase
+        .from("fin_extrato_lancamentos")
+        .select("extrato_id, lancamento_id, tabela")
+        .in("lancamento_id", ids.slice(i, i + 500))
+        .in("tabela", aliases)
+        .limit(10000);
+      links.push(...((batchLinks || []) as any[]));
+    }
+    if (links.length === 0) return;
+
+    const extratoIds = Array.from(new Set(links.map((l) => l.extrato_id).filter(Boolean)));
+    const validExtratos = new Set<string>();
+    for (let i = 0; i < extratoIds.length; i += 500) {
+      let q = supabase
+        .from("fin_extrato_inter")
+        .select("id, data_hora")
+        .in("id", extratoIds.slice(i, i + 500))
+        .eq("reconciliado", true)
+        .gte("data_hora", `${inicio}T00:00:00+00:00`);
+      if (dataFim) q = q.lte("data_hora", `${dataFim}T23:59:59+00:00`);
+      const { data: extratos } = await q;
+      for (const e of (extratos || []) as any[]) validExtratos.add(e.id);
+    }
+
+    for (const link of links) {
+      if (!validExtratos.has(link.extrato_id)) continue;
+      const key = `${table}|${link.lancamento_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ lancamento_id: link.lancamento_id, tabela: table });
+    }
   }
+
+  if (scope === "pagamentos" || scope === "ambos") await collect("fin_pagamentos", ["pagamentos", "fin_pagamentos"]);
+  if (scope === "recebimentos" || scope === "ambos") await collect("fin_recebimentos", ["recebimentos", "fin_recebimentos"]);
 
   return out;
 }
@@ -372,7 +383,8 @@ Deno.serve(async (req) => {
     if (mode === "auto") {
       const dataInicio = typeof body.dataInicio === "string" ? body.dataInicio : undefined;
       const dataFim = typeof body.dataFim === "string" ? body.dataFim : undefined;
-      alvos = await buscarPendentes(dataInicio, dataFim);
+      const scope = normalizeScope(body.scope);
+      alvos = await buscarPendentes(dataInicio, dataFim, scope);
     } else if (Array.isArray(body.links)) {
       alvos = body.links.filter((l: any) => l?.lancamento_id && l?.tabela);
     }
