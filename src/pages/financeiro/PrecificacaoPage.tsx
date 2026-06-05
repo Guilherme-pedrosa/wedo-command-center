@@ -2087,19 +2087,26 @@ export default function PrecificacaoPage() {
                                         Pedido #{pedidoNum}
                                       </Badge>
                                     )}
-                                    {tributo.match_rule && (
-                                      <Badge variant="outline" className={`text-[9px] ${
-                                        tributo.match_rule.startsWith("pedido_compra_gc+cprod") ? "border-green-500/40 text-green-400" :
-                                        tributo.match_rule === "pedido_compra_gc_sem_xml_item" ? "border-orange-500/40 text-orange-400" :
-                                        "border-muted-foreground/40 text-muted-foreground"
-                                      }`}>
-                                        {({
-                                          "pedido_compra_gc+cprod": "✓ Pedido+Código",
-                                          "pedido_compra_gc+cprod_multi": "✓ Pedido+Código",
-                                          pedido_compra_gc_sem_xml_item: "Pedido GC s/XML",
-                                        } as Record<string, string>)[tributo.match_rule] || tributo.match_rule}
-                                      </Badge>
-                                    )}
+                                    {tributo.match_rule && (() => {
+                                      const nfNumLabel = tributo.nf_numero || (tributo.nf_chave?.length === 44 ? String(parseInt(tributo.nf_chave.substring(25, 34))) : "");
+                                      const labelMap: Record<string, string> = {
+                                        "pedido_compra_gc+cprod": "✓ Pedido+Código",
+                                        "pedido_compra_gc+cprod_multi": "✓ Pedido+Código",
+                                        pedido_compra_gc_sem_xml_item: nfNumLabel
+                                          ? `Pedido GC + NF #${nfNumLabel} (s/item)`
+                                          : "Pedido GC s/XML",
+                                      };
+                                      return (
+                                        <Badge variant="outline" className={`text-[9px] ${
+                                          tributo.match_rule.startsWith("pedido_compra_gc+cprod") ? "border-green-500/40 text-green-400" :
+                                          tributo.match_rule === "pedido_compra_gc_sem_xml_item" ? "border-orange-500/40 text-orange-400" :
+                                          "border-muted-foreground/40 text-muted-foreground"
+                                        }`}>
+                                          {labelMap[tributo.match_rule] || tributo.match_rule}
+                                        </Badge>
+                                      );
+                                    })()}
+
                                   </div>
                                 );
                               })()}
