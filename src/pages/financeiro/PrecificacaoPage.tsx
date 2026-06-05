@@ -744,12 +744,6 @@ export default function PrecificacaoPage() {
   // Reseta página ao mudar filtros para evitar ficar fora do range
   useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, tipoSaidaGlobal]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const paged = useMemo(
-    () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [filtered, currentPage]
-  );
 
 
   const gruposDisponiveis = useMemo(() => {
