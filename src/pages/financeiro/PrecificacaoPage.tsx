@@ -660,6 +660,58 @@ export default function PrecificacaoPage() {
     return map;
   }, [tributosXml]);
 
+  const { data: ultimasComprasProduto } = useQuery({
+    queryKey: ["ultima-compra-produto"],
+    queryFn: async () => {
+      const pageSize = 1000;
+      let from = 0;
+      const allRows: UltimaCompraProduto[] = [];
+
+      while (true) {
+        const { data, error } = await supabase
+          .from("gc_compras_itens" as any)
+          .select("produto_gc_id, compra_gc_id, quantidade, valor_custo, gc_compras!inner(codigo, numero_nfe, data, nome_fornecedor, nome_situacao)")
+          .not("produto_gc_id", "is", null)
+          .order("compra_gc_id", { ascending: false })
+          .range(from, from + pageSize - 1);
+
+        if (error) throw error;
+
+        const batch = ((data || []) as any[]).map((row) => ({
+          produto_gc_id: String(row.produto_gc_id),
+          compra_gc_id: String(row.compra_gc_id),
+          compra_codigo: row.gc_compras?.codigo ?? null,
+          numero_nfe: row.gc_compras?.numero_nfe ?? null,
+          data: row.gc_compras?.data ?? null,
+          fornecedor_nome: row.gc_compras?.nome_fornecedor ?? null,
+          nome_situacao: row.gc_compras?.nome_situacao ?? null,
+          quantidade: row.quantidade != null ? Number(row.quantidade) : null,
+          valor_custo: row.valor_custo != null ? Number(row.valor_custo) : null,
+        })) as UltimaCompraProduto[];
+
+        allRows.push(...batch);
+        if (batch.length < pageSize) break;
+        from += pageSize;
+      }
+
+      const latest = new Map<string, UltimaCompraProduto>();
+      for (const row of allRows) {
+        const current = latest.get(row.produto_gc_id);
+        const rowKey = `${row.data || ""}|${row.compra_gc_id}`;
+        const curKey = current ? `${current.data || ""}|${current.compra_gc_id}` : "";
+        if (!current || rowKey > curKey) latest.set(row.produto_gc_id, row);
+      }
+      return [...latest.values()];
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const ultimaCompraMap = useMemo(() => {
+    const map = new Map<string, UltimaCompraProduto>();
+    for (const row of ultimasComprasProduto || []) map.set(row.produto_gc_id, row);
+    return map;
+  }, [ultimasComprasProduto]);
+
   // ── Fetch monthly fixed costs using same logic as Resultados Operação ──
   const now = new Date();
   const { data: custoFixoMensal } = useQuery({
