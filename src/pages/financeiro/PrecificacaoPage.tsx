@@ -1954,7 +1954,6 @@ export default function PrecificacaoPage() {
                    const kitRatio = detectKitRatio(tributoCompat, custoBruto);
                    const tributo = tributoCompat && kitRatio > 1 ? ajustarTributoPorKit(tributoCompat, kitRatio) : tributoCompat;
                    const hasNF = !!tributo;
-                   const hasFonteCompra = !!ultimaCompra;
                     const custoBase = custoBruto;
                    // Tabelas dinâmicas — preços reais vêm de valoresMap por tipo_id (não há mais markup hardcoded A/B/P)
 
