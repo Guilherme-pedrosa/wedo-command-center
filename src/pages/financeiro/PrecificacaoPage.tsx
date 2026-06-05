@@ -724,82 +724,22 @@ export default function PrecificacaoPage() {
   // ── Filtered products (works with or without GC products loaded) ──
   const EXCLUDED_GROUP_KEYWORDS = ["ferramentas", "consignado"];
   const EXCLUDED_NAME_KEYWORDS = ["consignado", "garantia metalfrio", "lona plastica"];
-  const filtered = useMemo(() => {
+
+  // Pré-filtro: aplica todos os filtros EXCETO o de margem (alimenta os mapas fora/acima)
+  const preFiltered = useMemo(() => {
     const q = search.toLowerCase();
-    const pols = politicas ?? [];
+    if (!produtos) return [] as typeof produtos;
+    return produtos.filter((p) => {
+      if (EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k))) return false;
+      const nome = (p.nome || "").toLowerCase();
+      if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
+      const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
+      if (!(nome.includes(q) || codigo.includes(q))) return false;
+      if (grupoFilter !== "todos" && (p.nome_grupo || "(sem grupo)") !== grupoFilter) return false;
+      return true;
+    });
+  }, [produtos, search, grupoFilter]);
 
-    // Avalia margem de um produto contra todas as políticas ativas (aproximação: ignora tributo de saída).
-    // Retorna { negativa, fora } onde:
-    //  - negativa = alguma tabela com venda > 0 mas (venda - custo) < 0
-    //  - fora     = alguma tabela sem preço cadastrado OU margem aprox < margem_minima da política
-    // Alíquota de saída para descontar do faturamento (alinha com cálculo da linha).
-    const aliqSaida = tipoSaidaGlobal === "venda"
-      ? (taxSaida.icmsSaida + taxSaida.pisSaida + taxSaida.cofinsSaida) / 100
-      : (taxSaida.iss + taxSaida.pisSaidaServico + taxSaida.cofinsSaidaServico) / 100;
-
-    const avaliarMargem = (produtoId: string, custoBase: number): { negativa: boolean; fora: boolean } => {
-      if (pols.length === 0 || custoBase <= 0) return { negativa: false, fora: false };
-      const vendaPorTipo = valoresMap.get(produtoId);
-      let negativa = false;
-      let fora = false;
-      for (const pol of pols) {
-        const venda = Number(vendaPorTipo?.get(String(pol.tipo_id)) ?? 0);
-        if (venda <= 0) { fora = true; continue; }
-        const trib = venda * aliqSaida;
-        const margem = (venda - custoBase - trib) / venda;
-        if (margem < 0) negativa = true;
-        // Tolerância 0.05pp pra casar com display da linha
-        if (margem < Number(pol.margem_minima) - 0.0005) fora = true;
-      }
-      return { negativa, fora };
-    };
-
-    const aplicarFiltroMargem = (id: string, custoBase: number) => {
-      if (marginFilter === "todos") return true;
-      const { negativa, fora } = avaliarMargem(id, custoBase);
-      if (marginFilter === "negativa") return negativa;
-      return fora; // 'fora' inclui negativas (margem < mínima)
-    };
-
-    if (produtos) {
-      return produtos
-        .filter((p) => {
-          // Removido filtro de estoque > 0: GC tem ~3 mil produtos, maioria com estoque 0 mas válidos para precificar
-          if (EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k))) return false;
-          const nome = (p.nome || "").toLowerCase();
-          if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
-          const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
-          if (!(nome.includes(q) || codigo.includes(q))) return false;
-
-          if (grupoFilter !== "todos" && (p.nome_grupo || "(sem grupo)") !== grupoFilter) return false;
-
-          const custoBase = custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0;
-          return aplicarFiltroMargem(p.id, custoBase);
-        })
-        .sort((a, b) => {
-          const estoqueA = Number(a.estoque) || 0;
-          const estoqueB = Number(b.estoque) || 0;
-
-          const custoA = custoCanonicoMap.get(a.id)?.custo || Number(a.valor_custo) || 0;
-          const custoB = custoCanonicoMap.get(b.id)?.custo || Number(b.valor_custo) || 0;
-
-          const valorEstoqueA = estoqueA * custoA;
-          const valorEstoqueB = estoqueB * custoB;
-
-          const statusA = custoCanonicoMap.get(a.id)?.status;
-          const statusB = custoCanonicoMap.get(b.id)?.status;
-          const pendA = statusA === "pendente_custo_zero" ? 1 : 0;
-          const pendB = statusB === "pendente_custo_zero" ? 1 : 0;
-          if (pendA !== pendB) return pendB - pendA;
-
-          if (valorEstoqueB !== valorEstoqueA) return valorEstoqueB - valorEstoqueA;
-          if (custoB !== custoA) return custoB - custoA;
-          return estoqueB - estoqueA;
-        })
-        .slice(0, 1000);
-    }
-    return [];
-  }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap, marginFilter, grupoFilter, politicas, valoresMap, taxSaida, tipoSaidaGlobal]);
 
   // Reseta página ao mudar filtros para evitar ficar fora do range
   useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, tipoSaidaGlobal]);
