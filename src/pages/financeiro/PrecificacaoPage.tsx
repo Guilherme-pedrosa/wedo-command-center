@@ -799,7 +799,7 @@ export default function PrecificacaoPage() {
         .slice(0, 1000);
     }
     return [];
-  }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap, marginFilter, grupoFilter, politicas, valoresMap]);
+  }, [produtos, search, tributosMap, tributosXml, custoCanonicoMap, marginFilter, grupoFilter, politicas, valoresMap, taxSaida, tipoSaidaGlobal]);
 
   // Reseta página ao mudar filtros para evitar ficar fora do range
   useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, tipoSaidaGlobal]);
