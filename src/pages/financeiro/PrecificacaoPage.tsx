@@ -830,6 +830,19 @@ export default function PrecificacaoPage() {
   const EXCLUDED_NAME_KEYWORDS = ["consignado", "garantia metalfrio", "lona plastica"];
 
   // Pré-filtro: aplica todos os filtros EXCETO o de margem (alimenta os mapas fora/acima)
+  // Limite a partir do qual consideramos divergência grave entre custo da última compra e custo cadastrado no GC
+  // (normalmente indica problema de unidade — ex.: NF em CX 10x1L mas produto cadastrado como 1L UN)
+  const DIVERGENCIA_RATIO_THRESHOLD = 2;
+
+  const isDivergenteCusto = (p: any) => {
+    const gcCusto = Number(p.valor_custo) || 0;
+    const ult = ultimaCompraMap.get(p.id);
+    const ultCusto = ult?.valor_custo && ult.valor_custo > 0 ? ult.valor_custo : 0;
+    if (gcCusto <= 0 || ultCusto <= 0) return false;
+    const ratio = ultCusto / gcCusto;
+    return ratio >= DIVERGENCIA_RATIO_THRESHOLD;
+  };
+
   const preFiltered = useMemo(() => {
     const q = search.toLowerCase();
     if (!produtos) return [] as typeof produtos;
@@ -843,13 +856,18 @@ export default function PrecificacaoPage() {
       const estoqueNum = Number(p.estoque) || 0;
       if (estoqueFilter === "com_estoque" && estoqueNum <= 0) return false;
       if (estoqueFilter === "sem_estoque" && estoqueNum > 0) return false;
+      if (divergenciaFilter !== "todos") {
+        const divergente = isDivergenteCusto(p);
+        if (divergenciaFilter === "divergentes" && !divergente) return false;
+        if (divergenciaFilter === "ok" && divergente) return false;
+      }
       return true;
     });
-  }, [produtos, search, grupoFilter, estoqueFilter]);
+  }, [produtos, search, grupoFilter, estoqueFilter, divergenciaFilter, ultimaCompraMap]);
 
 
   // Reseta página ao mudar filtros para evitar ficar fora do range
-  useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, estoqueFilter, tipoSaidaGlobal]);
+  useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, estoqueFilter, divergenciaFilter, tipoSaidaGlobal]);
 
 
 
