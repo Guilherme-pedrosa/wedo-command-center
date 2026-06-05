@@ -63,6 +63,18 @@ interface ProdutoTributo {
   custo_efetivo_unit: number;
 }
 
+interface UltimaCompraProduto {
+  produto_gc_id: string;
+  compra_gc_id: string;
+  compra_codigo: string | null;
+  numero_nfe: string | null;
+  data: string | null;
+  fornecedor_nome: string | null;
+  nome_situacao: string | null;
+  quantidade: number | null;
+  valor_custo: number | null;
+}
+
 type TipoSaida = "venda" | "servico";
 
 interface TaxConfigEntrada {
