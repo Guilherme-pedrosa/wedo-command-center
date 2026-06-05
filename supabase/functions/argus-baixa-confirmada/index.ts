@@ -382,7 +382,8 @@ Deno.serve(async (req) => {
     if (mode === "auto") {
       const dataInicio = typeof body.dataInicio === "string" ? body.dataInicio : undefined;
       const dataFim = typeof body.dataFim === "string" ? body.dataFim : undefined;
-      alvos = await buscarPendentes(dataInicio, dataFim);
+      const scope = normalizeScope(body.scope);
+      alvos = await buscarPendentes(dataInicio, dataFim, scope);
     } else if (Array.isArray(body.links)) {
       alvos = body.links.filter((l: any) => l?.lancamento_id && l?.tabela);
     }
