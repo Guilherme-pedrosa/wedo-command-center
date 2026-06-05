@@ -919,6 +919,48 @@ export default function PrecificacaoPage() {
   const allOutOfMargin = useMemo(() => Array.from(outOfMarginByProduct.values()).flat(), [outOfMarginByProduct]);
   const allAboveMargin = useMemo(() => Array.from(aboveMarginByProduct.values()).flat(), [aboveMarginByProduct]);
 
+  // ── Filtered final: aplica filtro de margem em cima do preFiltered usando os mapas (alinhado com display da linha) ──
+  const filtered = useMemo(() => {
+    const base = (preFiltered ?? []).filter((p) => {
+      if (marginFilter === "todos") return true;
+      const outs = outOfMarginByProduct.get(String(p.id));
+      if (marginFilter === "fora") return !!outs && outs.length > 0;
+      if (marginFilter === "negativa") {
+        const custo = custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0;
+        if (custo <= 0) return false;
+        const vendaPorTipo = valoresMap.get(p.id);
+        if (!vendaPorTipo) return false;
+        for (const v of vendaPorTipo.values()) {
+          if (Number(v) > 0 && Number(v) - custo < 0) return true;
+        }
+        return false;
+      }
+      return true;
+    });
+    return base.sort((a, b) => {
+      const estoqueA = Number(a.estoque) || 0;
+      const estoqueB = Number(b.estoque) || 0;
+      const custoA = custoCanonicoMap.get(a.id)?.custo || Number(a.valor_custo) || 0;
+      const custoB = custoCanonicoMap.get(b.id)?.custo || Number(b.valor_custo) || 0;
+      const valorEstoqueA = estoqueA * custoA;
+      const valorEstoqueB = estoqueB * custoB;
+      const pendA = custoCanonicoMap.get(a.id)?.status === "pendente_custo_zero" ? 1 : 0;
+      const pendB = custoCanonicoMap.get(b.id)?.status === "pendente_custo_zero" ? 1 : 0;
+      if (pendA !== pendB) return pendB - pendA;
+      if (valorEstoqueB !== valorEstoqueA) return valorEstoqueB - valorEstoqueA;
+      if (custoB !== custoA) return custoB - custoA;
+      return estoqueB - estoqueA;
+    }).slice(0, 1000);
+  }, [preFiltered, marginFilter, outOfMarginByProduct, custoCanonicoMap, valoresMap]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const paged = useMemo(
+    () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [filtered, currentPage]
+  );
+
+
   // Itens fora/acima da margem restritos aos produtos selecionados via checkbox
   const selectedOutOfMargin = useMemo(
     () => Array.from(selectedProductIds).flatMap((id) => outOfMarginByProduct.get(id) || []),
