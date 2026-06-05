@@ -710,8 +710,30 @@ export default function PrecificacaoPage() {
         from += pageSize;
       }
 
-      const latest = new Map<string, UltimaCompraProduto>();
+      const grouped = new Map<string, { row: UltimaCompraProduto; qtdPeso: number; custoPonderado: number }>();
       for (const row of allRows) {
+        const key = `${row.produto_gc_id}|${row.compra_gc_id}`;
+        const qtd = row.quantidade ?? 0;
+        const custo = row.valor_custo ?? 0;
+        const current = grouped.get(key);
+        if (current) {
+          current.row.quantidade = (current.row.quantidade ?? 0) + qtd;
+          if (qtd > 0 && custo > 0) {
+            current.qtdPeso += qtd;
+            current.custoPonderado += custo * qtd;
+            current.row.valor_custo = current.custoPonderado / current.qtdPeso;
+          }
+        } else {
+          grouped.set(key, {
+            row: { ...row },
+            qtdPeso: qtd > 0 && custo > 0 ? qtd : 0,
+            custoPonderado: qtd > 0 && custo > 0 ? custo * qtd : 0,
+          });
+        }
+      }
+
+      const latest = new Map<string, UltimaCompraProduto>();
+      for (const { row } of grouped.values()) {
         const current = latest.get(row.produto_gc_id);
         const rowKey = `${row.data || ""}|${row.compra_gc_id}`;
         const curKey = current ? `${current.data || ""}|${current.compra_gc_id}` : "";
