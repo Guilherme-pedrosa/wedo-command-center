@@ -312,6 +312,7 @@ export default function PrecificacaoPage() {
   const [searchInput, setSearchInput] = useState("");
   const [marginFilter, setMarginFilter] = useState<"todos" | "fora" | "negativa">("todos");
   const [grupoFilter, setGrupoFilter] = useState<string>("todos");
+  const [estoqueFilter, setEstoqueFilter] = useState<"todos" | "com_estoque" | "sem_estoque">("todos");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
   const [taxEntrada, setTaxEntrada] = useState<TaxConfigEntrada>(DEFAULT_ENTRADA);
@@ -838,13 +839,16 @@ export default function PrecificacaoPage() {
       const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
       if (!(nome.includes(q) || codigo.includes(q))) return false;
       if (grupoFilter !== "todos" && (p.nome_grupo || "(sem grupo)") !== grupoFilter) return false;
+      const estoqueNum = Number(p.estoque) || 0;
+      if (estoqueFilter === "com_estoque" && estoqueNum <= 0) return false;
+      if (estoqueFilter === "sem_estoque" && estoqueNum > 0) return false;
       return true;
     });
-  }, [produtos, search, grupoFilter]);
+  }, [produtos, search, grupoFilter, estoqueFilter]);
 
 
   // Reseta página ao mudar filtros para evitar ficar fora do range
-  useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, tipoSaidaGlobal]);
+  useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, estoqueFilter, tipoSaidaGlobal]);
 
 
 
@@ -1867,6 +1871,19 @@ export default function PrecificacaoPage() {
                 emptyMessage="Nenhum grupo encontrado."
                 className="w-[220px] h-8 text-xs bg-secondary"
               />
+            </div>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Estoque:</Label>
+              <Select value={estoqueFilter} onValueChange={(v) => setEstoqueFilter(v as typeof estoqueFilter)}>
+                <SelectTrigger className="w-[160px] h-8 text-xs bg-secondary">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="com_estoque">Com estoque</SelectItem>
+                  <SelectItem value="sem_estoque">Sem estoque</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Tipo saída:</Label>
