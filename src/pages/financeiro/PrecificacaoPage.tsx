@@ -1010,7 +1010,9 @@ export default function PrecificacaoPage() {
       const outs = outOfMarginByProduct.get(String(p.id));
       if (marginFilter === "fora") return !!outs && outs.length > 0;
       if (marginFilter === "negativa") {
-        const custo = custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0;
+        const ultimaCompra = ultimaCompraMap.get(p.id);
+        const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+        const custo = custoUltimaCompra > 0 ? custoUltimaCompra : (custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0);
         if (custo <= 0) return false;
         const vendaPorTipo = valoresMap.get(p.id);
         if (!vendaPorTipo) return false;
@@ -1024,8 +1026,12 @@ export default function PrecificacaoPage() {
     return base.sort((a, b) => {
       const estoqueA = Number(a.estoque) || 0;
       const estoqueB = Number(b.estoque) || 0;
-      const custoA = custoCanonicoMap.get(a.id)?.custo || Number(a.valor_custo) || 0;
-      const custoB = custoCanonicoMap.get(b.id)?.custo || Number(b.valor_custo) || 0;
+      const ultimaCompraA = ultimaCompraMap.get(a.id);
+      const ultimaCompraB = ultimaCompraMap.get(b.id);
+      const custoUltimaCompraA = ultimaCompraA?.valor_custo && ultimaCompraA.valor_custo > 0 ? ultimaCompraA.valor_custo : 0;
+      const custoUltimaCompraB = ultimaCompraB?.valor_custo && ultimaCompraB.valor_custo > 0 ? ultimaCompraB.valor_custo : 0;
+      const custoA = custoUltimaCompraA > 0 ? custoUltimaCompraA : (custoCanonicoMap.get(a.id)?.custo || Number(a.valor_custo) || 0);
+      const custoB = custoUltimaCompraB > 0 ? custoUltimaCompraB : (custoCanonicoMap.get(b.id)?.custo || Number(b.valor_custo) || 0);
       const valorEstoqueA = estoqueA * custoA;
       const valorEstoqueB = estoqueB * custoB;
       const pendA = custoCanonicoMap.get(a.id)?.status === "pendente_custo_zero" ? 1 : 0;
@@ -1035,7 +1041,7 @@ export default function PrecificacaoPage() {
       if (custoB !== custoA) return custoB - custoA;
       return estoqueB - estoqueA;
     }).slice(0, 1000);
-  }, [preFiltered, marginFilter, outOfMarginByProduct, custoCanonicoMap, valoresMap]);
+  }, [preFiltered, marginFilter, outOfMarginByProduct, custoCanonicoMap, ultimaCompraMap, valoresMap]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
