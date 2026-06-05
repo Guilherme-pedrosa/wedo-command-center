@@ -667,6 +667,7 @@ serve(async (req) => {
         xmls_falha_bucket: xmlsFalha,
         produtos_atualizados: productTaxMap.size,
         upserted,
+        skipped_older: skippedOlder,
         pendentes_registrados: pendentesNovos.length,
         sem_match_amostra: semMatchAmostra.slice(0, 5),
         dry_run: dryRun,
