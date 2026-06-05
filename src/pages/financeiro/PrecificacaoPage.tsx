@@ -1905,6 +1905,19 @@ export default function PrecificacaoPage() {
               </Select>
             </div>
             <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Divergência:</Label>
+              <Select value={divergenciaFilter} onValueChange={(v) => setDivergenciaFilter(v as typeof divergenciaFilter)}>
+                <SelectTrigger className="w-[200px] h-8 text-xs bg-secondary">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="divergentes">⚠ Custo divergente (≥2× GC)</SelectItem>
+                  <SelectItem value="ok">Sem divergência</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Tipo saída:</Label>
               <Select value={tipoSaidaGlobal} onValueChange={(v) => setTipoSaidaGlobal(v as TipoSaida)}>
                 <SelectTrigger className="w-[160px] h-8 text-xs bg-secondary">
