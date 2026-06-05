@@ -2139,7 +2139,22 @@ export default function PrecificacaoPage() {
                                 }`}
                                 title={`GC: ${formatCurrency(gcCusto)} · NF: ${formatCurrency(nfCusto)} · diff: ${diffPct.toFixed(1)}%`}
                               >
-                                ⚠ Custo GC {acima ? "acima" : "abaixo"} da NF ({diffPct > 0 ? "+" : ""}{diffPct.toFixed(1)}%)
+                                {`⚠ Custo GC ${acima ? "acima" : "abaixo"} da NF (${diffPct > 0 ? "+" : ""}${diffPct.toFixed(1)}%)`}
+                              </Badge>
+                            );
+                          })()}
+                          {(() => {
+                            const gcCusto = Number(p.valor_custo) || 0;
+                            const ultCusto = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+                            if (gcCusto <= 0 || ultCusto <= 0) return null;
+                            const ratio = ultCusto / gcCusto;
+                            if (ratio < 2) return null;
+                            return (
+                              <Badge
+                                className="ml-2 text-[10px] py-0 bg-red-600/30 text-red-300 border-red-500/50"
+                                title={`GC cadastro: ${formatCurrency(gcCusto)}/un · Última compra: ${formatCurrency(ultCusto)} (${ratio.toFixed(1)}×). Provável diferença de unidade entre NF (ex: CX 10x1L) e cadastro (UN 1L).`}
+                              >
+                                ⚠ Custo {ratio.toFixed(1)}× maior que GC — checar unidade
                               </Badge>
                             );
                           })()}
