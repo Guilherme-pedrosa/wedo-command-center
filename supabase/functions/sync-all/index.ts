@@ -491,6 +491,7 @@ async function syncCompras(
       totalPages = data?.meta?.total_paginas || 1;
 
       const batch = [];
+      const itensPorCompra = new Map<string, ReturnType<typeof extrairItensCompra>>();
       for (const compra of records) {
         totalFetched++;
         const c = (compra as any).Compra ?? compra;
@@ -528,6 +529,9 @@ async function syncCompras(
           gc_payload_raw: compra,
           last_synced_at: new Date().toISOString(),
         });
+
+        const itens = extrairItensCompra(gcId, compra);
+        if (itens.length > 0) itensPorCompra.set(gcId, itens);
       }
 
       if (batch.length > 0) {
@@ -539,6 +543,26 @@ async function syncCompras(
           errors += batch.length;
         } else {
           upserted += count || batch.length;
+        }
+
+        for (const [compraGcId, itens] of itensPorCompra.entries()) {
+          const { error: delErr } = await supabase
+            .from("gc_compras_itens")
+            .delete()
+            .eq("compra_gc_id", compraGcId);
+          if (delErr) {
+            console.error(`[sync-all/compras] Delete itens ${compraGcId}: ${delErr.message}`);
+            errors++;
+            continue;
+          }
+
+          const { error: itensErr } = await supabase
+            .from("gc_compras_itens")
+            .insert(itens);
+          if (itensErr) {
+            console.error(`[sync-all/compras] Insert itens ${compraGcId}: ${itensErr.message}`);
+            errors++;
+          }
         }
       }
 
