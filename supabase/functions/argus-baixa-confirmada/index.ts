@@ -350,6 +350,7 @@ async function buscarPendentes(dataInicio?: string, dataFim?: string, scope: Bai
         .from("fin_extrato_inter")
         .select("id, data_hora")
         .in("id", extratoIds.slice(i, i + 500))
+        .eq("reconciliado", true)
         .gte("data_hora", `${inicio}T00:00:00+00:00`);
       if (dataFim) q = q.lte("data_hora", `${dataFim}T23:59:59+00:00`);
       const { data: extratos } = await q;
