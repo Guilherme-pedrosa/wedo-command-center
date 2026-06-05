@@ -839,9 +839,12 @@ export default function PrecificacaoPage() {
       const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
       if (!(nome.includes(q) || codigo.includes(q))) return false;
       if (grupoFilter !== "todos" && (p.nome_grupo || "(sem grupo)") !== grupoFilter) return false;
+      const estoqueNum = Number(p.estoque) || 0;
+      if (estoqueFilter === "com_estoque" && estoqueNum <= 0) return false;
+      if (estoqueFilter === "sem_estoque" && estoqueNum > 0) return false;
       return true;
     });
-  }, [produtos, search, grupoFilter]);
+  }, [produtos, search, grupoFilter, estoqueFilter]);
 
 
   // Reseta página ao mudar filtros para evitar ficar fora do range
