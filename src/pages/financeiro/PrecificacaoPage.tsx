@@ -2182,6 +2182,14 @@ export default function PrecificacaoPage() {
                               })()}
                             </TooltipTrigger>
                             <TooltipContent className="text-xs max-w-sm">
+                              {ultimaCompra && (
+                                <div className="mb-2 border-b border-border pb-2">
+                                  <p className="font-semibold">Pedido atual #{ultimaCompra.compra_codigo || ultimaCompra.compra_gc_id}</p>
+                                  <p>{ultimaCompra.data || "sem data"} — {ultimaCompra.fornecedor_nome || "fornecedor não informado"}</p>
+                                  <p>NF #{ultimaCompra.numero_nfe || "—"} · qtd {ultimaCompra.quantidade ?? "—"} · custo {ultimaCompra.valor_custo != null ? formatCurrency(ultimaCompra.valor_custo) : "—"}</p>
+                                  {ultimaCompra.nome_situacao && <p>Situação: {ultimaCompra.nome_situacao}</p>}
+                                </div>
+                              )}
                               <p className="font-semibold">NF #{tributo.nf_numero} — {tributo.fornecedor_nome}</p>
                               {tributo.match_rule && (
                                 <p className="mt-1">
