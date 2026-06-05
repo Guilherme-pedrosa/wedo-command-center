@@ -848,7 +848,7 @@ export default function PrecificacaoPage() {
 
 
   // Reseta página ao mudar filtros para evitar ficar fora do range
-  useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, tipoSaidaGlobal]);
+  useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, estoqueFilter, tipoSaidaGlobal]);
 
 
 
