@@ -580,15 +580,21 @@ serve(async (req) => {
     }
 
     // ── Step 6: Upsert tributos ──
+    //  GUARDA ANTI-REGRESSÃO: nunca sobrescrever uma NF já gravada por outra mais antiga.
+    //  Como o matcher pagina compras por data desc em batches, sem essa guarda um batch
+    //  de compras antigas poderia chegar depois e jogar fora a NF mais recente.
     let upserted = 0;
+    let skippedOlder = 0;
     if (!dryRun && productTaxMap.size > 0) {
       const ids = [...productTaxMap.keys()];
       const manuais = new Set<string>();
+      const existingNfDate = new Map<string, string>();
+      const existingHasRealMatch = new Set<string>();
       for (let i = 0; i < ids.length; i += 100) {
         const chunk = ids.slice(i, i + 100);
         const { data } = await supabase
           .from("fin_produto_tributos")
-          .select("gc_produto_id, icms_aliquota_manual, pis_aliquota_manual, cofins_aliquota_manual, sem_credito")
+          .select("gc_produto_id, icms_aliquota_manual, pis_aliquota_manual, cofins_aliquota_manual, sem_credito, nf_data_emissao, match_rule")
           .in("gc_produto_id", chunk);
         for (const row of data || []) {
           if (
@@ -598,16 +604,37 @@ serve(async (req) => {
             row.cofins_aliquota_manual != null
           )
             manuais.add(row.gc_produto_id);
+          if (row.nf_data_emissao) existingNfDate.set(row.gc_produto_id, String(row.nf_data_emissao));
+          if (row.match_rule && String(row.match_rule).startsWith("pedido_compra_gc+")) {
+            existingHasRealMatch.add(row.gc_produto_id);
+          }
         }
       }
-      const records = [...productTaxMap.values()].map((r) => {
-        const rec: Record<string, unknown> = { ...r, ultima_atualizacao: new Date().toISOString() };
-        if (manuais.has(r.gc_produto_id)) {
-          delete rec.sem_credito;
-          delete rec.regime_fornecedor;
-        }
-        return rec;
-      });
+      const records = [...productTaxMap.values()]
+        .filter((r) => {
+          const prev = existingNfDate.get(r.gc_produto_id);
+          const novo = r.nf_data_emissao || "";
+          const novoEhReal = !!r.match_rule?.startsWith("pedido_compra_gc+");
+          // Se já existe match real e o novo é "sem_xml_item", descarta — não regride para placeholder
+          if (existingHasRealMatch.has(r.gc_produto_id) && r.match_rule === "pedido_compra_gc_sem_xml_item") {
+            skippedOlder++;
+            return false;
+          }
+          // Se o novo é match real e existe NF anterior mais nova, descarta
+          if (prev && novoEhReal && novo && novo < prev) {
+            skippedOlder++;
+            return false;
+          }
+          return true;
+        })
+        .map((r) => {
+          const rec: Record<string, unknown> = { ...r, ultima_atualizacao: new Date().toISOString() };
+          if (manuais.has(r.gc_produto_id)) {
+            delete rec.sem_credito;
+            delete rec.regime_fornecedor;
+          }
+          return rec;
+        });
       for (let i = 0; i < records.length; i += 50) {
         const batch = records.slice(i, i + 50);
         const { error } = await supabase.from("fin_produto_tributos").upsert(batch as any, { onConflict: "gc_produto_id" });
@@ -640,6 +667,7 @@ serve(async (req) => {
         xmls_falha_bucket: xmlsFalha,
         produtos_atualizados: productTaxMap.size,
         upserted,
+        skipped_older: skippedOlder,
         pendentes_registrados: pendentesNovos.length,
         sem_match_amostra: semMatchAmostra.slice(0, 5),
         dry_run: dryRun,
