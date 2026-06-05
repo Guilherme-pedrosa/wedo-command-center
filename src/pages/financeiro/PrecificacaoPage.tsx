@@ -24,6 +24,7 @@ interface GCProduto {
   nome: string;
   codigo?: string;
   codigo_interno?: string;
+  codigo_barra?: string;
   estoque: number | string;
   valor_custo: string;
   valor_venda: string;
@@ -61,6 +62,18 @@ interface ProdutoTributo {
   valor_ipi_unit: number;
   valor_frete_unit: number;
   custo_efetivo_unit: number;
+}
+
+interface UltimaCompraProduto {
+  produto_gc_id: string;
+  compra_gc_id: string;
+  compra_codigo: string | null;
+  numero_nfe: string | null;
+  data: string | null;
+  fornecedor_nome: string | null;
+  nome_situacao: string | null;
+  quantidade: number | null;
+  valor_custo: number | null;
 }
 
 type TipoSaida = "venda" | "servico";
@@ -435,6 +448,7 @@ export default function PrecificacaoPage() {
           nome: p.nome,
           codigo: p.codigo_interno || p.codigo_barra || undefined,
           codigo_interno: p.codigo_interno || undefined,
+          codigo_barra: p.codigo_barra || undefined,
           estoque: p.estoque ?? 0,
           valor_custo: String(p.valor_custo ?? 0),
           valor_venda: String(p.valor_venda_padrao ?? 0),
@@ -647,6 +661,72 @@ export default function PrecificacaoPage() {
     tributosXml.forEach((t) => map.set(t.gc_produto_id, t));
     return map;
   }, [tributosXml]);
+
+  const { data: ultimasComprasProduto } = useQuery({
+    queryKey: ["ultima-compra-produto"],
+    queryFn: async () => {
+      const pageSize = 1000;
+      let from = 0;
+      const allRows: UltimaCompraProduto[] = [];
+
+      const compraMeta = new Map<string, any>();
+      while (true) {
+        const { data, error } = await supabase
+          .from("gc_compras" as any)
+          .select("gc_id, codigo, numero_nfe, data, nome_fornecedor, nome_situacao")
+          .order("gc_id", { ascending: true })
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        for (const row of (data || []) as any[]) compraMeta.set(String(row.gc_id), row);
+        if (!data || data.length < pageSize) break;
+        from += pageSize;
+      }
+
+      from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from("gc_compras_itens" as any)
+          .select("produto_gc_id, compra_gc_id, quantidade, valor_custo")
+          .not("produto_gc_id", "is", null)
+          .order("compra_gc_id", { ascending: true })
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        const batch = ((data || []) as any[]).map((row) => {
+          const compra = compraMeta.get(String(row.compra_gc_id));
+          return {
+            produto_gc_id: String(row.produto_gc_id),
+            compra_gc_id: String(row.compra_gc_id),
+            compra_codigo: compra?.codigo ?? null,
+            numero_nfe: compra?.numero_nfe ?? null,
+            data: compra?.data ?? null,
+            fornecedor_nome: compra?.nome_fornecedor ?? null,
+            nome_situacao: compra?.nome_situacao ?? null,
+            quantidade: row.quantidade != null ? Number(row.quantidade) : null,
+            valor_custo: row.valor_custo != null ? Number(row.valor_custo) : null,
+          };
+        }) as UltimaCompraProduto[];
+        allRows.push(...batch);
+        if (batch.length < pageSize) break;
+        from += pageSize;
+      }
+
+      const latest = new Map<string, UltimaCompraProduto>();
+      for (const row of allRows) {
+        const current = latest.get(row.produto_gc_id);
+        const rowKey = `${row.data || ""}|${row.compra_gc_id}`;
+        const curKey = current ? `${current.data || ""}|${current.compra_gc_id}` : "";
+        if (!current || rowKey > curKey) latest.set(row.produto_gc_id, row);
+      }
+      return [...latest.values()];
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const ultimaCompraMap = useMemo(() => {
+    const map = new Map<string, UltimaCompraProduto>();
+    for (const row of ultimasComprasProduto || []) map.set(row.produto_gc_id, row);
+    return map;
+  }, [ultimasComprasProduto]);
 
   // ── Fetch monthly fixed costs using same logic as Resultados Operação ──
   const now = new Date();
@@ -1871,6 +1951,7 @@ export default function PrecificacaoPage() {
                   const statusCusto = custoCan?.status || "ok_sem_tributo";
                   const estoque = Number(p.estoque) || 0;
                    const tributoRaw = tributosMap.get(p.id);
+                   const ultimaCompra = ultimaCompraMap.get(p.id);
                    const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
                    const kitRatio = detectKitRatio(tributoCompat, custoBruto);
                    const tributo = tributoCompat && kitRatio > 1 ? ajustarTributoPorKit(tributoCompat, kitRatio) : tributoCompat;
@@ -2057,8 +2138,9 @@ export default function PrecificacaoPage() {
                           <Tooltip>
                             <TooltipTrigger>
                               {(() => {
-                                const nfNum = tributo.nf_numero || (tributo.nf_chave?.length === 44 ? String(parseInt(tributo.nf_chave.substring(25, 34))) : "");
-                                const pedidoNum = tributo.compra_codigo || "";
+                                const nfNum = ultimaCompra?.numero_nfe || tributo.nf_numero || (tributo.nf_chave?.length === 44 ? String(parseInt(tributo.nf_chave.substring(25, 34))) : "");
+                                const pedidoNum = ultimaCompra?.compra_codigo || tributo.compra_codigo || "";
+                                const fornecedorFonte = ultimaCompra?.fornecedor_nome || tributo.fornecedor_nome || "NF";
                                 return (
                                   <div className="flex flex-col items-center gap-0.5">
                                     <Badge className={`text-[10px] gap-1 ${
@@ -2067,13 +2149,13 @@ export default function PrecificacaoPage() {
                                         : "bg-primary/20 text-primary"
                                     }`}>
                                       <FileText className="h-3 w-3" />
-                                      {tributo.fornecedor_nome || "NF"}
+                                      {fornecedorFonte}
                                       {nfNum ? ` · NF #${nfNum}` : ""}
                                       {(tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito) ? " ·SN" : ""}
                                     </Badge>
                                     {pedidoNum && (
-                                      <Badge variant="outline" className="text-[9px] border-purple-500/40 text-purple-400">
-                                        Pedido #{pedidoNum}
+                                      <Badge variant="outline" className="text-[9px] border-purple-500/40 text-purple-400" title={ultimaCompra?.data ? `Última compra em ${ultimaCompra.data}` : undefined}>
+                                        Pedido atual #{pedidoNum}
                                       </Badge>
                                     )}
                                     {tributo.match_rule && (() => {
@@ -2101,6 +2183,14 @@ export default function PrecificacaoPage() {
                               })()}
                             </TooltipTrigger>
                             <TooltipContent className="text-xs max-w-sm">
+                              {ultimaCompra && (
+                                <div className="mb-2 border-b border-border pb-2">
+                                  <p className="font-semibold">Pedido atual #{ultimaCompra.compra_codigo || ultimaCompra.compra_gc_id}</p>
+                                  <p>{ultimaCompra.data || "sem data"} — {ultimaCompra.fornecedor_nome || "fornecedor não informado"}</p>
+                                  <p>NF #{ultimaCompra.numero_nfe || "—"} · qtd {ultimaCompra.quantidade ?? "—"} · custo {ultimaCompra.valor_custo != null ? formatCurrency(ultimaCompra.valor_custo) : "—"}</p>
+                                  {ultimaCompra.nome_situacao && <p>Situação: {ultimaCompra.nome_situacao}</p>}
+                                </div>
+                              )}
                               <p className="font-semibold">NF #{tributo.nf_numero} — {tributo.fornecedor_nome}</p>
                               {tributo.match_rule && (
                                 <p className="mt-1">
