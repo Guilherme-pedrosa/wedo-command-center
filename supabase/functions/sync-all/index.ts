@@ -26,6 +26,35 @@ async function rateLimitedFetch(url: string, options: RequestInit): Promise<Resp
   return fetch(url, options);
 }
 
+function parseNumber(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const s = String(raw).trim();
+  const normalized = s.includes(",") ? s.replace(/\./g, "").replace(",", ".") : s;
+  const n = parseFloat(normalized);
+  return Number.isFinite(n) ? n : null;
+}
+
+function extrairItensCompra(compraGcId: string, compraRaw: any) {
+  const c = compraRaw?.Compra ?? compraRaw ?? {};
+  const produtos = Array.isArray(c.produtos) ? c.produtos : [];
+  return produtos.map((wrap: any, idx: number) => {
+    const p = wrap?.produto ?? wrap ?? {};
+    const rawProdutoId = (p.produto_id ?? p.id_produto ?? "").toString().trim();
+    const temVinculo = !!rawProdutoId && rawProdutoId !== "0";
+    return {
+      compra_gc_id: compraGcId,
+      produto_gc_id: temVinculo ? rawProdutoId : null,
+      nome_produto: (p.nome_produto ?? p.nome ?? "").toString().trim() || null,
+      unidade: p.unidade ?? null,
+      quantidade: parseNumber(p.quantidade),
+      valor_custo: parseNumber(p.valor_custo),
+      valor_total: parseNumber(p.valor_total),
+      ordem_item: idx,
+      origem_vinculo: temVinculo ? "produto_id_gc" : "legacy_sem_produto_id",
+    };
+  });
+}
+
 // ── GC paginated fetch ──
 async function fetchAllPages(
   endpoint: string,
