@@ -863,6 +863,12 @@ export interface SyncFinanceiroResult {
     falha: number;
     error?: string;
   };
+  conciliacao?: {
+    ok: boolean;
+    conciliados: number;
+    revisar: number;
+    error?: string;
+  };
 }
 
 async function resetExtratosByLancamentos(
