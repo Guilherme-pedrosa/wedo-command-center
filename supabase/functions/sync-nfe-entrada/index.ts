@@ -465,7 +465,7 @@ serve(async (req) => {
     }
 
     // ── Step 4: Limpa tributos antigos (preserva manuais) — só no offset=0 ──
-    if (offset === 0 && !dryRun) {
+    if (offset === 0 && !dryRun && compraCodigosFilter.length === 0) {
       await supabase
         .from("fin_produto_tributos")
         .delete()
