@@ -2724,13 +2724,14 @@ export default function PrecificacaoPage() {
                                       const labelMap: Record<string, string> = {
                                         "pedido_compra_gc+cprod": "✓ Pedido+Código",
                                         "pedido_compra_gc+cprod_multi": "✓ Pedido+Código",
+                                        "pedido_compra_gc+nome_preco": "✓ Pedido+Nome+Preço",
                                         pedido_compra_gc_sem_xml_item: nfNumLabel
                                           ? `Pedido GC + NF #${nfNumLabel} (s/item)`
                                           : "Pedido GC s/XML",
                                       };
                                       return (
                                         <Badge variant="outline" className={`text-[9px] ${
-                                          tributo.match_rule.startsWith("pedido_compra_gc+cprod") ? "border-green-500/40 text-green-400" :
+                                          (tributo.match_rule.startsWith("pedido_compra_gc+cprod") || tributo.match_rule === "pedido_compra_gc+nome_preco") ? "border-green-500/40 text-green-400" :
                                           tributo.match_rule === "pedido_compra_gc_sem_xml_item" ? "border-orange-500/40 text-orange-400" :
                                           "border-muted-foreground/40 text-muted-foreground"
                                         }`}>
@@ -2775,13 +2776,14 @@ export default function PrecificacaoPage() {
                                 <p className="mt-1">
                                   <span className="font-semibold">Match: </span>
                                   <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono ${
-                                    tributo.match_rule.startsWith("pedido_compra_gc+cprod") ? "bg-green-500/20 text-green-400" :
+                                    (tributo.match_rule.startsWith("pedido_compra_gc+cprod") || tributo.match_rule === "pedido_compra_gc+nome_preco") ? "bg-green-500/20 text-green-400" :
                                     tributo.match_rule === "pedido_compra_gc_sem_xml_item" ? "bg-orange-500/20 text-orange-400" :
                                     "bg-muted text-muted-foreground"
                                   }`}>
                                     {({
                                       "pedido_compra_gc+cprod": "✓ Pedido GC + código XML",
                                       "pedido_compra_gc+cprod_multi": "✓ Pedido GC + código XML",
+                                      "pedido_compra_gc+nome_preco": "✓ Pedido GC + nome + preço XML",
                                       pedido_compra_gc_sem_xml_item: "Pedido GC sem item XML confiável",
                                     } as Record<string, string>)[tributo.match_rule] || tributo.match_rule}
                                   </span>
