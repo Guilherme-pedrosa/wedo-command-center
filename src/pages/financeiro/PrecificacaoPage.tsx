@@ -1590,6 +1590,107 @@ export default function PrecificacaoPage() {
     }
   };
 
+  // ── Atualizar custo no GC (usa última compra como referência) ──
+  type AtualizarCustoArgs = {
+    gc_produto_id: string;
+    nome_produto: string;
+    custo_atual_gc: number;
+    custo_novo: number;
+    origem_label: string;
+  };
+  const [atualizandoCustoKey, setAtualizandoCustoKey] = useState<string | null>(null);
+
+  const atualizarCustoGCCore = async (args: AtualizarCustoArgs): Promise<{ ok: boolean; erro?: string }> => {
+    if (!(args.custo_novo > 0)) return { ok: false, erro: "custo novo inválido" };
+    try {
+      const { data: job, error: errJob } = await supabase.from("fin_gc_write_jobs").insert({
+        recurso: "produtos",
+        recurso_id: args.gc_produto_id,
+        payload: { valor_custo: args.custo_novo.toFixed(2) },
+        payload_hash: `atualizar-custo-ui-${args.gc_produto_id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        status: "pendente",
+      }).select("id").single();
+      if (errJob) throw errJob;
+
+      const { data: workerResult, error: errWorker } = await supabase.functions.invoke("process-gc-write-jobs", {
+        body: { source: "precificacao-ui-atualizar-custo", job_id: job.id },
+      });
+      if (errWorker) throw errWorker;
+      if (!workerResult?.sucessos) {
+        const erro = workerResult?.results?.[0]?.erro || workerResult?.message || "worker não confirmou sucesso";
+        return { ok: false, erro: String(erro) };
+      }
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, erro: e instanceof Error ? e.message : String(e) };
+    }
+  };
+
+  const atualizarCustoGC = async (args: AtualizarCustoArgs) => {
+    if (atualizandoCustoKey || bulkCorrigindo || corrigindoKey) return;
+    const key = `custo:${args.gc_produto_id}`;
+    setAtualizandoCustoKey(key);
+    try {
+      const r = await atualizarCustoGCCore(args);
+      if (r.ok) {
+        await Promise.all([refetchProdutosCacheValores(), refetchProdutos()]);
+        toast.success(`${args.nome_produto.slice(0, 30)}: custo atualizado no GC ${formatCurrency(args.custo_atual_gc)} → ${formatCurrency(args.custo_novo)}`);
+      } else {
+        toast.error(`Falha ao atualizar custo: ${r.erro}`);
+      }
+    } finally {
+      setAtualizandoCustoKey(null);
+    }
+  };
+
+  const atualizarCustoGCBatch = async (items: AtualizarCustoArgs[], scopeLabel: string) => {
+    if (atualizandoCustoKey || bulkCorrigindo || corrigindoKey) return;
+    if (items.length === 0) { toast("Nenhum produto com custo divergente para atualizar"); return; }
+    setAtualizandoCustoKey("bulk");
+    let ok = 0, fail = 0;
+    const erros: string[] = [];
+    try {
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        toast(`${scopeLabel}: ${i + 1}/${items.length} — ${it.nome_produto.slice(0, 30)}`);
+        const r = await atualizarCustoGCCore(it);
+        if (r.ok) ok++;
+        else { fail++; erros.push(`${it.nome_produto}: ${r.erro}`); }
+      }
+      await Promise.all([refetchProdutosCacheValores(), refetchProdutos()]);
+      if (fail === 0) toast.success(`${scopeLabel}: ${ok} custo(s) atualizado(s) no GC`);
+      else toast.error(`${scopeLabel}: ${ok} ok, ${fail} falha(s). Ex: ${erros[0]}`);
+    } finally {
+      setAtualizandoCustoKey(null);
+    }
+  };
+
+  // Produtos com custo da última compra >= 2× o cadastro GC (após filtros)
+  const costMismatchList = useMemo(() => {
+    const list: AtualizarCustoArgs[] = [];
+    for (const p of filtered) {
+      const ult = ultimaCompraMap.get(p.id);
+      const gcCusto = Number(p.valor_custo) || 0;
+      const ultCusto = ult?.valor_custo && ult.valor_custo > 0 ? ult.valor_custo : 0;
+      if (gcCusto <= 0 || ultCusto <= 0) continue;
+      const ratio = ultCusto / gcCusto;
+      if (ratio < 2) continue;
+      list.push({
+        gc_produto_id: String(p.id),
+        nome_produto: p.nome,
+        custo_atual_gc: gcCusto,
+        custo_novo: ultCusto,
+        origem_label: `NF #${ult?.numero_nfe || "—"} pedido #${ult?.compra_codigo || ult?.compra_gc_id || "—"}`,
+      });
+    }
+    return list;
+  }, [filtered, ultimaCompraMap]);
+
+  const selectedCostMismatch = useMemo(
+    () => costMismatchList.filter((it) => selectedProductIds.has(it.gc_produto_id)),
+    [costMismatchList, selectedProductIds]
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1647,6 +1748,19 @@ export default function PrecificacaoPage() {
               {bulkCorrigindo === "global-reduzir" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
               Reduzir TODOS p/ margem mín ({allAboveMargin.length})
             </Button>
+            {costMismatchList.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-red-500/50 text-red-300 hover:bg-red-500/10"
+                onClick={() => atualizarCustoGCBatch(costMismatchList, `Atualizar custo GC TODOS (${costMismatchList.length})`)}
+                disabled={!!atualizandoCustoKey || !!bulkCorrigindo || !!corrigindoKey}
+                title={`Atualiza o custo no cadastro GC para o valor da última compra em todos os produtos com custo ≥ 2× o GC (${costMismatchList.length} produtos)`}
+              >
+                {atualizandoCustoKey === "bulk" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                Atualizar custo GC TODOS ({costMismatchList.length})
+              </Button>
+            )}
             {selectedProductIds.size > 0 && (
               <>
                 <Badge variant="outline" className="border-primary/40 text-primary">
@@ -1673,6 +1787,19 @@ export default function PrecificacaoPage() {
                   {bulkCorrigindo === "selected-reduzir" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
                   Reduzir selecionados ({selectedAboveMargin.length})
                 </Button>
+                {selectedCostMismatch.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-red-500/50 text-red-300 hover:bg-red-500/10"
+                    onClick={() => atualizarCustoGCBatch(selectedCostMismatch, `Custo GC selecionados (${selectedCostMismatch.length})`)}
+                    disabled={!!atualizandoCustoKey || !!bulkCorrigindo || !!corrigindoKey}
+                    title={`Atualiza o custo no cadastro GC para o valor da última compra nos ${selectedCostMismatch.length} produto(s) selecionado(s) com custo ≥ 2× o GC`}
+                  >
+                    {atualizandoCustoKey === "bulk" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                    Atualizar custo GC selecionados ({selectedCostMismatch.length})
+                  </Button>
+                )}
                 <Button variant="ghost" size="sm" onClick={() => setSelectedProductIds(new Set())} title="Limpar seleção">
                   Limpar
                 </Button>
@@ -2149,13 +2276,34 @@ export default function PrecificacaoPage() {
                             if (gcCusto <= 0 || ultCusto <= 0) return null;
                             const ratio = ultCusto / gcCusto;
                             if (ratio < 2) return null;
+                            const key = `custo:${p.id}`;
+                            const args: AtualizarCustoArgs = {
+                              gc_produto_id: String(p.id),
+                              nome_produto: p.nome,
+                              custo_atual_gc: gcCusto,
+                              custo_novo: ultCusto,
+                              origem_label: `NF #${ultimaCompra?.numero_nfe || "—"} pedido #${ultimaCompra?.compra_codigo || ultimaCompra?.compra_gc_id || "—"}`,
+                            };
                             return (
-                              <Badge
-                                className="ml-2 text-[10px] py-0 bg-red-600/30 text-red-300 border-red-500/50"
-                                title={`GC cadastro: ${formatCurrency(gcCusto)}/un · Última compra: ${formatCurrency(ultCusto)} (${ratio.toFixed(1)}×). Provável diferença de unidade entre NF (ex: CX 10x1L) e cadastro (UN 1L).`}
-                              >
-                                ⚠ Custo {ratio.toFixed(1)}× maior que GC — checar unidade
-                              </Badge>
+                              <>
+                                <Badge
+                                  className="ml-2 text-[10px] py-0 bg-red-600/30 text-red-300 border-red-500/50"
+                                  title={`GC cadastro: ${formatCurrency(gcCusto)}/un · Última compra: ${formatCurrency(ultCusto)} (${ratio.toFixed(1)}×). Provável diferença de unidade entre NF (ex: CX 10x1L) e cadastro (UN 1L).`}
+                                >
+                                  ⚠ Custo {ratio.toFixed(1)}× maior que GC — checar unidade
+                                </Badge>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="ml-2 h-6 px-2 text-[10px] gap-1 border-red-500/50 text-red-300 hover:bg-red-500/10"
+                                  disabled={!!atualizandoCustoKey || !!bulkCorrigindo || !!corrigindoKey}
+                                  onClick={() => atualizarCustoGC(args)}
+                                  title={`Atualiza o cadastro do produto no GC: ${formatCurrency(gcCusto)} → ${formatCurrency(ultCusto)} (origem: ${args.origem_label})`}
+                                >
+                                  {atualizandoCustoKey === key ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                                  Atualizar custo GC → {formatCurrency(ultCusto)}
+                                </Button>
+                              </>
                             );
                           })()}
                           {(() => {
