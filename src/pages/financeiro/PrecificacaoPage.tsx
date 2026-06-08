@@ -72,6 +72,7 @@ interface ProdutoTributo {
   q_trib?: number | null;
   v_un_trib?: number | null;
   fator_conversao?: number | null;
+  fator_embalagem?: number | null;
 }
 
 interface UltimaCompraProduto {
