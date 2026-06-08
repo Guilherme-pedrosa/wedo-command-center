@@ -2238,6 +2238,7 @@ export type Database = {
           custo_variavel_real: number | null
           descricao_nf: string | null
           fator_conversao: number | null
+          fator_embalagem: number | null
           fornecedor_nome: string | null
           frete_percentual: number | null
           gc_produto_id: string
@@ -2293,6 +2294,7 @@ export type Database = {
           custo_variavel_real?: number | null
           descricao_nf?: string | null
           fator_conversao?: number | null
+          fator_embalagem?: number | null
           fornecedor_nome?: string | null
           frete_percentual?: number | null
           gc_produto_id: string
@@ -2348,6 +2350,7 @@ export type Database = {
           custo_variavel_real?: number | null
           descricao_nf?: string | null
           fator_conversao?: number | null
+          fator_embalagem?: number | null
           fornecedor_nome?: string | null
           frete_percentual?: number | null
           gc_produto_id?: string
