@@ -1693,6 +1693,77 @@ export default function PrecificacaoPage() {
     [costMismatchList, selectedProductIds]
   );
 
+  const handleExportExcel = () => {
+    if (!filtered.length) {
+      toast.error("Nenhum dado para exportar");
+      return;
+    }
+    const rows: any[] = [];
+    for (const p of filtered) {
+      const custoCan = custoCanonicoMap.get(p.id);
+      const custoCache = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
+      const ultimaCompra = ultimaCompraMap.get(p.id);
+      const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+      const custoBruto = custoUltimaCompra > 0 ? custoUltimaCompra : custoCache;
+      const tributoRaw = tributosMap.get(p.id);
+      const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
+      const kitRatio = detectKitRatio(tributoCompat, custoBruto);
+      const tributo = tributoCompat && kitRatio > 1 ? ajustarTributoPorKit(tributoCompat, kitRatio) : tributoCompat;
+      const hasNF = !!tributo;
+      const cfuFlat = !!(taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0) ? (taxEntrada.custoFixoUnit || 0) : 0;
+      let calc: ReturnType<typeof calcPricing>;
+      if (hasNF) {
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBruto);
+        calc = {
+          creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
+          totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
+          custoFrete: tributo!.valor_frete_unit, custoTotal: nfCalc.custoTotal, precoMinimo: nfCalc.precoMinimo,
+          tributosSaida: nfCalc.tributosSaida, custoFixoEmbutido: nfCalc.custoFixoEmbutido, impostoRenda: nfCalc.impostoRenda,
+          lucroAnteIR: nfCalc.lucroAnteIR, lucroLiquido: nfCalc.lucroLiquido,
+          margemReal: nfCalc.precoMinimo > 0 ? (nfCalc.lucroLiquido / nfCalc.precoMinimo) * 100 : 0,
+          aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento, custoFixoPct: nfCalc.custoFixoPct,
+        };
+      } else {
+        calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
+      }
+      const valoresProd = valoresMap.get(p.id);
+      const tabelas: Record<string, any> = {};
+      for (const pol of (politicas ?? [])) {
+        const margemMin = Number(pol.margem_minima) || 0;
+        const divLinha = 1 - calc.aliquotaSaidaFaturamento - margemMin;
+        const precoSugeridoBruto = calc.custoTotal > 0 && divLinha > 0.05 ? calc.custoTotal / divLinha : calc.custoTotal * 5;
+        const precoSugerido = calc.custoTotal > 0 ? Math.min(precoSugeridoBruto, calc.custoTotal * 5) : 0;
+        const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
+        const temPrecoCadastrado = vendaReal > 0;
+        const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
+        const trib = venda * calc.aliquotaSaidaFaturamento;
+        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
+        tabelas[`${pol.nome_tabela}_venda`] = vendaReal > 0 ? vendaReal : precoSugerido;
+        tabelas[`${pol.nome_tabela}_margem_pct`] = margem;
+      }
+      const fonteCusto = hasNF
+        ? `NF #${tributo?.nf_numero || "—"} ${tributo?.fornecedor_nome || ""}`.trim()
+        : (ultimaCompra ? `Pedido #${ultimaCompra.compra_codigo || ultimaCompra.compra_gc_id}` : "GC cadastro");
+      rows.push({
+        "Produto": p.nome,
+        "Codigo": p.codigo || p.codigo_interno || "",
+        "Grupo": p.nome_grupo || "",
+        "Estoque": Number(p.estoque) || 0,
+        "Custo Bruto": custoBruto,
+        "Fonte Custo": fonteCusto,
+        "Credito Entrada": calc.totalCreditosEntrada,
+        "Custo Total": calc.custoTotal,
+        "Preco Minimo": calc.precoMinimo,
+        ...tabelas,
+      });
+    }
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Precificacao");
+    XLSX.writeFile(wb, `precificacao_${format(new Date(), "yyyy-MM-dd_HH-mm")}.xlsx`);
+    toast.success(`${rows.length} produtos exportados!`);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
