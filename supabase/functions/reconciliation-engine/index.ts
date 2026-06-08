@@ -195,6 +195,7 @@ function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): bool
 const CNPJ_PRAZO_ESTENDIDO = [
   "67945071", // Sapore S.A.
   "49930514", // Sodexo Do Brasil Comercial S.A. (CNPJ raiz correto)
+  "00536772", // Ecolab Química Ltda (paga consolidado antes do vencimento)
 ];
 
 function isClientePrazoEstendido(doc: string | null | undefined): boolean {
