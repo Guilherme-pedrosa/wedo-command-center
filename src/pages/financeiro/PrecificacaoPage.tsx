@@ -1065,8 +1065,12 @@ export default function PrecificacaoPage() {
       if (marginFilter === "fora") return !!outs && outs.length > 0;
       if (marginFilter === "negativa") {
         const ultimaCompra = ultimaCompraMap.get(p.id);
+        const tributoRaw = tributosMap.get(p.id);
+        const excecao = !!tributoRaw?.excecao_manual;
         const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
-        const custo = custoUltimaCompra > 0 ? custoUltimaCompra : (custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0);
+        const custo = excecao
+          ? (Number(p.valor_custo) || 0)
+          : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0));
         if (custo <= 0) return false;
         const vendaPorTipo = valoresMap.get(p.id);
         if (!vendaPorTipo) return false;
