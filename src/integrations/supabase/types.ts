@@ -2239,6 +2239,7 @@ export type Database = {
           descricao_nf: string | null
           excecao_at: string | null
           excecao_by: string | null
+          excecao_custo_unitario: number | null
           excecao_manual: boolean
           excecao_motivo: string | null
           fator_conversao: number | null
@@ -2299,6 +2300,7 @@ export type Database = {
           descricao_nf?: string | null
           excecao_at?: string | null
           excecao_by?: string | null
+          excecao_custo_unitario?: number | null
           excecao_manual?: boolean
           excecao_motivo?: string | null
           fator_conversao?: number | null
@@ -2359,6 +2361,7 @@ export type Database = {
           descricao_nf?: string | null
           excecao_at?: string | null
           excecao_by?: string | null
+          excecao_custo_unitario?: number | null
           excecao_manual?: boolean
           excecao_motivo?: string | null
           fator_conversao?: number | null

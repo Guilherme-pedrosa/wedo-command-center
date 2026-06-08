@@ -75,6 +75,7 @@ interface ProdutoTributo {
   fator_embalagem?: number | null;
   excecao_manual?: boolean | null;
   excecao_motivo?: string | null;
+  excecao_custo_unitario?: number | null;
 }
 
 interface UltimaCompraProduto {
@@ -949,8 +950,9 @@ export default function PrecificacaoPage() {
       const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
       // Exceção manual: ignora NF e última compra (provavelmente unidade divergente);
       // usa exclusivamente o custo cadastrado no GC.
+      const custoOverride = tributoRaw?.excecao_custo_unitario;
       const custoBruto = excecao
-        ? (parseFloat(p.valor_custo) || 0)
+        ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0)));
       const tributoCompat = !excecao && isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const kitRatio = detectKitRatio(tributoCompat, custoBruto);
@@ -1014,8 +1016,9 @@ export default function PrecificacaoPage() {
       const tributoRaw = tributosMap.get(p.id);
       const excecao = !!tributoRaw?.excecao_manual;
       const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+      const custoOverride = tributoRaw?.excecao_custo_unitario;
       const custoBruto = excecao
-        ? (parseFloat(p.valor_custo) || 0)
+        ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0)));
       const tributoCompat = !excecao && isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const kitRatio = detectKitRatio(tributoCompat, custoBruto);
@@ -1068,8 +1071,9 @@ export default function PrecificacaoPage() {
         const tributoRaw = tributosMap.get(p.id);
         const excecao = !!tributoRaw?.excecao_manual;
         const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+        const custoOverride = tributoRaw?.excecao_custo_unitario;
         const custo = excecao
-          ? (Number(p.valor_custo) || 0)
+          ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (Number(p.valor_custo) || 0))
           : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCanonicoMap.get(p.id)?.custo || Number(p.valor_custo) || 0));
         if (custo <= 0) return false;
         const vendaPorTipo = valoresMap.get(p.id);
@@ -1717,8 +1721,9 @@ export default function PrecificacaoPage() {
       const tributoRaw = tributosMap.get(p.id);
       const excecao = !!tributoRaw?.excecao_manual;
       const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+      const custoOverride = tributoRaw?.excecao_custo_unitario;
       const custoBruto = excecao
-        ? (parseFloat(p.valor_custo) || 0)
+        ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache);
       const tributoCompat = !excecao && isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const kitRatio = detectKitRatio(tributoCompat, custoBruto);
@@ -2295,8 +2300,9 @@ export default function PrecificacaoPage() {
                       ? ultimaCompra.valor_custo
                       : 0;
                     // Exceção manual: força custo do cadastro GC (ignora NF/última compra com unidade divergente)
+                    const custoOverride = tributoRaw?.excecao_custo_unitario;
                     const custoBruto = excecao
-                      ? (parseFloat(p.valor_custo) || 0)
+                      ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
                       : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache);
                     const tributoCompat = !excecao && isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
                     const kitRatio = detectKitRatio(tributoCompat, custoBruto);
@@ -2441,26 +2447,26 @@ export default function PrecificacaoPage() {
                               </>
                             );
                           })()}
-                          {tributo && (
-                            tributo.excecao_manual ? (
+                          {tributoRaw && (
+                            tributoRaw.excecao_manual ? (
                               <Badge
                                 className="ml-2 text-[10px] py-0 bg-slate-500/20 text-slate-300 border-slate-500/40 cursor-pointer hover:bg-slate-500/30"
-                                title={`Exceção manual ativa${tributo.excecao_motivo ? ` — ${tributo.excecao_motivo}` : ""}. Clique para remover.`}
+                                title={`Exceção manual ativa${tributoRaw.excecao_motivo ? ` — ${tributoRaw.excecao_motivo}` : ""}${tributoRaw.excecao_custo_unitario ? ` · custo manual ${formatCurrency(Number(tributoRaw.excecao_custo_unitario))}/${p.unidade || "un"}` : ""}. Clique para remover.`}
                                 onClick={async () => {
                                   if (!window.confirm("Remover exceção manual e voltar a exibir os avisos de divergência?")) return;
                                   const { error } = await supabase
                                     .from("fin_produto_tributos")
-                                    .update({ excecao_manual: false, excecao_motivo: null, excecao_at: null, excecao_by: null })
+                                    .update({ excecao_manual: false, excecao_motivo: null, excecao_at: null, excecao_by: null, excecao_custo_unitario: null })
                                     .eq("gc_produto_id", String(p.id));
                                   if (error) { toast.error("Falha ao remover exceção: " + error.message); return; }
                                   toast.success("Exceção removida");
                                   refetchTributos();
                                 }}
                               >
-                                🔒 Exceção manual{tributo.excecao_motivo ? ` · ${tributo.excecao_motivo.slice(0, 40)}` : ""}
+                                🔒 Exceção manual{tributoRaw.excecao_custo_unitario ? ` · ${formatCurrency(Number(tributoRaw.excecao_custo_unitario))}/${p.unidade || "un"}` : ""}{tributoRaw.excecao_motivo ? ` · ${tributoRaw.excecao_motivo.slice(0, 30)}` : ""}
                               </Badge>
                             ) : (
-                              hasNF && (() => {
+                              hasNF && tributo && (() => {
                                 const nfCusto = Number(tributo.valor_unitario_nf) || 0;
                                 const gcCusto = Number(p.valor_custo) || 0;
                                 const ultCusto = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
@@ -2474,14 +2480,30 @@ export default function PrecificacaoPage() {
                                     className="ml-2 h-6 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
                                     title="Marcar como exceção manual — silencia alertas (ex: pedido GC já corrigido manualmente e pago)"
                                     onClick={async () => {
-                                      const motivo = window.prompt("Motivo da exceção manual (ex: pedido corrigido manualmente, financeiro já pago):", "Pedido GC corrigido manualmente, financeiro já pago");
+                                      const motivo = window.prompt("Motivo da exceção manual (ex: cadastro 1L mas compra é caixa 10L):", "Cadastro com unidade divergente da compra");
                                       if (motivo == null) return;
+                                      const gcCusto = Number(p.valor_custo) || 0;
+                                      const custoStr = window.prompt(
+                                        `Custo unitário CORRETO por ${p.unidade || "un"} (R$)\n\nDeixe vazio para usar o cadastro GC (${formatCurrency(gcCusto)}).\nEx: se a caixa custou ${formatCurrency(gcCusto)} e tem 10 un, informe ${formatCurrency(gcCusto/10)}`,
+                                        ""
+                                      );
+                                      if (custoStr == null) return;
+                                      const custoNum = custoStr.trim() === "" ? null : parseFloat(custoStr.replace(",", "."));
+                                      if (custoStr.trim() !== "" && (!isFinite(custoNum!) || custoNum! <= 0)) {
+                                        toast.error("Custo unitário inválido");
+                                        return;
+                                      }
                                       const { error } = await supabase
                                         .from("fin_produto_tributos")
-                                        .update({ excecao_manual: true, excecao_motivo: motivo || null, excecao_at: new Date().toISOString() })
+                                        .update({
+                                          excecao_manual: true,
+                                          excecao_motivo: motivo || null,
+                                          excecao_at: new Date().toISOString(),
+                                          excecao_custo_unitario: custoNum,
+                                        })
                                         .eq("gc_produto_id", String(p.id));
                                       if (error) { toast.error("Falha ao marcar exceção: " + error.message); return; }
-                                      toast.success("Exceção manual aplicada — alertas silenciados");
+                                      toast.success(custoNum ? `Exceção aplicada — custo ${formatCurrency(custoNum)}/${p.unidade || "un"}` : "Exceção aplicada — usando custo do GC");
                                       refetchTributos();
                                     }}
                                   >

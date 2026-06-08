@@ -1,0 +1,2 @@
+ALTER TABLE public.fin_produto_tributos ADD COLUMN IF NOT EXISTS excecao_custo_unitario numeric(14,4);
+COMMENT ON COLUMN public.fin_produto_tributos.excecao_custo_unitario IS 'Custo unitário manual definido junto com a exceção manual. Quando preenchido, sobrescreve o valor_custo do GC na precificação.';
