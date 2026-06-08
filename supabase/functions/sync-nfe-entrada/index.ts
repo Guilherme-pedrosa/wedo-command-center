@@ -423,10 +423,24 @@ serve(async (req) => {
       itens: itensByCompra.get(String(c.gc_id)) || [],
     }));
 
-    // ── Step 3: Carrega índice de XMLs (cabe em RAM) ──
-    const { data: xmlIndex } = await supabase
-      .from("fin_nfe_xml_index")
-      .select("chave, numero_nf, cnpj_emitente, nome_emitente, data_emissao, valor_total, valor_produtos, qtd_itens, storage_path");
+    // ── Step 3: Carrega índice de XMLs (cabe em RAM) — pagina para evitar limite de 1000 ──
+    const xmlIndex: XmlIndexRow[] = [];
+    {
+      const pageSize = 1000;
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from("fin_nfe_xml_index")
+          .select("chave, numero_nf, cnpj_emitente, nome_emitente, data_emissao, valor_total, valor_produtos, qtd_itens, storage_path")
+          .range(from, from + pageSize - 1);
+        if (error) throw new Error(`select xml_index: ${error.message}`);
+        if (!data || data.length === 0) break;
+        xmlIndex.push(...(data as XmlIndexRow[]));
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+    }
+
 
     const byKey = new Map<string, XmlIndexRow[]>(); // key = cnpj|numero
     const byCnpj = new Map<string, XmlIndexRow[]>();
