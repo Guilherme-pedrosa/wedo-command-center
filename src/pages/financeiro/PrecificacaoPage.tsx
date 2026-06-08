@@ -2443,17 +2443,42 @@ export default function PrecificacaoPage() {
                             const diffPct = ((gcCusto - nfCusto) / nfCusto) * 100;
                             if (Math.abs(diffPct) < 1) return null;
                             const acima = diffPct > 0;
+                            const key = `custo:${p.id}`;
+                            const args: AtualizarCustoArgs = {
+                              gc_produto_id: String(p.id),
+                              nome_produto: p.nome,
+                              custo_atual_gc: gcCusto,
+                              custo_novo: nfCusto,
+                              origem_label: `NF c/ frete${ipiPct > 0 ? "+IPI" : ""} (base ${formatCurrency(nfBase)} + frete ${fretePct}%${ipiPct > 0 ? ` + IPI ${ipiPct}%` : ""})`,
+                            };
                             return (
-                              <Badge
-                                className={`ml-2 text-[10px] py-0 ${
-                                  acima
-                                    ? "bg-red-500/20 text-red-400 border-red-500/30"
-                                    : "bg-orange-500/20 text-orange-400 border-orange-500/30"
-                                }`}
-                                title={`GC: ${formatCurrency(gcCusto)} · NF c/ frete${ipiPct > 0 ? "+IPI" : ""}: ${formatCurrency(nfCusto)} (base ${formatCurrency(nfBase)} + frete ${fretePct}%${ipiPct > 0 ? ` + IPI ${ipiPct}%` : ""}) · diff: ${diffPct.toFixed(1)}%`}
-                              >
-                                {`⚠ Custo GC ${acima ? "acima" : "abaixo"} da NF (${diffPct > 0 ? "+" : ""}${diffPct.toFixed(1)}%)`}
-                              </Badge>
+                              <>
+                                <Badge
+                                  className={`ml-2 text-[10px] py-0 ${
+                                    acima
+                                      ? "bg-red-500/20 text-red-400 border-red-500/30"
+                                      : "bg-orange-500/20 text-orange-400 border-orange-500/30"
+                                  }`}
+                                  title={`GC: ${formatCurrency(gcCusto)} · NF c/ frete${ipiPct > 0 ? "+IPI" : ""}: ${formatCurrency(nfCusto)} (base ${formatCurrency(nfBase)} + frete ${fretePct}%${ipiPct > 0 ? ` + IPI ${ipiPct}%` : ""}) · diff: ${diffPct.toFixed(1)}%`}
+                                >
+                                  {`⚠ Custo GC ${acima ? "acima" : "abaixo"} da NF (${diffPct > 0 ? "+" : ""}${diffPct.toFixed(1)}%)`}
+                                </Badge>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className={`ml-2 h-6 px-2 text-[10px] gap-1 ${
+                                    acima
+                                      ? "border-red-500/50 text-red-300 hover:bg-red-500/10"
+                                      : "border-orange-500/50 text-orange-300 hover:bg-orange-500/10"
+                                  }`}
+                                  disabled={!!atualizandoCustoKey || !!bulkCorrigindo || !!corrigindoKey}
+                                  onClick={() => atualizarCustoGC(args)}
+                                  title={`Atualiza o cadastro no GC: ${formatCurrency(gcCusto)} → ${formatCurrency(nfCusto)} (origem: ${args.origem_label})`}
+                                >
+                                  {atualizandoCustoKey === key ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                                  Atualizar custo GC → {formatCurrency(nfCusto)}
+                                </Button>
+                              </>
                             );
                           })()}
                           {(() => {
