@@ -195,6 +195,7 @@ function nomeSimilar(a: string | null, b: string | null, threshold = 0.35): bool
 const CNPJ_PRAZO_ESTENDIDO = [
   "67945071", // Sapore S.A.
   "49930514", // Sodexo Do Brasil Comercial S.A. (CNPJ raiz correto)
+  "00536772", // Ecolab Química Ltda (paga consolidado antes do vencimento)
 ];
 
 function isClientePrazoEstendido(doc: string | null | undefined): boolean {
@@ -660,7 +661,7 @@ function tentarSomaParcelas(
     return a.dateDiff - b.dateDiff;
   };
 
-  const buildAttemptPool = (items: any[], sorter: (a: any, b: any) => number, limit = 24) => {
+  const buildAttemptPool = (items: any[], sorter: (a: any, b: any) => number, limit = 60) => {
     const seen = new Set<string>();
     return items
       .slice()
@@ -676,22 +677,26 @@ function tentarSomaParcelas(
 
   const candidatosDoc = candidatos.filter((c: any) => c.docOk);
   const attemptPools = [
-    buildAttemptPool(candidatosDoc.length >= 2 ? candidatosDoc : candidatos, sortByRelevancia, 24),
-    buildAttemptPool(candidatos, sortByRelevancia, 24),
-    buildAttemptPool(candidatosDoc.length >= 2 ? candidatosDoc : candidatos, sortByValor, 24),
-    buildAttemptPool(candidatos, sortByValor, 24),
+    buildAttemptPool(candidatosDoc.length >= 2 ? candidatosDoc : candidatos, sortByRelevancia, 60),
+    buildAttemptPool(candidatos, sortByRelevancia, 60),
+    buildAttemptPool(candidatosDoc.length >= 2 ? candidatosDoc : candidatos, sortByValor, 60),
+    buildAttemptPool(candidatos, sortByValor, 60),
   ];
 
-  for (const attempt of attemptPools) {
+  for (let i = 0; i < attemptPools.length; i++) {
+    const attempt = attemptPools[i];
     if (attempt.length < 2) continue;
+    console.log(`[SOMA_PARCELAS] attempt ${i}: ${attempt.length} cand, target=${extValor.toFixed(2)}, total=${attempt.reduce((s,x)=>s+Number(x.valor),0).toFixed(2)}`);
     const result = findSubsetSum(attempt, extValor, 0.01);
     if (result) {
+      console.log(`[SOMA_PARCELAS] ✓ match with ${result.length} parcelas`);
       return {
         parcelas: result.map((fin: any) => ({ id: fin.id, valor: Number(fin.valor), tabela })),
         rule: "SOMA_PARCELAS",
       };
     }
   }
+  console.log(`[SOMA_PARCELAS] ✗ no match for ${extValor.toFixed(2)} after ${attemptPools.length} attempts`);
 
   return null;
 }
@@ -707,34 +712,72 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
   const values = sorted.map((item) => Math.round(Number(item.valor) * 100));
   const targetCents = Math.round(target * 100);
   const toleranceCents = Math.max(1, Math.round(tolerance * 100));
-  const maxSize = Math.min(n, 8);
-  const suffixSum = new Array(n + 1).fill(0);
-  const memo = new Set<string>();
 
-  for (let i = n - 1; i >= 0; i--) {
-    suffixSum[i] = suffixSum[i + 1] + values[i];
+  function searchSubset(
+    vals: number[],
+    targetCentsLocal: number,
+    maxSize: number,
+    nodeLimit = 200_000,
+  ): number[] | null {
+    const nn = vals.length;
+    if (nn === 0) return null;
+    const suffixSum = new Array(nn + 1).fill(0);
+    for (let i = nn - 1; i >= 0; i--) suffixSum[i] = suffixSum[i + 1] + vals[i];
+    let nodes = 0;
+    let aborted = false;
+
+    function search(idx: number, remaining: number, selected: number[]): number[] | null {
+      if (aborted) return null;
+      if (++nodes > nodeLimit) { aborted = true; return null; }
+      if (Math.abs(remaining) <= toleranceCents && selected.length >= 1) return selected;
+      if (idx >= nn || selected.length >= maxSize || remaining < -toleranceCents) return null;
+      if (remaining > suffixSum[idx] + toleranceCents) return null;
+
+      const withItem = search(idx + 1, remaining - vals[idx], [...selected, idx]);
+      if (withItem) return withItem;
+      return search(idx + 1, remaining, selected);
+    }
+
+    return search(0, targetCentsLocal, []);
   }
 
-  function search(idx: number, remaining: number, selected: number[]): number[] | null {
-    if (Math.abs(remaining) <= toleranceCents && selected.length >= 2) return selected;
-    if (idx >= n || selected.length >= maxSize || remaining < -toleranceCents) return null;
-    if (remaining > suffixSum[idx] + toleranceCents) return null;
-
-    const key = `${idx}:${remaining}:${selected.length}`;
-    if (memo.has(key)) return null;
-
-    const withItem = search(idx + 1, remaining - values[idx], [...selected, idx]);
-    if (withItem) return withItem;
-
-    const withoutItem = search(idx + 1, remaining, selected);
-    if (withoutItem) return withoutItem;
-
-    memo.add(key);
-    return null;
+  // 1) Busca direta: subset pequeno (até 8 itens) que SOMA ao alvo, usando os 24 maiores.
+  const directPool = values.slice(0, Math.min(n, 24));
+  const direct = searchSubset(directPool, targetCents, Math.min(directPool.length, 8));
+  if (direct && direct.length >= 2) {
+    return direct.map((i) => sorted[i]);
   }
 
-  const indexes = search(0, targetCents, []);
-  return indexes ? indexes.map((index) => sorted[index]) : null;
+  // 2) Busca por COMPLEMENTO iterativa: para fatura consolidada (cliente paga muitas
+  //    parcelas num crédito só), encontra o pool mínimo cuja soma ≥ alvo e procura o
+  //    pequeno subconjunto a REMOVER. Expande o pool se a remoção não couber em ≤6 itens.
+  let cumulative = 0;
+  let kStar = -1;
+  for (let i = 0; i < n; i++) {
+    cumulative += values[i];
+    if (cumulative >= targetCents - toleranceCents) { kStar = i + 1; break; }
+  }
+  if (kStar > 0) {
+    const maxK = Math.min(n, kStar + 12);
+    for (let k = kStar; k <= maxK; k++) {
+      const subset = values.slice(0, k);
+      const total = subset.reduce((s, v) => s + v, 0);
+      const excess = total - targetCents;
+      if (Math.abs(excess) <= toleranceCents) {
+        return sorted.slice(0, k); // soma exata
+      }
+      if (excess > toleranceCents) {
+        const toRemove = searchSubset(subset, excess, Math.min(k, 6));
+        if (toRemove) {
+          const removeSet = new Set(toRemove);
+          const kept = sorted.slice(0, k).filter((_, i) => !removeSet.has(i));
+          if (kept.length >= 2) return kept;
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 // ═══════════════════════════════════════════════════════════
