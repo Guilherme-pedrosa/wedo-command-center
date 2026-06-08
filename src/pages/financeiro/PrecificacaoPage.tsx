@@ -246,6 +246,15 @@ function hasEntradaFiscal(tributo?: ProdutoTributo) {
   return (Number(tributo.valor_unitario_nf) || 0) > 0;
 }
 
+function getCustoBrutoComFreteIpi(tributo?: ProdutoTributo) {
+  if (!tributo) return 0;
+  const base = Number(tributo.valor_unitario_nf) || 0;
+  if (base <= 0) return 0;
+  const fretePct = Number(tributo.frete_percentual) || 0;
+  const ipiPct = Number(tributo.ipi_aliquota_manual ?? tributo.ipi_aliquota) || 0;
+  return base * (1 + fretePct / 100 + ipiPct / 100);
+}
+
 /**
  * Nunca inferir conversão de unidade por múltiplo de preço.
  * Ex.: "19mmx20m" é medida física do produto, não quantidade 20.
@@ -2389,16 +2398,17 @@ export default function PrecificacaoPage() {
                     const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0
                       ? ultimaCompra.valor_custo
                       : 0;
-                    // Exceção manual: força custo do cadastro GC (ignora NF/última compra com unidade divergente)
+                    const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
+                    const tributoParaCalculo = tributoRaw?.excecao_manual ? undefined : tributoCompat;
+                    const kitRatio = detectKitRatio(tributoParaCalculo, custoUltimaCompra || custoCache);
+                    const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
+                    const hasNF = hasEntradaFiscal(tributo);
+                    const custoTributoComFreteIpi = getCustoBrutoComFreteIpi(tributo);
+                    // Exceção manual: força custo do cadastro GC. Caso contrário, NF editada + frete/IPI manda no custo bruto.
                     const custoOverride = tributoRaw?.excecao_custo_unitario;
                     const custoBruto = excecao
                       ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
-                      : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache);
-                    const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-                    const tributoParaCalculo = tributoRaw?.excecao_manual ? undefined : tributoCompat;
-                    const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
-                    const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
-                   const hasNF = hasEntradaFiscal(tributo);
+                      : (custoTributoComFreteIpi > 0 ? custoTributoComFreteIpi : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache));
                     const custoBase = custoBruto;
                    // Tabelas dinâmicas — preços reais vêm de valoresMap por tipo_id (não há mais markup hardcoded A/B/P)
 
@@ -2410,7 +2420,7 @@ export default function PrecificacaoPage() {
                     ? { ...taxSaida, icmsSaida: icmsOvLinha }
                     : taxSaida;
                   if (hasNF) {
-                    const nfCalc = calcPricingWithNF(tributo, taxSaidaLinha, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, custoBruto);
+                    const nfCalc = calcPricingWithNF(tributo, taxSaidaLinha, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
                       creditoPis: nfCalc.creditoPis,
