@@ -72,6 +72,7 @@ interface ProdutoTributo {
   q_trib?: number | null;
   v_un_trib?: number | null;
   fator_conversao?: number | null;
+  fator_embalagem?: number | null;
 }
 
 interface UltimaCompraProduto {
@@ -2540,6 +2541,11 @@ export default function PrecificacaoPage() {
                                      {(tributo.q_com || tributo.v_un_com || tributo.unidade_comercial_nf) && (
                                        <Badge variant="outline" className="text-[9px] border-blue-500/40 text-blue-400">
                                          NF {tributo.q_com ?? "—"} {tributo.unidade_comercial_nf || "UN"} × {tributo.v_un_com != null ? formatCurrency(Number(tributo.v_un_com)) : "—"}
+                                       </Badge>
+                                     )}
+                                     {tributo.fator_embalagem != null && Number(tributo.fator_embalagem) > 1.001 && (
+                                       <Badge variant="outline" className="text-[9px] border-amber-500/50 text-amber-400">
+                                         📦 Embalagem c/ {Number(tributo.fator_embalagem)} un → {formatCurrency(tributo.valor_unitario_nf)}/un
                                        </Badge>
                                      )}
 

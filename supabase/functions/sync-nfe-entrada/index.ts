@@ -89,6 +89,7 @@ interface ProductTaxRecord {
   q_trib: number;
   v_un_trib: number;
   fator_conversao: number;
+  fator_embalagem: number;
   v_seg: number;
   v_outro: number;
   v_desc: number;
@@ -803,7 +804,7 @@ function processarXml(
       descricao_nf: "",
       unidade_comercial_nf: "",
       unidade_tributavel_nf: "",
-      q_com: 0, v_un_com: 0, q_trib: 0, v_un_trib: 0, fator_conversao: 1,
+      q_com: 0, v_un_com: 0, q_trib: 0, v_un_trib: 0, fator_conversao: 1, fator_embalagem: 1,
       v_seg: 0, v_outro: 0, v_desc: 0, v_icms_st: 0, v_fcp_st: 0,
       v_icms_uf_dest: 0, v_icms_uf_remet: 0,
       // custo_variavel_real NÃO é gravado — fonte é gc_produtos_cache.valor_custo via v_produto_custo_atual
@@ -851,7 +852,31 @@ function processarXml(
 
     usedXmlIdx.add(pick.idx);
     const xi = pick.xi;
-    const qtd = xi.qCom || 1;
+    const qComRaw = xi.qCom || 1;
+    const compraQtd = item.quantidade || 0;
+
+    // ── Detecção de embalagem ──
+    // Quando o XML diz "1 pacote" mas o pedido tem "100 un" e o TOTAL bate,
+    // a unidade de venda é diferente da unidade comercial da NF.
+    // Nesse caso, dividimos o valor total da NF pela quantidade do pedido
+    // para obter o custo real por unidade de venda.
+    let fatorEmbalagem = 1;
+    let qtd = qComRaw;
+    let packRuleTag = "";
+    if (compraQtd > 0 && qComRaw > 0) {
+      const totalNF = xi.vProd;
+      const totalPedido = item.valor_total || (item.valor_custo * compraQtd);
+      const ratio = compraQtd / qComRaw;
+      const totaisBatem = totalPedido > 0 &&
+        Math.abs(totalNF - totalPedido) / Math.max(totalNF, totalPedido) <= 0.05;
+      const qtdsDiferentes = Math.abs(ratio - 1) > 0.05;
+      if (totaisBatem && qtdsDiferentes) {
+        fatorEmbalagem = Math.round(ratio * 10000) / 10000;
+        qtd = compraQtd;
+        packRuleTag = `+pack:${fatorEmbalagem}x`;
+      }
+    }
+
     const valorUnit = xi.vProd / qtd;
     const proporcao = totalVProd > 0 ? xi.vProd / totalVProd : 0;
     const freteUnit = qtd > 0 ? (xmlFrete * proporcao) / qtd : 0;
@@ -902,7 +927,7 @@ function processarXml(
       valor_ipi_unit: r(ipiUnit),
       valor_frete_unit: r(freteUnit),
       custo_efetivo_unit: r(custoEfetivo),
-      match_rule: `pedido_compra_gc+${pick.rule}`,
+      match_rule: `pedido_compra_gc+${pick.rule}${packRuleTag}`,
       descricao_nf: xi.xProd || "",
       unidade_comercial_nf: xi.uCom || "",
       unidade_tributavel_nf: xi.uTrib || "",
@@ -911,6 +936,7 @@ function processarXml(
       q_trib: r(qTribEst),
       v_un_trib: r(xi.vUnTrib),
       fator_conversao: Math.round(fatorConversao * 10000) / 10000,
+      fator_embalagem: fatorEmbalagem,
       v_seg: r(xi.vSeg),
       v_outro: r(xi.vOutro),
       v_desc: r(xi.vDesc),
