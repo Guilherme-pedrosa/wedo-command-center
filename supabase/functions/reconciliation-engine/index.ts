@@ -741,30 +741,39 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
     return search(0, targetCentsLocal, []);
   }
 
-  // 1) Busca direta: subset pequeno que SOMA ao alvo. Limita pool aos 24 maiores
-  //    para manter custo computacional baixo.
+  // 1) Busca direta: subset pequeno (até 8 itens) que SOMA ao alvo, usando os 24 maiores.
   const directPool = values.slice(0, Math.min(n, 24));
   const direct = searchSubset(directPool, targetCents, Math.min(directPool.length, 8));
   if (direct && direct.length >= 2) {
     return direct.map((i) => sorted[i]);
   }
 
-  // 2) Busca por COMPLEMENTO: quando todos os candidatos somam mais que o alvo,
-  //    encontra o subconjunto PEQUENO a REMOVER. Essencial p/ clientes que pagam
-  //    fatura consolidada de muitas parcelas (ex.: Ecolab — 25-30 NFs num crédito só).
-  const totalCents = values.reduce((s, v) => s + v, 0);
-  const excessCents = totalCents - targetCents;
-  if (Math.abs(excessCents) <= toleranceCents && n >= 2) {
-    return sorted;
+  // 2) Busca por COMPLEMENTO iterativa: para fatura consolidada (cliente paga muitas
+  //    parcelas num crédito só), encontra o pool mínimo cuja soma ≥ alvo e procura o
+  //    pequeno subconjunto a REMOVER. Expande o pool se a remoção não couber em ≤6 itens.
+  let cumulative = 0;
+  let kStar = -1;
+  for (let i = 0; i < n; i++) {
+    cumulative += values[i];
+    if (cumulative >= targetCents - toleranceCents) { kStar = i + 1; break; }
   }
-  if (excessCents > toleranceCents) {
-    // procura subset que some "excesso" usando todos os candidatos, mas com
-    // maxSize pequeno (≤6) — o conjunto a REMOVER é tipicamente pequeno.
-    const toRemove = searchSubset(values, excessCents, Math.min(n, 6));
-    if (toRemove) {
-      const removeSet = new Set(toRemove);
-      const kept = sorted.filter((_, i) => !removeSet.has(i));
-      if (kept.length >= 2) return kept;
+  if (kStar > 0) {
+    const maxK = Math.min(n, kStar + 12);
+    for (let k = kStar; k <= maxK; k++) {
+      const subset = values.slice(0, k);
+      const total = subset.reduce((s, v) => s + v, 0);
+      const excess = total - targetCents;
+      if (Math.abs(excess) <= toleranceCents) {
+        return sorted.slice(0, k); // soma exata
+      }
+      if (excess > toleranceCents) {
+        const toRemove = searchSubset(subset, excess, Math.min(k, 6));
+        if (toRemove) {
+          const removeSet = new Set(toRemove);
+          const kept = sorted.slice(0, k).filter((_, i) => !removeSet.has(i));
+          if (kept.length >= 2) return kept;
+        }
+      }
     }
   }
 
