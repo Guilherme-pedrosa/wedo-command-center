@@ -804,7 +804,7 @@ function processarXml(
       descricao_nf: "",
       unidade_comercial_nf: "",
       unidade_tributavel_nf: "",
-      q_com: 0, v_un_com: 0, q_trib: 0, v_un_trib: 0, fator_conversao: 1,
+      q_com: 0, v_un_com: 0, q_trib: 0, v_un_trib: 0, fator_conversao: 1, fator_embalagem: 1,
       v_seg: 0, v_outro: 0, v_desc: 0, v_icms_st: 0, v_fcp_st: 0,
       v_icms_uf_dest: 0, v_icms_uf_remet: 0,
       // custo_variavel_real NÃO é gravado — fonte é gc_produtos_cache.valor_custo via v_produto_custo_atual
