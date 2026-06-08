@@ -2395,7 +2395,10 @@ export default function PrecificacaoPage() {
                           {(() => {
                             if (!hasNF) return null;
                             if (tributo?.excecao_manual) return null;
-                            const nfCusto = Number(tributo.valor_unitario_nf) || 0;
+                            const nfBase = Number(tributo.valor_unitario_nf) || 0;
+                            const fretePct = Number(tributo.frete_percentual) || 0;
+                            const ipiPct = Number(tributo.ipi_aliquota_manual ?? tributo.ipi_aliquota) || 0;
+                            const nfCusto = nfBase * (1 + fretePct / 100 + ipiPct / 100);
                             const gcCusto = Number(p.valor_custo) || 0;
                             if (nfCusto <= 0 || gcCusto <= 0) return null;
                             const diffPct = ((gcCusto - nfCusto) / nfCusto) * 100;
@@ -2408,7 +2411,7 @@ export default function PrecificacaoPage() {
                                     ? "bg-red-500/20 text-red-400 border-red-500/30"
                                     : "bg-orange-500/20 text-orange-400 border-orange-500/30"
                                 }`}
-                                title={`GC: ${formatCurrency(gcCusto)} · NF: ${formatCurrency(nfCusto)} · diff: ${diffPct.toFixed(1)}%`}
+                                title={`GC: ${formatCurrency(gcCusto)} · NF c/ frete${ipiPct > 0 ? "+IPI" : ""}: ${formatCurrency(nfCusto)} (base ${formatCurrency(nfBase)} + frete ${fretePct}%${ipiPct > 0 ? ` + IPI ${ipiPct}%` : ""}) · diff: ${diffPct.toFixed(1)}%`}
                               >
                                 {`⚠ Custo GC ${acima ? "acima" : "abaixo"} da NF (${diffPct > 0 ? "+" : ""}${diffPct.toFixed(1)}%)`}
                               </Badge>
