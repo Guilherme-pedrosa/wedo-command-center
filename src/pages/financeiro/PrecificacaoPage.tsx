@@ -2169,7 +2169,7 @@ export default function PrecificacaoPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todos">Todos</SelectItem>
-                  <SelectItem value="divergentes">⚠ Custo divergente (≥2× GC)</SelectItem>
+                  <SelectItem value="divergentes">⚠ Custo divergente (≥2× em qualquer direção)</SelectItem>
                   <SelectItem value="ok">Sem divergência</SelectItem>
                 </SelectContent>
               </Select>
