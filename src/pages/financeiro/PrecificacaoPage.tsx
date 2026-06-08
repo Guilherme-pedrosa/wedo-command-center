@@ -38,6 +38,7 @@ interface GCProduto {
 interface ProdutoTributo {
   gc_produto_id: string;
   nome_produto: string;
+  descricao_nf?: string | null;
   ncm: string | null;
   cfop: string | null;
   nf_numero: string | null;
@@ -64,6 +65,13 @@ interface ProdutoTributo {
   valor_ipi_unit: number;
   valor_frete_unit: number;
   custo_efetivo_unit: number;
+  unidade_comercial_nf?: string | null;
+  unidade_tributavel_nf?: string | null;
+  q_com?: number | null;
+  v_un_com?: number | null;
+  q_trib?: number | null;
+  v_un_trib?: number | null;
+  fator_conversao?: number | null;
 }
 
 interface UltimaCompraProduto {
@@ -214,23 +222,11 @@ function isTributoCompativelComProduto(produto: GCProduto, tributo?: ProdutoTrib
 }
 
 /**
- * Detecta quando o valor_unitario_nf representa um KIT/embalagem maior do que a
- * unidade que o GC vende. Heurística: ratio nf/gc >= 2 e desvio do múltiplo
- * inteiro mais próximo <= 25% — significa que a NF veio em kit (ex.: caixa,
- * milheiro) e o preço unitário precisa ser dividido para casar com a unidade GC.
- * Retorna 1 quando não é kit (ou quando faltam dados pra inferir).
+ * Nunca inferir conversão de unidade por múltiplo de preço.
+ * Ex.: "19mmx20m" é medida física do produto, não quantidade 20.
  */
-function detectKitRatio(tributo: ProdutoTributo | undefined, gcCusto: number): number {
-  if (!tributo || !gcCusto || gcCusto <= 0) return 1;
-  const nfUnit = Number(tributo.valor_unitario_nf) || 0;
-  if (nfUnit <= 0) return 1;
-  const ratio = nfUnit / gcCusto;
-  if (ratio < 1.8) return 1;
-  const r = Math.round(ratio);
-  if (r < 2) return 1;
-  const dev = Math.abs(nfUnit - r * gcCusto) / nfUnit;
-  if (dev > 0.25) return 1;
-  return r;
+function detectKitRatio(_tributo: ProdutoTributo | undefined, _gcCusto: number): number {
+  return 1;
 }
 
 function ajustarTributoPorKit(tributo: ProdutoTributo, ratio: number): ProdutoTributo {
@@ -1751,11 +1747,18 @@ export default function PrecificacaoPage() {
       const situacaoCompra = ultimaCompra?.nome_situacao || "";
       const custoGCCadastro = Number(p.valor_custo) || 0;
       const custoNF = tributo?.valor_unitario_nf ?? "";
+      const descricaoNF = tributo?.descricao_nf || tributo?.nome_produto || "";
+      const qtdNF = tributo?.q_com ?? "";
+      const unidadeNF = tributo?.unidade_comercial_nf || "";
+      const valorUnitXml = tributo?.v_un_com ?? "";
+      const qtdTribNF = tributo?.q_trib ?? "";
+      const unidadeTribNF = tributo?.unidade_tributavel_nf || "";
       const ratio = custoGCCadastro > 0 && custoUltimaCompra > 0 ? custoUltimaCompra / custoGCCadastro : 0;
       const alertas: string[] = [];
       if (ratio >= 2) alertas.push(`⚠ Última compra ${ratio.toFixed(1)}× maior que GC — checar unidade`);
       if (custoGCCadastro > 0 && custoUltimaCompra > 0 && custoUltimaCompra < custoGCCadastro * 0.5) alertas.push(`⚠ Última compra ${(custoGCCadastro/custoUltimaCompra).toFixed(1)}× MENOR que GC`);
       if (!hasNF) alertas.push("Sem tributo NF (sem crédito de entrada)");
+      if (hasNF && !descricaoNF) alertas.push("NF sem descrição original gravada");
       if (ultimaCompra && !ultimaCompra.numero_nfe) alertas.push("Última compra sem nº de NF");
       if (custoUltimaCompra <= 0) alertas.push("Sem histórico de compra");
       rows.push({
@@ -1766,6 +1769,12 @@ export default function PrecificacaoPage() {
         "Custo GC Cadastro": custoGCCadastro,
         "Custo Ultima Compra": ultimaCompra?.valor_custo ?? "",
         "Custo NF (tributo)": custoNF,
+        "Descricao NF Original": descricaoNF,
+        "Qtd NF": qtdNF,
+        "Un NF": unidadeNF,
+        "Valor Unit NF XML": valorUnitXml,
+        "Qtd Tributavel NF": qtdTribNF,
+        "Un Tributavel NF": unidadeTribNF,
         "Custo Bruto Usado": custoBruto,
         "Divergencia (UltCompra/GC)": ratio > 0 ? `${ratio.toFixed(2)}x` : "",
         "Alerta": alertas.join(" | "),
@@ -2528,6 +2537,11 @@ export default function PrecificacaoPage() {
                                         </Badge>
                                       );
                                     })()}
+                                     {(tributo.q_com || tributo.v_un_com || tributo.unidade_comercial_nf) && (
+                                       <Badge variant="outline" className="text-[9px] border-blue-500/40 text-blue-400">
+                                         NF {tributo.q_com ?? "—"} {tributo.unidade_comercial_nf || "UN"} × {tributo.v_un_com != null ? formatCurrency(Number(tributo.v_un_com)) : "—"}
+                                       </Badge>
+                                     )}
 
                                   </div>
                                 );
@@ -2543,6 +2557,14 @@ export default function PrecificacaoPage() {
                                 </div>
                               )}
                               <p className="font-semibold">NF #{tributo.nf_numero} — {tributo.fornecedor_nome}</p>
+                               <p><span className="font-semibold">Descrição NF: </span>{tributo.descricao_nf || tributo.nome_produto || "—"}</p>
+                               <p>
+                                 <span className="font-semibold">Item NF: </span>
+                                 qtd {tributo.q_com ?? "—"} {tributo.unidade_comercial_nf || "—"} · unit {tributo.v_un_com != null ? formatCurrency(Number(tributo.v_un_com)) : "—"}
+                               </p>
+                               {(tributo.q_trib || tributo.v_un_trib || tributo.unidade_tributavel_nf) && (
+                                 <p>Tributável: qtd {tributo.q_trib ?? "—"} {tributo.unidade_tributavel_nf || "—"} · unit {tributo.v_un_trib != null ? formatCurrency(Number(tributo.v_un_trib)) : "—"}</p>
+                               )}
                               {tributo.match_rule && (
                                 <p className="mt-1">
                                   <span className="font-semibold">Match: </span>

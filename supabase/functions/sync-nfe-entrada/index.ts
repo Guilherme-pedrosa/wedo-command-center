@@ -80,6 +80,9 @@ interface ProductTaxRecord {
   valor_frete_unit: number;
   custo_efetivo_unit: number;
   match_rule: string;
+  descricao_nf: string;
+  unidade_comercial_nf: string;
+  unidade_tributavel_nf: string;
   // Bloco 1.9: campos extras de NF para cálculo real
   q_com: number;
   v_un_com: number;
@@ -797,6 +800,9 @@ function processarXml(
       valor_icms_unit: 0, valor_pis_unit: 0, valor_cofins_unit: 0, valor_ipi_unit: 0, valor_frete_unit: 0,
       custo_efetivo_unit: 0,
       match_rule: "pedido_compra_gc_sem_xml_item",
+      descricao_nf: "",
+      unidade_comercial_nf: "",
+      unidade_tributavel_nf: "",
       q_com: 0, v_un_com: 0, q_trib: 0, v_un_trib: 0, fator_conversao: 1,
       v_seg: 0, v_outro: 0, v_desc: 0, v_icms_st: 0, v_fcp_st: 0,
       v_icms_uf_dest: 0, v_icms_uf_remet: 0,
@@ -831,8 +837,11 @@ function processarXml(
       }
     }
 
-    // Sem fallback por nome/valor/ordem: a NF só enriquece tributos quando o
-    // item do pedido GC aponta para um produto cadastrado e o XML traz o mesmo código.
+    // Fallback seguro: NF com 1 item e pedido com 1 item é correspondência inequívoca,
+    // mesmo quando o cProd da NF não bate com o código interno do cadastro GC.
+    if (!pick && compraItens.length === 1 && xmlItems.length === 1 && !usedXmlIdx.has(0)) {
+      pick = { xi: xmlItems[0], idx: 0, rule: "unico" };
+    }
 
     if (!pick) {
       // Sem correspondência confiável → grava tributo vazio mas com produto_gc_id
@@ -894,6 +903,9 @@ function processarXml(
       valor_frete_unit: r(freteUnit),
       custo_efetivo_unit: r(custoEfetivo),
       match_rule: `pedido_compra_gc+${pick.rule}`,
+      descricao_nf: xi.xProd || "",
+      unidade_comercial_nf: xi.uCom || "",
+      unidade_tributavel_nf: xi.uTrib || "",
       q_com: r(qComEst),
       v_un_com: r(xi.vUnCom),
       q_trib: r(qTribEst),
