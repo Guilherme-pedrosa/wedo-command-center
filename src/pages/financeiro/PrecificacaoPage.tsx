@@ -454,37 +454,11 @@ export default function PrecificacaoPage() {
 
       if (error) throw error;
 
-      // Auto-aplica novo custo no GC sempre que frete/IPI muda o custo de cadastro.
-      const nfCusto = valorUnit * (1 + frete / 100 + ipi / 100);
-      const { data: produtoAtual } = await supabase
-        .from("gc_produtos_cache")
-        .select("valor_custo")
-        .eq("produto_gc_id", String(manualTributoProduto.id))
-        .maybeSingle();
-      const gcCusto = Number(produtoAtual?.valor_custo ?? (manualTributoProduto as any).valor_custo) || 0;
-      const diffPct = gcCusto > 0 ? Math.abs((gcCusto - nfCusto) / nfCusto) * 100 : 100;
-      if (nfCusto > 0 && Math.abs(gcCusto - nfCusto) >= 0.01) {
-        toast.success("Crédito salvo — atualizando custo no GC...");
-        setManualTributoOpen(false);
-        await refetchTributos();
-        const r = await atualizarCustoGCCore({
-          gc_produto_id: String(manualTributoProduto.id),
-          nome_produto: manualTributoProduto.nome,
-          custo_atual_gc: gcCusto,
-          custo_novo: nfCusto,
-          origem_label: `Manual NF + frete ${frete}%${ipi > 0 ? ` + IPI ${ipi}%` : ""}`,
-        });
-        if (r.ok) {
-          await Promise.all([refetchProdutosCacheValores(), refetchProdutos()]);
-          toast.success(`Custo no GC: ${formatCurrency(gcCusto)} → ${formatCurrency(nfCusto)}`);
-        } else {
-          toast.error(`Tributo salvo, mas falhou ao atualizar custo no GC: ${r.erro}`);
-        }
-      } else {
-        toast.success("Crédito manual salvo");
-        setManualTributoOpen(false);
-        await refetchTributos();
-      }
+      // IMPORTANTE: NÃO altera valor_custo no GC automaticamente.
+      // Custo no GC só muda via clique explícito no botão "Atualizar custo".
+      toast.success("Crédito manual salvo");
+      setManualTributoOpen(false);
+      await refetchTributos();
     } catch (e: any) {
       toast.error(`Falha ao salvar: ${e.message || e}`);
     } finally {
