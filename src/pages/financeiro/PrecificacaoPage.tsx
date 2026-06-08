@@ -950,8 +950,9 @@ export default function PrecificacaoPage() {
       const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
       // Exceção manual: ignora NF e última compra (provavelmente unidade divergente);
       // usa exclusivamente o custo cadastrado no GC.
+      const custoOverride = tributoRaw?.excecao_custo_unitario;
       const custoBruto = excecao
-        ? (parseFloat(p.valor_custo) || 0)
+        ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0)));
       const tributoCompat = !excecao && isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const kitRatio = detectKitRatio(tributoCompat, custoBruto);
@@ -1015,8 +1016,9 @@ export default function PrecificacaoPage() {
       const tributoRaw = tributosMap.get(p.id);
       const excecao = !!tributoRaw?.excecao_manual;
       const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+      const custoOverride = tributoRaw?.excecao_custo_unitario;
       const custoBruto = excecao
-        ? (parseFloat(p.valor_custo) || 0)
+        ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0)));
       const tributoCompat = !excecao && isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const kitRatio = detectKitRatio(tributoCompat, custoBruto);
@@ -1718,8 +1720,9 @@ export default function PrecificacaoPage() {
       const tributoRaw = tributosMap.get(p.id);
       const excecao = !!tributoRaw?.excecao_manual;
       const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+      const custoOverride = tributoRaw?.excecao_custo_unitario;
       const custoBruto = excecao
-        ? (parseFloat(p.valor_custo) || 0)
+        ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache);
       const tributoCompat = !excecao && isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const kitRatio = detectKitRatio(tributoCompat, custoBruto);
@@ -2296,8 +2299,9 @@ export default function PrecificacaoPage() {
                       ? ultimaCompra.valor_custo
                       : 0;
                     // Exceção manual: força custo do cadastro GC (ignora NF/última compra com unidade divergente)
+                    const custoOverride = tributoRaw?.excecao_custo_unitario;
                     const custoBruto = excecao
-                      ? (parseFloat(p.valor_custo) || 0)
+                      ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
                       : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache);
                     const tributoCompat = !excecao && isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
                     const kitRatio = detectKitRatio(tributoCompat, custoBruto);
