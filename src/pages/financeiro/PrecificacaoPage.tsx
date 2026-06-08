@@ -338,6 +338,12 @@ export default function PrecificacaoPage() {
   const [calcMargens] = useState([10, 15, 20, 25, 30]);
   // Override de ICMS de saída na Calculadora (vazio = usa o global do header)
   const [calcIcmsSaida, setCalcIcmsSaida] = useState<string>("");
+  // Overrides manuais de créditos de entrada na Calculadora (vazio = usa default global)
+  const [calcIcmsCred, setCalcIcmsCred] = useState<string>("");
+  const [calcPisCred, setCalcPisCred] = useState<string>("");
+  const [calcCofinsCred, setCalcCofinsCred] = useState<string>("");
+  const [calcIpi, setCalcIpi] = useState<string>("");
+  const [calcIpiRecup, setCalcIpiRecup] = useState<boolean>(false);
   // Override de ICMS de saída por produto na tabela (Map<gc_produto_id, %>)
   const [icmsSaidaOverrides, setIcmsSaidaOverrides] = useState<Map<string, number>>(new Map());
   // Seleção de produtos para correção em lote (checkboxes)
