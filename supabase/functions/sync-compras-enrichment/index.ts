@@ -194,7 +194,9 @@ serve(async (req) => {
       }
 
       const json = await resp.json();
-      const d = json?.data?.data ?? json?.data ?? null;
+      // GC retorna {data: {Compra: {...}}} (ou às vezes {data: {data: {...}}} / {data: {...}})
+      const rawData = json?.data?.data ?? json?.data ?? null;
+      const d = rawData?.Compra ?? rawData;
       if (!d || typeof d !== "object") {
         skipped++;
         continue;
