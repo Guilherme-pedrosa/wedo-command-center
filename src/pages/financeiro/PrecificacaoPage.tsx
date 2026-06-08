@@ -1471,12 +1471,12 @@ export default function PrecificacaoPage() {
           body: { offset, batch_size: batchSize },
         });
         if (error) throw error;
-        totalProdutos += data.produtos_processados || 0;
+        totalProdutos += data.upserted || data.produtos_processados || data.produtos_atualizados || 0;
         setSyncProgress(`Processando lote ${offset}...`);
         if (!data.has_more) break;
         offset = data.next_offset;
       }
-      toast.success(`Tributos reprocessados por Pedido GC + XML: ${totalProdutos} produtos`);
+      toast.success(`Tributos reprocessados por Pedido GC + XML: ${totalProdutos} produto(s) gravado(s)`);
       setSyncProgress("");
       refetchTributos();
     } catch (err: unknown) {
