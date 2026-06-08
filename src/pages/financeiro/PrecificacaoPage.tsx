@@ -1748,6 +1748,19 @@ export default function PrecificacaoPage() {
               {bulkCorrigindo === "global-reduzir" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
               Reduzir TODOS p/ margem mín ({allAboveMargin.length})
             </Button>
+            {costMismatchList.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-red-500/50 text-red-300 hover:bg-red-500/10"
+                onClick={() => atualizarCustoGCBatch(costMismatchList, `Atualizar custo GC TODOS (${costMismatchList.length})`)}
+                disabled={!!atualizandoCustoKey || !!bulkCorrigindo || !!corrigindoKey}
+                title={`Atualiza o custo no cadastro GC para o valor da última compra em todos os produtos com custo ≥ 2× o GC (${costMismatchList.length} produtos)`}
+              >
+                {atualizandoCustoKey === "bulk" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                Atualizar custo GC TODOS ({costMismatchList.length})
+              </Button>
+            )}
             {selectedProductIds.size > 0 && (
               <>
                 <Badge variant="outline" className="border-primary/40 text-primary">
