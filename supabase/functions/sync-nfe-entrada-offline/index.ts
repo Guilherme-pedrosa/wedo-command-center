@@ -314,7 +314,9 @@ serve(async (req) => {
         .is("pis_aliquota_manual", null)
         .is("cofins_aliquota_manual", null)
         .is("ipi_aliquota_manual", null)
-        .eq("sem_credito", false);
+        .eq("sem_credito", false)
+        // Preserva exceções manuais marcadas pelo usuário
+        .or("excecao_manual.is.null,excecao_manual.eq.false");
     }
 
     // ── Step 3: Build CNPJ → XMLs index ──
@@ -601,27 +603,32 @@ serve(async (req) => {
     // ── Step 6: Upsert, preserving manual overrides ──
     const existingIds = [...productTaxMap.keys()];
     const existingManual = new Set<string>();
+    const existingExcecao = new Set<string>();
     for (let i = 0; i < existingIds.length; i += 100) {
       const batch = existingIds.slice(i, i + 100);
       const { data } = await supabase
         .from("fin_produto_tributos")
-        .select("gc_produto_id, icms_aliquota_manual, pis_aliquota_manual, cofins_aliquota_manual, sem_credito")
+        .select("gc_produto_id, icms_aliquota_manual, pis_aliquota_manual, cofins_aliquota_manual, sem_credito, excecao_manual")
         .in("gc_produto_id", batch);
       for (const row of (data || [])) {
         if (row.sem_credito || row.icms_aliquota_manual != null || row.pis_aliquota_manual != null || row.cofins_aliquota_manual != null) {
           existingManual.add(row.gc_produto_id);
         }
+        if (row.excecao_manual === true) existingExcecao.add(row.gc_produto_id);
       }
     }
 
-    const records = [...productTaxMap.values()].map((rec) => {
-      const obj: Record<string, unknown> = { ...rec, ultima_atualizacao: new Date().toISOString() };
-      if (existingManual.has(rec.gc_produto_id)) {
-        delete obj.sem_credito;
-        delete obj.regime_fornecedor;
-      }
-      return obj;
-    });
+    const records = [...productTaxMap.values()]
+      // Exceção manual: NÃO sobrescrever (usuário travou)
+      .filter((rec) => !existingExcecao.has(rec.gc_produto_id))
+      .map((rec) => {
+        const obj: Record<string, unknown> = { ...rec, ultima_atualizacao: new Date().toISOString() };
+        if (existingManual.has(rec.gc_produto_id)) {
+          delete obj.sem_credito;
+          delete obj.regime_fornecedor;
+        }
+        return obj;
+      });
 
     let upserted = 0;
     for (let i = 0; i < records.length; i += 50) {

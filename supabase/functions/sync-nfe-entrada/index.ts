@@ -638,7 +638,9 @@ serve(async (req) => {
         .is("pis_aliquota_manual", null)
         .is("cofins_aliquota_manual", null)
         .is("ipi_aliquota_manual", null)
-        .eq("sem_credito", false);
+        .eq("sem_credito", false)
+        // Preserva exceções manuais — usuário marcou "🔕 Ignorar (exceção manual)"
+        .or("excecao_manual.is.null,excecao_manual.eq.false");
       // Limpa pendências antigas para reprocessar
       // Preserva pendências de custo zero (criadas pela migration / fora do escopo do matcher de NF)
       await supabase.from("fin_nfe_match_pendentes").delete().neq("motivo", "custo_zero_no_cadastro_gc");
@@ -759,13 +761,14 @@ serve(async (req) => {
     if (!dryRun && productTaxMap.size > 0) {
       const ids = [...productTaxMap.keys()];
       const manuais = new Set<string>();
+      const excecoes = new Set<string>();
       const existingNfDate = new Map<string, string>();
       const existingHasRealMatch = new Set<string>();
       for (let i = 0; i < ids.length; i += 100) {
         const chunk = ids.slice(i, i + 100);
         const { data } = await supabase
           .from("fin_produto_tributos")
-          .select("gc_produto_id, icms_aliquota_manual, pis_aliquota_manual, cofins_aliquota_manual, ipi_aliquota_manual, nf_data_emissao, match_rule")
+          .select("gc_produto_id, icms_aliquota_manual, pis_aliquota_manual, cofins_aliquota_manual, ipi_aliquota_manual, nf_data_emissao, match_rule, excecao_manual")
           .in("gc_produto_id", chunk);
         for (const row of data || []) {
           if (
@@ -775,6 +778,7 @@ serve(async (req) => {
             row.ipi_aliquota_manual != null
           )
             manuais.add(row.gc_produto_id);
+          if (row.excecao_manual === true) excecoes.add(row.gc_produto_id);
           if (row.nf_data_emissao) existingNfDate.set(row.gc_produto_id, String(row.nf_data_emissao));
           if (row.match_rule && String(row.match_rule).startsWith("pedido_compra_gc+")) {
             existingHasRealMatch.add(row.gc_produto_id);
@@ -783,6 +787,11 @@ serve(async (req) => {
       }
       const records = [...productTaxMap.values()]
         .filter((r) => {
+          // Exceção manual: NÃO mexer em nada (usuário travou esse produto)
+          if (excecoes.has(r.gc_produto_id)) {
+            skippedOlder++;
+            return false;
+          }
           const prev = existingNfDate.get(r.gc_produto_id);
           const novo = r.nf_data_emissao || "";
           const novoEhReal = !!r.match_rule?.startsWith("pedido_compra_gc+");
