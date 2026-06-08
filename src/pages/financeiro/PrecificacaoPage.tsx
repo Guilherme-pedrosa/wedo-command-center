@@ -231,6 +231,11 @@ function isTributoCompativelComProduto(produto: GCProduto, tributo?: ProdutoTrib
   return tributo.gc_produto_id === produto.id;
 }
 
+function hasEntradaFiscal(tributo?: ProdutoTributo) {
+  if (!tributo) return false;
+  return (Number(tributo.valor_unitario_nf) || 0) > 0;
+}
+
 /**
  * Nunca inferir conversão de unidade por múltiplo de preço.
  * Ex.: "19mmx20m" é medida física do produto, não quantidade 20.
@@ -667,6 +672,7 @@ export default function PrecificacaoPage() {
   const tributosXml = useMemo(() => {
     return (tributos || []).filter(
       (t) =>
+        t.excecao_manual ||
         t.match_rule === "manual" ||
         (Boolean(t.nf_chave) && indexedNfChaves.has(t.nf_chave as string))
     );
@@ -979,9 +985,10 @@ export default function PrecificacaoPage() {
         ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0)));
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-      const kitRatio = detectKitRatio(tributoCompat, custoBruto);
-      const tributo = tributoCompat && kitRatio > 1 ? ajustarTributoPorKit(tributoCompat, kitRatio) : tributoCompat;
-      const hasNF = !!tributo;
+      const tributoParaCalculo = excecao ? undefined : tributoCompat;
+      const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
+      const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
+      const hasNF = hasEntradaFiscal(tributo);
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
@@ -1045,9 +1052,10 @@ export default function PrecificacaoPage() {
         ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0)));
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-      const kitRatio = detectKitRatio(tributoCompat, custoBruto);
-      const tributo = tributoCompat && kitRatio > 1 ? ajustarTributoPorKit(tributoCompat, kitRatio) : tributoCompat;
-      const hasNF = !!tributo;
+      const tributoParaCalculo = excecao ? undefined : tributoCompat;
+      const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
+      const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
+      const hasNF = hasEntradaFiscal(tributo);
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
@@ -1767,9 +1775,10 @@ export default function PrecificacaoPage() {
         ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache);
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-      const kitRatio = detectKitRatio(tributoCompat, custoBruto);
-      const tributo = tributoCompat && kitRatio > 1 ? ajustarTributoPorKit(tributoCompat, kitRatio) : tributoCompat;
-      const hasNF = !!tributo;
+      const tributoParaCalculo = excecao ? undefined : tributoCompat;
+      const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
+      const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
+      const hasNF = hasEntradaFiscal(tributo);
       const cfuFlat = !!(taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0) ? (taxEntrada.custoFixoUnit || 0) : 0;
       let calc: ReturnType<typeof calcPricing>;
       if (hasNF) {
@@ -2348,9 +2357,10 @@ export default function PrecificacaoPage() {
                       ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
                       : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache);
                     const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-                    const kitRatio = detectKitRatio(tributoCompat, custoBruto);
-                    const tributo = tributoCompat && kitRatio > 1 ? ajustarTributoPorKit(tributoCompat, kitRatio) : tributoCompat;
-                   const hasNF = !!tributo;
+                    const tributoParaCalculo = tributoRaw?.excecao_manual ? undefined : tributoCompat;
+                    const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
+                    const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
+                   const hasNF = hasEntradaFiscal(tributo);
                     const custoBase = custoBruto;
                    // Tabelas dinâmicas — preços reais vêm de valoresMap por tipo_id (não há mais markup hardcoded A/B/P)
 
@@ -2433,7 +2443,7 @@ export default function PrecificacaoPage() {
                           )}
                           {(() => {
                             if (!hasNF) return null;
-                            if (tributo?.excecao_manual) return null;
+                            if (tributoRaw?.excecao_manual) return null;
                             const nfBase = Number(tributo.valor_unitario_nf) || 0;
                             const fretePct = Number(tributo.frete_percentual) || 0;
                             const ipiPct = Number(tributo.ipi_aliquota_manual ?? tributo.ipi_aliquota) || 0;
@@ -2482,7 +2492,7 @@ export default function PrecificacaoPage() {
                             );
                           })()}
                           {(() => {
-                            if (tributo?.excecao_manual) return null;
+                            if (tributoRaw?.excecao_manual) return null;
                             const gcCusto = Number(p.valor_custo) || 0;
                             const ultCusto = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
                             if (gcCusto <= 0 || ultCusto <= 0) return null;
