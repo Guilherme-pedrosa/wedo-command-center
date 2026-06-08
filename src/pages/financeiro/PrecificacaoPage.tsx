@@ -1744,6 +1744,11 @@ export default function PrecificacaoPage() {
       const fonteCusto = hasNF
         ? `NF #${tributo?.nf_numero || "—"} ${tributo?.fornecedor_nome || ""}`.trim()
         : (ultimaCompra ? `Pedido #${ultimaCompra.compra_codigo || ultimaCompra.compra_gc_id}` : "GC cadastro");
+      const pedidoNum = ultimaCompra?.compra_codigo || ultimaCompra?.compra_gc_id || "";
+      const nfNum = ultimaCompra?.numero_nfe || tributo?.nf_numero || "";
+      const fornecedorNome = ultimaCompra?.fornecedor_nome || tributo?.fornecedor_nome || "";
+      const dataCompra = ultimaCompra?.data || "";
+      const situacaoCompra = ultimaCompra?.nome_situacao || "";
       rows.push({
         "Produto": p.nome,
         "Codigo": p.codigo || p.codigo_interno || "",
@@ -1751,6 +1756,13 @@ export default function PrecificacaoPage() {
         "Estoque": Number(p.estoque) || 0,
         "Custo Bruto": custoBruto,
         "Fonte Custo": fonteCusto,
+        "Pedido": pedidoNum,
+        "NF": nfNum,
+        "Fornecedor": fornecedorNome,
+        "Data Compra": dataCompra,
+        "Situacao Compra": situacaoCompra,
+        "Qtd Comprada": ultimaCompra?.quantidade ?? "",
+        "Custo Ultima Compra": ultimaCompra?.valor_custo ?? "",
         "Credito Entrada": calc.totalCreditosEntrada,
         "Custo Total": calc.custoTotal,
         "Preco Minimo": calc.precoMinimo,
