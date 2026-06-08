@@ -2250,13 +2250,34 @@ export default function PrecificacaoPage() {
                             if (gcCusto <= 0 || ultCusto <= 0) return null;
                             const ratio = ultCusto / gcCusto;
                             if (ratio < 2) return null;
+                            const key = `custo:${p.id}`;
+                            const args: AtualizarCustoArgs = {
+                              gc_produto_id: String(p.id),
+                              nome_produto: p.nome,
+                              custo_atual_gc: gcCusto,
+                              custo_novo: ultCusto,
+                              origem_label: `NF #${ultimaCompra?.numero_nfe || "—"} pedido #${ultimaCompra?.compra_codigo || ultimaCompra?.compra_gc_id || "—"}`,
+                            };
                             return (
-                              <Badge
-                                className="ml-2 text-[10px] py-0 bg-red-600/30 text-red-300 border-red-500/50"
-                                title={`GC cadastro: ${formatCurrency(gcCusto)}/un · Última compra: ${formatCurrency(ultCusto)} (${ratio.toFixed(1)}×). Provável diferença de unidade entre NF (ex: CX 10x1L) e cadastro (UN 1L).`}
-                              >
-                                ⚠ Custo {ratio.toFixed(1)}× maior que GC — checar unidade
-                              </Badge>
+                              <>
+                                <Badge
+                                  className="ml-2 text-[10px] py-0 bg-red-600/30 text-red-300 border-red-500/50"
+                                  title={`GC cadastro: ${formatCurrency(gcCusto)}/un · Última compra: ${formatCurrency(ultCusto)} (${ratio.toFixed(1)}×). Provável diferença de unidade entre NF (ex: CX 10x1L) e cadastro (UN 1L).`}
+                                >
+                                  ⚠ Custo {ratio.toFixed(1)}× maior que GC — checar unidade
+                                </Badge>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="ml-2 h-6 px-2 text-[10px] gap-1 border-red-500/50 text-red-300 hover:bg-red-500/10"
+                                  disabled={!!atualizandoCustoKey || !!bulkCorrigindo || !!corrigindoKey}
+                                  onClick={() => atualizarCustoGC(args)}
+                                  title={`Atualiza o cadastro do produto no GC: ${formatCurrency(gcCusto)} → ${formatCurrency(ultCusto)} (origem: ${args.origem_label})`}
+                                >
+                                  {atualizandoCustoKey === key ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                                  Atualizar custo GC → {formatCurrency(ultCusto)}
+                                </Button>
+                              </>
                             );
                           })()}
                           {(() => {
