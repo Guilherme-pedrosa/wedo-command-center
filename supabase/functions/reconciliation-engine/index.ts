@@ -538,6 +538,34 @@ interface ParcelaSoma {
   tabela: "pagamentos" | "recebimentos";
 }
 
+async function invocarBaixaConfirmada(parcelas: ParcelaSoma[]) {
+  const links = parcelas.map((p) => ({
+    lancamento_id: p.id,
+    tabela: p.tabela === "pagamentos" ? "fin_pagamentos" : "fin_recebimentos",
+  }));
+  if (links.length === 0) return null;
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("argus-baixa-confirmada: env SUPABASE_URL/SERVICE_ROLE ausente");
+  }
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/argus-baixa-confirmada`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+    body: JSON.stringify({ mode: "links", links }),
+  });
+  const text = await res.text();
+  let body: any = null;
+  try { body = JSON.parse(text); } catch { body = { raw: text }; }
+
+  if (!res.ok || body?.ok === false || Number(body?.falha ?? 0) > 0) {
+    throw new Error(`argus-baixa-confirmada falhou: HTTP ${res.status} ${text.substring(0, 700)}`);
+  }
+  return body;
+}
+
 async function saveSomaParcelas(
   supabase: any,
   extratoId: string,
@@ -599,12 +627,36 @@ async function saveSomaParcelas(
     throw new Error(`SOMA_PARCELAS: esperava ${parcelas.length} links, criou ${created?.length ?? 0}`);
   }
 
+  // 3.1. Marcar as parcelas como pagas pelo sistema para o fluxo de baixa no GC/Argus.
+  // Sem isso, o extrato ficava conciliado, mas os recebimentos continuavam abertos.
+  const recebimentoIds = parcelas.filter((p) => p.tabela === "recebimentos").map((p) => p.id);
+  const pagamentoIds = parcelas.filter((p) => p.tabela === "pagamentos").map((p) => p.id);
+  if (recebimentoIds.length > 0) {
+    const { error } = await supabase.from("fin_recebimentos").update({
+      pago_sistema: true,
+      pago_sistema_em: now,
+      status: "pago",
+    }).in("id", recebimentoIds);
+    if (error) throw new Error(`SOMA_PARCELAS: erro marcar recebimentos pagos: ${error.message}`);
+  }
+  if (pagamentoIds.length > 0) {
+    const { error } = await supabase.from("fin_pagamentos").update({
+      pago_sistema: true,
+      pago_sistema_em: now,
+      status: "pago",
+    }).in("id", pagamentoIds);
+    if (error) throw new Error(`SOMA_PARCELAS: erro marcar pagamentos pagos: ${error.message}`);
+  }
+
+  // 3.2. Baixar no GC imediatamente; não depende de trigger de banco.
+  const baixaResult = await invocarBaixaConfirmada(parcelas);
+
   // 4. Log
   await supabase.from("fin_sync_log").insert({
     tipo: "conciliacao_soma_parcelas",
     referencia_id: extratoId,
     status: "success",
-    payload: { extrato_id: extratoId, parcelas: parcelas.map(p => ({ id: p.id, valor: p.valor })), rule },
+    payload: { extrato_id: extratoId, parcelas: parcelas.map(p => ({ id: p.id, valor: p.valor })), rule, baixa: baixaResult },
   });
 }
 

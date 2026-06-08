@@ -315,7 +315,6 @@ async function buscarPendentes(dataInicio?: string, dataFim?: string, scope: Bai
     const { data: rows, error } = await supabase
       .from(table)
       .select("id, gc_id, status, gc_baixado, liquidado, pago_sistema")
-      .eq("pago_sistema", true)
       .not("gc_id", "is", null)
       .or("gc_baixado.is.null,gc_baixado.eq.false")
       .limit(10000);

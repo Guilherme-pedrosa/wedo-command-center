@@ -18,3 +18,5 @@ Pool em `tentarSomaParcelas` capado em **60 candidatos** (não 24) para garantir
 Janela SOMA_PARCELAS: 30 dias normal, **90 dias** para CNPJs em `CNPJ_PRAZO_ESTENDIDO` (Sapore 67945071, Sodexo 49930514, Ecolab 00536772).
 
 Caso de referência: Ecolab credita R$18.594,95 (08/06/26) somando 16 NFs de NF2966 vencidas 08/06/26 — match automático via complement search.
+
+Ao salvar `SOMA_PARCELAS`, o motor deve também marcar todas as parcelas como `pago_sistema=true`/`status='pago'` e chamar `argus-baixa-confirmada` em modo `links`; só inserir `fin_extrato_lancamentos` deixa o extrato reconciliado, mas não baixa os recebimentos no GC/Argus.
