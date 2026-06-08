@@ -1590,6 +1590,107 @@ export default function PrecificacaoPage() {
     }
   };
 
+  // ── Atualizar custo no GC (usa última compra como referência) ──
+  type AtualizarCustoArgs = {
+    gc_produto_id: string;
+    nome_produto: string;
+    custo_atual_gc: number;
+    custo_novo: number;
+    origem_label: string;
+  };
+  const [atualizandoCustoKey, setAtualizandoCustoKey] = useState<string | null>(null);
+
+  const atualizarCustoGCCore = async (args: AtualizarCustoArgs): Promise<{ ok: boolean; erro?: string }> => {
+    if (!(args.custo_novo > 0)) return { ok: false, erro: "custo novo inválido" };
+    try {
+      const { data: job, error: errJob } = await supabase.from("fin_gc_write_jobs").insert({
+        recurso: "produtos",
+        recurso_id: args.gc_produto_id,
+        payload: { valor_custo: args.custo_novo.toFixed(2) },
+        payload_hash: `atualizar-custo-ui-${args.gc_produto_id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        status: "pendente",
+      }).select("id").single();
+      if (errJob) throw errJob;
+
+      const { data: workerResult, error: errWorker } = await supabase.functions.invoke("process-gc-write-jobs", {
+        body: { source: "precificacao-ui-atualizar-custo", job_id: job.id },
+      });
+      if (errWorker) throw errWorker;
+      if (!workerResult?.sucessos) {
+        const erro = workerResult?.results?.[0]?.erro || workerResult?.message || "worker não confirmou sucesso";
+        return { ok: false, erro: String(erro) };
+      }
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, erro: e instanceof Error ? e.message : String(e) };
+    }
+  };
+
+  const atualizarCustoGC = async (args: AtualizarCustoArgs) => {
+    if (atualizandoCustoKey || bulkCorrigindo || corrigindoKey) return;
+    const key = `custo:${args.gc_produto_id}`;
+    setAtualizandoCustoKey(key);
+    try {
+      const r = await atualizarCustoGCCore(args);
+      if (r.ok) {
+        await Promise.all([refetchProdutosCacheValores(), refetchProdutos()]);
+        toast.success(`${args.nome_produto.slice(0, 30)}: custo atualizado no GC ${formatCurrency(args.custo_atual_gc)} → ${formatCurrency(args.custo_novo)}`);
+      } else {
+        toast.error(`Falha ao atualizar custo: ${r.erro}`);
+      }
+    } finally {
+      setAtualizandoCustoKey(null);
+    }
+  };
+
+  const atualizarCustoGCBatch = async (items: AtualizarCustoArgs[], scopeLabel: string) => {
+    if (atualizandoCustoKey || bulkCorrigindo || corrigindoKey) return;
+    if (items.length === 0) { toast("Nenhum produto com custo divergente para atualizar"); return; }
+    setAtualizandoCustoKey("bulk");
+    let ok = 0, fail = 0;
+    const erros: string[] = [];
+    try {
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        toast(`${scopeLabel}: ${i + 1}/${items.length} — ${it.nome_produto.slice(0, 30)}`);
+        const r = await atualizarCustoGCCore(it);
+        if (r.ok) ok++;
+        else { fail++; erros.push(`${it.nome_produto}: ${r.erro}`); }
+      }
+      await Promise.all([refetchProdutosCacheValores(), refetchProdutos()]);
+      if (fail === 0) toast.success(`${scopeLabel}: ${ok} custo(s) atualizado(s) no GC`);
+      else toast.error(`${scopeLabel}: ${ok} ok, ${fail} falha(s). Ex: ${erros[0]}`);
+    } finally {
+      setAtualizandoCustoKey(null);
+    }
+  };
+
+  // Produtos com custo da última compra >= 2× o cadastro GC (após filtros)
+  const costMismatchList = useMemo(() => {
+    const list: AtualizarCustoArgs[] = [];
+    for (const p of filtered) {
+      const ult = ultimaCompraMap.get(p.id);
+      const gcCusto = Number(p.valor_custo) || 0;
+      const ultCusto = ult?.valor_custo && ult.valor_custo > 0 ? ult.valor_custo : 0;
+      if (gcCusto <= 0 || ultCusto <= 0) continue;
+      const ratio = ultCusto / gcCusto;
+      if (ratio < 2) continue;
+      list.push({
+        gc_produto_id: String(p.id),
+        nome_produto: p.nome,
+        custo_atual_gc: gcCusto,
+        custo_novo: ultCusto,
+        origem_label: `NF #${ult?.numero_nfe || "—"} pedido #${ult?.compra_codigo || ult?.compra_gc_id || "—"}`,
+      });
+    }
+    return list;
+  }, [filtered, ultimaCompraMap]);
+
+  const selectedCostMismatch = useMemo(
+    () => costMismatchList.filter((it) => selectedProductIds.has(it.gc_produto_id)),
+    [costMismatchList, selectedProductIds]
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
