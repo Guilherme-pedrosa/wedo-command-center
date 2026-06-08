@@ -985,9 +985,10 @@ export default function PrecificacaoPage() {
         ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0)));
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-      const kitRatio = detectKitRatio(tributoCompat, custoBruto);
-      const tributo = tributoCompat && kitRatio > 1 ? ajustarTributoPorKit(tributoCompat, kitRatio) : tributoCompat;
-      const hasNF = !!tributo;
+      const tributoParaCalculo = excecao ? undefined : tributoCompat;
+      const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
+      const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
+      const hasNF = hasEntradaFiscal(tributo);
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
@@ -1051,9 +1052,10 @@ export default function PrecificacaoPage() {
         ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0)));
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-      const kitRatio = detectKitRatio(tributoCompat, custoBruto);
-      const tributo = tributoCompat && kitRatio > 1 ? ajustarTributoPorKit(tributoCompat, kitRatio) : tributoCompat;
-      const hasNF = !!tributo;
+      const tributoParaCalculo = excecao ? undefined : tributoCompat;
+      const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
+      const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
+      const hasNF = hasEntradaFiscal(tributo);
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
