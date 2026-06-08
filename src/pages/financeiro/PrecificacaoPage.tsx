@@ -1744,6 +1744,11 @@ export default function PrecificacaoPage() {
       const fonteCusto = hasNF
         ? `NF #${tributo?.nf_numero || "—"} ${tributo?.fornecedor_nome || ""}`.trim()
         : (ultimaCompra ? `Pedido #${ultimaCompra.compra_codigo || ultimaCompra.compra_gc_id}` : "GC cadastro");
+      const pedidoNum = ultimaCompra?.compra_codigo || ultimaCompra?.compra_gc_id || "";
+      const nfNum = ultimaCompra?.numero_nfe || tributo?.nf_numero || "";
+      const fornecedorNome = ultimaCompra?.fornecedor_nome || tributo?.fornecedor_nome || "";
+      const dataCompra = ultimaCompra?.data || "";
+      const situacaoCompra = ultimaCompra?.nome_situacao || "";
       rows.push({
         "Produto": p.nome,
         "Codigo": p.codigo || p.codigo_interno || "",
@@ -1751,6 +1756,13 @@ export default function PrecificacaoPage() {
         "Estoque": Number(p.estoque) || 0,
         "Custo Bruto": custoBruto,
         "Fonte Custo": fonteCusto,
+        "Pedido": pedidoNum,
+        "NF": nfNum,
+        "Fornecedor": fornecedorNome,
+        "Data Compra": dataCompra,
+        "Situacao Compra": situacaoCompra,
+        "Qtd Comprada": ultimaCompra?.quantidade ?? "",
+        "Custo Ultima Compra": ultimaCompra?.valor_custo ?? "",
         "Credito Entrada": calc.totalCreditosEntrada,
         "Custo Total": calc.custoTotal,
         "Preco Minimo": calc.precoMinimo,
@@ -2547,15 +2559,23 @@ export default function PrecificacaoPage() {
                             </TooltipContent>
                           </Tooltip>
                         ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 text-[10px] gap-1 border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10"
-                            onClick={() => abrirManualTributo(p)}
-                          >
-                            <Plus className="h-3 w-3" />
-                            Adicionar crédito
-                          </Button>
+                          <div className="flex flex-col items-center gap-1">
+                            {ultimaCompra && (
+                              <Badge variant="outline" className="text-[9px] border-purple-500/40 text-purple-400" title={`${ultimaCompra.data || "sem data"} — ${ultimaCompra.fornecedor_nome || "fornecedor não informado"}${ultimaCompra.nome_situacao ? ` · ${ultimaCompra.nome_situacao}` : ""} · qtd ${ultimaCompra.quantidade ?? "—"} · ${ultimaCompra.valor_custo != null ? formatCurrency(ultimaCompra.valor_custo) : "—"}`}>
+                                Ped #{ultimaCompra.compra_codigo || ultimaCompra.compra_gc_id}
+                                {ultimaCompra.numero_nfe ? ` · NF #${ultimaCompra.numero_nfe}` : " · s/NF"}
+                              </Badge>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-[10px] gap-1 border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10"
+                              onClick={() => abrirManualTributo(p)}
+                            >
+                              <Plus className="h-3 w-3" />
+                              Adicionar crédito
+                            </Button>
+                          </div>
                         )}
                         {hasNF && (
                           <Button
