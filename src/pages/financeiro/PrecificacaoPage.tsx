@@ -1284,7 +1284,6 @@ export default function PrecificacaoPage() {
           if (meta.chave && (keyOccurrences.get(meta.chave) || 0) <= 1) {
             indexBatch.push({
               chave: meta.chave,
-              numero_nf: meta.numero_nf,
               cnpj_emitente: meta.cnpj_emitente,
               nome_emitente: meta.nome_emitente,
               data_emissao: meta.data_emissao,

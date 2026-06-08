@@ -345,11 +345,12 @@ serve(async (req) => {
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    // ── Step 1: Carrega compras candidatas (numero_nfe IS NOT NULL) ──
+    // ── Step 1: Carrega compras candidatas.
+    // Algumas compras do GC vêm com NF-e visível na UI, mas numero_nfe vazio no payload local;
+    // nesses casos ainda cruzamos por CNPJ + valor total contra o XML indexado.
     let countQuery = supabase
       .from("gc_compras")
-      .select("*", { count: "exact", head: true })
-      .not("numero_nfe", "is", null);
+      .select("*", { count: "exact", head: true });
     if (compraCodigosFilter.length > 0) countQuery = countQuery.in("codigo", compraCodigosFilter);
     const { count: totalCount, error: countErr } = await countQuery;
     if (countErr) throw new Error(`count compras: ${countErr.message}`);
@@ -359,7 +360,6 @@ serve(async (req) => {
     let selectQuery = supabase
       .from("gc_compras")
       .select("gc_id, codigo, numero_nfe, cnpj_fornecedor, fornecedor_id, nome_fornecedor, data, valor_total, valor_produtos, valor_frete")
-      .not("numero_nfe", "is", null)
       .order("data", { ascending: false, nullsFirst: false })
       .range(offset, offset + batchSize - 1);
     if (compraCodigosFilter.length > 0) selectQuery = selectQuery.in("codigo", compraCodigosFilter);
@@ -516,35 +516,33 @@ serve(async (req) => {
         registrarPendente(pendentesNovos, semMatchAmostra, compra, "sem_cnpj_compra", []);
         continue;
       }
-      if (!numero) {
-        semMatch++;
-        registrarPendente(pendentesNovos, semMatchAmostra, compra, "sem_numero_nfe", []);
-        continue;
-      }
-
-      // Nível 1: cnpj + numero
       let matched: XmlIndexRow | null = null;
       let matchRuleTag = "";
-      const exatos = byKey.get(`${cnpj}|${numero}`) || [];
-      if (exatos.length === 1) {
-        matched = exatos[0];
-        matchRuleTag = "deterministico_cnpj_numero";
-        nivel1++;
-      } else if (exatos.length > 1) {
-        // Desempate por menor diff de valor
-        let best = exatos[0];
-        let bestDiff = Infinity;
-        for (const x of exatos) {
-          const diff = Math.abs((x.valor_total || 0) - compra.valor_total);
-          if (diff < bestDiff) {
-            bestDiff = diff;
-            best = x;
+      if (numero) {
+        // Nível 1: cnpj + numero
+        const exatos = byKey.get(`${cnpj}|${numero}`) || [];
+        if (exatos.length === 1) {
+          matched = exatos[0];
+          matchRuleTag = "deterministico_cnpj_numero";
+          nivel1++;
+        } else if (exatos.length > 1) {
+          // Desempate por menor diff de valor
+          let best = exatos[0];
+          let bestDiff = Infinity;
+          for (const x of exatos) {
+            const diff = Math.abs((x.valor_total || 0) - compra.valor_total);
+            if (diff < bestDiff) {
+              bestDiff = diff;
+              best = x;
+            }
           }
+          matched = best;
+          matchRuleTag = "deterministico_cnpj_numero_multi";
+          nivel1++;
         }
-        matched = best;
-        matchRuleTag = "deterministico_cnpj_numero_multi";
-        nivel1++;
-      } else {
+      }
+
+      if (!matched) {
         // Nível 2: cnpj + valor (tolerância 1% ou R$5)
         const candidatos = byCnpj.get(cnpj) || [];
         if (candidatos.length === 0) {
