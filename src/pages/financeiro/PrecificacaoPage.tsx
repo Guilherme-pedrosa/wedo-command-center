@@ -322,7 +322,9 @@ function calcPricingWithNF(
   const custoFixoEmbutido = precoMinimo * custoFixoPct;
   const lucroAnteIR = precoMinimo - custoTotal - tributosSaida - custoFixoEmbutido;
   const impostoRenda = Math.max(0, lucroAnteIR * irpjPct);
-  const lucroLiquido = lucroAnteIR - impostoRenda;
+  // Créditos de entrada entram como ganho extra de margem (caixa), não no preço.
+  const margemExtraCreditos = creditoIcms + creditoPis + creditoCofins;
+  const lucroLiquido = lucroAnteIR - impostoRenda + margemExtraCreditos;
 
   return {
     creditoIcms,
