@@ -2498,6 +2498,7 @@ export default function PrecificacaoPage() {
                                         .from("fin_produto_tributos")
                                         .upsert({
                                           gc_produto_id: String(p.id),
+                                          nome_produto: p.nome,
                                           excecao_manual: true,
                                           excecao_motivo: motivo || null,
                                           excecao_at: new Date().toISOString(),
