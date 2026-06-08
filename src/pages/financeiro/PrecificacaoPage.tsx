@@ -1747,11 +1747,18 @@ export default function PrecificacaoPage() {
       const situacaoCompra = ultimaCompra?.nome_situacao || "";
       const custoGCCadastro = Number(p.valor_custo) || 0;
       const custoNF = tributo?.valor_unitario_nf ?? "";
+      const descricaoNF = tributo?.descricao_nf || tributo?.nome_produto || "";
+      const qtdNF = tributo?.q_com ?? "";
+      const unidadeNF = tributo?.unidade_comercial_nf || "";
+      const valorUnitXml = tributo?.v_un_com ?? "";
+      const qtdTribNF = tributo?.q_trib ?? "";
+      const unidadeTribNF = tributo?.unidade_tributavel_nf || "";
       const ratio = custoGCCadastro > 0 && custoUltimaCompra > 0 ? custoUltimaCompra / custoGCCadastro : 0;
       const alertas: string[] = [];
       if (ratio >= 2) alertas.push(`⚠ Última compra ${ratio.toFixed(1)}× maior que GC — checar unidade`);
       if (custoGCCadastro > 0 && custoUltimaCompra > 0 && custoUltimaCompra < custoGCCadastro * 0.5) alertas.push(`⚠ Última compra ${(custoGCCadastro/custoUltimaCompra).toFixed(1)}× MENOR que GC`);
       if (!hasNF) alertas.push("Sem tributo NF (sem crédito de entrada)");
+      if (hasNF && !descricaoNF) alertas.push("NF sem descrição original gravada");
       if (ultimaCompra && !ultimaCompra.numero_nfe) alertas.push("Última compra sem nº de NF");
       if (custoUltimaCompra <= 0) alertas.push("Sem histórico de compra");
       rows.push({
@@ -1762,6 +1769,12 @@ export default function PrecificacaoPage() {
         "Custo GC Cadastro": custoGCCadastro,
         "Custo Ultima Compra": ultimaCompra?.valor_custo ?? "",
         "Custo NF (tributo)": custoNF,
+        "Descricao NF Original": descricaoNF,
+        "Qtd NF": qtdNF,
+        "Un NF": unidadeNF,
+        "Valor Unit NF XML": valorUnitXml,
+        "Qtd Tributavel NF": qtdTribNF,
+        "Un Tributavel NF": unidadeTribNF,
         "Custo Bruto Usado": custoBruto,
         "Divergencia (UltCompra/GC)": ratio > 0 ? `${ratio.toFixed(2)}x` : "",
         "Alerta": alertas.join(" | "),
