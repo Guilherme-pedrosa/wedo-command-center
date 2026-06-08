@@ -709,52 +709,59 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
   const targetCents = Math.round(target * 100);
   const toleranceCents = Math.max(1, Math.round(tolerance * 100));
 
-  function searchSubset(targetCentsLocal: number, maxSize: number): number[] | null {
-    const suffixSum = new Array(n + 1).fill(0);
-    for (let i = n - 1; i >= 0; i--) suffixSum[i] = suffixSum[i + 1] + values[i];
-    const memo = new Set<string>();
+  function searchSubset(
+    vals: number[],
+    targetCentsLocal: number,
+    maxSize: number,
+    nodeLimit = 200_000,
+  ): number[] | null {
+    const nn = vals.length;
+    if (nn === 0) return null;
+    const suffixSum = new Array(nn + 1).fill(0);
+    for (let i = nn - 1; i >= 0; i--) suffixSum[i] = suffixSum[i + 1] + vals[i];
+    let nodes = 0;
+    let aborted = false;
 
     function search(idx: number, remaining: number, selected: number[]): number[] | null {
+      if (aborted) return null;
+      if (++nodes > nodeLimit) { aborted = true; return null; }
       if (Math.abs(remaining) <= toleranceCents && selected.length >= 1) return selected;
-      if (idx >= n || selected.length >= maxSize || remaining < -toleranceCents) return null;
+      if (idx >= nn || selected.length >= maxSize || remaining < -toleranceCents) return null;
       if (remaining > suffixSum[idx] + toleranceCents) return null;
-      const key = `${idx}:${remaining}:${selected.length}`;
-      if (memo.has(key)) return null;
 
-      const withItem = search(idx + 1, remaining - values[idx], [...selected, idx]);
+      const withItem = search(idx + 1, remaining - vals[idx], [...selected, idx]);
       if (withItem) return withItem;
-      const withoutItem = search(idx + 1, remaining, selected);
-      if (withoutItem) return withoutItem;
-
-      memo.add(key);
-      return null;
+      return search(idx + 1, remaining, selected);
     }
 
     return search(0, targetCentsLocal, []);
   }
 
-  // 1) Busca direta: subset pequeno que SOMA ao alvo (até 8 itens).
-  const direct = searchSubset(targetCents, Math.min(n, 8));
+  // 1) Busca direta: subset pequeno que SOMA ao alvo. Limita pool aos 24 maiores
+  //    para manter custo computacional baixo.
+  const directPool = values.slice(0, Math.min(n, 24));
+  const direct = searchSubset(directPool, targetCents, Math.min(directPool.length, 8));
   if (direct && direct.length >= 2) {
     return direct.map((i) => sorted[i]);
   }
 
   // 2) Busca por COMPLEMENTO: quando todos os candidatos somam mais que o alvo,
-  //    descobre o subconjunto pequeno a REMOVER. Indispensável p/ clientes que
-  //    pagam fatura consolidada de muitas parcelas (ex.: Ecolab — 25-30 NFs num crédito só).
+  //    encontra o subconjunto PEQUENO a REMOVER. Essencial p/ clientes que pagam
+  //    fatura consolidada de muitas parcelas (ex.: Ecolab — 25-30 NFs num crédito só).
   const totalCents = values.reduce((s, v) => s + v, 0);
   const excessCents = totalCents - targetCents;
+  if (Math.abs(excessCents) <= toleranceCents && n >= 2) {
+    return sorted;
+  }
   if (excessCents > toleranceCents) {
-    // procura subset que some "excesso" (até 8 itens — esse é o lado pequeno)
-    const toRemove = searchSubset(excessCents, Math.min(n, 8));
+    // procura subset que some "excesso" usando todos os candidatos, mas com
+    // maxSize pequeno (≤6) — o conjunto a REMOVER é tipicamente pequeno.
+    const toRemove = searchSubset(values, excessCents, Math.min(n, 6));
     if (toRemove) {
       const removeSet = new Set(toRemove);
       const kept = sorted.filter((_, i) => !removeSet.has(i));
       if (kept.length >= 2) return kept;
     }
-  } else if (Math.abs(excessCents) <= toleranceCents && n >= 2) {
-    // soma de TODOS bate com o alvo
-    return sorted;
   }
 
   return null;
