@@ -1011,10 +1011,13 @@ export default function PrecificacaoPage() {
     for (const p of preFiltered) {
       const custoCan = custoCanonicoMap.get(p.id);
       const ultimaCompra = ultimaCompraMap.get(p.id);
-      const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
-      const custoBruto = custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0));
       const tributoRaw = tributosMap.get(p.id);
-      const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
+      const excecao = !!tributoRaw?.excecao_manual;
+      const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+      const custoBruto = excecao
+        ? (parseFloat(p.valor_custo) || 0)
+        : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0)));
+      const tributoCompat = !excecao && isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
       const kitRatio = detectKitRatio(tributoCompat, custoBruto);
       const tributo = tributoCompat && kitRatio > 1 ? ajustarTributoPorKit(tributoCompat, kitRatio) : tributoCompat;
       const hasNF = !!tributo;
