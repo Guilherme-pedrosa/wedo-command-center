@@ -138,19 +138,25 @@ function calcPricing(
   saida: TaxConfigSaida,
   tipo: TipoSaida,
   margemDesejada: number,
-  custoFixoPct: number = 0 // fração (0.08 = 8%) — entra no DIVISOR do mark-up
+  custoFixoPct: number = 0, // fração (0.08 = 8%) — entra no DIVISOR do mark-up
+  manualCredits?: { icms: number; pis: number; cofins: number; ipi: number; ipiRecuperavel: boolean }
 ) {
-  // Sem NF para consultar → NUNCA inferir crédito de entrada. Zerado.
-  const creditoIcms = 0;
-  const creditoPis = 0;
-  const creditoCofins = 0;
-  const totalCreditosEntrada = 0;
+  // Por padrão, sem NF → não infere crédito. Mas se o usuário preencher manualCredits
+  // (caso da Calculadora Margem), usa esses percentuais.
+  const creditoIcms = manualCredits ? custoBruto * (manualCredits.icms / 100) : 0;
+  const creditoPis = manualCredits ? custoBruto * (manualCredits.pis / 100) : 0;
+  const creditoCofins = manualCredits ? custoBruto * (manualCredits.cofins / 100) : 0;
+  // IPI: se recuperável → vira crédito; se não → soma ao custo (revenda comum).
+  const ipiValor = manualCredits ? custoBruto * (manualCredits.ipi / 100) : 0;
+  const creditoIpi = manualCredits && manualCredits.ipiRecuperavel ? ipiValor : 0;
+  const ipiCusto = manualCredits && !manualCredits.ipiRecuperavel ? ipiValor : 0;
+  const totalCreditosEntrada = creditoIcms + creditoPis + creditoCofins + creditoIpi;
 
   const custoLiquido = custoBruto - totalCreditosEntrada;
   const custoFrete = custoBruto * (entrada.frete / 100);
   // custoFixoUnit (override flat manual) ainda soma direto no custo, se setado.
   // O rateio proporcional (custoFixoPct) é embutido NO DIVISOR — não no custo.
-  const custoTotal = custoLiquido + custoFrete + entrada.custoFixoUnit;
+  const custoTotal = custoLiquido + custoFrete + ipiCusto + entrada.custoFixoUnit;
 
   // Alíquotas de saída (incidem sobre faturamento)
   let aliquotaSaidaFaturamento: number;
@@ -332,6 +338,12 @@ export default function PrecificacaoPage() {
   const [calcMargens] = useState([10, 15, 20, 25, 30]);
   // Override de ICMS de saída na Calculadora (vazio = usa o global do header)
   const [calcIcmsSaida, setCalcIcmsSaida] = useState<string>("");
+  // Overrides manuais de créditos de entrada na Calculadora (vazio = usa default global)
+  const [calcIcmsCred, setCalcIcmsCred] = useState<string>("");
+  const [calcPisCred, setCalcPisCred] = useState<string>("");
+  const [calcCofinsCred, setCalcCofinsCred] = useState<string>("");
+  const [calcIpi, setCalcIpi] = useState<string>("");
+  const [calcIpiRecup, setCalcIpiRecup] = useState<boolean>(false);
   // Override de ICMS de saída por produto na tabela (Map<gc_produto_id, %>)
   const [icmsSaidaOverrides, setIcmsSaidaOverrides] = useState<Map<string, number>>(new Map());
   // Seleção de produtos para correção em lote (checkboxes)
@@ -1485,11 +1497,24 @@ export default function PrecificacaoPage() {
     const taxSaidaCalc = icmsOv !== undefined && isFinite(icmsOv)
       ? { ...taxSaida, icmsSaida: icmsOv }
       : taxSaida;
+    const parsePct = (s: string, fallback: number) => {
+      const t = s.trim();
+      if (t === "") return fallback;
+      const v = parseFloat(t.replace(",", "."));
+      return isFinite(v) ? v : fallback;
+    };
+    const manualCredits = {
+      icms: parsePct(calcIcmsCred, activeEntrada.icmsCredito),
+      pis: parsePct(calcPisCred, activeEntrada.pisCredito),
+      cofins: parsePct(calcCofinsCred, activeEntrada.cofinsCredito),
+      ipi: parsePct(calcIpi, 0),
+      ipiRecuperavel: calcIpiRecup,
+    };
     return calcMargens.map((m) => ({
       margem: m,
-      ...calcPricing(custo, activeEntrada, taxSaidaCalc, calcTipoSaida, m, custoFixoPctEfetivo),
+      ...calcPricing(custo, activeEntrada, taxSaidaCalc, calcTipoSaida, m, custoFixoPctEfetivo, manualCredits),
     }));
-  }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida, custoFixoPctEfetivo, calcIcmsSaida]);
+  }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida, custoFixoPctEfetivo, calcIcmsSaida, calcIcmsCred, calcPisCred, calcCofinsCred, calcIpi, calcIpiRecup]);
 
   const totalComTributoNF = tributosXml.length;
 
@@ -2891,48 +2916,114 @@ export default function PrecificacaoPage() {
                   </div>
                 )}
 
-                {calcCusto && parseFloat(calcCusto) > 0 && (
-                  <div className="bg-secondary/50 rounded-lg p-4 space-y-2 text-sm">
-                    <p className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider mb-2">Composição de custo</p>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Custo bruto</span>
-                      <span className="font-mono">{formatCurrency(parseFloat(calcCusto))}</span>
+                {/* Créditos de entrada editáveis + IPI */}
+                <div className="space-y-2 pt-2 border-t border-border/50">
+                  <p className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">
+                    Créditos de entrada (NF)
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">Créd. ICMS %</Label>
+                      <Input type="number" step="0.01" placeholder={String(activeEntrada.icmsCredito)}
+                        value={calcIcmsCred} onChange={(e) => setCalcIcmsCred(e.target.value)}
+                        className="bg-secondary font-mono h-8 text-xs" />
                     </div>
-                    <div className="flex justify-between text-green-400">
-                      <span>Créd. ICMS ({activeEntrada.icmsCredito}%)</span>
-                      <span className="font-mono">-{formatCurrency(parseFloat(calcCusto) * activeEntrada.icmsCredito / 100)}</span>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">Créd. PIS %</Label>
+                      <Input type="number" step="0.01" placeholder={String(activeEntrada.pisCredito)}
+                        value={calcPisCred} onChange={(e) => setCalcPisCred(e.target.value)}
+                        className="bg-secondary font-mono h-8 text-xs" />
                     </div>
-                    <div className="flex justify-between text-green-400">
-                      <span>Créd. PIS ({activeEntrada.pisCredito}%)</span>
-                      <span className="font-mono">-{formatCurrency(parseFloat(calcCusto) * activeEntrada.pisCredito / 100)}</span>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">Créd. COFINS %</Label>
+                      <Input type="number" step="0.01" placeholder={String(activeEntrada.cofinsCredito)}
+                        value={calcCofinsCred} onChange={(e) => setCalcCofinsCred(e.target.value)}
+                        className="bg-secondary font-mono h-8 text-xs" />
                     </div>
-                    <div className="flex justify-between text-green-400">
-                      <span>Créd. COFINS ({activeEntrada.cofinsCredito}%)</span>
-                      <span className="font-mono">-{formatCurrency(parseFloat(calcCusto) * activeEntrada.cofinsCredito / 100)}</span>
-                    </div>
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Frete ({activeEntrada.frete}%)</span>
-                      <span className="font-mono">+{formatCurrency(parseFloat(calcCusto) * activeEntrada.frete / 100)}</span>
-                    </div>
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Custo fixo unit.</span>
-                      <span className="font-mono">+{formatCurrency(activeEntrada.custoFixoUnit)}</span>
-                    </div>
-                    <div className="border-t border-border pt-2 flex justify-between font-semibold">
-                      <span>Custo total</span>
-                      <span className="font-mono">
-                        {formatCurrency(
-                          parseFloat(calcCusto) * (1 - (activeEntrada.icmsCredito + activeEntrada.pisCredito + activeEntrada.cofinsCredito) / 100 + activeEntrada.frete / 100) + activeEntrada.custoFixoUnit
-                        )}
-                      </span>
-                    </div>
-                    <div className="border-t border-border pt-2 mt-1">
-                      <p className="text-[10px] text-muted-foreground">
-                        Tributos de saída ({calcTipoSaida === "venda" ? "Venda" : "Serviço"}): {getTipoSaidaAliquota(calcTipoSaida)}
-                      </p>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">IPI %</Label>
+                      <Input type="number" step="0.01" placeholder="0"
+                        value={calcIpi} onChange={(e) => setCalcIpi(e.target.value)}
+                        className="bg-secondary font-mono h-8 text-xs" />
                     </div>
                   </div>
-                )}
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer pt-1">
+                    <input type="checkbox" checked={calcIpiRecup}
+                      onChange={(e) => setCalcIpiRecup(e.target.checked)}
+                      className="h-3.5 w-3.5 accent-primary" />
+                    <span>IPI recuperável (vira crédito). Desmarcado = soma ao custo.</span>
+                  </label>
+                </div>
+
+                {calcCusto && parseFloat(calcCusto) > 0 && (() => {
+                  const custo = parseFloat(calcCusto);
+                  const parsePct = (s: string, fb: number) => {
+                    const t = s.trim(); if (t === "") return fb;
+                    const v = parseFloat(t.replace(",", ".")); return isFinite(v) ? v : fb;
+                  };
+                  const eIcms = parsePct(calcIcmsCred, activeEntrada.icmsCredito);
+                  const ePis = parsePct(calcPisCred, activeEntrada.pisCredito);
+                  const eCofins = parsePct(calcCofinsCred, activeEntrada.cofinsCredito);
+                  const eIpi = parsePct(calcIpi, 0);
+                  const valIcms = custo * eIcms / 100;
+                  const valPis = custo * ePis / 100;
+                  const valCofins = custo * eCofins / 100;
+                  const valIpi = custo * eIpi / 100;
+                  const valFrete = custo * activeEntrada.frete / 100;
+                  const ipiCusto = calcIpiRecup ? 0 : valIpi;
+                  const ipiCred = calcIpiRecup ? valIpi : 0;
+                  const custoTotal = custo - valIcms - valPis - valCofins - ipiCred + valFrete + ipiCusto + activeEntrada.custoFixoUnit;
+                  return (
+                    <div className="bg-secondary/50 rounded-lg p-4 space-y-2 text-sm">
+                      <p className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider mb-2">Composição de custo</p>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Custo bruto</span>
+                        <span className="font-mono">{formatCurrency(custo)}</span>
+                      </div>
+                      <div className="flex justify-between text-green-400">
+                        <span>Créd. ICMS ({eIcms}%)</span>
+                        <span className="font-mono">-{formatCurrency(valIcms)}</span>
+                      </div>
+                      <div className="flex justify-between text-green-400">
+                        <span>Créd. PIS ({ePis}%)</span>
+                        <span className="font-mono">-{formatCurrency(valPis)}</span>
+                      </div>
+                      <div className="flex justify-between text-green-400">
+                        <span>Créd. COFINS ({eCofins}%)</span>
+                        <span className="font-mono">-{formatCurrency(valCofins)}</span>
+                      </div>
+                      {eIpi > 0 && calcIpiRecup && (
+                        <div className="flex justify-between text-green-400">
+                          <span>Créd. IPI ({eIpi}%)</span>
+                          <span className="font-mono">-{formatCurrency(ipiCred)}</span>
+                        </div>
+                      )}
+                      {eIpi > 0 && !calcIpiRecup && (
+                        <div className="flex justify-between text-amber-400">
+                          <span>IPI ({eIpi}%) — não recuperável</span>
+                          <span className="font-mono">+{formatCurrency(ipiCusto)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Frete ({activeEntrada.frete}%)</span>
+                        <span className="font-mono">+{formatCurrency(valFrete)}</span>
+                      </div>
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Custo fixo unit.</span>
+                        <span className="font-mono">+{formatCurrency(activeEntrada.custoFixoUnit)}</span>
+                      </div>
+                      <div className="border-t border-border pt-2 flex justify-between font-semibold">
+                        <span>Custo total</span>
+                        <span className="font-mono">{formatCurrency(custoTotal)}</span>
+                      </div>
+                      <div className="border-t border-border pt-2 mt-1">
+                        <p className="text-[10px] text-muted-foreground">
+                          Tributos de saída ({calcTipoSaida === "venda" ? "Venda" : "Serviço"}): {getTipoSaidaAliquota(calcTipoSaida)}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
 
