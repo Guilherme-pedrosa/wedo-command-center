@@ -2237,6 +2237,10 @@ export type Database = {
           custo_efetivo_unit: number | null
           custo_variavel_real: number | null
           descricao_nf: string | null
+          excecao_at: string | null
+          excecao_by: string | null
+          excecao_manual: boolean
+          excecao_motivo: string | null
           fator_conversao: number | null
           fator_embalagem: number | null
           fornecedor_nome: string | null
@@ -2293,6 +2297,10 @@ export type Database = {
           custo_efetivo_unit?: number | null
           custo_variavel_real?: number | null
           descricao_nf?: string | null
+          excecao_at?: string | null
+          excecao_by?: string | null
+          excecao_manual?: boolean
+          excecao_motivo?: string | null
           fator_conversao?: number | null
           fator_embalagem?: number | null
           fornecedor_nome?: string | null
@@ -2349,6 +2357,10 @@ export type Database = {
           custo_efetivo_unit?: number | null
           custo_variavel_real?: number | null
           descricao_nf?: string | null
+          excecao_at?: string | null
+          excecao_by?: string | null
+          excecao_manual?: boolean
+          excecao_motivo?: string | null
           fator_conversao?: number | null
           fator_embalagem?: number | null
           fornecedor_nome?: string | null
