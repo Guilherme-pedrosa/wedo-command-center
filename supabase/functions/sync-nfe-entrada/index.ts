@@ -306,6 +306,16 @@ function normalizarCodigoProduto(c: string | null | undefined): string {
   return String(c).trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+function normalizeText(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 async function tryDownloadXml(chave: string, storagePath: string | null, supabase: any): Promise<string | null> {
   if (!chave || chave.length < 44) return null;
   const candidates = [
@@ -999,6 +1009,37 @@ function processarXml(
         }
         pick = { xi: xmlItems[best], idx: best, rule: "cprod_multi" };
       }
+    }
+
+    // PRIORIDADE 2: nome + aproximação de preço.
+    // O pedido GC e o XML da mesma NF têm praticamente os mesmos itens/valores;
+    // quando o código interno não bate com o cProd da NF, usar nome + unitário/total evita cair em "s/item".
+    if (!pick) {
+      const compraNome = normalizeText(item.nome_produto);
+      const tokensCompra = compraNome.split(/\s+/).filter((t) => t.length > 1);
+      const compraQtd = item.quantidade || 1;
+      const compraUnit = item.valor_custo || 0;
+      const compraTotal = item.valor_total || (compraUnit * compraQtd);
+      let best: { idx: number; score: number } | null = null;
+
+      for (let idx = 0; idx < xmlItems.length; idx++) {
+        if (usedXmlIdx.has(idx)) continue;
+        const xi = xmlItems[idx];
+        const tokensXml = new Set(normalizeText(xi.xProd).split(/\s+/).filter((t) => t.length > 1));
+        const comuns = tokensCompra.filter((t) => tokensXml.has(t)).length;
+        const tokenScore = comuns / Math.max(1, Math.min(tokensCompra.length, tokensXml.size));
+        const unitDiff = compraUnit > 0 ? Math.abs(xi.vUnCom - compraUnit) / compraUnit : 1;
+        const totalDiff = compraTotal > 0 ? Math.abs(xi.vProd - compraTotal) / compraTotal : 1;
+        const precoCompat = unitDiff <= 0.15 || totalDiff <= 0.05;
+        const matchForte = tokenScore >= 0.45 && precoCompat;
+        const matchPrecoQuaseExato = tokenScore >= 0.35 && (unitDiff <= 0.03 || totalDiff <= 0.03);
+        if (!matchForte && !matchPrecoQuaseExato) continue;
+
+        const score = (1 - tokenScore) * 0.55 + Math.min(unitDiff, 1) * 0.25 + Math.min(totalDiff, 1) * 0.20;
+        if (!best || score < best.score) best = { idx, score };
+      }
+
+      if (best) pick = { xi: xmlItems[best.idx], idx: best.idx, rule: "nome_preco" };
     }
 
     // Fallback seguro: NF com 1 item e pedido com 1 item é correspondência inequívoca,
