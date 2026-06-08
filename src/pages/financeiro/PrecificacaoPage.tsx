@@ -1787,6 +1787,19 @@ export default function PrecificacaoPage() {
                   {bulkCorrigindo === "selected-reduzir" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
                   Reduzir selecionados ({selectedAboveMargin.length})
                 </Button>
+                {selectedCostMismatch.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-red-500/50 text-red-300 hover:bg-red-500/10"
+                    onClick={() => atualizarCustoGCBatch(selectedCostMismatch, `Custo GC selecionados (${selectedCostMismatch.length})`)}
+                    disabled={!!atualizandoCustoKey || !!bulkCorrigindo || !!corrigindoKey}
+                    title={`Atualiza o custo no cadastro GC para o valor da última compra nos ${selectedCostMismatch.length} produto(s) selecionado(s) com custo ≥ 2× o GC`}
+                  >
+                    {atualizandoCustoKey === "bulk" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                    Atualizar custo GC selecionados ({selectedCostMismatch.length})
+                  </Button>
+                )}
                 <Button variant="ghost" size="sm" onClick={() => setSelectedProductIds(new Set())} title="Limpar seleção">
                   Limpar
                 </Button>
