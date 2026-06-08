@@ -2447,11 +2447,11 @@ export default function PrecificacaoPage() {
                               </>
                             );
                           })()}
-                          {tributo && (
-                            tributo.excecao_manual ? (
+                          {tributoRaw && (
+                            tributoRaw.excecao_manual ? (
                               <Badge
                                 className="ml-2 text-[10px] py-0 bg-slate-500/20 text-slate-300 border-slate-500/40 cursor-pointer hover:bg-slate-500/30"
-                                title={`Exceção manual ativa${tributo.excecao_motivo ? ` — ${tributo.excecao_motivo}` : ""}. Clique para remover.`}
+                                title={`Exceção manual ativa${tributoRaw.excecao_motivo ? ` — ${tributoRaw.excecao_motivo}` : ""}${tributoRaw.excecao_custo_unitario ? ` · custo manual ${formatCurrency(Number(tributoRaw.excecao_custo_unitario))}/${p.unidade || "un"}` : ""}. Clique para remover.`}
                                 onClick={async () => {
                                   if (!window.confirm("Remover exceção manual e voltar a exibir os avisos de divergência?")) return;
                                   const { error } = await supabase
@@ -2463,10 +2463,10 @@ export default function PrecificacaoPage() {
                                   refetchTributos();
                                 }}
                               >
-                                🔒 Exceção manual{tributo.excecao_motivo ? ` · ${tributo.excecao_motivo.slice(0, 40)}` : ""}
+                                🔒 Exceção manual{tributoRaw.excecao_custo_unitario ? ` · ${formatCurrency(Number(tributoRaw.excecao_custo_unitario))}/${p.unidade || "un"}` : ""}{tributoRaw.excecao_motivo ? ` · ${tributoRaw.excecao_motivo.slice(0, 30)}` : ""}
                               </Badge>
                             ) : (
-                              hasNF && (() => {
+                              hasNF && tributo && (() => {
                                 const nfCusto = Number(tributo.valor_unitario_nf) || 0;
                                 const gcCusto = Number(p.valor_custo) || 0;
                                 const ultCusto = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
