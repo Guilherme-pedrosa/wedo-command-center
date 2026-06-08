@@ -2475,14 +2475,30 @@ export default function PrecificacaoPage() {
                                     className="ml-2 h-6 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
                                     title="Marcar como exceção manual — silencia alertas (ex: pedido GC já corrigido manualmente e pago)"
                                     onClick={async () => {
-                                      const motivo = window.prompt("Motivo da exceção manual (ex: pedido corrigido manualmente, financeiro já pago):", "Pedido GC corrigido manualmente, financeiro já pago");
+                                      const motivo = window.prompt("Motivo da exceção manual (ex: cadastro 1L mas compra é caixa 10L):", "Cadastro com unidade divergente da compra");
                                       if (motivo == null) return;
+                                      const gcCusto = Number(p.valor_custo) || 0;
+                                      const custoStr = window.prompt(
+                                        `Custo unitário CORRETO por ${p.unidade || "un"} (R$)\n\nDeixe vazio para usar o cadastro GC (${formatCurrency(gcCusto)}).\nEx: se a caixa custou ${formatCurrency(gcCusto)} e tem 10 un, informe ${formatCurrency(gcCusto/10)}`,
+                                        ""
+                                      );
+                                      if (custoStr == null) return;
+                                      const custoNum = custoStr.trim() === "" ? null : parseFloat(custoStr.replace(",", "."));
+                                      if (custoStr.trim() !== "" && (!isFinite(custoNum!) || custoNum! <= 0)) {
+                                        toast.error("Custo unitário inválido");
+                                        return;
+                                      }
                                       const { error } = await supabase
                                         .from("fin_produto_tributos")
-                                        .update({ excecao_manual: true, excecao_motivo: motivo || null, excecao_at: new Date().toISOString() })
+                                        .update({
+                                          excecao_manual: true,
+                                          excecao_motivo: motivo || null,
+                                          excecao_at: new Date().toISOString(),
+                                          excecao_custo_unitario: custoNum,
+                                        })
                                         .eq("gc_produto_id", String(p.id));
                                       if (error) { toast.error("Falha ao marcar exceção: " + error.message); return; }
-                                      toast.success("Exceção manual aplicada — alertas silenciados");
+                                      toast.success(custoNum ? `Exceção aplicada — custo ${formatCurrency(custoNum)}/${p.unidade || "un"}` : "Exceção aplicada — usando custo do GC");
                                       refetchTributos();
                                     }}
                                   >
