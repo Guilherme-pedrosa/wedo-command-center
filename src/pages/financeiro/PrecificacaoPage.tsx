@@ -2454,8 +2454,7 @@ export default function PrecificacaoPage() {
                               </>
                             );
                           })()}
-                          {tributoRaw && (
-                            tributoRaw.excecao_manual ? (
+                          {tributoRaw?.excecao_manual ? (
                               <Badge
                                 className="ml-2 text-[10px] py-0 bg-slate-500/20 text-slate-300 border-slate-500/40 cursor-pointer hover:bg-slate-500/30"
                                 title={`Exceção manual ativa${tributoRaw.excecao_motivo ? ` — ${tributoRaw.excecao_motivo}` : ""}${tributoRaw.excecao_custo_unitario ? ` · custo manual ${formatCurrency(Number(tributoRaw.excecao_custo_unitario))}/${p.unidade || "un"}` : ""}. Clique para remover.`}
@@ -2516,8 +2515,7 @@ export default function PrecificacaoPage() {
                                   </Button>
                                 );
                               })()
-                            )
-                          )}
+                            )}
                           {(() => {
                             const items = outOfMarginByProduct.get(String(p.id)) || [];
                             if (items.length === 0) return null;
