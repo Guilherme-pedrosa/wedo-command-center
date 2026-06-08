@@ -1,0 +1,1 @@
+DELETE FROM fin_produto_tributos WHERE compra_codigo='2201' AND nf_numero='19954';
