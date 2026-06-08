@@ -1750,7 +1750,7 @@ export default function PrecificacaoPage() {
       const dataCompra = ultimaCompra?.data || "";
       const situacaoCompra = ultimaCompra?.nome_situacao || "";
       const custoGCCadastro = Number(p.valor_custo) || 0;
-      const custoNF = tributo?.valor_custo_unit ?? tributo?.valor_unit ?? "";
+      const custoNF = tributo?.valor_unitario_nf ?? "";
       const ratio = custoGCCadastro > 0 && custoUltimaCompra > 0 ? custoUltimaCompra / custoGCCadastro : 0;
       const alertas: string[] = [];
       if (ratio >= 2) alertas.push(`⚠ Última compra ${ratio.toFixed(1)}× maior que GC — checar unidade`);
