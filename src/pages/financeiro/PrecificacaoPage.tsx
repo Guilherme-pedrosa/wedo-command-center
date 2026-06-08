@@ -138,19 +138,25 @@ function calcPricing(
   saida: TaxConfigSaida,
   tipo: TipoSaida,
   margemDesejada: number,
-  custoFixoPct: number = 0 // fração (0.08 = 8%) — entra no DIVISOR do mark-up
+  custoFixoPct: number = 0, // fração (0.08 = 8%) — entra no DIVISOR do mark-up
+  manualCredits?: { icms: number; pis: number; cofins: number; ipi: number; ipiRecuperavel: boolean }
 ) {
-  // Sem NF para consultar → NUNCA inferir crédito de entrada. Zerado.
-  const creditoIcms = 0;
-  const creditoPis = 0;
-  const creditoCofins = 0;
-  const totalCreditosEntrada = 0;
+  // Por padrão, sem NF → não infere crédito. Mas se o usuário preencher manualCredits
+  // (caso da Calculadora Margem), usa esses percentuais.
+  const creditoIcms = manualCredits ? custoBruto * (manualCredits.icms / 100) : 0;
+  const creditoPis = manualCredits ? custoBruto * (manualCredits.pis / 100) : 0;
+  const creditoCofins = manualCredits ? custoBruto * (manualCredits.cofins / 100) : 0;
+  // IPI: se recuperável → vira crédito; se não → soma ao custo (revenda comum).
+  const ipiValor = manualCredits ? custoBruto * (manualCredits.ipi / 100) : 0;
+  const creditoIpi = manualCredits && manualCredits.ipiRecuperavel ? ipiValor : 0;
+  const ipiCusto = manualCredits && !manualCredits.ipiRecuperavel ? ipiValor : 0;
+  const totalCreditosEntrada = creditoIcms + creditoPis + creditoCofins + creditoIpi;
 
   const custoLiquido = custoBruto - totalCreditosEntrada;
   const custoFrete = custoBruto * (entrada.frete / 100);
   // custoFixoUnit (override flat manual) ainda soma direto no custo, se setado.
   // O rateio proporcional (custoFixoPct) é embutido NO DIVISOR — não no custo.
-  const custoTotal = custoLiquido + custoFrete + entrada.custoFixoUnit;
+  const custoTotal = custoLiquido + custoFrete + ipiCusto + entrada.custoFixoUnit;
 
   // Alíquotas de saída (incidem sobre faturamento)
   let aliquotaSaidaFaturamento: number;
