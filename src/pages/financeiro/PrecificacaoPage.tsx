@@ -315,7 +315,7 @@ export default function PrecificacaoPage() {
   const [marginFilter, setMarginFilter] = useState<"todos" | "fora" | "negativa">("todos");
   const [grupoFilter, setGrupoFilter] = useState<string>("todos");
   const [estoqueFilter, setEstoqueFilter] = useState<"todos" | "com_estoque" | "sem_estoque">("todos");
-  const [divergenciaFilter, setDivergenciaFilter] = useState<"todos" | "divergentes" | "ok">("todos");
+  const [divergenciaFilter, setDivergenciaFilter] = useState<"todos" | "divergentes" | "gc_acima" | "gc_abaixo" | "ok">("todos");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
   const [taxEntrada, setTaxEntrada] = useState<TaxConfigEntrada>(DEFAULT_ENTRADA);
@@ -836,13 +836,22 @@ export default function PrecificacaoPage() {
   // (normalmente indica problema de unidade — ex.: NF em CX 10x1L mas produto cadastrado como 1L UN)
   const DIVERGENCIA_RATIO_THRESHOLD = 2;
 
-  const isDivergenteCusto = (p: any) => {
+  const getDivergenciaCustoDirecao = (p: any): "gc_acima" | "gc_abaixo" | null => {
     const gcCusto = Number(p.valor_custo) || 0;
+    const tributoRaw = tributosMap.get(p.id);
+    if (tributoRaw?.excecao_manual) return null;
+    const tributo = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
     const ult = ultimaCompraMap.get(p.id);
+    const nfBase = Number(tributo?.valor_unitario_nf) || 0;
+    const fretePct = Number(tributo?.frete_percentual) || 0;
+    const ipiPct = Number(tributo?.ipi_aliquota_manual ?? tributo?.ipi_aliquota) || 0;
+    const nfCustoComAjustes = nfBase > 0 ? nfBase * (1 + fretePct / 100 + ipiPct / 100) : 0;
     const ultCusto = ult?.valor_custo && ult.valor_custo > 0 ? ult.valor_custo : 0;
-    if (gcCusto <= 0 || ultCusto <= 0) return false;
-    const ratio = Math.max(ultCusto / gcCusto, gcCusto / ultCusto);
-    return ratio >= DIVERGENCIA_RATIO_THRESHOLD;
+    const notaCusto = nfCustoComAjustes > 0 ? nfCustoComAjustes : ultCusto;
+    if (gcCusto <= 0 || notaCusto <= 0) return null;
+    const ratio = Math.max(notaCusto / gcCusto, gcCusto / notaCusto);
+    if (ratio < DIVERGENCIA_RATIO_THRESHOLD) return null;
+    return gcCusto > notaCusto ? "gc_acima" : "gc_abaixo";
   };
 
   const preFiltered = useMemo(() => {
@@ -859,13 +868,16 @@ export default function PrecificacaoPage() {
       if (estoqueFilter === "com_estoque" && estoqueNum <= 0) return false;
       if (estoqueFilter === "sem_estoque" && estoqueNum > 0) return false;
       if (divergenciaFilter !== "todos") {
-        const divergente = isDivergenteCusto(p);
+        const direcao = getDivergenciaCustoDirecao(p);
+        const divergente = !!direcao;
         if (divergenciaFilter === "divergentes" && !divergente) return false;
+        if (divergenciaFilter === "gc_acima" && direcao !== "gc_acima") return false;
+        if (divergenciaFilter === "gc_abaixo" && direcao !== "gc_abaixo") return false;
         if (divergenciaFilter === "ok" && divergente) return false;
       }
       return true;
     });
-  }, [produtos, search, grupoFilter, estoqueFilter, divergenciaFilter, ultimaCompraMap]);
+  }, [produtos, search, grupoFilter, estoqueFilter, divergenciaFilter, ultimaCompraMap, tributosMap]);
 
 
   // Reseta página ao mudar filtros para evitar ficar fora do range
@@ -2168,12 +2180,14 @@ export default function PrecificacaoPage() {
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Divergência:</Label>
               <Select value={divergenciaFilter} onValueChange={(v) => setDivergenciaFilter(v as typeof divergenciaFilter)}>
-                <SelectTrigger className="w-[200px] h-8 text-xs bg-secondary">
+                <SelectTrigger className="w-[250px] h-8 text-xs bg-secondary">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todos">Todos</SelectItem>
                   <SelectItem value="divergentes">⚠ Custo divergente (≥2× em qualquer direção)</SelectItem>
+                  <SelectItem value="gc_acima">GC mais caro que a NF</SelectItem>
+                  <SelectItem value="gc_abaixo">GC mais barato que a NF</SelectItem>
                   <SelectItem value="ok">Sem divergência</SelectItem>
                 </SelectContent>
               </Select>
