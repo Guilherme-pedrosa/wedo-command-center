@@ -852,7 +852,31 @@ function processarXml(
 
     usedXmlIdx.add(pick.idx);
     const xi = pick.xi;
-    const qtd = xi.qCom || 1;
+    const qComRaw = xi.qCom || 1;
+    const compraQtd = item.quantidade || 0;
+
+    // ── Detecção de embalagem ──
+    // Quando o XML diz "1 pacote" mas o pedido tem "100 un" e o TOTAL bate,
+    // a unidade de venda é diferente da unidade comercial da NF.
+    // Nesse caso, dividimos o valor total da NF pela quantidade do pedido
+    // para obter o custo real por unidade de venda.
+    let fatorEmbalagem = 1;
+    let qtd = qComRaw;
+    let packRuleTag = "";
+    if (compraQtd > 0 && qComRaw > 0) {
+      const totalNF = xi.vProd;
+      const totalPedido = item.valor_total || (item.valor_custo * compraQtd);
+      const ratio = compraQtd / qComRaw;
+      const totaisBatem = totalPedido > 0 &&
+        Math.abs(totalNF - totalPedido) / Math.max(totalNF, totalPedido) <= 0.05;
+      const qtdsDiferentes = Math.abs(ratio - 1) > 0.05;
+      if (totaisBatem && qtdsDiferentes) {
+        fatorEmbalagem = Math.round(ratio * 10000) / 10000;
+        qtd = compraQtd;
+        packRuleTag = `+pack:${fatorEmbalagem}x`;
+      }
+    }
+
     const valorUnit = xi.vProd / qtd;
     const proporcao = totalVProd > 0 ? xi.vProd / totalVProd : 0;
     const freteUnit = qtd > 0 ? (xmlFrete * proporcao) / qtd : 0;
