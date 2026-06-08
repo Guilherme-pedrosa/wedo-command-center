@@ -972,13 +972,21 @@ function processarXml(
       if (candidatos.length === 1) {
         pick = { xi: xmlItems[candidatos[0]], idx: candidatos[0], rule: "cprod" };
       } else if (candidatos.length > 1) {
-        // múltiplos cProd iguais → desempate por qtd mais próxima do pedido
+        // múltiplos cProd iguais → desempate por proximidade de VALOR (preço unitário e total)
+        // O pedido GC e a NF têm praticamente os mesmos valores; usar isso evita pegar item errado.
         const compraQtd = item.quantidade || 1;
+        const compraUnit = item.valor_custo || 0;
+        const compraTotal = item.valor_total || (compraUnit * compraQtd);
         let best = candidatos[0];
-        let bestDiff = Infinity;
+        let bestScore = Infinity;
         for (const idx of candidatos) {
-          const diff = Math.abs(xmlItems[idx].qCom - compraQtd);
-          if (diff < bestDiff) { bestDiff = diff; best = idx; }
+          const xi = xmlItems[idx];
+          const unitDiff = compraUnit > 0 ? Math.abs(xi.vUnCom - compraUnit) / compraUnit : 1;
+          const totalDiff = compraTotal > 0 ? Math.abs(xi.vProd - compraTotal) / compraTotal : 1;
+          const qtdDiff = compraQtd > 0 ? Math.abs(xi.qCom - compraQtd) / compraQtd : 1;
+          // Peso maior em valor (unit e total), qtd como desempate fino
+          const score = unitDiff * 0.5 + totalDiff * 0.4 + qtdDiff * 0.1;
+          if (score < bestScore) { bestScore = score; best = idx; }
         }
         pick = { xi: xmlItems[best], idx: best, rule: "cprod_multi" };
       }
