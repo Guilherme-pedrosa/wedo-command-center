@@ -620,14 +620,14 @@ serve(async (req) => {
         const chunk = ids.slice(i, i + 100);
         const { data } = await supabase
           .from("fin_produto_tributos")
-          .select("gc_produto_id, icms_aliquota_manual, pis_aliquota_manual, cofins_aliquota_manual, sem_credito, nf_data_emissao, match_rule")
+          .select("gc_produto_id, icms_aliquota_manual, pis_aliquota_manual, cofins_aliquota_manual, ipi_aliquota_manual, nf_data_emissao, match_rule")
           .in("gc_produto_id", chunk);
         for (const row of data || []) {
           if (
-            row.sem_credito ||
             row.icms_aliquota_manual != null ||
             row.pis_aliquota_manual != null ||
-            row.cofins_aliquota_manual != null
+            row.cofins_aliquota_manual != null ||
+            row.ipi_aliquota_manual != null
           )
             manuais.add(row.gc_produto_id);
           if (row.nf_data_emissao) existingNfDate.set(row.gc_produto_id, String(row.nf_data_emissao));
