@@ -2537,6 +2537,11 @@ export default function PrecificacaoPage() {
                                         </Badge>
                                       );
                                     })()}
+                                     {(tributo.q_com || tributo.v_un_com || tributo.unidade_comercial_nf) && (
+                                       <Badge variant="outline" className="text-[9px] border-blue-500/40 text-blue-400">
+                                         NF {tributo.q_com ?? "—"} {tributo.unidade_comercial_nf || "UN"} × {tributo.v_un_com != null ? formatCurrency(Number(tributo.v_un_com)) : "—"}
+                                       </Badge>
+                                     )}
 
                                   </div>
                                 );
@@ -2552,6 +2557,14 @@ export default function PrecificacaoPage() {
                                 </div>
                               )}
                               <p className="font-semibold">NF #{tributo.nf_numero} — {tributo.fornecedor_nome}</p>
+                               <p><span className="font-semibold">Descrição NF: </span>{tributo.descricao_nf || tributo.nome_produto || "—"}</p>
+                               <p>
+                                 <span className="font-semibold">Item NF: </span>
+                                 qtd {tributo.q_com ?? "—"} {tributo.unidade_comercial_nf || "—"} · unit {tributo.v_un_com != null ? formatCurrency(Number(tributo.v_un_com)) : "—"}
+                               </p>
+                               {(tributo.q_trib || tributo.v_un_trib || tributo.unidade_tributavel_nf) && (
+                                 <p>Tributável: qtd {tributo.q_trib ?? "—"} {tributo.unidade_tributavel_nf || "—"} · unit {tributo.v_un_trib != null ? formatCurrency(Number(tributo.v_un_trib)) : "—"}</p>
+                               )}
                               {tributo.match_rule && (
                                 <p className="mt-1">
                                   <span className="font-semibold">Match: </span>
