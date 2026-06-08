@@ -2451,7 +2451,7 @@ export default function PrecificacaoPage() {
                                   if (!window.confirm("Remover exceção manual e voltar a exibir os avisos de divergência?")) return;
                                   const { error } = await supabase
                                     .from("fin_produto_tributos")
-                                    .update({ excecao_manual: false, excecao_motivo: null, excecao_at: null, excecao_by: null })
+                                    .update({ excecao_manual: false, excecao_motivo: null, excecao_at: null, excecao_by: null, excecao_custo_unitario: null })
                                     .eq("gc_produto_id", String(p.id));
                                   if (error) { toast.error("Falha ao remover exceção: " + error.message); return; }
                                   toast.success("Exceção removida");
