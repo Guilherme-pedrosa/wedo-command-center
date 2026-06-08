@@ -75,6 +75,7 @@ interface ProdutoTributo {
   fator_embalagem?: number | null;
   excecao_manual?: boolean | null;
   excecao_motivo?: string | null;
+  excecao_custo_unitario?: number | null;
 }
 
 interface UltimaCompraProduto {
