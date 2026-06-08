@@ -314,7 +314,9 @@ serve(async (req) => {
         .is("pis_aliquota_manual", null)
         .is("cofins_aliquota_manual", null)
         .is("ipi_aliquota_manual", null)
-        .eq("sem_credito", false);
+        .eq("sem_credito", false)
+        // Preserva exceções manuais marcadas pelo usuário
+        .or("excecao_manual.is.null,excecao_manual.eq.false");
     }
 
     // ── Step 3: Build CNPJ → XMLs index ──
