@@ -2435,7 +2435,7 @@ export default function PrecificacaoPage() {
                                     .eq("gc_produto_id", String(p.id));
                                   if (error) { toast.error("Falha ao remover exceção: " + error.message); return; }
                                   toast.success("Exceção removida");
-                                  setTributos((prev) => prev.map((t) => t.gc_produto_id === String(p.id) ? { ...t, excecao_manual: false, excecao_motivo: null } : t));
+                                  refetchTributos();
                                 }}
                               >
                                 🔒 Exceção manual{tributo.excecao_motivo ? ` · ${tributo.excecao_motivo.slice(0, 40)}` : ""}
@@ -2463,7 +2463,7 @@ export default function PrecificacaoPage() {
                                         .eq("gc_produto_id", String(p.id));
                                       if (error) { toast.error("Falha ao marcar exceção: " + error.message); return; }
                                       toast.success("Exceção manual aplicada — alertas silenciados");
-                                      setTributos((prev) => prev.map((t) => t.gc_produto_id === String(p.id) ? { ...t, excecao_manual: true, excecao_motivo: motivo || null } : t));
+                                      refetchTributos();
                                     }}
                                   >
                                     🔕 Ignorar (exceção manual)
