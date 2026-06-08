@@ -2365,6 +2365,7 @@ export default function PrecificacaoPage() {
                           )}
                           {(() => {
                             if (!hasNF) return null;
+                            if (tributo?.excecao_manual) return null;
                             const nfCusto = Number(tributo.valor_unitario_nf) || 0;
                             const gcCusto = Number(p.valor_custo) || 0;
                             if (nfCusto <= 0 || gcCusto <= 0) return null;
@@ -2385,6 +2386,7 @@ export default function PrecificacaoPage() {
                             );
                           })()}
                           {(() => {
+                            if (tributo?.excecao_manual) return null;
                             const gcCusto = Number(p.valor_custo) || 0;
                             const ultCusto = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
                             if (gcCusto <= 0 || ultCusto <= 0) return null;
@@ -2420,6 +2422,56 @@ export default function PrecificacaoPage() {
                               </>
                             );
                           })()}
+                          {tributo && (
+                            tributo.excecao_manual ? (
+                              <Badge
+                                className="ml-2 text-[10px] py-0 bg-slate-500/20 text-slate-300 border-slate-500/40 cursor-pointer hover:bg-slate-500/30"
+                                title={`Exceção manual ativa${tributo.excecao_motivo ? ` — ${tributo.excecao_motivo}` : ""}. Clique para remover.`}
+                                onClick={async () => {
+                                  if (!window.confirm("Remover exceção manual e voltar a exibir os avisos de divergência?")) return;
+                                  const { error } = await supabase
+                                    .from("fin_produto_tributos")
+                                    .update({ excecao_manual: false, excecao_motivo: null, excecao_at: null, excecao_by: null })
+                                    .eq("gc_produto_id", String(p.id));
+                                  if (error) { toast.error("Falha ao remover exceção: " + error.message); return; }
+                                  toast.success("Exceção removida");
+                                  setTributos((prev) => prev.map((t) => t.gc_produto_id === String(p.id) ? { ...t, excecao_manual: false, excecao_motivo: null } : t));
+                                }}
+                              >
+                                🔒 Exceção manual{tributo.excecao_motivo ? ` · ${tributo.excecao_motivo.slice(0, 40)}` : ""}
+                              </Badge>
+                            ) : (
+                              hasNF && (() => {
+                                const nfCusto = Number(tributo.valor_unitario_nf) || 0;
+                                const gcCusto = Number(p.valor_custo) || 0;
+                                const ultCusto = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+                                const diffPct = nfCusto > 0 && gcCusto > 0 ? Math.abs((gcCusto - nfCusto) / nfCusto) * 100 : 0;
+                                const ratio = gcCusto > 0 && ultCusto > 0 ? ultCusto / gcCusto : 0;
+                                if (diffPct < 1 && ratio < 2) return null;
+                                return (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="ml-2 h-6 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                                    title="Marcar como exceção manual — silencia alertas (ex: pedido GC já corrigido manualmente e pago)"
+                                    onClick={async () => {
+                                      const motivo = window.prompt("Motivo da exceção manual (ex: pedido corrigido manualmente, financeiro já pago):", "Pedido GC corrigido manualmente, financeiro já pago");
+                                      if (motivo == null) return;
+                                      const { error } = await supabase
+                                        .from("fin_produto_tributos")
+                                        .update({ excecao_manual: true, excecao_motivo: motivo || null, excecao_at: new Date().toISOString() })
+                                        .eq("gc_produto_id", String(p.id));
+                                      if (error) { toast.error("Falha ao marcar exceção: " + error.message); return; }
+                                      toast.success("Exceção manual aplicada — alertas silenciados");
+                                      setTributos((prev) => prev.map((t) => t.gc_produto_id === String(p.id) ? { ...t, excecao_manual: true, excecao_motivo: motivo || null } : t));
+                                    }}
+                                  >
+                                    🔕 Ignorar (exceção manual)
+                                  </Button>
+                                );
+                              })()
+                            )
+                          )}
                           {(() => {
                             const items = outOfMarginByProduct.get(String(p.id)) || [];
                             if (items.length === 0) return null;
