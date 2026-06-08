@@ -2470,25 +2470,22 @@ export default function PrecificacaoPage() {
                                 🔒 Exceção manual{tributoRaw.excecao_custo_unitario ? ` · ${formatCurrency(Number(tributoRaw.excecao_custo_unitario))}/${p.unidade || "un"}` : ""}{tributoRaw.excecao_motivo ? ` · ${tributoRaw.excecao_motivo.slice(0, 30)}` : ""}
                               </Badge>
                             ) : (
-                              hasNF && tributo && (() => {
-                                const nfCusto = Number(tributo.valor_unitario_nf) || 0;
+                              (() => {
+                                const nfCusto = Number(tributo?.valor_unitario_nf) || 0;
                                 const gcCusto = Number(p.valor_custo) || 0;
                                 const ultCusto = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
-                                const diffPct = nfCusto > 0 && gcCusto > 0 ? Math.abs((gcCusto - nfCusto) / nfCusto) * 100 : 0;
-                                const ratio = gcCusto > 0 && ultCusto > 0 ? ultCusto / gcCusto : 0;
-                                if (diffPct < 1 && ratio < 2) return null;
                                 return (
                                   <Button
                                     size="sm"
                                     variant="ghost"
                                     className="ml-2 h-6 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
-                                    title="Marcar como exceção manual — silencia alertas (ex: pedido GC já corrigido manualmente e pago)"
+                                    title="Marcar como exceção manual — silencia alertas e permite definir custo unitário correto"
                                     onClick={async () => {
                                       const motivo = window.prompt("Motivo da exceção manual (ex: cadastro 1L mas compra é caixa 10L):", "Cadastro com unidade divergente da compra");
                                       if (motivo == null) return;
-                                      const gcCusto = Number(p.valor_custo) || 0;
+                                      const ref = gcCusto || ultCusto || nfCusto || 0;
                                       const custoStr = window.prompt(
-                                        `Custo unitário CORRETO por ${p.unidade || "un"} (R$)\n\nDeixe vazio para usar o cadastro GC (${formatCurrency(gcCusto)}).\nEx: se a caixa custou ${formatCurrency(gcCusto)} e tem 10 un, informe ${formatCurrency(gcCusto/10)}`,
+                                        `Custo unitário CORRETO por ${p.unidade || "un"} (R$)\n\nDeixe vazio para usar o cadastro GC (${formatCurrency(gcCusto)}).\nEx: se a caixa custou ${formatCurrency(ref)} e tem 10 un, informe ${formatCurrency(ref/10)}`,
                                         ""
                                       );
                                       if (custoStr == null) return;
@@ -2499,13 +2496,13 @@ export default function PrecificacaoPage() {
                                       }
                                       const { error } = await supabase
                                         .from("fin_produto_tributos")
-                                        .update({
+                                        .upsert({
+                                          gc_produto_id: String(p.id),
                                           excecao_manual: true,
                                           excecao_motivo: motivo || null,
                                           excecao_at: new Date().toISOString(),
                                           excecao_custo_unitario: custoNum,
-                                        })
-                                        .eq("gc_produto_id", String(p.id));
+                                        }, { onConflict: "gc_produto_id" });
                                       if (error) { toast.error("Falha ao marcar exceção: " + error.message); return; }
                                       toast.success(custoNum ? `Exceção aplicada — custo ${formatCurrency(custoNum)}/${p.unidade || "un"}` : "Exceção aplicada — usando custo do GC");
                                       refetchTributos();
