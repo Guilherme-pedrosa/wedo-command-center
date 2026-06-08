@@ -837,8 +837,11 @@ function processarXml(
       }
     }
 
-    // Sem fallback por nome/valor/ordem: a NF só enriquece tributos quando o
-    // item do pedido GC aponta para um produto cadastrado e o XML traz o mesmo código.
+    // Fallback seguro: NF com 1 item e pedido com 1 item é correspondência inequívoca,
+    // mesmo quando o cProd da NF não bate com o código interno do cadastro GC.
+    if (!pick && compraItens.length === 1 && xmlItems.length === 1 && !usedXmlIdx.has(0)) {
+      pick = { xi: xmlItems[0], idx: 0, rule: "unico" };
+    }
 
     if (!pick) {
       // Sem correspondência confiável → grava tributo vazio mas com produto_gc_id
