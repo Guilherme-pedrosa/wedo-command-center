@@ -335,25 +335,33 @@ serve(async (req) => {
     const offset = Number(body.offset) || 0;
     const batchSize = Math.min(Number(body.batch_size) || 50, 200);
     const dryRun = body.dry_run === true;
+    const compraCodigosFilter: string[] = Array.isArray(body.compra_codigos)
+      ? body.compra_codigos.map((c: any) => String(c))
+      : [];
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     // ── Step 1: Carrega compras candidatas (numero_nfe IS NOT NULL) ──
-    const { count: totalCount, error: countErr } = await supabase
+    let countQuery = supabase
       .from("gc_compras")
       .select("*", { count: "exact", head: true })
       .not("numero_nfe", "is", null);
+    if (compraCodigosFilter.length > 0) countQuery = countQuery.in("codigo", compraCodigosFilter);
+    const { count: totalCount, error: countErr } = await countQuery;
     if (countErr) throw new Error(`count compras: ${countErr.message}`);
 
     const totalCompras = totalCount ?? 0;
 
-    const { data: comprasRaw, error: comprasErr } = await supabase
+    let selectQuery = supabase
       .from("gc_compras")
       .select("gc_id, codigo, numero_nfe, cnpj_fornecedor, fornecedor_id, nome_fornecedor, data, valor_total, valor_produtos, valor_frete")
       .not("numero_nfe", "is", null)
       .order("data", { ascending: false, nullsFirst: false })
       .range(offset, offset + batchSize - 1);
+    if (compraCodigosFilter.length > 0) selectQuery = selectQuery.in("codigo", compraCodigosFilter);
+    const { data: comprasRaw, error: comprasErr } = await selectQuery;
     if (comprasErr) throw new Error(`select compras: ${comprasErr.message}`);
+
 
     const compraIds = (comprasRaw || []).map((c: any) => String(c.gc_id));
     const hasMore = offset + batchSize < totalCompras;
