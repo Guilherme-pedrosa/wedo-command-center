@@ -1033,14 +1033,15 @@ export default function PrecificacaoPage() {
         ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0)));
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-      const tributoParaCalculo = excecao ? undefined : tributoCompat;
+      const tributoParaCalculo = tributoCompat;
       const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
       const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
       const hasNF = hasEntradaFiscal(tributo);
+      const custoBaseCalculo = excecao ? custoBruto : undefined;
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBruto);
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo);
         calc = {
           creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
           totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
@@ -1100,14 +1101,15 @@ export default function PrecificacaoPage() {
         ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0)));
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-      const tributoParaCalculo = excecao ? undefined : tributoCompat;
+      const tributoParaCalculo = tributoCompat;
       const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
       const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
       const hasNF = hasEntradaFiscal(tributo);
+      const custoBaseCalculo = excecao ? custoBruto : undefined;
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBruto);
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo);
         calc = { ...nfCalc, custoLiquido: nfCalc.custoEfetivo, custoFrete: tributo!.valor_frete_unit, margemReal: 0 } as ReturnType<typeof calcPricing>;
       } else {
         calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
@@ -1471,12 +1473,12 @@ export default function PrecificacaoPage() {
           body: { offset, batch_size: batchSize },
         });
         if (error) throw error;
-        totalProdutos += data.produtos_processados || 0;
+        totalProdutos += data.upserted || data.produtos_processados || data.produtos_atualizados || 0;
         setSyncProgress(`Processando lote ${offset}...`);
         if (!data.has_more) break;
         offset = data.next_offset;
       }
-      toast.success(`Tributos reprocessados por Pedido GC + XML: ${totalProdutos} produtos`);
+      toast.success(`Tributos reprocessados por Pedido GC + XML: ${totalProdutos} produto(s) gravado(s)`);
       setSyncProgress("");
       refetchTributos();
     } catch (err: unknown) {
@@ -1822,14 +1824,15 @@ export default function PrecificacaoPage() {
         ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache);
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-      const tributoParaCalculo = excecao ? undefined : tributoCompat;
+      const tributoParaCalculo = tributoCompat;
       const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
       const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
       const hasNF = hasEntradaFiscal(tributo);
+      const custoBaseCalculo = excecao ? custoBruto : undefined;
       const cfuFlat = !!(taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0) ? (taxEntrada.custoFixoUnit || 0) : 0;
       let calc: ReturnType<typeof calcPricing>;
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBruto);
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo);
         calc = {
           creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
           totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
@@ -2399,7 +2402,7 @@ export default function PrecificacaoPage() {
                       ? ultimaCompra.valor_custo
                       : 0;
                     const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-                    const tributoParaCalculo = tributoRaw?.excecao_manual ? undefined : tributoCompat;
+                    const tributoParaCalculo = tributoCompat;
                     const kitRatio = detectKitRatio(tributoParaCalculo, custoUltimaCompra || custoCache);
                     const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
                     const hasNF = hasEntradaFiscal(tributo);
@@ -2420,7 +2423,7 @@ export default function PrecificacaoPage() {
                     ? { ...taxSaida, icmsSaida: icmsOvLinha }
                     : taxSaida;
                   if (hasNF) {
-                    const nfCalc = calcPricingWithNF(tributo, taxSaidaLinha, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo);
+                    const nfCalc = calcPricingWithNF(tributo, taxSaidaLinha, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, excecao ? custoBruto : undefined);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
                       creditoPis: nfCalc.creditoPis,
