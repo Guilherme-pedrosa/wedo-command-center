@@ -2559,15 +2559,23 @@ export default function PrecificacaoPage() {
                             </TooltipContent>
                           </Tooltip>
                         ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 text-[10px] gap-1 border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10"
-                            onClick={() => abrirManualTributo(p)}
-                          >
-                            <Plus className="h-3 w-3" />
-                            Adicionar crédito
-                          </Button>
+                          <div className="flex flex-col items-center gap-1">
+                            {ultimaCompra && (
+                              <Badge variant="outline" className="text-[9px] border-purple-500/40 text-purple-400" title={`${ultimaCompra.data || "sem data"} — ${ultimaCompra.fornecedor_nome || "fornecedor não informado"}${ultimaCompra.nome_situacao ? ` · ${ultimaCompra.nome_situacao}` : ""} · qtd ${ultimaCompra.quantidade ?? "—"} · ${ultimaCompra.valor_custo != null ? formatCurrency(ultimaCompra.valor_custo) : "—"}`}>
+                                Ped #{ultimaCompra.compra_codigo || ultimaCompra.compra_gc_id}
+                                {ultimaCompra.numero_nfe ? ` · NF #${ultimaCompra.numero_nfe}` : " · s/NF"}
+                              </Badge>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-[10px] gap-1 border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10"
+                              onClick={() => abrirManualTributo(p)}
+                            >
+                              <Plus className="h-3 w-3" />
+                              Adicionar crédito
+                            </Button>
+                          </div>
                         )}
                         {hasNF && (
                           <Button
