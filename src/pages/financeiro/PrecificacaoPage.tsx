@@ -222,23 +222,11 @@ function isTributoCompativelComProduto(produto: GCProduto, tributo?: ProdutoTrib
 }
 
 /**
- * Detecta quando o valor_unitario_nf representa um KIT/embalagem maior do que a
- * unidade que o GC vende. Heurística: ratio nf/gc >= 2 e desvio do múltiplo
- * inteiro mais próximo <= 25% — significa que a NF veio em kit (ex.: caixa,
- * milheiro) e o preço unitário precisa ser dividido para casar com a unidade GC.
- * Retorna 1 quando não é kit (ou quando faltam dados pra inferir).
+ * Nunca inferir conversão de unidade por múltiplo de preço.
+ * Ex.: "19mmx20m" é medida física do produto, não quantidade 20.
  */
-function detectKitRatio(tributo: ProdutoTributo | undefined, gcCusto: number): number {
-  if (!tributo || !gcCusto || gcCusto <= 0) return 1;
-  const nfUnit = Number(tributo.valor_unitario_nf) || 0;
-  if (nfUnit <= 0) return 1;
-  const ratio = nfUnit / gcCusto;
-  if (ratio < 1.8) return 1;
-  const r = Math.round(ratio);
-  if (r < 2) return 1;
-  const dev = Math.abs(nfUnit - r * gcCusto) / nfUnit;
-  if (dev > 0.25) return 1;
-  return r;
+function detectKitRatio(_tributo: ProdutoTributo | undefined, _gcCusto: number): number {
+  return 1;
 }
 
 function ajustarTributoPorKit(tributo: ProdutoTributo, ratio: number): ProdutoTributo {
