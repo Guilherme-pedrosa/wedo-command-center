@@ -2236,6 +2236,7 @@ export type Database = {
           created_at: string | null
           custo_efetivo_unit: number | null
           custo_variavel_real: number | null
+          descricao_nf: string | null
           fator_conversao: number | null
           fornecedor_nome: string | null
           frete_percentual: number | null
@@ -2263,6 +2264,8 @@ export type Database = {
           u_com: number | null
           u_trib: number | null
           ultima_atualizacao: string | null
+          unidade_comercial_nf: string | null
+          unidade_tributavel_nf: string | null
           v_desc: number | null
           v_fcp_st: number | null
           v_icms_st: number | null
@@ -2288,6 +2291,7 @@ export type Database = {
           created_at?: string | null
           custo_efetivo_unit?: number | null
           custo_variavel_real?: number | null
+          descricao_nf?: string | null
           fator_conversao?: number | null
           fornecedor_nome?: string | null
           frete_percentual?: number | null
@@ -2315,6 +2319,8 @@ export type Database = {
           u_com?: number | null
           u_trib?: number | null
           ultima_atualizacao?: string | null
+          unidade_comercial_nf?: string | null
+          unidade_tributavel_nf?: string | null
           v_desc?: number | null
           v_fcp_st?: number | null
           v_icms_st?: number | null
@@ -2340,6 +2346,7 @@ export type Database = {
           created_at?: string | null
           custo_efetivo_unit?: number | null
           custo_variavel_real?: number | null
+          descricao_nf?: string | null
           fator_conversao?: number | null
           fornecedor_nome?: string | null
           frete_percentual?: number | null
@@ -2367,6 +2374,8 @@ export type Database = {
           u_com?: number | null
           u_trib?: number | null
           ultima_atualizacao?: string | null
+          unidade_comercial_nf?: string | null
+          unidade_tributavel_nf?: string | null
           v_desc?: number | null
           v_fcp_st?: number | null
           v_icms_st?: number | null
