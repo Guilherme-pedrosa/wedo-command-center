@@ -335,25 +335,33 @@ serve(async (req) => {
     const offset = Number(body.offset) || 0;
     const batchSize = Math.min(Number(body.batch_size) || 50, 200);
     const dryRun = body.dry_run === true;
+    const compraCodigosFilter: string[] = Array.isArray(body.compra_codigos)
+      ? body.compra_codigos.map((c: any) => String(c))
+      : [];
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     // ── Step 1: Carrega compras candidatas (numero_nfe IS NOT NULL) ──
-    const { count: totalCount, error: countErr } = await supabase
+    let countQuery = supabase
       .from("gc_compras")
       .select("*", { count: "exact", head: true })
       .not("numero_nfe", "is", null);
+    if (compraCodigosFilter.length > 0) countQuery = countQuery.in("codigo", compraCodigosFilter);
+    const { count: totalCount, error: countErr } = await countQuery;
     if (countErr) throw new Error(`count compras: ${countErr.message}`);
 
     const totalCompras = totalCount ?? 0;
 
-    const { data: comprasRaw, error: comprasErr } = await supabase
+    let selectQuery = supabase
       .from("gc_compras")
       .select("gc_id, codigo, numero_nfe, cnpj_fornecedor, fornecedor_id, nome_fornecedor, data, valor_total, valor_produtos, valor_frete")
       .not("numero_nfe", "is", null)
       .order("data", { ascending: false, nullsFirst: false })
       .range(offset, offset + batchSize - 1);
+    if (compraCodigosFilter.length > 0) selectQuery = selectQuery.in("codigo", compraCodigosFilter);
+    const { data: comprasRaw, error: comprasErr } = await selectQuery;
     if (comprasErr) throw new Error(`select compras: ${comprasErr.message}`);
+
 
     const compraIds = (comprasRaw || []).map((c: any) => String(c.gc_id));
     const hasMore = offset + batchSize < totalCompras;
@@ -415,10 +423,24 @@ serve(async (req) => {
       itens: itensByCompra.get(String(c.gc_id)) || [],
     }));
 
-    // ── Step 3: Carrega índice de XMLs (cabe em RAM) ──
-    const { data: xmlIndex } = await supabase
-      .from("fin_nfe_xml_index")
-      .select("chave, numero_nf, cnpj_emitente, nome_emitente, data_emissao, valor_total, valor_produtos, qtd_itens, storage_path");
+    // ── Step 3: Carrega índice de XMLs (cabe em RAM) — pagina para evitar limite de 1000 ──
+    const xmlIndex: XmlIndexRow[] = [];
+    {
+      const pageSize = 1000;
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from("fin_nfe_xml_index")
+          .select("chave, numero_nf, cnpj_emitente, nome_emitente, data_emissao, valor_total, valor_produtos, qtd_itens, storage_path")
+          .range(from, from + pageSize - 1);
+        if (error) throw new Error(`select xml_index: ${error.message}`);
+        if (!data || data.length === 0) break;
+        xmlIndex.push(...(data as XmlIndexRow[]));
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+    }
+
 
     const byKey = new Map<string, XmlIndexRow[]>(); // key = cnpj|numero
     const byCnpj = new Map<string, XmlIndexRow[]>();
@@ -457,7 +479,7 @@ serve(async (req) => {
     }
 
     // ── Step 4: Limpa tributos antigos (preserva manuais) — só no offset=0 ──
-    if (offset === 0 && !dryRun) {
+    if (offset === 0 && !dryRun && compraCodigosFilter.length === 0) {
       await supabase
         .from("fin_produto_tributos")
         .delete()

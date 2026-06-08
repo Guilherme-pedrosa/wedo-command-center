@@ -1,0 +1,1 @@
+DELETE FROM fin_produto_tributos WHERE compra_codigo='2201' AND match_rule='pedido_compra_gc_sem_xml_item';
