@@ -1497,11 +1497,24 @@ export default function PrecificacaoPage() {
     const taxSaidaCalc = icmsOv !== undefined && isFinite(icmsOv)
       ? { ...taxSaida, icmsSaida: icmsOv }
       : taxSaida;
+    const parsePct = (s: string, fallback: number) => {
+      const t = s.trim();
+      if (t === "") return fallback;
+      const v = parseFloat(t.replace(",", "."));
+      return isFinite(v) ? v : fallback;
+    };
+    const manualCredits = {
+      icms: parsePct(calcIcmsCred, activeEntrada.icmsCredito),
+      pis: parsePct(calcPisCred, activeEntrada.pisCredito),
+      cofins: parsePct(calcCofinsCred, activeEntrada.cofinsCredito),
+      ipi: parsePct(calcIpi, 0),
+      ipiRecuperavel: calcIpiRecup,
+    };
     return calcMargens.map((m) => ({
       margem: m,
-      ...calcPricing(custo, activeEntrada, taxSaidaCalc, calcTipoSaida, m, custoFixoPctEfetivo),
+      ...calcPricing(custo, activeEntrada, taxSaidaCalc, calcTipoSaida, m, custoFixoPctEfetivo, manualCredits),
     }));
-  }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida, custoFixoPctEfetivo, calcIcmsSaida]);
+  }, [calcCusto, calcMargens, activeEntrada, taxSaida, calcTipoSaida, custoFixoPctEfetivo, calcIcmsSaida, calcIcmsCred, calcPisCred, calcCofinsCred, calcIpi, calcIpiRecup]);
 
   const totalComTributoNF = tributosXml.length;
 
