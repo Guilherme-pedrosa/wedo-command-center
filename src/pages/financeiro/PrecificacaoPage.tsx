@@ -296,7 +296,10 @@ function calcPricingWithNF(
   const ipiUnit = valorUnit * (eff.ipi / 100);
   const freteUnit = valorUnit * ((tributo.frete_percentual || 0) / 100);
   
-  const custoEfetivo = valorUnit + ipiUnit + freteUnit - creditoIcms - creditoPis - creditoCofins;
+  // ── REGRA: precificação usa NF CHEIA (sem subtrair créditos de entrada). ──
+  // Créditos viram margem extra de caixa (ganho fiscal), não redução de preço.
+  // Isso blinda a precificação contra troca de fornecedor (Simples vs Lucro Real).
+  const custoEfetivo = valorUnit + ipiUnit + freteUnit;
   const custoTotal = custoEfetivo + custoFixo; // custoFixo aqui = override flat manual
 
   let aliquotaSaidaFaturamento: number;
@@ -319,7 +322,9 @@ function calcPricingWithNF(
   const custoFixoEmbutido = precoMinimo * custoFixoPct;
   const lucroAnteIR = precoMinimo - custoTotal - tributosSaida - custoFixoEmbutido;
   const impostoRenda = Math.max(0, lucroAnteIR * irpjPct);
-  const lucroLiquido = lucroAnteIR - impostoRenda;
+  // Créditos de entrada entram como ganho extra de margem (caixa), não no preço.
+  const margemExtraCreditos = creditoIcms + creditoPis + creditoCofins;
+  const lucroLiquido = lucroAnteIR - impostoRenda + margemExtraCreditos;
 
   return {
     creditoIcms,
@@ -2826,8 +2831,9 @@ export default function PrecificacaoPage() {
                           </Button>
                         )}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-sm text-green-400">
-                        -{formatCurrency(calc.totalCreditosEntrada)}
+                      <TableCell className="text-right font-mono text-sm text-emerald-400" title="Créditos de entrada (ICMS/PIS/COFINS) — viram margem extra de caixa, NÃO reduzem o preço de venda. Blinda contra troca de fornecedor.">
+                        +{formatCurrency(calc.totalCreditosEntrada)}
+                        <div className="text-[9px] text-emerald-400/60 font-normal">margem extra</div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(calc.custoTotal)}</TableCell>
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
