@@ -296,7 +296,10 @@ function calcPricingWithNF(
   const ipiUnit = valorUnit * (eff.ipi / 100);
   const freteUnit = valorUnit * ((tributo.frete_percentual || 0) / 100);
   
-  const custoEfetivo = valorUnit + ipiUnit + freteUnit - creditoIcms - creditoPis - creditoCofins;
+  // ── REGRA: precificação usa NF CHEIA (sem subtrair créditos de entrada). ──
+  // Créditos viram margem extra de caixa (ganho fiscal), não redução de preço.
+  // Isso blinda a precificação contra troca de fornecedor (Simples vs Lucro Real).
+  const custoEfetivo = valorUnit + ipiUnit + freteUnit;
   const custoTotal = custoEfetivo + custoFixo; // custoFixo aqui = override flat manual
 
   let aliquotaSaidaFaturamento: number;
