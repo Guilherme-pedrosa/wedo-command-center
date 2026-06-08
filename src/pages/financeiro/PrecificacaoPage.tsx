@@ -1749,12 +1749,26 @@ export default function PrecificacaoPage() {
       const fornecedorNome = ultimaCompra?.fornecedor_nome || tributo?.fornecedor_nome || "";
       const dataCompra = ultimaCompra?.data || "";
       const situacaoCompra = ultimaCompra?.nome_situacao || "";
+      const custoGCCadastro = Number(p.valor_custo) || 0;
+      const custoNF = tributo?.valor_custo_unit ?? tributo?.valor_unit ?? "";
+      const ratio = custoGCCadastro > 0 && custoUltimaCompra > 0 ? custoUltimaCompra / custoGCCadastro : 0;
+      const alertas: string[] = [];
+      if (ratio >= 2) alertas.push(`⚠ Última compra ${ratio.toFixed(1)}× maior que GC — checar unidade`);
+      if (custoGCCadastro > 0 && custoUltimaCompra > 0 && custoUltimaCompra < custoGCCadastro * 0.5) alertas.push(`⚠ Última compra ${(custoGCCadastro/custoUltimaCompra).toFixed(1)}× MENOR que GC`);
+      if (!hasNF) alertas.push("Sem tributo NF (sem crédito de entrada)");
+      if (ultimaCompra && !ultimaCompra.numero_nfe) alertas.push("Última compra sem nº de NF");
+      if (custoUltimaCompra <= 0) alertas.push("Sem histórico de compra");
       rows.push({
         "Produto": p.nome,
         "Codigo": p.codigo || p.codigo_interno || "",
         "Grupo": p.nome_grupo || "",
         "Estoque": Number(p.estoque) || 0,
-        "Custo Bruto": custoBruto,
+        "Custo GC Cadastro": custoGCCadastro,
+        "Custo Ultima Compra": ultimaCompra?.valor_custo ?? "",
+        "Custo NF (tributo)": custoNF,
+        "Custo Bruto Usado": custoBruto,
+        "Divergencia (UltCompra/GC)": ratio > 0 ? `${ratio.toFixed(2)}x` : "",
+        "Alerta": alertas.join(" | "),
         "Fonte Custo": fonteCusto,
         "Pedido": pedidoNum,
         "NF": nfNum,
@@ -1762,7 +1776,6 @@ export default function PrecificacaoPage() {
         "Data Compra": dataCompra,
         "Situacao Compra": situacaoCompra,
         "Qtd Comprada": ultimaCompra?.quantidade ?? "",
-        "Custo Ultima Compra": ultimaCompra?.valor_custo ?? "",
         "Credito Entrada": calc.totalCreditosEntrada,
         "Custo Total": calc.custoTotal,
         "Preco Minimo": calc.precoMinimo,
