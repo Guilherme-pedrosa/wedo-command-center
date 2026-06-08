@@ -1171,6 +1171,7 @@ export default function PrecificacaoPage() {
 
   const parseXmlMetadata = async (blob: Blob): Promise<{
     chave: string | null;
+    numero_nf: string | null;
     cnpj_emitente: string | null;
     nome_emitente: string | null;
     data_emissao: string | null;
@@ -1181,6 +1182,8 @@ export default function PrecificacaoPage() {
     const text = await blob.text();
     const chaveMatch = text.match(/Id="NFe(\d{44})"/i) || text.match(/chNFe>(\d{44})</i);
     const chave = chaveMatch?.[1] || null;
+    const numeroNfMatch = text.match(/<nNF[^>]*>([^<]+)<\/nNF>/i);
+    const numero_nf = numeroNfMatch?.[1]?.trim() || null;
 
     // Extract emit block
     const emitMatch = text.match(/<emit[^>]*>([\s\S]*?)<\/emit>/i);
@@ -1204,7 +1207,7 @@ export default function PrecificacaoPage() {
     const detMatches = text.match(/<det /gi) || text.match(/<det>/gi) || [];
     const qtd_itens = detMatches.length;
 
-    return { chave, cnpj_emitente, nome_emitente, data_emissao, valor_total, valor_produtos, qtd_itens };
+    return { chave, numero_nf, cnpj_emitente, nome_emitente, data_emissao, valor_total, valor_produtos, qtd_itens };
   };
 
   const uploadBatch = async (
@@ -1249,6 +1252,7 @@ export default function PrecificacaoPage() {
           if (meta.chave && (keyOccurrences.get(meta.chave) || 0) <= 1) {
             indexBatch.push({
               chave: meta.chave,
+              numero_nf: meta.numero_nf,
               cnpj_emitente: meta.cnpj_emitente,
               nome_emitente: meta.nome_emitente,
               data_emissao: meta.data_emissao,
