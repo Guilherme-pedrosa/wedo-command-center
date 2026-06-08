@@ -1256,6 +1256,26 @@ serve(async (req) => {
       console.error(`[sync-all] pagamentos error: ${(err as Error).message}`);
     }
 
+    // ── Disparar reconciliation-engine (inclui SOMA_PARCELAS N:1) ──
+    let reconciliacaoResult: any = null;
+    try {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      console.log("[sync-all] Disparando reconciliation-engine pós-sync...");
+      const reconRes = await fetch(`${supabaseUrl}/functions/v1/reconciliation-engine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify({}),
+      });
+      reconciliacaoResult = await reconRes.json().catch(() => ({ error: "parse error" }));
+      console.log("[sync-all] reconciliation-engine OK");
+    } catch (reconErr) {
+      const msg = (reconErr as Error).message;
+      console.error(`[sync-all] reconciliation-engine error: ${msg}`);
+      reconciliacaoResult = { error: msg };
+    }
+    (results as any).reconciliacao = reconciliacaoResult;
+
     // ── Log final ──
     const totalDuration = Date.now() - startTime;
     const issueEntries = Object.entries(results).filter(([, result]: any) => result?.status === "error" || result?.status === "partial");
@@ -1273,7 +1293,7 @@ serve(async (req) => {
       duracao_ms: totalDuration,
     });
 
-    console.log(`[sync-all] ✅ Complete in ${totalDuration}ms — 6 modules consolidated`);
+    console.log(`[sync-all] ✅ Complete in ${totalDuration}ms — 6 modules + reconciliação`);
 
     return new Response(JSON.stringify({ success: true, results, duration_ms: totalDuration }), {
       status: 200,
