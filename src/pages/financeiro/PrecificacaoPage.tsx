@@ -73,6 +73,8 @@ interface ProdutoTributo {
   v_un_trib?: number | null;
   fator_conversao?: number | null;
   fator_embalagem?: number | null;
+  excecao_manual?: boolean | null;
+  excecao_motivo?: string | null;
 }
 
 interface UltimaCompraProduto {
