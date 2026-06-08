@@ -132,6 +132,16 @@ const DEFAULT_SAIDA: TaxConfigSaida = {
 };
 
 // ── Helpers ──
+function parseDecimalInput(value: string): number {
+  const raw = String(value ?? "").trim();
+  if (!raw) return 0;
+  const normalized = raw.includes(",")
+    ? raw.replace(/\./g, "").replace(",", ".")
+    : raw;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function calcPricing(
   custoBruto: number,
   entrada: TaxConfigEntrada,
@@ -389,7 +399,7 @@ export default function PrecificacaoPage() {
 
   async function salvarManualTributo() {
     if (!manualTributoProduto) return;
-    const valorUnit = parseFloat(manualTributoForm.valor_unitario_nf);
+    const valorUnit = parseDecimalInput(manualTributoForm.valor_unitario_nf);
     if (!valorUnit || valorUnit <= 0) {
       toast.error("Informe um custo unitário válido");
       return;
@@ -397,11 +407,11 @@ export default function PrecificacaoPage() {
     setSavingManualTributo(true);
     try {
       const semCredito = manualTributoForm.regime === "simples_nacional";
-      const icms = parseFloat(manualTributoForm.icms_aliquota) || 0;
-      const pis = parseFloat(manualTributoForm.pis_aliquota) || 0;
-      const cofins = parseFloat(manualTributoForm.cofins_aliquota) || 0;
-      const ipi = parseFloat(manualTributoForm.ipi_aliquota) || 0;
-      const frete = parseFloat(manualTributoForm.frete_percentual) || 0;
+      const icms = parseDecimalInput(manualTributoForm.icms_aliquota);
+      const pis = parseDecimalInput(manualTributoForm.pis_aliquota);
+      const cofins = parseDecimalInput(manualTributoForm.cofins_aliquota);
+      const ipi = parseDecimalInput(manualTributoForm.ipi_aliquota);
+      const frete = parseDecimalInput(manualTributoForm.frete_percentual);
 
       const payload = {
         gc_produto_id: String(manualTributoProduto.id),
@@ -435,11 +445,16 @@ export default function PrecificacaoPage() {
 
       if (error) throw error;
 
-      // Auto-aplica novo custo no GC se houver divergência > 1%
+      // Auto-aplica novo custo no GC sempre que frete/IPI muda o custo de cadastro.
       const nfCusto = valorUnit * (1 + frete / 100 + ipi / 100);
-      const gcCusto = Number((manualTributoProduto as any).valor_custo) || 0;
+      const { data: produtoAtual } = await supabase
+        .from("gc_produtos_cache")
+        .select("valor_custo")
+        .eq("produto_gc_id", String(manualTributoProduto.id))
+        .maybeSingle();
+      const gcCusto = Number(produtoAtual?.valor_custo ?? (manualTributoProduto as any).valor_custo) || 0;
       const diffPct = gcCusto > 0 ? Math.abs((gcCusto - nfCusto) / nfCusto) * 100 : 100;
-      if (nfCusto > 0 && diffPct >= 1) {
+      if (nfCusto > 0 && Math.abs(gcCusto - nfCusto) >= 0.01) {
         toast.success("Crédito salvo — atualizando custo no GC...");
         setManualTributoOpen(false);
         await refetchTributos();
