@@ -328,6 +328,143 @@ async function tryDownloadXml(chave: string, storagePath: string | null, supabas
 }
 
 // ══════════════════════════════════════════════════════════════
+//  Reindex delta: lista o bucket nf-xmls e indexa o que faltar
+// ══════════════════════════════════════════════════════════════
+function parseXmlMetadataText(text: string) {
+  const chaveMatch = text.match(/Id="NFe(\d{44})"/i) || text.match(/chNFe>(\d{44})</i);
+  const chave = chaveMatch?.[1] || null;
+  const numeroNfMatch = text.match(/<nNF[^>]*>([^<]+)<\/nNF>/i);
+  const numero_nf = numeroNfMatch?.[1]?.trim() || null;
+  const emitMatch = text.match(/<emit[^>]*>([\s\S]*?)<\/emit>/i);
+  const emitBlock = emitMatch?.[1] || "";
+  const cnpjMatch = emitBlock.match(/<CNPJ[^>]*>(\d+)<\/CNPJ>/i);
+  const cnpj_emitente = cnpjMatch?.[1] || null;
+  const nomeMatch = emitBlock.match(/<xNome[^>]*>([^<]+)<\/xNome>/i);
+  const nome_emitente = nomeMatch?.[1] || null;
+  const dhEmiMatch = text.match(/<dhEmi[^>]*>([^<]+)<\/dhEmi>/i) || text.match(/<dEmi[^>]*>([^<]+)<\/dEmi>/i);
+  const data_emissao = dhEmiMatch?.[1]?.substring(0, 10) || null;
+  const vNFMatch = text.match(/<vNF[^>]*>([^<]+)<\/vNF>/i);
+  const valor_total = vNFMatch ? parseFloat(vNFMatch[1]) : null;
+  const vProdMatch = text.match(/<vProd[^>]*>([^<]+)<\/vProd>/i);
+  const valor_produtos = vProdMatch ? parseFloat(vProdMatch[1]) : null;
+  const detMatches = text.match(/<det /gi) || text.match(/<det>/gi) || [];
+  const qtd_itens = detMatches.length;
+  return { chave, numero_nf, cnpj_emitente, nome_emitente, data_emissao, valor_total, valor_produtos, qtd_itens };
+}
+
+async function listBucketRecursive(supabase: any, prefix = ""): Promise<string[]> {
+  const out: string[] = [];
+  let page = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await supabase.storage.from("nf-xmls").list(prefix, {
+      limit: pageSize,
+      offset: page * pageSize,
+      sortBy: { column: "name", order: "asc" },
+    });
+    if (error || !data || data.length === 0) break;
+    for (const item of data) {
+      const full = prefix ? `${prefix}/${item.name}` : item.name;
+      // pasta (id null) → recursão
+      if (!item.id && !item.metadata) {
+        const nested = await listBucketRecursive(supabase, full);
+        out.push(...nested);
+      } else if (full.toLowerCase().endsWith(".xml")) {
+        out.push(full);
+      }
+    }
+    if (data.length < pageSize) break;
+    page++;
+  }
+  return out;
+}
+
+async function reindexBucketDelta(supabase: any) {
+  const stats = { listed: 0, missing: 0, indexed: 0, failed: 0 };
+
+  // Conjunto de storage_paths já indexados
+  const known = new Set<string>();
+  {
+    const pageSize = 1000;
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from("fin_nfe_xml_index")
+        .select("storage_path")
+        .range(from, from + pageSize - 1);
+      if (error || !data || data.length === 0) break;
+      for (const row of data) if (row.storage_path) known.add(String(row.storage_path));
+      if (data.length < pageSize) break;
+      from += pageSize;
+    }
+  }
+
+  const allFiles = await listBucketRecursive(supabase);
+  stats.listed = allFiles.length;
+
+  const missing = allFiles.filter((p) => !known.has(p));
+  stats.missing = missing.length;
+
+  // Cap por chamada para caber no timeout (~60s)
+  const cap = 600;
+  const toProcess = missing.slice(0, cap);
+  const batchSize = 25;
+  const upsertBuffer: Record<string, unknown>[] = [];
+
+  for (let i = 0; i < toProcess.length; i += batchSize) {
+    const batch = toProcess.slice(i, i + batchSize);
+    await Promise.all(
+      batch.map(async (path) => {
+        try {
+          const { data, error } = await supabase.storage.from("nf-xmls").download(path);
+          if (error || !data) {
+            stats.failed++;
+            return;
+          }
+          const text = await data.text();
+          const meta = parseXmlMetadataText(text);
+          if (!meta.chave) {
+            stats.failed++;
+            return;
+          }
+          upsertBuffer.push({
+            chave: meta.chave,
+            cnpj_emitente: meta.cnpj_emitente,
+            nome_emitente: meta.nome_emitente,
+            data_emissao: meta.data_emissao,
+            valor_total: meta.valor_total,
+            valor_produtos: meta.valor_produtos,
+            qtd_itens: meta.qtd_itens,
+            storage_path: path,
+          });
+        } catch (_e) {
+          stats.failed++;
+        }
+      }),
+    );
+
+    if (upsertBuffer.length >= 100) {
+      const toUpsert = upsertBuffer.splice(0, upsertBuffer.length);
+      const { error } = await supabase
+        .from("fin_nfe_xml_index")
+        .upsert(toUpsert as any, { onConflict: "chave" });
+      if (!error) stats.indexed += toUpsert.length;
+      else stats.failed += toUpsert.length;
+    }
+  }
+
+  if (upsertBuffer.length > 0) {
+    const { error } = await supabase
+      .from("fin_nfe_xml_index")
+      .upsert(upsertBuffer as any, { onConflict: "chave" });
+    if (!error) stats.indexed += upsertBuffer.length;
+    else stats.failed += upsertBuffer.length;
+  }
+
+  return stats;
+}
+
+// ══════════════════════════════════════════════════════════════
 //  HTTP handler
 // ══════════════════════════════════════════════════════════════
 serve(async (req) => {
