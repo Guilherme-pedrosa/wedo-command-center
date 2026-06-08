@@ -89,6 +89,7 @@ interface ProductTaxRecord {
   q_trib: number;
   v_un_trib: number;
   fator_conversao: number;
+  fator_embalagem: number;
   v_seg: number;
   v_outro: number;
   v_desc: number;
