@@ -345,6 +345,15 @@ serve(async (req) => {
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
+    // ── Step 0: Reindex delta do bucket nf-xmls ──
+    // Lista o bucket e indexa todo XML que ainda não está em fin_nfe_xml_index.
+    // Garante que o "Cruzar Pedidos" sempre opere sobre o estado mais recente do bucket.
+    const skipReindex = body.skip_reindex === true;
+    let reindexStats = { listed: 0, missing: 0, indexed: 0, failed: 0 };
+    if (!skipReindex && offset === 0) {
+      reindexStats = await reindexBucketDelta(supabase);
+    }
+
     // ── Step 1: Carrega compras candidatas.
     // Algumas compras do GC vêm com NF-e visível na UI, mas numero_nfe vazio no payload local;
     // nesses casos ainda cruzamos por CNPJ + valor total contra o XML indexado.
