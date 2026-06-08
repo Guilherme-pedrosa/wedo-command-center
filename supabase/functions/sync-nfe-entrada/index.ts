@@ -842,6 +842,7 @@ serve(async (req) => {
         sem_match_amostra: semMatchAmostra.slice(0, 5),
         dry_run: dryRun,
         gc_api_calls: 0,
+        reindex_stats: reindexStats,
         tempo_ms: Date.now() - inicio,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
