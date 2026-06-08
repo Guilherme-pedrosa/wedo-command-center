@@ -38,6 +38,7 @@ interface GCProduto {
 interface ProdutoTributo {
   gc_produto_id: string;
   nome_produto: string;
+  descricao_nf?: string | null;
   ncm: string | null;
   cfop: string | null;
   nf_numero: string | null;
@@ -64,6 +65,13 @@ interface ProdutoTributo {
   valor_ipi_unit: number;
   valor_frete_unit: number;
   custo_efetivo_unit: number;
+  unidade_comercial_nf?: string | null;
+  unidade_tributavel_nf?: string | null;
+  q_com?: number | null;
+  v_un_com?: number | null;
+  q_trib?: number | null;
+  v_un_trib?: number | null;
+  fator_conversao?: number | null;
 }
 
 interface UltimaCompraProduto {
