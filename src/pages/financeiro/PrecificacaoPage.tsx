@@ -672,6 +672,7 @@ export default function PrecificacaoPage() {
   const tributosXml = useMemo(() => {
     return (tributos || []).filter(
       (t) =>
+        t.excecao_manual ||
         t.match_rule === "manual" ||
         (Boolean(t.nf_chave) && indexedNfChaves.has(t.nf_chave as string))
     );
