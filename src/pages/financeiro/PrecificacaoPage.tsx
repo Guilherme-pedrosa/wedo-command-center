@@ -841,7 +841,7 @@ export default function PrecificacaoPage() {
     const ult = ultimaCompraMap.get(p.id);
     const ultCusto = ult?.valor_custo && ult.valor_custo > 0 ? ult.valor_custo : 0;
     if (gcCusto <= 0 || ultCusto <= 0) return false;
-    const ratio = ultCusto / gcCusto;
+    const ratio = Math.max(ultCusto / gcCusto, gcCusto / ultCusto);
     return ratio >= DIVERGENCIA_RATIO_THRESHOLD;
   };
 
