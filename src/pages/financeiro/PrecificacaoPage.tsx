@@ -1033,7 +1033,7 @@ export default function PrecificacaoPage() {
         ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0)));
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-      const tributoParaCalculo = excecao ? undefined : tributoCompat;
+      const tributoParaCalculo = tributoCompat;
       const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
       const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
       const hasNF = hasEntradaFiscal(tributo);
@@ -1100,7 +1100,7 @@ export default function PrecificacaoPage() {
         ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : (custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0)));
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-      const tributoParaCalculo = excecao ? undefined : tributoCompat;
+      const tributoParaCalculo = tributoCompat;
       const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
       const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
       const hasNF = hasEntradaFiscal(tributo);
@@ -1822,7 +1822,7 @@ export default function PrecificacaoPage() {
         ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
         : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache);
       const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-      const tributoParaCalculo = excecao ? undefined : tributoCompat;
+      const tributoParaCalculo = tributoCompat;
       const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
       const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
       const hasNF = hasEntradaFiscal(tributo);
@@ -2399,7 +2399,7 @@ export default function PrecificacaoPage() {
                       ? ultimaCompra.valor_custo
                       : 0;
                     const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-                    const tributoParaCalculo = tributoRaw?.excecao_manual ? undefined : tributoCompat;
+                    const tributoParaCalculo = tributoCompat;
                     const kitRatio = detectKitRatio(tributoParaCalculo, custoUltimaCompra || custoCache);
                     const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
                     const hasNF = hasEntradaFiscal(tributo);
