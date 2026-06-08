@@ -1037,10 +1037,11 @@ export default function PrecificacaoPage() {
       const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
       const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
       const hasNF = hasEntradaFiscal(tributo);
+      const custoBaseCalculo = excecao ? custoBruto : undefined;
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBruto);
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo);
         calc = {
           creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
           totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
@@ -1104,10 +1105,11 @@ export default function PrecificacaoPage() {
       const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
       const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
       const hasNF = hasEntradaFiscal(tributo);
+      const custoBaseCalculo = excecao ? custoBruto : undefined;
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBruto);
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo);
         calc = { ...nfCalc, custoLiquido: nfCalc.custoEfetivo, custoFrete: tributo!.valor_frete_unit, margemReal: 0 } as ReturnType<typeof calcPricing>;
       } else {
         calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
