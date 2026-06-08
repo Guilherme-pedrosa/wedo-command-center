@@ -248,7 +248,7 @@ Deno.serve(async (req) => {
       const payload = job.payload as { valor_custo?: string | number; valores?: Array<Record<string, unknown>> };
       const valoresPayload = payload.valores ?? [];
 
-      if (job.recurso === "produtos" && valoresPayload.length > 0) {
+      if (job.recurso === "produtos") {
         const responseProduto = (responseBody as { data?: Record<string, unknown> } | null)?.data;
         const { data: cacheRow } = await supabase
           .from("gc_produtos_cache")
