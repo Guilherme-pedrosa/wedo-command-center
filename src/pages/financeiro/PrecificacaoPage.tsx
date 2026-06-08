@@ -231,6 +231,11 @@ function isTributoCompativelComProduto(produto: GCProduto, tributo?: ProdutoTrib
   return tributo.gc_produto_id === produto.id;
 }
 
+function hasEntradaFiscal(tributo?: ProdutoTributo) {
+  if (!tributo) return false;
+  return (Number(tributo.valor_unitario_nf) || 0) > 0;
+}
+
 /**
  * Nunca inferir conversão de unidade por múltiplo de preço.
  * Ex.: "19mmx20m" é medida física do produto, não quantidade 20.
