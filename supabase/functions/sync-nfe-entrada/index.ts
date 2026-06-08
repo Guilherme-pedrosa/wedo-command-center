@@ -797,14 +797,15 @@ serve(async (req) => {
       }
       const records = [...productTaxMap.values()]
         .filter((r) => {
-          // Exceção manual: NÃO mexer em nada (usuário travou esse produto)
-          if (excecoes.has(r.gc_produto_id)) {
+          const novoEhReal = !!r.match_rule?.startsWith("pedido_compra_gc+") && r.match_rule !== "pedido_compra_gc_sem_xml_item";
+          // Exceção manual trava custo/alertas, mas se antes era placeholder sem item,
+          // permite enriquecer tributos do XML real sem alterar campos excecao_*.
+          if (excecoes.has(r.gc_produto_id) && (!novoEhReal || existingHasRealMatch.has(r.gc_produto_id))) {
             skippedOlder++;
             return false;
           }
           const prev = existingNfDate.get(r.gc_produto_id);
           const novo = r.nf_data_emissao || "";
-          const novoEhReal = !!r.match_rule?.startsWith("pedido_compra_gc+");
           // Se já existe match real e o novo é "sem_xml_item", descarta — não regride para placeholder
           if (existingHasRealMatch.has(r.gc_produto_id) && r.match_rule === "pedido_compra_gc_sem_xml_item") {
             skippedOlder++;
