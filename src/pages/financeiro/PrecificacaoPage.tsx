@@ -2304,7 +2304,7 @@ export default function PrecificacaoPage() {
                     const custoBruto = excecao
                       ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
                       : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache);
-                    const tributoCompat = !excecao && isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
+                    const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
                     const kitRatio = detectKitRatio(tributoCompat, custoBruto);
                     const tributo = tributoCompat && kitRatio > 1 ? ajustarTributoPorKit(tributoCompat, kitRatio) : tributoCompat;
                    const hasNF = !!tributo;
