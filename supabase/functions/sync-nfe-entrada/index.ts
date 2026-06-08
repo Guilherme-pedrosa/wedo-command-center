@@ -524,6 +524,7 @@ serve(async (req) => {
           processed: 0,
           has_more: false,
           next_offset: 0,
+          reindex_stats: reindexStats,
           tempo_ms: Date.now() - inicio,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
