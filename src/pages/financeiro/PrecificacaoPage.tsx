@@ -2277,16 +2277,20 @@ export default function PrecificacaoPage() {
                   const custoCache = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
                   const statusCusto = custoCan?.status || "ok_sem_tributo";
                   const estoque = Number(p.estoque) || 0;
-                   const tributoRaw = tributosMap.get(p.id);
-                   const ultimaCompra = ultimaCompraMap.get(p.id);
-                   // Prioriza valor do ÚLTIMO pedido de compras (mais recente) sobre o cache do GC
-                   const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0
-                     ? ultimaCompra.valor_custo
-                     : 0;
-                   const custoBruto = custoUltimaCompra > 0 ? custoUltimaCompra : custoCache;
-                   const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
-                   const kitRatio = detectKitRatio(tributoCompat, custoBruto);
-                   const tributo = tributoCompat && kitRatio > 1 ? ajustarTributoPorKit(tributoCompat, kitRatio) : tributoCompat;
+                    const tributoRaw = tributosMap.get(p.id);
+                    const ultimaCompra = ultimaCompraMap.get(p.id);
+                    const excecao = !!tributoRaw?.excecao_manual;
+                    // Prioriza valor do ÚLTIMO pedido de compras (mais recente) sobre o cache do GC
+                    const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0
+                      ? ultimaCompra.valor_custo
+                      : 0;
+                    // Exceção manual: força custo do cadastro GC (ignora NF/última compra com unidade divergente)
+                    const custoBruto = excecao
+                      ? (parseFloat(p.valor_custo) || 0)
+                      : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache);
+                    const tributoCompat = !excecao && isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
+                    const kitRatio = detectKitRatio(tributoCompat, custoBruto);
+                    const tributo = tributoCompat && kitRatio > 1 ? ajustarTributoPorKit(tributoCompat, kitRatio) : tributoCompat;
                    const hasNF = !!tributo;
                     const custoBase = custoBruto;
                    // Tabelas dinâmicas — preços reais vêm de valoresMap por tipo_id (não há mais markup hardcoded A/B/P)
