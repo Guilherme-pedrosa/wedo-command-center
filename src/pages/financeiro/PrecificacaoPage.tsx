@@ -3326,7 +3326,7 @@ export default function PrecificacaoPage() {
               <div>
                 <Label className="text-xs">Custo unitário (R$) *</Label>
                 <Input
-                  type="number" step="0.0001" min="0"
+                  type="text" inputMode="decimal"
                   value={manualTributoForm.valor_unitario_nf}
                   onChange={(e) => setManualTributoForm(f => ({ ...f, valor_unitario_nf: e.target.value }))}
                 />
@@ -3349,25 +3349,25 @@ export default function PrecificacaoPage() {
             <div className="grid grid-cols-4 gap-2">
               <div>
                 <Label className="text-xs">ICMS %</Label>
-                <Input type="number" step="0.01" disabled={manualTributoForm.regime === "simples_nacional"}
+                <Input type="text" inputMode="decimal" disabled={manualTributoForm.regime === "simples_nacional"}
                   value={manualTributoForm.icms_aliquota}
                   onChange={(e) => setManualTributoForm(f => ({ ...f, icms_aliquota: e.target.value }))} />
               </div>
               <div>
                 <Label className="text-xs">PIS %</Label>
-                <Input type="number" step="0.01" disabled={manualTributoForm.regime === "simples_nacional"}
+                <Input type="text" inputMode="decimal" disabled={manualTributoForm.regime === "simples_nacional"}
                   value={manualTributoForm.pis_aliquota}
                   onChange={(e) => setManualTributoForm(f => ({ ...f, pis_aliquota: e.target.value }))} />
               </div>
               <div>
                 <Label className="text-xs">COFINS %</Label>
-                <Input type="number" step="0.01" disabled={manualTributoForm.regime === "simples_nacional"}
+                <Input type="text" inputMode="decimal" disabled={manualTributoForm.regime === "simples_nacional"}
                   value={manualTributoForm.cofins_aliquota}
                   onChange={(e) => setManualTributoForm(f => ({ ...f, cofins_aliquota: e.target.value }))} />
               </div>
               <div>
                 <Label className="text-xs">IPI %</Label>
-                <Input type="number" step="0.01"
+                <Input type="text" inputMode="decimal"
                   value={manualTributoForm.ipi_aliquota}
                   onChange={(e) => setManualTributoForm(f => ({ ...f, ipi_aliquota: e.target.value }))} />
               </div>
@@ -3376,7 +3376,7 @@ export default function PrecificacaoPage() {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label className="text-xs">Frete %</Label>
-                <Input type="number" step="0.01"
+                <Input type="text" inputMode="decimal"
                   value={manualTributoForm.frete_percentual}
                   onChange={(e) => setManualTributoForm(f => ({ ...f, frete_percentual: e.target.value }))} />
               </div>
