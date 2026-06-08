@@ -683,16 +683,20 @@ function tentarSomaParcelas(
     buildAttemptPool(candidatos, sortByValor, 60),
   ];
 
-  for (const attempt of attemptPools) {
+  for (let i = 0; i < attemptPools.length; i++) {
+    const attempt = attemptPools[i];
     if (attempt.length < 2) continue;
+    console.log(`[SOMA_PARCELAS] attempt ${i}: ${attempt.length} cand, target=${extValor.toFixed(2)}, total=${attempt.reduce((s,x)=>s+Number(x.valor),0).toFixed(2)}`);
     const result = findSubsetSum(attempt, extValor, 0.01);
     if (result) {
+      console.log(`[SOMA_PARCELAS] ✓ match with ${result.length} parcelas`);
       return {
         parcelas: result.map((fin: any) => ({ id: fin.id, valor: Number(fin.valor), tabela })),
         rule: "SOMA_PARCELAS",
       };
     }
   }
+  console.log(`[SOMA_PARCELAS] ✗ no match for ${extValor.toFixed(2)} after ${attemptPools.length} attempts`);
 
   return null;
 }
