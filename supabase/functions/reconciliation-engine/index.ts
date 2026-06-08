@@ -661,7 +661,7 @@ function tentarSomaParcelas(
     return a.dateDiff - b.dateDiff;
   };
 
-  const buildAttemptPool = (items: any[], sorter: (a: any, b: any) => number, limit = 24) => {
+  const buildAttemptPool = (items: any[], sorter: (a: any, b: any) => number, limit = 60) => {
     const seen = new Set<string>();
     return items
       .slice()
