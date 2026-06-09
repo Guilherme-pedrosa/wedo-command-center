@@ -39,7 +39,7 @@ function extrairAuvoTaskId(osObj: any): string | null {
     const nested = a?.atributo || a;
     const id = String(nested?.atributo_id || nested?.id || "");
     const label = String(nested?.descricao || nested?.label || nested?.nome || "").toLowerCase();
-    if (id === ATRIBUTO_TAREFA_OS || label.includes("tarefa os")) {
+    if (id === ATRIBUTO_TAREFA_OS || label === "tarefa execução" || label === "tarefa execucao") {
       const valor = String(nested?.conteudo || nested?.valor || "").trim();
       if (!valor) return null;
       // Pode vir "12345" ou "12345/67890" (múltiplos). Pega o primeiro número.
