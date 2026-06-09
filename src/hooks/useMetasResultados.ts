@@ -321,7 +321,33 @@ export const useMetasResultados = (year: number, month: number) => {
         EXEC_SERVICO_STATUS.includes(os.nome_situacao ?? '')
       )
       .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
-  }, [osExecutadas]);
+
+  // Venda de Balcão: situacao_id 7340612 ("Concretizada - Uso Interno / Maleta").
+  // Faturamento = valor_produtos (exclui frete); custo = valor_custo do payload GC.
+  const VENDAS_BALCAO_SITUACAO_IDS = ['7340612'];
+  const { data: vendasBalcaoRows = [], refetch: refetchVendasBalcao } = useQuery({
+    queryKey: ['gc_vendas_balcao', start, end],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('gc_vendas')
+        .select('gc_id, valor_produtos, gc_payload_raw, data, situacao_id')
+        .in('situacao_id', VENDAS_BALCAO_SITUACAO_IDS)
+        .gte('data', start)
+        .lte('data', end);
+      if (error) throw error;
+      return (data ?? []) as { valor_produtos: number | null; gc_payload_raw: any }[];
+    },
+  });
+  const vendasBalcao = useMemo(() => {
+    let faturamento = 0;
+    let custo = 0;
+    for (const v of vendasBalcaoRows) {
+      faturamento += Number(v.valor_produtos) || 0;
+      const custoVenda = parseFloat(String(v.gc_payload_raw?.valor_custo || '0')) || 0;
+      custo += custoVenda;
+    }
+    return { faturamento, custo };
+  }, [vendasBalcaoRows]);
 
   const metasComResultado = useMemo((): MetaComResultado[] => {
     return metas.map(meta => {
