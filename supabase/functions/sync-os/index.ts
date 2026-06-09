@@ -86,6 +86,7 @@ function computeValorFromPayload(os: Record<string, unknown>): number {
 function computeValorPecasCusto(
   os: Record<string, unknown>,
   custoMap: Map<string, number>,
+  custoTributosMap: Map<string, number>,
 ): number {
   const produtos = os.produtos as Array<{ produto?: Record<string, any> }> | undefined;
   if (!Array.isArray(produtos)) return 0;
@@ -95,14 +96,19 @@ function computeValorPecasCusto(
     if (!prod) continue;
     const qtd = parseFloat(String(prod.quantidade || "0")) || 0;
     if (qtd === 0) continue;
-    // 1) custo inline no payload (se GC enviar)
-    let custoUnit = parseFloat(String(prod.valor_custo || "0")) || 0;
-    // 2) fallback: cache gc_produtos_cache por produto_id
+    const prodId = String(prod.produto_id || prod.id || "");
+    // PRIORIDADE 1: custo validado por NF (fin_produto_tributos.custo_efetivo_unit)
+    let custoUnit = 0;
+    if (prodId && custoTributosMap.has(prodId)) {
+      custoUnit = custoTributosMap.get(prodId) || 0;
+    }
+    // PRIORIDADE 2: custo inline no payload da OS (se GC enviar)
     if (custoUnit === 0) {
-      const prodId = String(prod.produto_id || prod.id || "");
-      if (prodId && custoMap.has(prodId)) {
-        custoUnit = custoMap.get(prodId) || 0;
-      }
+      custoUnit = parseFloat(String(prod.valor_custo || "0")) || 0;
+    }
+    // PRIORIDADE 3: cache gc_produtos_cache (custo atual)
+    if (custoUnit === 0 && prodId && custoMap.has(prodId)) {
+      custoUnit = custoMap.get(prodId) || 0;
     }
     total += qtd * custoUnit;
   }
