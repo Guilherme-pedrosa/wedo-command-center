@@ -1,0 +1,1 @@
+DELETE FROM public.os_index WHERE os_codigo = '9601';
