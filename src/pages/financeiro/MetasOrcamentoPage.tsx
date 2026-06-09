@@ -131,17 +131,13 @@ const VendasBalcaoRow = ({ faturamento, custo }: { faturamento: number; custo: n
           REFERÊNCIA
         </Badge>
       </div>
-      <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
         <div>
           <span className="block text-[10px] uppercase tracking-wide">Origem</span>
           <span className="font-medium text-foreground">Vendas · situação "Uso Interno / Maleta"</span>
         </div>
         <div>
-          <span className="block text-[10px] uppercase tracking-wide">Faturamento</span>
-          <span className="font-medium text-foreground">{formatBRL(faturamento)}</span>
-        </div>
-        <div>
-          <span className="block text-[10px] uppercase tracking-wide">Custo</span>
+          <span className="block text-[10px] uppercase tracking-wide">Custo Real</span>
           <span className="font-medium text-foreground">{formatBRL(custo)}</span>
         </div>
       </div>
