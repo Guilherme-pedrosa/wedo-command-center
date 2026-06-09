@@ -299,10 +299,13 @@ export const useMetasResultados = (year: number, month: number) => {
     },
   });
 
-  // Faturamento Executado = OS Execução+Coifa + Ecolab/Chamados + PCM Confirmado
-  // Vendas Concretizadas NÃO entram no faturamento total (apenas como meta isolada)
+  // Faturamento Executado = OS Execução+Coifa + PCM Confirmado
+  // FECHADO CHAMADO (Ecolab/Chamados) NÃO entra na execução de serviço — é base só de comissão.
+  // Vendas Concretizadas NÃO entram no faturamento total (apenas como meta isolada).
   const execTotal = useMemo(() => {
-    const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
+    const osTotal = osExecutadas
+      .filter(os => os.nome_situacao !== 'EXECUTADO - FECHADO CHAMADO')
+      .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
     const recFinanceiro = gcRecPCM.reduce((acc, r) => acc + (r.valor || 0), 0);
     return osTotal + recFinanceiro;
   }, [gcRecPCM, osExecutadas]);
