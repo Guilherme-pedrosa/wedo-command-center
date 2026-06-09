@@ -431,7 +431,9 @@ async function syncVendas(
 // ═══════════════════════════════════════════════════════════════
 async function syncCompras(
   gcHeaders: Record<string, string>,
-  supabase: any
+  supabase: any,
+  dataInicio?: string,
+  dataFim?: string,
 ): Promise<any> {
   const start = Date.now();
 
