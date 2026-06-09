@@ -175,11 +175,10 @@ serve(async (req) => {
     let semData = 0;
     const amostra: any[] = [];
 
-    for (const row of alvos) {
-      processadas++;
+    async function processOne(row: any) {
       try {
         const osGc = await fetchGcOs(gcHeaders, String(row.os_id));
-        if (!osGc) { continue; }
+        if (!osGc) return;
         const auvoTaskId = extrairAuvoTaskId(osGc);
         if (!auvoTaskId) {
           semAtributo++;
@@ -187,9 +186,8 @@ serve(async (req) => {
             data_execucao_origem: "sem_atributo_auvo",
             data_execucao_sincronizada_em: new Date().toISOString(),
           }).eq("id", row.id);
-          continue;
+          return;
         }
-
         const task = await fetchAuvoTask(auvoBearer, auvoTaskId);
         if (!task) {
           semTaskAuvo++;
@@ -198,19 +196,16 @@ serve(async (req) => {
             data_execucao_origem: "task_auvo_nao_encontrada",
             data_execucao_sincronizada_em: new Date().toISOString(),
           }).eq("id", row.id);
-          continue;
+          return;
         }
-
         const { data: dataExec, origem } = dataDeRawAuvo(task);
         if (!dataExec) semData++;
-
         await supabase.from("os_index").update({
           auvo_task_id: auvoTaskId,
           data_execucao_real: dataExec,
           data_execucao_origem: origem,
           data_execucao_sincronizada_em: new Date().toISOString(),
         }).eq("id", row.id);
-
         if (dataExec) atualizadas++;
         if (amostra.length < 10) {
           amostra.push({ os: row.os_codigo, task: auvoTaskId, data: dataExec, origem });
@@ -218,10 +213,19 @@ serve(async (req) => {
       } catch (e) {
         console.error(`[sync-os-data-execucao] OS ${row.os_codigo} erro:`, e instanceof Error ? e.message : e);
       }
-
-      // rate-limit suave: 80ms entre OS (~12 req/s combinado GC+Auvo)
-      await sleep(80);
     }
+
+    // Pool de 8 workers paralelos
+    const POOL = 8;
+    let cursor = 0;
+    const workers = Array.from({ length: POOL }, async () => {
+      while (cursor < alvos.length) {
+        const idx = cursor++;
+        processadas++;
+        await processOne(alvos[idx]);
+      }
+    });
+    await Promise.all(workers);
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     return new Response(JSON.stringify({
