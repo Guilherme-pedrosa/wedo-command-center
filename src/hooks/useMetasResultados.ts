@@ -206,12 +206,12 @@ export const useMetasResultados = (year: number, month: number) => {
         .lte('data_saida', end);
       if (error) throw error;
       const rows = (data ?? []) as { os_id: string; os_codigo: string; nome_cliente: string | null; nome_situacao: string | null; nome_vendedor: string | null; valor_total: number | null; valor_pecas: number | null; valor_pecas_custo: number | null; data_saida: string | null; data_execucao_real: string | null }[];
-      // Exclui OS cuja execução real (data_execucao_real) ocorreu em mês diferente do período.
-      // Ex: OS faturada (data_saida) em Maio mas executada em Nov não deve contar em Maio.
-      const periodoYM = start.slice(0, 7); // 'YYYY-MM'
+      // Exclui apenas OS com execução real antiga, anterior ao período analisado.
+      // Ex: OS faturada (data_saida) em Maio mas executada em Nov/2025 não deve contar em Maio/2026.
+      // OS com execução real posterior ao período permanece, pois consta no relatório do GC por data_saida.
       return rows.filter(os => {
         if (!os.data_execucao_real) return true;
-        return os.data_execucao_real.slice(0, 7) === periodoYM;
+        return os.data_execucao_real >= start;
       });
     },
   });
