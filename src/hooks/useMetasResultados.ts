@@ -367,9 +367,12 @@ export const useMetasResultados = (year: number, month: number) => {
       }
       else if (meta.categoria === 'custo_variavel' && (nome.includes('peça') || nome.includes('estoque'))) {
         // Custo da operação = custo REAL das peças que saíram do estoque para OS no período
-        // (qtd × valor_custo do produto, descontando consignadas). As compras finalizadas
-        // viram informativo (entrada de estoque, não saída).
-        realizado = osExecutadas.reduce((acc, os) => acc + (Number(os.valor_pecas_custo) || 0), 0);
+        // + custo das saídas internas (Uso Interno / Maleta) que também consomem estoque.
+        const custoOs = osExecutadas.reduce((acc, os) => acc + (Number(os.valor_pecas_custo) || 0), 0);
+        const custoUsoInterno = vendasBalcaoRows.reduce((acc, v) => {
+          return acc + (parseFloat(String(v.gc_payload_raw?.valor_custo || '0')) || 0);
+        }, 0);
+        realizado = custoOs + custoUsoInterno;
       }
       else {
         for (const link of links) {
