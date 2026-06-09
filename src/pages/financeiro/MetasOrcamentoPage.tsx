@@ -347,7 +347,14 @@ export default function MetasOrcamentoPage() {
             ? <p className="text-sm text-muted-foreground">Carregando...</p>
             : custosVar.length === 0
             ? <p className="text-sm text-muted-foreground">Nenhuma meta de custo variável cadastrada.</p>
-            : custosVar.map(m => <MetaRow key={m.id} m={m} execTotal={execTotal} />)
+            : custosVar.flatMap(m => {
+                const n = (m.nome || '').toLowerCase();
+                const isPecas = n.includes('peça') || n.includes('peca') || n.includes('operaç') || n.includes('operac') || n.includes('estoque');
+                const row = <MetaRow key={m.id} m={m} execTotal={execTotal} />;
+                return isPecas
+                  ? [row, <SaidasOsRow key={`${m.id}-saidas-os`} valor={saidasPecasOs} execTotal={execTotal} />]
+                  : [row];
+              })
           }
         </CardContent>
       </Card>
