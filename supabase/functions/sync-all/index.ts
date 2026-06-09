@@ -196,16 +196,13 @@ function computeValorPecasCusto(
     const qtd = parseFloat(String(prod.quantidade || "0")) || 0;
     if (qtd === 0) continue;
     const prodId = String(prod.produto_id || prod.id || "");
-    // PRIORIDADE 1: custo validado por NF (fin_produto_tributos.custo_efetivo_unit)
-    let custoUnit = 0;
-    if (prodId && custoTributosMap.has(prodId)) {
+    // PRIORIDADE 1: valor_custo INLINE no payload da OS (snapshot do custo na data — igual relatório GC)
+    let custoUnit = parseFloat(String(prod.valor_custo || "0")) || 0;
+    // PRIORIDADE 2: custo validado por NF
+    if (custoUnit === 0 && prodId && custoTributosMap.has(prodId)) {
       custoUnit = custoTributosMap.get(prodId) || 0;
     }
-    // PRIORIDADE 2: custo inline no payload da OS
-    if (custoUnit === 0) {
-      custoUnit = parseFloat(String(prod.valor_custo || "0")) || 0;
-    }
-    // PRIORIDADE 3: cache gc_produtos_cache (custo atual)
+    // PRIORIDADE 3: cache gc_produtos_cache
     if (custoUnit === 0 && prodId && custoMap.has(prodId)) {
       custoUnit = custoMap.get(prodId) || 0;
     }
@@ -307,6 +304,30 @@ async function syncOS(
     console.log(`[sync-all/os] custoMap carregado: ${custoMap.size} produtos`);
   }
 
+  // Pre-carrega mapa custo NF-validado (fin_produto_tributos.custo_efetivo_unit)
+  const custoTributosMap = new Map<string, number>();
+  {
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data: trib, error: tribErr } = await supabase
+        .from("fin_produto_tributos")
+        .select("gc_produto_id, custo_efetivo_unit, nf_data_emissao")
+        .gt("custo_efetivo_unit", 0)
+        .order("nf_data_emissao", { ascending: false, nullsFirst: false })
+        .range(from, from + PAGE - 1);
+      if (tribErr) { console.warn("[sync-all/os] falha fin_produto_tributos:", tribErr.message); break; }
+      if (!trib || trib.length === 0) break;
+      for (const t of trib as any[]) {
+        const pid = String(t.gc_produto_id || "");
+        if (pid && !custoTributosMap.has(pid)) custoTributosMap.set(pid, Number(t.custo_efetivo_unit) || 0);
+      }
+      if (trib.length < PAGE) break;
+      from += PAGE;
+    }
+    console.log(`[sync-all/os] custoTributosMap (NF) carregado: ${custoTributosMap.size} produtos`);
+  }
+
   for (const sitId of OS_SITUACAO_IDS) {
     let page = 1;
     let totalPages = 999;
@@ -339,7 +360,7 @@ async function syncOS(
         totalFetched++;
         const nomeSituacao = String(os.nome_situacao || "");
         statusCounts[nomeSituacao] = (statusCounts[nomeSituacao] || 0) + 1;
-        const mapped = mapOsRecord(os, custoMap);
+        const mapped = mapOsRecord(os, custoMap, custoTributosMap);
         if (mapped) batch.push(mapped);
         else errors++;
       }
