@@ -84,7 +84,7 @@ export default function MetasOrcamentoPage() {
   const [selectedYear, setSelectedYear]   = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
 
-  const { metasComResultado, execTotal, isLoading, refetch, hasOsData } = useMetasResultados(selectedYear, selectedMonth);
+  const { metasComResultado, execTotal, isLoading, refetch, hasOsData, saidasPecasOs } = useMetasResultados(selectedYear, selectedMonth);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
