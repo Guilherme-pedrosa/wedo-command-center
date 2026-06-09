@@ -125,10 +125,10 @@ const VendasBalcaoRow = ({ faturamento, custo }: { faturamento: number; custo: n
           <span className="font-medium text-sm truncate text-foreground">
             Uso Interno / Maleta — Custo de Produtos
           </span>
-          <span className="text-xs text-muted-foreground">informativo · saída de estoque sem faturamento</span>
+          <span className="text-xs text-muted-foreground">somado ao custo de Peças/Estoque</span>
         </div>
         <Badge variant="outline" className="text-xs bg-purple-100 text-purple-800 border-purple-200">
-          REFERÊNCIA
+          ENTRA NO RESULTADO
         </Badge>
       </div>
       <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
