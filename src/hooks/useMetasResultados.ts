@@ -444,12 +444,11 @@ export const useMetasResultados = (year: number, month: number) => {
   // Saídas de peças para OS no período — soma o CUSTO real das peças que saíram do estoque
   // (valor_pecas_custo = quantidade × valor_custo do produto), espelhando o "Custo total"
   // do Relatório de Produtos Vendidos do GC. NÃO inclui serviços nem valor de venda.
-  // Exclui Ecolab/Chamados (EXECUTADO - FECHADO CHAMADO): peças consignadas, não são nossas
-  // logo não geram custo de estoque para a operação.
+  // Custo real das peças que saíram do estoque. Peças consignadas (100% de desconto,
+  // ex.: Ecolab) são descartadas item-a-item no sync — então OS de Chamado entram aqui
+  // apenas pelas peças efetivamente faturadas.
   const saidasPecasOs = useMemo(
-    () => osExecutadas
-      .filter(os => os.nome_situacao !== 'EXECUTADO - FECHADO CHAMADO')
-      .reduce((acc, os) => acc + (Number(os.valor_pecas_custo) || 0), 0),
+    () => osExecutadas.reduce((acc, os) => acc + (Number(os.valor_pecas_custo) || 0), 0),
     [osExecutadas]
   );
 
