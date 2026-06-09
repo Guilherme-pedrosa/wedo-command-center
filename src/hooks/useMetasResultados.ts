@@ -219,12 +219,12 @@ export const useMetasResultados = (year: number, month: number) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('gc_vendas')
-        .select('gc_id, codigo, nome_cliente, nome_situacao, situacao_id, valor_total, data, gc_payload_raw')
+        .select('gc_id, codigo, nome_cliente, nome_situacao, situacao_id, valor_total, valor_produtos, data, gc_payload_raw')
         .eq('situacao_id', VENDAS_SITUACAO_CONCRETIZADA)
         .gte('data', start)
         .lte('data', end);
       if (error) throw error;
-      return data as { gc_id: string; codigo: string; nome_cliente: string | null; nome_situacao: string | null; situacao_id: string | null; valor_total: number | null; data: string | null; gc_payload_raw: any }[];
+      return data as { gc_id: string; codigo: string; nome_cliente: string | null; nome_situacao: string | null; situacao_id: string | null; valor_total: number | null; valor_produtos: number | null; data: string | null; gc_payload_raw: any }[];
     },
   });
 
