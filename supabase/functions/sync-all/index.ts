@@ -176,8 +176,9 @@ const OS_SITUACAO_IDS = [
   "8889036",  // EXECUTADO - FECHADO CHAMADO
 ];
 
-// Vendas: Concretizado + Venda Futura (hardcoded to avoid situacoes_vendas API call)
-let VENDAS_SITUACAO_IDS: string[] = [];
+// Vendas: Concretizada + Venda Futura + Uso Interno/Maleta.
+// Uso Interno/Maleta (7340612) precisa entrar no sync para compor custo de estoque.
+let VENDAS_SITUACAO_IDS: string[] = ["7063585", "8163483", "7340612"];
 
 // Compras: Finalizado (mercadoria chegou) + Comprado - AG CHEGADA (hardcoded to avoid situacoes_compras API call)
 let COMPRAS_SITUACAO_IDS: string[] = [];
@@ -413,7 +414,7 @@ async function syncVendas(
       const situacoes = Array.isArray(sitData?.data) ? sitData.data : [];
       for (const sit of situacoes) {
         const nome = String(sit.nome || "").toLowerCase().trim();
-        if (nome === "concretizado" || nome === "concretizada" || nome === "venda futura") {
+        if (nome === "concretizado" || nome === "concretizada" || nome === "venda futura" || nome === "concretizada - uso interno / maleta" || String(sit.id) === "7340612") {
           VENDAS_SITUACAO_IDS.push(String(sit.id));
           console.log(`[sync-all/vendas] Found situacao: ${sit.nome} (id=${sit.id})`);
         }
