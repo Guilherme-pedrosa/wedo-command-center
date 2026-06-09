@@ -304,6 +304,30 @@ async function syncOS(
     console.log(`[sync-all/os] custoMap carregado: ${custoMap.size} produtos`);
   }
 
+  // Pre-carrega mapa custo NF-validado (fin_produto_tributos.custo_efetivo_unit)
+  const custoTributosMap = new Map<string, number>();
+  {
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data: trib, error: tribErr } = await supabase
+        .from("fin_produto_tributos")
+        .select("gc_produto_id, custo_efetivo_unit, nf_data_emissao")
+        .gt("custo_efetivo_unit", 0)
+        .order("nf_data_emissao", { ascending: false, nullsFirst: false })
+        .range(from, from + PAGE - 1);
+      if (tribErr) { console.warn("[sync-all/os] falha fin_produto_tributos:", tribErr.message); break; }
+      if (!trib || trib.length === 0) break;
+      for (const t of trib as any[]) {
+        const pid = String(t.gc_produto_id || "");
+        if (pid && !custoTributosMap.has(pid)) custoTributosMap.set(pid, Number(t.custo_efetivo_unit) || 0);
+      }
+      if (trib.length < PAGE) break;
+      from += PAGE;
+    }
+    console.log(`[sync-all/os] custoTributosMap (NF) carregado: ${custoTributosMap.size} produtos`);
+  }
+
   for (const sitId of OS_SITUACAO_IDS) {
     let page = 1;
     let totalPages = 999;
