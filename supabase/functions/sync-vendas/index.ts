@@ -104,7 +104,7 @@ serve(async (req) => {
           pagina: String(page),
           situacao_id: sitId,
         };
-        params.tipo = sitId === "7340612" ? "servico" : "produto";
+        if (sitId !== "7340612") params.tipo = "produto";
         if (dataInicio) params.data_inicio = dataInicio;
         if (dataFim) params.data_fim = dataFim;
 
