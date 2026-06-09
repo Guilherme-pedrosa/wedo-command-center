@@ -3457,6 +3457,7 @@ export type Database = {
           todos_orcs: string[] | null
           valor_deslocamento: number | null
           valor_pecas: number | null
+          valor_pecas_custo: number | null
           valor_servicos: number | null
           valor_total: number | null
         }
@@ -3475,6 +3476,7 @@ export type Database = {
           todos_orcs?: string[] | null
           valor_deslocamento?: number | null
           valor_pecas?: number | null
+          valor_pecas_custo?: number | null
           valor_servicos?: number | null
           valor_total?: number | null
         }
@@ -3493,6 +3495,7 @@ export type Database = {
           todos_orcs?: string[] | null
           valor_deslocamento?: number | null
           valor_pecas?: number | null
+          valor_pecas_custo?: number | null
           valor_servicos?: number | null
           valor_total?: number | null
         }
