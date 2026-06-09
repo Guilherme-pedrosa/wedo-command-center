@@ -431,7 +431,9 @@ async function syncVendas(
 // ═══════════════════════════════════════════════════════════════
 async function syncCompras(
   gcHeaders: Record<string, string>,
-  supabase: any
+  supabase: any,
+  dataInicio?: string,
+  dataFim?: string,
 ): Promise<any> {
   const start = Date.now();
 
@@ -472,6 +474,9 @@ async function syncCompras(
         pagina: String(page),
         situacao_id: currentSitId,
       };
+      // Filtro de data evita timeout do gateway (150s) ao baixar histórico completo
+      if (dataInicio) params.data_inicio = dataInicio;
+      if (dataFim) params.data_fim = dataFim;
 
       const url = `${GC_BASE_URL}/api/compras?${new URLSearchParams(params).toString()}`;
       const response = await rateLimitedFetch(url, { headers: gcHeaders });
@@ -876,7 +881,7 @@ serve(async (req) => {
 
     // 3. Sync Compras
     console.log("[sync-all] ── Module 3/6: Compras ──");
-    results.compras = await syncCompras(gcHeaders, supabase);
+    results.compras = await syncCompras(gcHeaders, supabase, dataInicio, dataFim);
     console.log(`[sync-all] Compras done: ${results.compras.upserted} upserted (${results.compras.duration_ms}ms)`);
 
     // 4. Sync Auvo (different API, no GC rate limit conflict — run in parallel with next GC module)
