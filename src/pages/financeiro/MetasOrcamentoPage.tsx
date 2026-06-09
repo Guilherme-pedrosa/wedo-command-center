@@ -395,7 +395,7 @@ export default function MetasOrcamentoPage() {
                 const isPecas = n.includes('peça') || n.includes('peca') || n.includes('operaç') || n.includes('operac') || n.includes('estoque');
                 const row = <MetaRow key={m.id} m={m} execTotal={execTotal} />;
                 return isPecas
-                  ? [row, <SaidasOsRow key={`${m.id}-compras-info`} valor={comprasPecasTotal} execTotal={execTotal} />]
+                  ? [row, <SaidasOsRow key={`${m.id}-compras-info`} valor={comprasPecasTotal} execTotal={execTotal} />, <VendasBalcaoRow key={`${m.id}-balcao`} faturamento={vendasBalcao.faturamento} custo={vendasBalcao.custo} />]
                   : [row];
               })
           }
