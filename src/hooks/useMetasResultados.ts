@@ -323,6 +323,34 @@ export const useMetasResultados = (year: number, month: number) => {
       .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
   }, [osExecutadas]);
 
+
+  // Venda de Balcão: situacao_id 7340612 ("Concretizada - Uso Interno / Maleta").
+  // Faturamento = valor_produtos (exclui frete); custo = valor_custo do payload GC.
+  const VENDAS_BALCAO_SITUACAO_IDS = ['7340612'];
+  const { data: vendasBalcaoRows = [], refetch: refetchVendasBalcao } = useQuery({
+    queryKey: ['gc_vendas_balcao', start, end],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('gc_vendas')
+        .select('gc_id, valor_produtos, gc_payload_raw, data, situacao_id')
+        .in('situacao_id', VENDAS_BALCAO_SITUACAO_IDS)
+        .gte('data', start)
+        .lte('data', end);
+      if (error) throw error;
+      return (data ?? []) as { valor_produtos: number | null; gc_payload_raw: any }[];
+    },
+  });
+  const vendasBalcao = useMemo(() => {
+    let faturamento = 0;
+    let custo = 0;
+    for (const v of vendasBalcaoRows) {
+      faturamento += Number(v.valor_produtos) || 0;
+      const custoVenda = parseFloat(String(v.gc_payload_raw?.valor_custo || '0')) || 0;
+      custo += custoVenda;
+    }
+    return { faturamento, custo };
+  }, [vendasBalcaoRows]);
+
   const metasComResultado = useMemo((): MetaComResultado[] => {
     return metas.map(meta => {
       const rawLinks = mapeamentos.filter(m => m.meta_id === meta.id);
@@ -367,9 +395,12 @@ export const useMetasResultados = (year: number, month: number) => {
       }
       else if (meta.categoria === 'custo_variavel' && (nome.includes('peça') || nome.includes('estoque'))) {
         // Custo da operação = custo REAL das peças que saíram do estoque para OS no período
-        // (qtd × valor_custo do produto, descontando consignadas). As compras finalizadas
-        // viram informativo (entrada de estoque, não saída).
-        realizado = osExecutadas.reduce((acc, os) => acc + (Number(os.valor_pecas_custo) || 0), 0);
+        // + custo das saídas internas (Uso Interno / Maleta) que também consomem estoque.
+        const custoOs = osExecutadas.reduce((acc, os) => acc + (Number(os.valor_pecas_custo) || 0), 0);
+        const custoUsoInterno = vendasBalcaoRows.reduce((acc, v) => {
+          return acc + (parseFloat(String(v.gc_payload_raw?.valor_custo || '0')) || 0);
+        }, 0);
+        realizado = custoOs + custoUsoInterno;
       }
       else {
         for (const link of links) {
@@ -440,7 +471,7 @@ export const useMetasResultados = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, planoContasMap, uuidToGcId, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, vendasBalcaoRows, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, planoContasMap, uuidToGcId, centrosCustoMap]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
@@ -460,32 +491,6 @@ export const useMetasResultados = (year: number, month: number) => {
     () => comprasFinalizadas.reduce((acc, c) => acc + (Number(c.valor_total) || 0), 0),
     [comprasFinalizadas]
   );
-  // Venda de Balcão: situacao_id 7340612 ("Concretizada - Uso Interno / Maleta").
-  // Faturamento = valor_produtos (exclui frete); custo = valor_custo do payload GC.
-  const VENDAS_BALCAO_SITUACAO_IDS = ['7340612'];
-  const { data: vendasBalcaoRows = [], refetch: refetchVendasBalcao } = useQuery({
-    queryKey: ['gc_vendas_balcao', start, end],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('gc_vendas')
-        .select('gc_id, valor_produtos, gc_payload_raw, data, situacao_id')
-        .in('situacao_id', VENDAS_BALCAO_SITUACAO_IDS)
-        .gte('data', start)
-        .lte('data', end);
-      if (error) throw error;
-      return (data ?? []) as { valor_produtos: number | null; gc_payload_raw: any }[];
-    },
-  });
-  const vendasBalcao = useMemo(() => {
-    let faturamento = 0;
-    let custo = 0;
-    for (const v of vendasBalcaoRows) {
-      faturamento += Number(v.valor_produtos) || 0;
-      const custoVenda = parseFloat(String(v.gc_payload_raw?.valor_custo || '0')) || 0;
-      custo += custoVenda;
-    }
-    return { faturamento, custo };
-  }, [vendasBalcaoRows]);
 
 
   const refetch = useCallback(() => {
