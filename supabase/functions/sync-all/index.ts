@@ -196,16 +196,13 @@ function computeValorPecasCusto(
     const qtd = parseFloat(String(prod.quantidade || "0")) || 0;
     if (qtd === 0) continue;
     const prodId = String(prod.produto_id || prod.id || "");
-    // PRIORIDADE 1: custo validado por NF (fin_produto_tributos.custo_efetivo_unit)
-    let custoUnit = 0;
-    if (prodId && custoTributosMap.has(prodId)) {
+    // PRIORIDADE 1: valor_custo INLINE no payload da OS (snapshot do custo na data — igual relatório GC)
+    let custoUnit = parseFloat(String(prod.valor_custo || "0")) || 0;
+    // PRIORIDADE 2: custo validado por NF
+    if (custoUnit === 0 && prodId && custoTributosMap.has(prodId)) {
       custoUnit = custoTributosMap.get(prodId) || 0;
     }
-    // PRIORIDADE 2: custo inline no payload da OS
-    if (custoUnit === 0) {
-      custoUnit = parseFloat(String(prod.valor_custo || "0")) || 0;
-    }
-    // PRIORIDADE 3: cache gc_produtos_cache (custo atual)
+    // PRIORIDADE 3: cache gc_produtos_cache
     if (custoUnit === 0 && prodId && custoMap.has(prodId)) {
       custoUnit = custoMap.get(prodId) || 0;
     }
