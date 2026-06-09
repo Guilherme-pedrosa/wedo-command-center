@@ -275,6 +275,28 @@ async function syncOS(
   let errors = 0;
   const statusCounts: Record<string, number> = {};
 
+  // Pre-carrega mapa produto_gc_id -> valor_custo
+  const custoMap = new Map<string, number>();
+  {
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data: prods, error: prodErr } = await supabase
+        .from("gc_produtos_cache")
+        .select("produto_gc_id, valor_custo")
+        .not("valor_custo", "is", null)
+        .range(from, from + PAGE - 1);
+      if (prodErr) { console.warn("[sync-all/os] falha gc_produtos_cache:", prodErr.message); break; }
+      if (!prods || prods.length === 0) break;
+      for (const p of prods as any[]) {
+        if (p.produto_gc_id) custoMap.set(String(p.produto_gc_id), Number(p.valor_custo) || 0);
+      }
+      if (prods.length < PAGE) break;
+      from += PAGE;
+    }
+    console.log(`[sync-all/os] custoMap carregado: ${custoMap.size} produtos`);
+  }
+
   for (const sitId of OS_SITUACAO_IDS) {
     let page = 1;
     let totalPages = 999;
@@ -307,7 +329,7 @@ async function syncOS(
         totalFetched++;
         const nomeSituacao = String(os.nome_situacao || "");
         statusCounts[nomeSituacao] = (statusCounts[nomeSituacao] || 0) + 1;
-        const mapped = mapOsRecord(os);
+        const mapped = mapOsRecord(os, custoMap);
         if (mapped) batch.push(mapped);
         else errors++;
       }
@@ -328,6 +350,7 @@ async function syncOS(
       page++;
     }
   }
+
 
   await supabase.from("os_index_meta").upsert({
     id: 1, status: "done", total_os: upserted, built_at: new Date().toISOString(),
