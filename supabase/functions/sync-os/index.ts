@@ -96,6 +96,14 @@ function computeValorPecasCusto(
     if (!prod) continue;
     const qtd = parseFloat(String(prod.quantidade || "0")) || 0;
     if (qtd === 0) continue;
+    // Peça consignada (Ecolab etc): vendida com 100% de desconto → valor_total do item = 0.
+    // Não é nossa peça, não gera custo de estoque. Se houver qualquer valor faturado, conta o custo.
+    const itemValorTotal = parseFloat(String(prod.valor_total || "0")) || 0;
+    const itemDesconto = parseFloat(String(prod.desconto || "0")) || 0;
+    const itemValorUnit = parseFloat(String(prod.valor_unitario || prod.valor || "0")) || 0;
+    const bruto = qtd * itemValorUnit;
+    const isConsignado = itemValorTotal <= 0.01 && (bruto <= 0.01 || itemDesconto >= bruto - 0.01);
+    if (isConsignado) continue;
     const prodId = String(prod.produto_id || prod.id || "");
     // PRIORIDADE 1: valor_custo INLINE no payload da OS (snapshot do custo na data — igual ao relatório GC)
     let custoUnit = parseFloat(String(prod.valor_custo || "0")) || 0;
