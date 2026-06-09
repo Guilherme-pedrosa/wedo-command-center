@@ -115,6 +115,48 @@ const SaidasOsRow = ({ valor, execTotal }: { valor: number; execTotal: number })
   );
 };
 
+// Linha informativa: vendas de balcão (gc_vendas concretizadas) — faturamento, custo
+// real (qtd × valor_custo) e margem bruta.
+const VendasBalcaoRow = ({ faturamento, custo }: { faturamento: number; custo: number }) => {
+  const margem = faturamento - custo;
+  const margemPct = faturamento > 0 ? margem / faturamento : 0;
+  return (
+    <div className="flex flex-col gap-1 p-3 rounded-lg border border-dashed border-purple-300 bg-purple-50/40 dark:bg-purple-950/20">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-medium text-sm truncate text-foreground">
+            Venda de Balcão — Custo de Produtos
+          </span>
+          <span className="text-xs text-muted-foreground">informativo · custo real</span>
+        </div>
+        <Badge variant="outline" className="text-xs bg-purple-100 text-purple-800 border-purple-200">
+          REFERÊNCIA
+        </Badge>
+      </div>
+      <div className="grid grid-cols-4 gap-2 text-xs text-muted-foreground">
+        <div>
+          <span className="block text-[10px] uppercase tracking-wide">Origem</span>
+          <span className="font-medium text-foreground">Vendas Concretizadas · qtd × valor_custo</span>
+        </div>
+        <div>
+          <span className="block text-[10px] uppercase tracking-wide">Faturamento</span>
+          <span className="font-medium text-foreground">{formatBRL(faturamento)}</span>
+        </div>
+        <div>
+          <span className="block text-[10px] uppercase tracking-wide">Custo</span>
+          <span className="font-medium text-foreground">{formatBRL(custo)}</span>
+        </div>
+        <div>
+          <span className="block text-[10px] uppercase tracking-wide">Margem Bruta</span>
+          <span className="font-medium text-foreground">
+            {formatBRL(margem)} {faturamento > 0 ? `(${formatPct(margemPct)})` : ''}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 
 // ─── COMPONENTE PRINCIPAL ───────────────────────────────────────────────────
 export default function MetasOrcamentoPage() {
@@ -122,7 +164,7 @@ export default function MetasOrcamentoPage() {
   const [selectedYear, setSelectedYear]   = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
 
-  const { metasComResultado, execTotal, isLoading, refetch, hasOsData, saidasPecasOs, comprasPecasTotal } = useMetasResultados(selectedYear, selectedMonth);
+  const { metasComResultado, execTotal, isLoading, refetch, hasOsData, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -353,7 +395,9 @@ export default function MetasOrcamentoPage() {
                 const isPecas = n.includes('peça') || n.includes('peca') || n.includes('operaç') || n.includes('operac') || n.includes('estoque');
                 const row = <MetaRow key={m.id} m={m} execTotal={execTotal} />;
                 return isPecas
-                  ? [row, <SaidasOsRow key={`${m.id}-compras-info`} valor={comprasPecasTotal} execTotal={execTotal} />]
+                  ? [row,
+                     <SaidasOsRow key={`${m.id}-compras-info`} valor={comprasPecasTotal} execTotal={execTotal} />,
+                     <VendasBalcaoRow key={`${m.id}-balcao-info`} faturamento={vendasBalcao.faturamento} custo={vendasBalcao.custo} />]
                   : [row];
               })
           }
