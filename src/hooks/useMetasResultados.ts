@@ -366,7 +366,10 @@ export const useMetasResultados = (year: number, month: number) => {
         realizado = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
       }
       else if (meta.categoria === 'custo_variavel' && (nome.includes('peça') || nome.includes('estoque'))) {
-        realizado = comprasFinalizadas.reduce((acc, c) => acc + (c.valor_total ?? 0), 0);
+        // Custo da operação = custo REAL das peças que saíram do estoque para OS no período
+        // (qtd × valor_custo do produto, descontando consignadas). As compras finalizadas
+        // viram informativo (entrada de estoque, não saída).
+        realizado = osExecutadas.reduce((acc, os) => acc + (Number(os.valor_pecas_custo) || 0), 0);
       }
       else {
         for (const link of links) {
