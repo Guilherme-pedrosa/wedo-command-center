@@ -115,7 +115,7 @@ function computeValorPecasCusto(
   return total;
 }
 
-function mapOsRecord(os: Record<string, unknown>, custoMap: Map<string, number>) {
+function mapOsRecord(os: Record<string, unknown>, custoMap: Map<string, number>, custoTributosMap: Map<string, number>) {
   const osId = String(os.id || "");
   const osCodigo = String(os.codigo || "");
   if (!osId || !osCodigo) return null;
@@ -128,7 +128,7 @@ function mapOsRecord(os: Record<string, unknown>, custoMap: Map<string, number>)
 
   const valorServicos = parseFloat(String(os.valor_servicos || "0")) || 0;
   const valorProdutos = parseFloat(String(os.valor_produtos || "0")) || 0;
-  const valorPecasCusto = computeValorPecasCusto(os, custoMap);
+  const valorPecasCusto = computeValorPecasCusto(os, custoMap, custoTributosMap);
 
   let dataSaida: string | null = null;
   const rawDataSaida = String(os.data_saida || "");
