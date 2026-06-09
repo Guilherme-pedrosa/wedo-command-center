@@ -198,6 +198,28 @@ serve(async (req) => {
     let errors = 0;
     const statusCounts: Record<string, number> = {};
 
+    // Pre-carrega mapa produto_gc_id -> valor_custo (fallback quando GC não envia valor_custo no payload da OS)
+    const custoMap = new Map<string, number>();
+    {
+      let from = 0;
+      const PAGE = 1000;
+      while (true) {
+        const { data: prods, error: prodErr } = await supabase
+          .from("gc_produtos_cache")
+          .select("produto_gc_id, valor_custo")
+          .not("valor_custo", "is", null)
+          .range(from, from + PAGE - 1);
+        if (prodErr) { console.warn("[sync-os] falha ao carregar gc_produtos_cache:", prodErr.message); break; }
+        if (!prods || prods.length === 0) break;
+        for (const p of prods as any[]) {
+          if (p.produto_gc_id) custoMap.set(String(p.produto_gc_id), Number(p.valor_custo) || 0);
+        }
+        if (prods.length < PAGE) break;
+        from += PAGE;
+      }
+      console.log(`[sync-os] custoMap carregado: ${custoMap.size} produtos`);
+    }
+
     for (const sitId of situacaoIds) {
       let page = pageStart;
       let totalPages = 999;
@@ -234,7 +256,8 @@ serve(async (req) => {
           const nomeSituacao = String(os.nome_situacao || "");
           statusCounts[nomeSituacao] = (statusCounts[nomeSituacao] || 0) + 1;
 
-          const mapped = mapOsRecord(os);
+          const mapped = mapOsRecord(os, custoMap);
+
           if (mapped) {
             batch.push(mapped);
             allOsIds.push(String(os.id));
