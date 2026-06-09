@@ -227,26 +227,31 @@ export const useMetasResultados = (year: number, month: number) => {
     },
   });
 
+  // Custo de Peças: apenas as duas situações confirmadas pelo usuário —
+  // 1675070 (Finalizado - mercadoria chegou) e 1675083 (COMPRADO - AG CHEGADA).
+  // NÃO inclui "COMPRADO - AG CHEGADA PARA ESTOQUE" nem outras variantes.
+  const COMPRAS_CUSTO_SITUACAO_IDS = ['1675070', '1675083'];
   const { data: comprasFinalizadas = [], isLoading: loadingCompras, refetch: refetchCompras } = useQuery({
     queryKey: ['gc_compras_metas', start, end],
     queryFn: async () => {
       const { data: byData, error: err1 } = await supabase
         .from('gc_compras' as any)
-        .select('gc_id, codigo, nome_fornecedor, nome_situacao, valor_total, data, cadastrado_em')
-        .or('nome_situacao.ilike.%finalizado%mercadoria chegou%,nome_situacao.ilike.%comprado%ag chegada%')
+        .select('gc_id, codigo, nome_fornecedor, nome_situacao, situacao_id, valor_total, data, cadastrado_em')
+        .in('situacao_id', COMPRAS_CUSTO_SITUACAO_IDS)
         .gte('data', start)
         .lte('data', end);
       if (!err1 && byData && byData.length > 0) return byData as any[];
       const { data: byCad, error: err2 } = await supabase
         .from('gc_compras' as any)
-        .select('gc_id, codigo, nome_fornecedor, nome_situacao, valor_total, data, cadastrado_em')
-        .or('nome_situacao.ilike.%finalizado%mercadoria chegou%,nome_situacao.ilike.%comprado%ag chegada%')
+        .select('gc_id, codigo, nome_fornecedor, nome_situacao, situacao_id, valor_total, data, cadastrado_em')
+        .in('situacao_id', COMPRAS_CUSTO_SITUACAO_IDS)
         .gte('cadastrado_em', start)
         .lte('cadastrado_em', end + 'T23:59:59');
       if (err2) throw err2;
       return (byCad as any[]) ?? [];
     },
   });
+
 
   const { data: auvoExpenses = [], isLoading: loadingAuvo, refetch: refetchAuvo } = useQuery({
     queryKey: ['auvo_expenses_metas', start, end],
