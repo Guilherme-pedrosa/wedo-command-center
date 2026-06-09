@@ -103,8 +103,8 @@ serve(async (req) => {
           limite: "100",
           pagina: String(page),
           situacao_id: sitId,
-          tipo: "produto",
         };
+        if (sitId !== "7340612") params.tipo = "produto";
         if (dataInicio) params.data_inicio = dataInicio;
         if (dataFim) params.data_fim = dataFim;
 

@@ -438,8 +438,8 @@ async function syncVendas(
         limite: "100",
         pagina: String(page),
         situacao_id: sitId,
-        tipo: "produto",
       };
+      if (sitId !== "7340612") params.tipo = "produto";
 
       const url = `${GC_BASE_URL}/api/vendas?${new URLSearchParams(params).toString()}`;
       const response = await rateLimitedFetch(url, { headers: gcHeaders });
