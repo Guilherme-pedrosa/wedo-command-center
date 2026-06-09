@@ -77,8 +77,8 @@ const MetaRow = ({ m, execTotal }: { m: MetaComResultado; execTotal: number }) =
   );
 };
 
-// Linha informativa (não é meta): valor total de peças que saíram do estoque para OS
-// executadas no período selecionado. Espelha o "Relatório de Produtos Vendidos" do GC.
+// Linha informativa (não é meta): total de compras de peças finalizadas no período
+// (entrada de estoque). Não é custo da operação — apenas referência de reposição.
 const SaidasOsRow = ({ valor, execTotal }: { valor: number; execTotal: number }) => {
   const pct = execTotal > 0 ? valor / execTotal : 0;
   return (
@@ -86,9 +86,9 @@ const SaidasOsRow = ({ valor, execTotal }: { valor: number; execTotal: number })
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-medium text-sm truncate text-foreground">
-            Custo de Peças saídas para OS (período)
+            Custo com Peças (compras finalizadas no período)
           </span>
-          <span className="text-xs text-muted-foreground">informativo · custo real</span>
+          <span className="text-xs text-muted-foreground">informativo · entrada de estoque</span>
         </div>
         <Badge variant="outline" className="text-xs bg-blue-100 text-blue-800 border-blue-200">
           REFERÊNCIA
@@ -97,10 +97,10 @@ const SaidasOsRow = ({ valor, execTotal }: { valor: number; execTotal: number })
       <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
         <div>
           <span className="block text-[10px] uppercase tracking-wide">Origem</span>
-          <span className="font-medium text-foreground">OS Executadas · qtd × valor_custo</span>
+          <span className="font-medium text-foreground">Compras finalizadas · valor total</span>
         </div>
         <div>
-          <span className="block text-[10px] uppercase tracking-wide">Custo Total</span>
+          <span className="block text-[10px] uppercase tracking-wide">Total</span>
           <span className="font-medium text-foreground">{formatBRL(valor)}</span>
         </div>
 
@@ -122,7 +122,7 @@ export default function MetasOrcamentoPage() {
   const [selectedYear, setSelectedYear]   = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
 
-  const { metasComResultado, execTotal, isLoading, refetch, hasOsData, saidasPecasOs } = useMetasResultados(selectedYear, selectedMonth);
+  const { metasComResultado, execTotal, isLoading, refetch, hasOsData, saidasPecasOs, comprasPecasTotal } = useMetasResultados(selectedYear, selectedMonth);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -353,7 +353,7 @@ export default function MetasOrcamentoPage() {
                 const isPecas = n.includes('peça') || n.includes('peca') || n.includes('operaç') || n.includes('operac') || n.includes('estoque');
                 const row = <MetaRow key={m.id} m={m} execTotal={execTotal} />;
                 return isPecas
-                  ? [row, <SaidasOsRow key={`${m.id}-saidas-os`} valor={saidasPecasOs} execTotal={execTotal} />]
+                  ? [row, <SaidasOsRow key={`${m.id}-compras-info`} valor={comprasPecasTotal} execTotal={execTotal} />]
                   : [row];
               })
           }
