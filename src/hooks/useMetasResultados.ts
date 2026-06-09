@@ -455,6 +455,12 @@ export const useMetasResultados = (year: number, month: number) => {
     [osExecutadas]
   );
 
+  // Total de compras finalizadas no período (entrada de estoque) — informativo
+  const comprasPecasTotal = useMemo(
+    () => comprasFinalizadas.reduce((acc, c) => acc + (Number(c.valor_total) || 0), 0),
+    [comprasFinalizadas]
+  );
+
 
   const refetch = useCallback(() => {
     refetchRec(); refetchPag(); refetchPagComp(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo();
@@ -462,5 +468,5 @@ export const useMetasResultados = (year: number, month: number) => {
 
   const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
 
-  return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, dataUpdatedAt: osDataUpdatedAt };
+  return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, comprasPecasTotal, dataUpdatedAt: osDataUpdatedAt };
 };
