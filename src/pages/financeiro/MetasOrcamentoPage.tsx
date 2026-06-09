@@ -77,6 +77,43 @@ const MetaRow = ({ m, execTotal }: { m: MetaComResultado; execTotal: number }) =
   );
 };
 
+// Linha informativa (não é meta): valor total de peças que saíram do estoque para OS
+// executadas no período selecionado. Espelha o "Relatório de Produtos Vendidos" do GC.
+const SaidasOsRow = ({ valor, execTotal }: { valor: number; execTotal: number }) => {
+  const pct = execTotal > 0 ? valor / execTotal : 0;
+  return (
+    <div className="flex flex-col gap-1 p-3 rounded-lg border border-dashed border-blue-300 bg-blue-50/40 dark:bg-blue-950/20">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-medium text-sm truncate text-foreground">
+            Saídas de Peças para OS (período)
+          </span>
+          <span className="text-xs text-muted-foreground">informativo</span>
+        </div>
+        <Badge variant="outline" className="text-xs bg-blue-100 text-blue-800 border-blue-200">
+          REFERÊNCIA
+        </Badge>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+        <div>
+          <span className="block text-[10px] uppercase tracking-wide">Origem</span>
+          <span className="font-medium text-foreground">OS Executadas</span>
+        </div>
+        <div>
+          <span className="block text-[10px] uppercase tracking-wide">Valor Peças</span>
+          <span className="font-medium text-foreground">{formatBRL(valor)}</span>
+        </div>
+        <div>
+          <span className="block text-[10px] uppercase tracking-wide">% Fatur.</span>
+          <span className="font-medium text-foreground">
+            {execTotal > 0 ? formatPct(pct) : '—'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 
 // ─── COMPONENTE PRINCIPAL ───────────────────────────────────────────────────
 export default function MetasOrcamentoPage() {
