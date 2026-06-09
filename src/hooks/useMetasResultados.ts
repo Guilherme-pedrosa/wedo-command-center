@@ -219,12 +219,12 @@ export const useMetasResultados = (year: number, month: number) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('gc_vendas')
-        .select('gc_id, codigo, nome_cliente, nome_situacao, situacao_id, valor_total, data, gc_payload_raw')
+        .select('gc_id, codigo, nome_cliente, nome_situacao, situacao_id, valor_total, valor_produtos, data, gc_payload_raw')
         .eq('situacao_id', VENDAS_SITUACAO_CONCRETIZADA)
         .gte('data', start)
         .lte('data', end);
       if (error) throw error;
-      return data as { gc_id: string; codigo: string; nome_cliente: string | null; nome_situacao: string | null; situacao_id: string | null; valor_total: number | null; data: string | null; gc_payload_raw: any }[];
+      return data as { gc_id: string; codigo: string; nome_cliente: string | null; nome_situacao: string | null; situacao_id: string | null; valor_total: number | null; valor_produtos: number | null; data: string | null; gc_payload_raw: any }[];
     },
   });
 
@@ -460,22 +460,16 @@ export const useMetasResultados = (year: number, month: number) => {
     () => comprasFinalizadas.reduce((acc, c) => acc + (Number(c.valor_total) || 0), 0),
     [comprasFinalizadas]
   );
-  // Vendas de balcão (gc_vendas concretizadas): faturamento e custo real das peças
-  // (quantidade × valor_custo) extraídos do payload de cada venda.
+  // Venda de Balcão (gc_vendas concretizadas): faturamento = valor_produtos
+  // (exclui frete), custo = valor_custo já calculado pelo GC no payload
+  // (idêntico ao Relatório de Venda de Balcão do GC).
   const vendasBalcao = useMemo(() => {
     let faturamento = 0;
     let custo = 0;
     for (const v of vendasConcretizadas) {
-      faturamento += Number(v.valor_total) || 0;
-      const produtos = (v.gc_payload_raw?.produtos ?? []) as Array<{ produto?: any }>;
-      if (!Array.isArray(produtos)) continue;
-      for (const p of produtos) {
-        const prod = p?.produto;
-        if (!prod) continue;
-        const qtd = parseFloat(String(prod.quantidade || '0')) || 0;
-        const custoUnit = parseFloat(String(prod.valor_custo || '0')) || 0;
-        custo += qtd * custoUnit;
-      }
+      faturamento += Number(v.valor_produtos) || 0;
+      const custoVenda = parseFloat(String(v.gc_payload_raw?.valor_custo || '0')) || 0;
+      custo += custoVenda;
     }
     return { faturamento, custo };
   }, [vendasConcretizadas]);
