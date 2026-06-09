@@ -1,57 +1,103 @@
 ## Objetivo
 
-Hoje o `os_index.data_saida` reflete a última mudança de status no GC. Resultado: OS executada em 29/04 que mudou de status em 12/05 aparece como "executada em maio". Vamos passar a usar a **data real do checkout do técnico no Auvo** como data de execução, e contabilizar no mês apenas as OS cujo **status atual no GC começa com `EXECUTADO`** e cuja **data de execução cai dentro do mês**.
+Eliminar a dependência da API GC `/api/notas_fiscais_produtos` e do paginador `/api/compras` no `sync-nfe-entrada`. Tudo que precisamos já está local:
 
-## Regra de negócio (definitiva)
+- `gc_compras` → `numero_nfe`, `cnpj_fornecedor`, `fornecedor_id`, `data` (após enrichment P1+P2)
+- `gc_compras_itens` → produtos da compra com `produto_gc_id` (ou legacy `nome_produto`+`valor_custo`)
+- `fin_nfe_xml_index` → `chave`, `cnpj_emitente`, `numero_nf` (a extrair), `data_emissao`, `valor_total`
+- Bucket `nf-xmls` → XML completo para parsing por item
 
-Uma OS conta no mês X se, e somente se:
-1. Status atual no GC começa com `EXECUTADO` (qualquer variante: AGUARDANDO PAGAMENTO, AGUARDANDO NEGOCIAÇÃO, NOTA EMITIDA, FECHADO CHAMADO, GARANTIA, PATRIMÔNIO); **e**
-2. `data_execucao_real` (vinda do Auvo) está dentro do mês X.
+## Estratégia do matcher (3 níveis, em ordem)
 
-OS sem `data_execucao_real` (sem task Auvo vinculada ou sem checkout) caem em "Sem data de execução" e não entram em nenhum mês.
+```text
+Nível 1 — DETERMINÍSTICO (preferencial)
+  match em fin_nfe_xml_index por:
+    normalizar_cnpj(cnpj_emitente) = normalizar_cnpj(gc_compras.cnpj_fornecedor)
+    AND normalizar_numero_nf(numero_nf_extraido) = normalizar_numero_nf(gc_compras.numero_nfe)
+  → 1 candidato → usa direto
+  → N candidatos → desempate por menor |valor_total_xml − gc_compras.valor_total| e |data − data_emissao| ≤ 30d
 
-## Mudanças
+Nível 2 — CNPJ + VALOR (fallback brando, mesma janela)
+  só CNPJ bate, sem nº NF confiável → escolhe XML com menor diff de valor (tol 1% ou R$5)
+  marca match_rule = "cnpj_valor_frouxo"
 
-### 1. Schema (`os_index`)
-- `data_execucao_real date` — data do checkout do técnico no Auvo
-- `data_execucao_origem text` — `auvo_check_out` | `auvo_conclusao` | `auvo_data_tarefa` | `sem_data`
-- `auvo_task_id text` — id da task Auvo (atributo GC 73343 "Tarefa OS")
-- `data_execucao_sincronizada_em timestamptz`
-- Índice em `data_execucao_real`
+Nível 3 — SEM MATCH
+  registra em fin_nfe_match_pendentes (nova tabela) com motivo:
+    "sem_cnpj_compra" | "cnpj_sem_xml" | "valor_fora_tolerancia" | "multiplo_ambiguo"
+  NÃO marca passivos retroativos ainda (combinado).
+```
 
-### 2. Edge function `sync-os-data-execucao`
-- Lê OS do `os_index` com `nome_situacao LIKE 'EXECUTADO%'` e janela configurável (default últimos 120 dias)
-- Para cada OS: GET no GC para extrair atributo 73343 → pega `auvo_task_id`
-- GET no Auvo `/tasks/{id}` → aplica prioridade `checkOutDate > dateConclusion > taskDate`
-- Atualiza `data_execucao_real`, `data_execucao_origem`, `auvo_task_id`
-- Rate-limit, chunking, e usa sentinel para evitar reprocessar OS já sincronizada no mesmo dia
-- Modo `?os_codigo=9326` para teste pontual
+## Pré-requisito: pré-processar `fin_nfe_xml_index` para extrair `numero_nf`
 
-### 3. Cron
-- pg_cron diário 04:00 BRT chamando `sync-os-data-execucao` com janela 90 dias
+Hoje a tabela tem `chave` (44 dígitos). O número da NF é dígitos 26-34 da chave (posição `nNF`). Adicionar coluna gerada:
 
-### 4. Hook `useMetasResultados` e `useControleGlobal`
-- Substituir filtro por `data_saida` por filtro por `data_execucao_real`
-- Manter `status LIKE 'EXECUTADO%'`
-- Card mostra contagem extra "OS executadas sem data Auvo" (transparência)
+```sql
+ALTER TABLE fin_nfe_xml_index
+  ADD COLUMN numero_nf TEXT
+    GENERATED ALWAYS AS (substring(chave from 26 for 9)) STORED;
+CREATE INDEX idx_xml_index_cnpj_numero
+  ON fin_nfe_xml_index (cnpj_emitente, numero_nf);
+```
 
-### 5. UI — Página Metas
-- Card de "Execução de Serviços" passa a usar a nova regra
-- Tooltip explica: "Considera OS com status EXECUTADO no GC e data real de execução (checkout do técnico no Auvo) dentro do mês"
-- Subtítulo mostra `X OS sem checkout Auvo (não contabilizadas)`
+## Fluxo da edge refatorada
 
-## Teste de validação
+```text
+1. Carregar gc_compras com numero_nfe IS NOT NULL (slice por offset/batch_size)
+   — sem chamar /api/compras
+2. Carregar gc_compras_itens dessas compras em bulk
+   — substitui o array compra.produtos da API
+3. Carregar fin_nfe_xml_index inteiro (já cabe em RAM, ~3-5k linhas)
+   — montar Map<(cnpj+numero), xml> + Map<cnpj, xml[]>
+4. Para cada compra:
+   a. Tenta Nível 1 (cnpj+numero) → match exato
+   b. Senão tenta Nível 2 (cnpj+valor)
+   c. Senão registra em fin_nfe_match_pendentes
+5. Para cada match → baixar XML do bucket e rodar parseXmlItems + matching
+   item-a-item (lógica de impostos atual permanece intacta)
+6. Upsert em fin_produto_tributos (preserva manual overrides — lógica existente OK)
+7. Item com produto_gc_id IS NULL (legacy) → match item por nome_produto + valor_custo
+   com xmlItems do XML; sem gc_produto_id, registra apenas estatística (não grava em
+   fin_produto_tributos, que tem PK = gc_produto_id)
+```
 
-Antes de trocar a régua no dashboard:
-1. Rodar `sync-os-data-execucao` com `?os_codigo=9326` → esperado `data_execucao_real = 2026-04-29`
-2. Rodar backfill nos últimos 120 dias
-3. Query comparativa: maio/2026 com nova regra deve cair de R$ 220k para um valor mais baixo (esperado, ~120-150k)
-4. Comparar com o "Relatório de Vendas do GC" do usuário → diferença residual deve ser só status `FECHADO CHAMADO`/`PATRIMÔNIO` (que o relatório do GC não lista mas a nossa régua lista)
+## Nova tabela `fin_nfe_match_pendentes`
 
-## Detalhes técnicos
+```sql
+CREATE TABLE fin_nfe_match_pendentes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  compra_gc_id text NOT NULL,
+  numero_nfe text,
+  cnpj_fornecedor text,
+  nome_fornecedor text,
+  valor_compra numeric,
+  data_compra date,
+  motivo text NOT NULL,
+  candidatos jsonb,
+  created_at timestamptz DEFAULT now(),
+  resolvido boolean DEFAULT false,
+  resolvido_em timestamptz,
+  UNIQUE (compra_gc_id)
+);
+ALTER TABLE fin_nfe_match_pendentes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY ... (ceo/admin/gerente_financeiro SELECT)
+```
 
-- Secrets já disponíveis: `GC_ACCESS_TOKEN`, `GC_SECRET_TOKEN`, `AUVO_API_KEY`, `AUVO_USER_TOKEN`
-- Atributo GC para Tarefa OS: `73343` (regra herdada do projeto Auvo GC Sync)
-- Função helper portada: `dataDeRawAuvo(raw)` com prioridade checkOut → conclusão → taskDate
-- Timezone: todas as datas tratadas como BRT (-03:00) explícito antes de truncar para `date`
-- Idempotente: upsert por `os_id`
+## O que NÃO muda nesta etapa
+
+- Toda a lógica de parsing XML por item (`parseXmlItems`, `isXmlSimplesNacional`, rateio).
+- Upsert em `fin_produto_tributos` (preservar manuais).
+- Contador diário de chamadas GC (vai cair drasticamente, mas mantém o guard).
+- NÃO mexer em `gc_compras_itens` para marcar `pendente_revinculacao_pedido` retroativo (combinado: só após matcher validado).
+
+## Sequência de execução proposta
+
+1. **Migration**: gera coluna `numero_nf` em `fin_nfe_xml_index` + índice + tabela `fin_nfe_match_pendentes` + RLS.
+2. **Edge refatorada**: novo `sync-nfe-entrada` com matcher determinístico + leitura local.
+3. **Smoke run**: chamar a edge com `batch_size=20` em compras com `numero_nfe IS NOT NULL` e devolver:
+   - total de compras candidatas
+   - nivel_1 (cnpj+numero) / nivel_2 (cnpj+valor) / sem_match
+   - amostra de 5 sem_match (compra + motivo + candidatos)
+   - tempo total, chamadas GC = 0 (esperado)
+4. **PARAR** para validação antes de processar o resto do batch e antes de qualquer cleanup retroativo.
+
+Aguardo aprovação para gerar a migration (passo 1).

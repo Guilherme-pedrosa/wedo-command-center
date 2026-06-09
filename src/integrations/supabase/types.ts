@@ -3444,11 +3444,7 @@ export type Database = {
       os_index: {
         Row: {
           agrupado: boolean | null
-          auvo_task_id: string | null
           built_at: string | null
-          data_execucao_origem: string | null
-          data_execucao_real: string | null
-          data_execucao_sincronizada_em: string | null
           data_saida: string | null
           id: string
           nome_cliente: string | null
@@ -3467,11 +3463,7 @@ export type Database = {
         }
         Insert: {
           agrupado?: boolean | null
-          auvo_task_id?: string | null
           built_at?: string | null
-          data_execucao_origem?: string | null
-          data_execucao_real?: string | null
-          data_execucao_sincronizada_em?: string | null
           data_saida?: string | null
           id?: string
           nome_cliente?: string | null
@@ -3490,11 +3482,7 @@ export type Database = {
         }
         Update: {
           agrupado?: boolean | null
-          auvo_task_id?: string | null
           built_at?: string | null
-          data_execucao_origem?: string | null
-          data_execucao_real?: string | null
-          data_execucao_sincronizada_em?: string | null
           data_saida?: string | null
           id?: string
           nome_cliente?: string | null
