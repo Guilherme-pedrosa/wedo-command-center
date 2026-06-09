@@ -89,7 +89,12 @@ serve(async (req) => {
     } catch { /* no body */ }
 
     // Step 1: Use hardcoded situação IDs for purchases
-    let situacaoIds: string[] = situacaoId ? [situacaoId] : ["1675083", "1675070"];
+    // Inclui situações que NÃO contam como custo (1739937 SERVIÇOS, 2072508/2072571 CONCRETIZADO)
+    // para capturar transições de status — assim uma compra movida pra fora de "Finalizado/AG CHEGADA"
+    // tem o nome_situacao local atualizado e sai do custo de peças.
+    let situacaoIds: string[] = situacaoId
+      ? [situacaoId]
+      : ["1675083", "1675070", "1739937", "2072508", "2072571"];
     console.log(`[sync-compras] Using situacaoIds: ${situacaoIds.join(", ")}`);
 
     if (situacaoIds.length === 0) {
