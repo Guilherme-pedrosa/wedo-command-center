@@ -86,6 +86,7 @@ function computeValorFromPayload(os: Record<string, unknown>): number {
 function computeValorPecasCusto(
   os: Record<string, unknown>,
   custoMap: Map<string, number>,
+  custoTributosMap: Map<string, number>,
 ): number {
   const produtos = os.produtos as Array<{ produto?: Record<string, any> }> | undefined;
   if (!Array.isArray(produtos)) return 0;
@@ -95,21 +96,26 @@ function computeValorPecasCusto(
     if (!prod) continue;
     const qtd = parseFloat(String(prod.quantidade || "0")) || 0;
     if (qtd === 0) continue;
-    // 1) custo inline no payload (se GC enviar)
-    let custoUnit = parseFloat(String(prod.valor_custo || "0")) || 0;
-    // 2) fallback: cache gc_produtos_cache por produto_id
+    const prodId = String(prod.produto_id || prod.id || "");
+    // PRIORIDADE 1: custo validado por NF (fin_produto_tributos.custo_efetivo_unit)
+    let custoUnit = 0;
+    if (prodId && custoTributosMap.has(prodId)) {
+      custoUnit = custoTributosMap.get(prodId) || 0;
+    }
+    // PRIORIDADE 2: custo inline no payload da OS (se GC enviar)
     if (custoUnit === 0) {
-      const prodId = String(prod.produto_id || prod.id || "");
-      if (prodId && custoMap.has(prodId)) {
-        custoUnit = custoMap.get(prodId) || 0;
-      }
+      custoUnit = parseFloat(String(prod.valor_custo || "0")) || 0;
+    }
+    // PRIORIDADE 3: cache gc_produtos_cache (custo atual)
+    if (custoUnit === 0 && prodId && custoMap.has(prodId)) {
+      custoUnit = custoMap.get(prodId) || 0;
     }
     total += qtd * custoUnit;
   }
   return total;
 }
 
-function mapOsRecord(os: Record<string, unknown>, custoMap: Map<string, number>) {
+function mapOsRecord(os: Record<string, unknown>, custoMap: Map<string, number>, custoTributosMap: Map<string, number>) {
   const osId = String(os.id || "");
   const osCodigo = String(os.codigo || "");
   if (!osId || !osCodigo) return null;
@@ -122,7 +128,7 @@ function mapOsRecord(os: Record<string, unknown>, custoMap: Map<string, number>)
 
   const valorServicos = parseFloat(String(os.valor_servicos || "0")) || 0;
   const valorProdutos = parseFloat(String(os.valor_produtos || "0")) || 0;
-  const valorPecasCusto = computeValorPecasCusto(os, custoMap);
+  const valorPecasCusto = computeValorPecasCusto(os, custoMap, custoTributosMap);
 
   let dataSaida: string | null = null;
   const rawDataSaida = String(os.data_saida || "");
@@ -220,6 +226,33 @@ serve(async (req) => {
       console.log(`[sync-os] custoMap carregado: ${custoMap.size} produtos`);
     }
 
+    // Pre-carrega mapa produto_gc_id -> custo_efetivo_unit (PRIORIDADE: custo validado por NF da precificação)
+    const custoTributosMap = new Map<string, number>();
+    {
+      let from = 0;
+      const PAGE = 1000;
+      while (true) {
+        const { data: trib, error: tribErr } = await supabase
+          .from("fin_produto_tributos")
+          .select("gc_produto_id, custo_efetivo_unit, nf_data_emissao")
+          .gt("custo_efetivo_unit", 0)
+          .order("nf_data_emissao", { ascending: false, nullsFirst: false })
+          .range(from, from + PAGE - 1);
+        if (tribErr) { console.warn("[sync-os] falha ao carregar fin_produto_tributos:", tribErr.message); break; }
+        if (!trib || trib.length === 0) break;
+        for (const t of trib as any[]) {
+          const pid = String(t.gc_produto_id || "");
+          // ordenado desc por data — só seta se ainda não tem (mantém o mais recente)
+          if (pid && !custoTributosMap.has(pid)) {
+            custoTributosMap.set(pid, Number(t.custo_efetivo_unit) || 0);
+          }
+        }
+        if (trib.length < PAGE) break;
+        from += PAGE;
+      }
+      console.log(`[sync-os] custoTributosMap (NF validada) carregado: ${custoTributosMap.size} produtos`);
+    }
+
     for (const sitId of situacaoIds) {
       let page = pageStart;
       let totalPages = 999;
@@ -256,7 +289,7 @@ serve(async (req) => {
           const nomeSituacao = String(os.nome_situacao || "");
           statusCounts[nomeSituacao] = (statusCounts[nomeSituacao] || 0) + 1;
 
-          const mapped = mapOsRecord(os, custoMap);
+          const mapped = mapOsRecord(os, custoMap, custoTributosMap);
 
           if (mapped) {
             batch.push(mapped);
