@@ -226,6 +226,33 @@ serve(async (req) => {
       console.log(`[sync-os] custoMap carregado: ${custoMap.size} produtos`);
     }
 
+    // Pre-carrega mapa produto_gc_id -> custo_efetivo_unit (PRIORIDADE: custo validado por NF da precificação)
+    const custoTributosMap = new Map<string, number>();
+    {
+      let from = 0;
+      const PAGE = 1000;
+      while (true) {
+        const { data: trib, error: tribErr } = await supabase
+          .from("fin_produto_tributos")
+          .select("gc_produto_id, custo_efetivo_unit, nf_data_emissao")
+          .gt("custo_efetivo_unit", 0)
+          .order("nf_data_emissao", { ascending: false, nullsFirst: false })
+          .range(from, from + PAGE - 1);
+        if (tribErr) { console.warn("[sync-os] falha ao carregar fin_produto_tributos:", tribErr.message); break; }
+        if (!trib || trib.length === 0) break;
+        for (const t of trib as any[]) {
+          const pid = String(t.gc_produto_id || "");
+          // ordenado desc por data — só seta se ainda não tem (mantém o mais recente)
+          if (pid && !custoTributosMap.has(pid)) {
+            custoTributosMap.set(pid, Number(t.custo_efetivo_unit) || 0);
+          }
+        }
+        if (trib.length < PAGE) break;
+        from += PAGE;
+      }
+      console.log(`[sync-os] custoTributosMap (NF validada) carregado: ${custoTributosMap.size} produtos`);
+    }
+
     for (const sitId of situacaoIds) {
       let page = pageStart;
       let totalPages = 999;
