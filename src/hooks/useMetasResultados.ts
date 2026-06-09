@@ -435,11 +435,18 @@ export const useMetasResultados = (year: number, month: number) => {
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
+  // Saídas de peças para OS no período (espelha o "Relatório de Produtos Vendidos" do GC,
+  // somando o valor de peças das OS executadas — mesma base usada para custo de peças).
+  const saidasPecasOs = useMemo(
+    () => osExecutadas.reduce((acc, os) => acc + (Number(os.valor_pecas) || 0), 0),
+    [osExecutadas]
+  );
+
   const refetch = useCallback(() => {
     refetchRec(); refetchPag(); refetchPagComp(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo();
   }, [refetchRec, refetchPag, refetchPagComp, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchAuvo]);
 
   const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
 
-  return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, dataUpdatedAt: osDataUpdatedAt };
+  return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, dataUpdatedAt: osDataUpdatedAt };
 };
