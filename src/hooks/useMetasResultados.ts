@@ -200,12 +200,13 @@ export const useMetasResultados = (year: number, month: number) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('os_index')
-        .select('os_id, os_codigo, nome_cliente, nome_situacao, nome_vendedor, valor_total, valor_pecas, data_saida')
+        .select('os_id, os_codigo, nome_cliente, nome_situacao, nome_vendedor, valor_total, valor_pecas, valor_pecas_custo, data_saida')
         .in('nome_situacao', OS_EXECUTADOS_STATUS)
         .gte('data_saida', start)
         .lte('data_saida', end);
       if (error) throw error;
-      return data as { os_id: string; os_codigo: string; nome_cliente: string | null; nome_situacao: string | null; nome_vendedor: string | null; valor_total: number | null; valor_pecas: number | null; data_saida: string | null }[];
+      return data as { os_id: string; os_codigo: string; nome_cliente: string | null; nome_situacao: string | null; nome_vendedor: string | null; valor_total: number | null; valor_pecas: number | null; valor_pecas_custo: number | null; data_saida: string | null }[];
+
     },
   });
 
@@ -440,12 +441,14 @@ export const useMetasResultados = (year: number, month: number) => {
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
-  // Saídas de peças para OS no período (espelha o "Relatório de Produtos Vendidos" do GC,
-  // somando o valor de peças das OS executadas — mesma base usada para custo de peças).
+  // Saídas de peças para OS no período — soma o CUSTO real das peças que saíram do estoque
+  // (valor_pecas_custo = quantidade × valor_custo do produto), espelhando o "Custo total"
+  // do Relatório de Produtos Vendidos do GC. NÃO inclui serviços nem valor de venda.
   const saidasPecasOs = useMemo(
-    () => osExecutadas.reduce((acc, os) => acc + (Number(os.valor_pecas) || 0), 0),
+    () => osExecutadas.reduce((acc, os) => acc + (Number(os.valor_pecas_custo) || 0), 0),
     [osExecutadas]
   );
+
 
   const refetch = useCallback(() => {
     refetchRec(); refetchPag(); refetchPagComp(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo();

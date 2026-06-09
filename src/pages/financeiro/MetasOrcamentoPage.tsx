@@ -86,9 +86,9 @@ const SaidasOsRow = ({ valor, execTotal }: { valor: number; execTotal: number })
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-medium text-sm truncate text-foreground">
-            Saídas de Peças para OS (período)
+            Custo de Peças saídas para OS (período)
           </span>
-          <span className="text-xs text-muted-foreground">informativo</span>
+          <span className="text-xs text-muted-foreground">informativo · custo real</span>
         </div>
         <Badge variant="outline" className="text-xs bg-blue-100 text-blue-800 border-blue-200">
           REFERÊNCIA
@@ -97,12 +97,13 @@ const SaidasOsRow = ({ valor, execTotal }: { valor: number; execTotal: number })
       <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
         <div>
           <span className="block text-[10px] uppercase tracking-wide">Origem</span>
-          <span className="font-medium text-foreground">OS Executadas</span>
+          <span className="font-medium text-foreground">OS Executadas · qtd × valor_custo</span>
         </div>
         <div>
-          <span className="block text-[10px] uppercase tracking-wide">Valor Peças</span>
+          <span className="block text-[10px] uppercase tracking-wide">Custo Total</span>
           <span className="font-medium text-foreground">{formatBRL(valor)}</span>
         </div>
+
         <div>
           <span className="block text-[10px] uppercase tracking-wide">% Fatur.</span>
           <span className="font-medium text-foreground">

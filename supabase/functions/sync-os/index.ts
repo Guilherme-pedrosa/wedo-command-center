@@ -83,7 +83,33 @@ function computeValorFromPayload(os: Record<string, unknown>): number {
   return total;
 }
 
-function mapOsRecord(os: Record<string, unknown>) {
+function computeValorPecasCusto(
+  os: Record<string, unknown>,
+  custoMap: Map<string, number>,
+): number {
+  const produtos = os.produtos as Array<{ produto?: Record<string, any> }> | undefined;
+  if (!Array.isArray(produtos)) return 0;
+  let total = 0;
+  for (const p of produtos) {
+    const prod = p?.produto;
+    if (!prod) continue;
+    const qtd = parseFloat(String(prod.quantidade || "0")) || 0;
+    if (qtd === 0) continue;
+    // 1) custo inline no payload (se GC enviar)
+    let custoUnit = parseFloat(String(prod.valor_custo || "0")) || 0;
+    // 2) fallback: cache gc_produtos_cache por produto_id
+    if (custoUnit === 0) {
+      const prodId = String(prod.produto_id || prod.id || "");
+      if (prodId && custoMap.has(prodId)) {
+        custoUnit = custoMap.get(prodId) || 0;
+      }
+    }
+    total += qtd * custoUnit;
+  }
+  return total;
+}
+
+function mapOsRecord(os: Record<string, unknown>, custoMap: Map<string, number>) {
   const osId = String(os.id || "");
   const osCodigo = String(os.codigo || "");
   if (!osId || !osCodigo) return null;
@@ -96,6 +122,7 @@ function mapOsRecord(os: Record<string, unknown>) {
 
   const valorServicos = parseFloat(String(os.valor_servicos || "0")) || 0;
   const valorProdutos = parseFloat(String(os.valor_produtos || "0")) || 0;
+  const valorPecasCusto = computeValorPecasCusto(os, custoMap);
 
   let dataSaida: string | null = null;
   const rawDataSaida = String(os.data_saida || "");
@@ -120,11 +147,13 @@ function mapOsRecord(os: Record<string, unknown>) {
     valor_total: valorTotal || null,
     valor_servicos: valorServicos || null,
     valor_pecas: valorProdutos || null,
+    valor_pecas_custo: valorPecasCusto || null,
     valor_deslocamento: valorDeslocamento || 0,
     numero_os: osCodigo,
     built_at: new Date().toISOString(),
   };
 }
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -169,6 +198,28 @@ serve(async (req) => {
     let errors = 0;
     const statusCounts: Record<string, number> = {};
 
+    // Pre-carrega mapa produto_gc_id -> valor_custo (fallback quando GC não envia valor_custo no payload da OS)
+    const custoMap = new Map<string, number>();
+    {
+      let from = 0;
+      const PAGE = 1000;
+      while (true) {
+        const { data: prods, error: prodErr } = await supabase
+          .from("gc_produtos_cache")
+          .select("produto_gc_id, valor_custo")
+          .not("valor_custo", "is", null)
+          .range(from, from + PAGE - 1);
+        if (prodErr) { console.warn("[sync-os] falha ao carregar gc_produtos_cache:", prodErr.message); break; }
+        if (!prods || prods.length === 0) break;
+        for (const p of prods as any[]) {
+          if (p.produto_gc_id) custoMap.set(String(p.produto_gc_id), Number(p.valor_custo) || 0);
+        }
+        if (prods.length < PAGE) break;
+        from += PAGE;
+      }
+      console.log(`[sync-os] custoMap carregado: ${custoMap.size} produtos`);
+    }
+
     for (const sitId of situacaoIds) {
       let page = pageStart;
       let totalPages = 999;
@@ -205,7 +256,8 @@ serve(async (req) => {
           const nomeSituacao = String(os.nome_situacao || "");
           statusCounts[nomeSituacao] = (statusCounts[nomeSituacao] || 0) + 1;
 
-          const mapped = mapOsRecord(os);
+          const mapped = mapOsRecord(os, custoMap);
+
           if (mapped) {
             batch.push(mapped);
             allOsIds.push(String(os.id));
