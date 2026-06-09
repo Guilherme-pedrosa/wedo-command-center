@@ -441,12 +441,14 @@ export const useMetasResultados = (year: number, month: number) => {
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
-  // Saídas de peças para OS no período (espelha o "Relatório de Produtos Vendidos" do GC,
-  // somando o valor de peças das OS executadas — mesma base usada para custo de peças).
+  // Saídas de peças para OS no período — soma o CUSTO real das peças que saíram do estoque
+  // (valor_pecas_custo = quantidade × valor_custo do produto), espelhando o "Custo total"
+  // do Relatório de Produtos Vendidos do GC. NÃO inclui serviços nem valor de venda.
   const saidasPecasOs = useMemo(
-    () => osExecutadas.reduce((acc, os) => acc + (Number(os.valor_pecas) || 0), 0),
+    () => osExecutadas.reduce((acc, os) => acc + (Number(os.valor_pecas_custo) || 0), 0),
     [osExecutadas]
   );
+
 
   const refetch = useCallback(() => {
     refetchRec(); refetchPag(); refetchPagComp(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo();
