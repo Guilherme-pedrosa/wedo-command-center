@@ -1,5 +1,6 @@
 // Sincroniza a data REAL de execução de cada OS a partir do Auvo (checkOutDate
-// do técnico). Lê os auvo_task_id do atributo 73343 ("Tarefa OS") no GC.
+// do técnico). Lê os auvo_task_id do atributo 73344 ("TAREFA EXECUÇÃO") no GC,
+// que é a tarefa real do técnico em campo (não a 73343 "TAREFA OS" de planejamento).
 // Prioridade: checkOutDate > dateConclusion > taskDate.
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
@@ -12,7 +13,7 @@ const corsHeaders = {
 
 const GC_BASE = "https://api.gestaoclick.com";
 const AUVO_BASE = "https://api.auvo.com.br/v2";
-const ATRIBUTO_TAREFA_OS = "73343";
+const ATRIBUTO_TAREFA_OS = "73344";
 
 function dataValida(raw: unknown): string | null {
   const m = String(raw ?? "").trim().match(/^(\d{4}-\d{2}-\d{2})/);
@@ -38,7 +39,7 @@ function extrairAuvoTaskId(osObj: any): string | null {
     const nested = a?.atributo || a;
     const id = String(nested?.atributo_id || nested?.id || "");
     const label = String(nested?.descricao || nested?.label || nested?.nome || "").toLowerCase();
-    if (id === ATRIBUTO_TAREFA_OS || label.includes("tarefa os")) {
+    if (id === ATRIBUTO_TAREFA_OS || label === "tarefa execução" || label === "tarefa execucao") {
       const valor = String(nested?.conteudo || nested?.valor || "").trim();
       if (!valor) return null;
       // Pode vir "12345" ou "12345/67890" (múltiplos). Pega o primeiro número.
