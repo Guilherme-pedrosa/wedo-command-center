@@ -474,6 +474,9 @@ async function syncCompras(
         pagina: String(page),
         situacao_id: currentSitId,
       };
+      // Filtro de data evita timeout do gateway (150s) ao baixar histórico completo
+      if (dataInicio) params.data_inicio = dataInicio;
+      if (dataFim) params.data_fim = dataFim;
 
       const url = `${GC_BASE_URL}/api/compras?${new URLSearchParams(params).toString()}`;
       const response = await rateLimitedFetch(url, { headers: gcHeaders });
