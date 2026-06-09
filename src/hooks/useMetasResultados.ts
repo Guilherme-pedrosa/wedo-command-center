@@ -200,13 +200,19 @@ export const useMetasResultados = (year: number, month: number) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('os_index')
-        .select('os_id, os_codigo, nome_cliente, nome_situacao, nome_vendedor, valor_total, valor_pecas, valor_pecas_custo, data_saida')
+        .select('os_id, os_codigo, nome_cliente, nome_situacao, nome_vendedor, valor_total, valor_pecas, valor_pecas_custo, data_saida, data_execucao_real')
         .in('nome_situacao', OS_EXECUTADOS_STATUS)
         .gte('data_saida', start)
         .lte('data_saida', end);
       if (error) throw error;
-      return data as { os_id: string; os_codigo: string; nome_cliente: string | null; nome_situacao: string | null; nome_vendedor: string | null; valor_total: number | null; valor_pecas: number | null; valor_pecas_custo: number | null; data_saida: string | null }[];
-
+      const rows = (data ?? []) as { os_id: string; os_codigo: string; nome_cliente: string | null; nome_situacao: string | null; nome_vendedor: string | null; valor_total: number | null; valor_pecas: number | null; valor_pecas_custo: number | null; data_saida: string | null; data_execucao_real: string | null }[];
+      // Exclui OS cuja execução real (data_execucao_real) ocorreu em mês diferente do período.
+      // Ex: OS faturada (data_saida) em Maio mas executada em Nov não deve contar em Maio.
+      const periodoYM = start.slice(0, 7); // 'YYYY-MM'
+      return rows.filter(os => {
+        if (!os.data_execucao_real) return true;
+        return os.data_execucao_real.slice(0, 7) === periodoYM;
+      });
     },
   });
 
