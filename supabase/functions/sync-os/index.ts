@@ -289,7 +289,7 @@ serve(async (req) => {
           const nomeSituacao = String(os.nome_situacao || "");
           statusCounts[nomeSituacao] = (statusCounts[nomeSituacao] || 0) + 1;
 
-          const mapped = mapOsRecord(os, custoMap);
+          const mapped = mapOsRecord(os, custoMap, custoTributosMap);
 
           if (mapped) {
             batch.push(mapped);
