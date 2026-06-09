@@ -460,22 +460,16 @@ export const useMetasResultados = (year: number, month: number) => {
     () => comprasFinalizadas.reduce((acc, c) => acc + (Number(c.valor_total) || 0), 0),
     [comprasFinalizadas]
   );
-  // Vendas de balcão (gc_vendas concretizadas): faturamento e custo real das peças
-  // (quantidade × valor_custo) extraídos do payload de cada venda.
+  // Venda de Balcão (gc_vendas concretizadas): faturamento = valor_produtos
+  // (exclui frete), custo = valor_custo já calculado pelo GC no payload
+  // (idêntico ao Relatório de Venda de Balcão do GC).
   const vendasBalcao = useMemo(() => {
     let faturamento = 0;
     let custo = 0;
     for (const v of vendasConcretizadas) {
-      faturamento += Number(v.valor_total) || 0;
-      const produtos = (v.gc_payload_raw?.produtos ?? []) as Array<{ produto?: any }>;
-      if (!Array.isArray(produtos)) continue;
-      for (const p of produtos) {
-        const prod = p?.produto;
-        if (!prod) continue;
-        const qtd = parseFloat(String(prod.quantidade || '0')) || 0;
-        const custoUnit = parseFloat(String(prod.valor_custo || '0')) || 0;
-        custo += qtd * custoUnit;
-      }
+      faturamento += Number(v.valor_produtos) || 0;
+      const custoVenda = parseFloat(String(v.gc_payload_raw?.valor_custo || '0')) || 0;
+      custo += custoVenda;
     }
     return { faturamento, custo };
   }, [vendasConcretizadas]);
