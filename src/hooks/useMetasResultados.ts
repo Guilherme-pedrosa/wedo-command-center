@@ -321,6 +321,8 @@ export const useMetasResultados = (year: number, month: number) => {
         EXEC_SERVICO_STATUS.includes(os.nome_situacao ?? '')
       )
       .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
+  }, [osExecutadas]);
+
 
   // Venda de Balcão: situacao_id 7340612 ("Concretizada - Uso Interno / Maleta").
   // Faturamento = valor_produtos (exclui frete); custo = valor_custo do payload GC.
