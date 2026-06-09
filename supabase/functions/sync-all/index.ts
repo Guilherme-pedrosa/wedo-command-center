@@ -881,7 +881,7 @@ serve(async (req) => {
 
     // 3. Sync Compras
     console.log("[sync-all] ── Module 3/6: Compras ──");
-    results.compras = await syncCompras(gcHeaders, supabase);
+    results.compras = await syncCompras(gcHeaders, supabase, dataInicio, dataFim);
     console.log(`[sync-all] Compras done: ${results.compras.upserted} upserted (${results.compras.duration_ms}ms)`);
 
     // 4. Sync Auvo (different API, no GC rate limit conflict — run in parallel with next GC module)
