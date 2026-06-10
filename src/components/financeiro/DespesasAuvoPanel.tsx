@@ -42,6 +42,12 @@ interface AuvoExpense {
   conciliado_em: string | null;
   fatura_transacao_id: string | null;
   match_method: string | null;
+  ai_validation_status: string | null;
+  ai_validation_notes: string | null;
+  ai_extracted_value: number | null;
+  ai_extracted_merchant: string | null;
+  ai_extracted_category: string | null;
+  ai_validated_at: string | null;
 }
 
 interface FaturaTransacao {
