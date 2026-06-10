@@ -16,6 +16,12 @@ export type Database = {
     Tables: {
       auvo_expenses_sync: {
         Row: {
+          ai_extracted_category: string | null
+          ai_extracted_merchant: string | null
+          ai_extracted_value: number | null
+          ai_validated_at: string | null
+          ai_validation_notes: string | null
+          ai_validation_status: string | null
           amount: number | null
           attachment_url: string | null
           auvo_id: number
@@ -34,6 +40,12 @@ export type Database = {
           user_to_name: string | null
         }
         Insert: {
+          ai_extracted_category?: string | null
+          ai_extracted_merchant?: string | null
+          ai_extracted_value?: number | null
+          ai_validated_at?: string | null
+          ai_validation_notes?: string | null
+          ai_validation_status?: string | null
           amount?: number | null
           attachment_url?: string | null
           auvo_id: number
@@ -52,6 +64,12 @@ export type Database = {
           user_to_name?: string | null
         }
         Update: {
+          ai_extracted_category?: string | null
+          ai_extracted_merchant?: string | null
+          ai_extracted_value?: number | null
+          ai_validated_at?: string | null
+          ai_validation_notes?: string | null
+          ai_validation_status?: string | null
           amount?: number | null
           attachment_url?: string | null
           auvo_id?: number

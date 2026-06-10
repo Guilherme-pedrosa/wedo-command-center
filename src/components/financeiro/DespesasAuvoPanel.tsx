@@ -20,7 +20,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  RefreshCw, Loader2, Link2, Unlink, CheckCircle2, AlertCircle, Search, Sparkles, Paperclip, FileDown, FileSpreadsheet,
+  RefreshCw, Loader2, Link2, Unlink, CheckCircle2, AlertCircle, Search, Sparkles, Paperclip, FileDown, FileSpreadsheet, ShieldCheck, ShieldAlert, ScanEye,
 } from "lucide-react";
 import { format, parseISO, addDays, subDays } from "date-fns";
 import toast from "react-hot-toast";
@@ -42,6 +42,12 @@ interface AuvoExpense {
   conciliado_em: string | null;
   fatura_transacao_id: string | null;
   match_method: string | null;
+  ai_validation_status: string | null;
+  ai_validation_notes: string | null;
+  ai_extracted_value: number | null;
+  ai_extracted_merchant: string | null;
+  ai_extracted_category: string | null;
+  ai_validated_at: string | null;
 }
 
 interface FaturaTransacao {
@@ -68,6 +74,7 @@ export default function DespesasAuvoPanel() {
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "matched">("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [exporting, setExporting] = useState<null | "pdf" | "xlsx">(null);
+  const [validating, setValidating] = useState<null | "all" | "missing" | string>(null);
   const [syncing, setSyncing] = useState(false);
   const [matchTarget, setMatchTarget] = useState<AuvoExpense | null>(null);
   const [matchSearch, setMatchSearch] = useState("");
@@ -286,6 +293,32 @@ export default function DespesasAuvoPanel() {
       .map(x => x.t);
   }, [matchTarget, matchSearch, faturaTransacoes, despesas]);
 
+  // ─── Validação IA de comprovantes ─────────────────────────────────────────
+  const validarComIA = async (mode: "all" | "missing" | string) => {
+    setValidating(mode);
+    const t = toast.loading("Analisando comprovantes com IA...");
+    try {
+      const body: any = {};
+      if (mode === "all" || mode === "missing") {
+        body.data_inicio = dataInicio;
+        body.data_fim = dataFim;
+        if (mode === "missing") body.only_missing = true;
+      } else {
+        body.ids = [mode];
+      }
+      const { data, error } = await supabase.functions.invoke("validate-auvo-receipts", { body });
+      if (error) throw error;
+      const sum = data?.summary ?? {};
+      const parts = Object.entries(sum).map(([k, v]) => `${k}: ${v}`).join(" · ");
+      toast.success(`Validado ${data?.analyzed ?? 0} item(ns). ${parts}`, { id: t, duration: 6000 });
+      invalidate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro na validação IA.", { id: t });
+    } finally {
+      setValidating(null);
+    }
+  };
+
   // ─── Exports ──────────────────────────────────────────────────────────────
   // Fetch attachment URL → dataURL (base64). Falls back to null on CORS/error.
   const fetchAsDataUrl = async (url: string): Promise<{ dataUrl: string; mime: string } | null> => {
@@ -430,6 +463,14 @@ export default function DespesasAuvoPanel() {
           </Button>
         )}
         <div className="ml-auto flex gap-2">
+          <Button onClick={() => validarComIA("missing")} disabled={validating !== null} size="sm" variant="outline" title="Valida apenas despesas ainda não analisadas no período">
+            {validating === "missing" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ScanEye className="h-3.5 w-3.5 mr-1.5" />}
+            Validar IA (pendentes)
+          </Button>
+          <Button onClick={() => validarComIA("all")} disabled={validating !== null} size="sm" variant="outline" title="Re-analisa todas as despesas do período">
+            {validating === "all" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ScanEye className="h-3.5 w-3.5 mr-1.5" />}
+            Validar IA (todas)
+          </Button>
           <Button onClick={exportExcel} disabled={exporting !== null || filtered.length === 0} size="sm" variant="outline">
             {exporting === "xlsx" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />}
             Excel
@@ -498,16 +539,24 @@ export default function DespesasAuvoPanel() {
                 <TableHead className="w-[120px]">Tipo</TableHead>
                 <TableHead>Descrição / Responsável</TableHead>
                 <TableHead className="text-right w-[100px]">Valor</TableHead>
-                <TableHead className="w-[280px]">Status / Match</TableHead>
-                <TableHead className="w-[180px] text-right">Ações</TableHead>
+                <TableHead className="w-[220px]">Validação IA</TableHead>
+                <TableHead className="w-[240px]">Status / Match</TableHead>
+                <TableHead className="w-[220px] text-right">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map(d => {
                 const sug = !d.conciliado ? suggestions.get(d.id) : undefined;
                 const linkedTrans = d.fatura_transacao_id ? transById.get(d.fatura_transacao_id) : undefined;
+                const ai = d.ai_validation_status;
+                const isDivergente = ai === "valor_divergente" || ai === "tipo_divergente";
+                const rowCls = isDivergente
+                  ? "bg-red-500/10 hover:bg-red-500/15 border-l-4 border-l-red-500"
+                  : ai === "ilegivel" || ai === "erro"
+                    ? "bg-amber-500/5 hover:bg-amber-500/10"
+                    : "";
                 return (
-                  <TableRow key={d.id}>
+                  <TableRow key={d.id} className={rowCls}>
                     <TableCell className="text-xs">{fmtDate(d.expense_date)}</TableCell>
                     <TableCell className="text-xs">{d.type_name ?? "—"}</TableCell>
                     <TableCell>
@@ -519,14 +568,42 @@ export default function DespesasAuvoPanel() {
                         </a>
                       )}
                     </TableCell>
-                    <TableCell className="text-right text-xs font-medium">{fmt(d.amount ?? 0)}</TableCell>
+                    <TableCell className="text-right text-xs font-medium">
+                      {fmt(d.amount ?? 0)}
+                      {isDivergente && d.ai_extracted_value != null && (
+                        <p className="text-[10px] text-red-600 font-normal">
+                          comprov: {fmt(Number(d.ai_extracted_value))}
+                        </p>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {!ai ? (
+                        <Badge variant="outline" className="text-[9px] text-muted-foreground">não analisada</Badge>
+                      ) : ai === "ok" ? (
+                        <div className="space-y-0.5">
+                          <Badge className="bg-emerald-600 text-white text-[9px]"><ShieldCheck className="h-2.5 w-2.5 mr-0.5" />OK</Badge>
+                          {d.ai_extracted_merchant && <p className="text-[10px] text-muted-foreground truncate max-w-[200px]" title={d.ai_extracted_merchant}>{d.ai_extracted_merchant}</p>}
+                        </div>
+                      ) : ai === "valor_divergente" || ai === "tipo_divergente" ? (
+                        <div className="space-y-0.5">
+                          <Badge className="bg-red-600 text-white text-[9px]"><ShieldAlert className="h-2.5 w-2.5 mr-0.5" />{ai === "valor_divergente" ? "Valor divergente" : "Tipo divergente"}</Badge>
+                          {d.ai_validation_notes && <p className="text-[10px] text-red-600 leading-tight" title={d.ai_validation_notes}>{d.ai_validation_notes.slice(0, 120)}</p>}
+                        </div>
+                      ) : ai === "ilegivel" ? (
+                        <Badge className="bg-amber-500/30 text-amber-700 text-[9px]"><AlertCircle className="h-2.5 w-2.5 mr-0.5" />Ilegível</Badge>
+                      ) : ai === "sem_anexo" ? (
+                        <Badge variant="outline" className="text-[9px] text-muted-foreground">Sem anexo</Badge>
+                      ) : (
+                        <Badge className="bg-amber-500/30 text-amber-700 text-[9px]" title={d.ai_validation_notes ?? ""}><AlertCircle className="h-2.5 w-2.5 mr-0.5" />Erro IA</Badge>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {d.conciliado && linkedTrans ? (
                         <div className="space-y-0.5">
                           <Badge className="bg-emerald-600 text-white text-[9px]">
                             <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />Conciliada
                           </Badge>
-                          <p className="text-[10px] text-muted-foreground truncate max-w-[260px]" title={linkedTrans.descricao}>
+                          <p className="text-[10px] text-muted-foreground truncate max-w-[220px]" title={linkedTrans.descricao}>
                             → {linkedTrans.descricao} · {fmtDate(linkedTrans.data_transacao)}
                           </p>
                           {d.match_method && <p className="text-[9px] text-muted-foreground">{d.match_method}</p>}
@@ -536,7 +613,7 @@ export default function DespesasAuvoPanel() {
                       ) : sug ? (
                         <div className="space-y-0.5">
                           <Badge className="bg-amber-500/20 text-amber-700 text-[9px]"><Sparkles className="h-2.5 w-2.5 mr-0.5" />Sugestão</Badge>
-                          <p className="text-[10px] text-muted-foreground truncate max-w-[260px]" title={sug.descricao}>
+                          <p className="text-[10px] text-muted-foreground truncate max-w-[220px]" title={sug.descricao}>
                             ≈ {sug.descricao} · {fmtDate(sug.data_transacao)} · {fmt(Math.abs(Number(sug.valor)))}
                           </p>
                         </div>
@@ -545,22 +622,29 @@ export default function DespesasAuvoPanel() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      {d.conciliado ? (
-                        <Button size="sm" variant="ghost" onClick={() => desvincular(d.id)}>
-                          <Unlink className="h-3 w-3 mr-1" />Desvincular
-                        </Button>
-                      ) : (
-                        <div className="flex justify-end gap-1">
-                          {sug && (
-                            <Button size="sm" variant="default" onClick={() => aceitarSugestao(d)}>
-                              <CheckCircle2 className="h-3 w-3 mr-1" />Aceitar
-                            </Button>
-                          )}
-                          <Button size="sm" variant="outline" onClick={() => { setMatchTarget(d); setMatchSearch(""); }}>
-                            <Link2 className="h-3 w-3 mr-1" />Vincular
+                      <div className="flex justify-end gap-1 flex-wrap">
+                        {d.attachment_url && (
+                          <Button size="sm" variant="ghost" disabled={validating !== null} onClick={() => validarComIA(d.id)} title="Re-analisar este comprovante">
+                            {validating === d.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <ScanEye className="h-3 w-3" />}
                           </Button>
-                        </div>
-                      )}
+                        )}
+                        {d.conciliado ? (
+                          <Button size="sm" variant="ghost" onClick={() => desvincular(d.id)}>
+                            <Unlink className="h-3 w-3 mr-1" />Desvincular
+                          </Button>
+                        ) : (
+                          <>
+                            {sug && (
+                              <Button size="sm" variant="default" onClick={() => aceitarSugestao(d)}>
+                                <CheckCircle2 className="h-3 w-3 mr-1" />Aceitar
+                              </Button>
+                            )}
+                            <Button size="sm" variant="outline" onClick={() => { setMatchTarget(d); setMatchSearch(""); }}>
+                              <Link2 className="h-3 w-3 mr-1" />Vincular
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
