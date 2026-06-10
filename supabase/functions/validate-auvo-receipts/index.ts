@@ -219,7 +219,7 @@ Deno.serve(async (req) => {
 
     let query = supabase
       .from("auvo_expenses_sync")
-      .select("id, type_name, amount, description, attachment_url, ai_validation_status")
+      .select("id, type_name, amount, description, attachment_url, expense_date, ai_validation_status")
       .not("attachment_url", "is", null);
 
     if (ids.length > 0) {
@@ -244,6 +244,7 @@ Deno.serve(async (req) => {
         ai_extracted_value: r.extracted_value,
         ai_extracted_merchant: r.extracted_merchant,
         ai_extracted_category: r.extracted_category,
+        ai_extracted_date: r.extracted_date,
         ai_validated_at: new Date().toISOString(),
       } as any).eq("id", row.id);
       results.push({ id: row.id, status: r.status, notes: r.notes });
