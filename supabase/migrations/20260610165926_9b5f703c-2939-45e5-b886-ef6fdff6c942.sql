@@ -1,0 +1,1 @@
+ALTER TABLE public.auvo_expenses_sync ADD COLUMN IF NOT EXISTS ai_extracted_date date;
