@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const AUVO_BASE = "https://api.auvo.com.br/v2";
-const TYPE_IDS = [48782, 48784, 49032, 48783, 48799, 50758];
+const DEFAULT_TYPE_IDS = [48782, 48784, 49032, 48783, 48799, 50758];
 
 function extractExpenseDate(expense: Record<string, any>, fallback: string): string {
   const rawDate = expense.date
@@ -24,7 +24,7 @@ function extractExpenseDate(expense: Record<string, any>, fallback: string): str
 
 async function deleteStaleRows(
   supabase: any,
-  typeId: number,
+  typeId: number | null,
   startDate: string,
   endDate: string,
   currentAuvoIds: number[],
@@ -32,9 +32,13 @@ async function deleteStaleRows(
   let query = supabase
     .from("auvo_expenses_sync")
     .delete()
-    .eq("type_id", typeId)
     .gte("expense_date", startDate)
-    .lte("expense_date", endDate);
+    .lte("expense_date", endDate)
+    .eq("conciliado", false); // never delete already-reconciled rows
+
+  if (typeId !== null) {
+    query = query.eq("type_id", typeId);
+  }
 
   if (currentAuvoIds.length > 0) {
     query = query.not("auvo_id", "in", `(${currentAuvoIds.join(",")})`);
@@ -63,7 +67,7 @@ async function auvoLogin(apiKey: string, apiToken: string): Promise<string> {
 
 async function fetchExpensesByType(
   token: string,
-  typeId: number,
+  typeId: number | null,
   startDate: string,
   endDate: string
 ): Promise<any[]> {
@@ -72,7 +76,9 @@ async function fetchExpensesByType(
   const pageSize = 100;
 
   while (true) {
-    const filter = JSON.stringify({ startDate, endDate, type: typeId });
+    const filterObj: Record<string, any> = { startDate, endDate };
+    if (typeId !== null) filterObj.type = typeId;
+    const filter = JSON.stringify(filterObj);
     const url = `${AUVO_BASE}/expenses/?paramFilter=${encodeURIComponent(filter)}&page=${page}&pageSize=${pageSize}`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
@@ -87,6 +93,7 @@ async function fetchExpensesByType(
     all.push(...results);
     if (results.length < pageSize) break;
     page++;
+    if (page > 50) break; // safety cap (5000 rows)
   }
   return all;
 }
@@ -145,7 +152,14 @@ Deno.serve(async (req) => {
     let totalIgnoredOutOfPeriod = 0;
     const byType: Record<string, { count: number; total: number; ignored_out_of_period: number; deleted_stale: number }> = {};
 
-    for (const typeId of TYPE_IDS) {
+    // Modo "todos": uma única busca sem filtro de tipo (traz TODAS as despesas)
+    // Modo padrão: loop pelos TYPE_IDS (mantém comportamento legado do cron)
+    const todos = body.todos === true || body.all === true;
+    const tipos: (number | null)[] = todos
+      ? [null]
+      : (Array.isArray(body.tipos) && body.tipos.length > 0 ? body.tipos.map((t: any) => Number(t)) : DEFAULT_TYPE_IDS);
+
+    for (const typeId of tipos) {
       const expenses = await fetchExpensesByType(token, typeId, startDate, endDate);
       const periodExpenses = expenses.filter((e: any) => {
         const expenseDate = extractExpenseDate(e, "");
@@ -159,7 +173,7 @@ Deno.serve(async (req) => {
       if (expenses.length > 0) {
         const rows = periodExpenses.map((e: any) => ({
           auvo_id: e.id,
-          type_id: typeId,
+          type_id: typeId ?? (e.typeId ?? e.expenseTypeId ?? null),
           type_name: e.expenseTypeName || e.typeName || null,
           user_to_id: e.userToID || e.userToId || null,
           user_to_name: e.userToName || null,
@@ -172,9 +186,10 @@ Deno.serve(async (req) => {
 
         typeTotal = rows.reduce((s: number, r: any) => s + (r.amount || 0), 0);
 
-        // Upsert in batches of 50
         for (let i = 0; i < rows.length; i += 50) {
           const batch = rows.slice(i, i + 50);
+          // ignoreDuplicates:false so re-sync updates fields, but onConflict preserves
+          // conciliado/fatura_transacao_id by NOT including them in upsert payload.
           const { error } = await supabase
             .from("auvo_expenses_sync")
             .upsert(batch, { onConflict: "auvo_id" });
@@ -189,11 +204,11 @@ Deno.serve(async (req) => {
         totalDeletedStale += deletedStale;
       }
 
-      byType[String(typeId)] = { count: periodExpenses.length, total: typeTotal, ignored_out_of_period: ignoredOutOfPeriod, deleted_stale: deletedStale };
+      byType[String(typeId ?? "all")] = { count: periodExpenses.length, total: typeTotal, ignored_out_of_period: ignoredOutOfPeriod, deleted_stale: deletedStale };
     }
 
     return new Response(
-      JSON.stringify({ synced: totalSynced, ignored_out_of_period: totalIgnoredOutOfPeriod, deleted_stale: totalDeletedStale, by_type: byType, period: { mes, ano, startDate, endDate } }),
+      JSON.stringify({ synced: totalSynced, ignored_out_of_period: totalIgnoredOutOfPeriod, deleted_stale: totalDeletedStale, by_type: byType, period: { mes, ano, startDate, endDate }, mode: todos ? "all" : "by_type" }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
