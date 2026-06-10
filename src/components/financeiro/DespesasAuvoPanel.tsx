@@ -429,6 +429,16 @@ export default function DespesasAuvoPanel() {
             Aceitar {suggestions.size} sugestão(ões)
           </Button>
         )}
+        <div className="ml-auto flex gap-2">
+          <Button onClick={exportExcel} disabled={exporting !== null || filtered.length === 0} size="sm" variant="outline">
+            {exporting === "xlsx" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />}
+            Excel
+          </Button>
+          <Button onClick={exportPDF} disabled={exporting !== null || filtered.length === 0} size="sm" variant="outline">
+            {exporting === "pdf" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5 mr-1.5" />}
+            PDF
+          </Button>
+        </div>
       </div>
 
       {/* KPIs */}
