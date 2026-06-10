@@ -906,6 +906,8 @@ export default function FaturaCartaoPage() {
           })}
         </div>
       )}
+        </TabsContent>
+      </Tabs>
 
       {/* ── Dialogs ──────────────────────────────────────────────────────── */}
 
