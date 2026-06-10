@@ -20,7 +20,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  RefreshCw, Loader2, Link2, Unlink, CheckCircle2, AlertCircle, Search, Sparkles, Paperclip, FileDown, FileSpreadsheet,
+  RefreshCw, Loader2, Link2, Unlink, CheckCircle2, AlertCircle, Search, Sparkles, Paperclip, FileDown, FileSpreadsheet, ShieldCheck, ShieldAlert, ScanEye,
 } from "lucide-react";
 import { format, parseISO, addDays, subDays } from "date-fns";
 import toast from "react-hot-toast";
