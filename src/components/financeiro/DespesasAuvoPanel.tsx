@@ -293,6 +293,32 @@ export default function DespesasAuvoPanel() {
       .map(x => x.t);
   }, [matchTarget, matchSearch, faturaTransacoes, despesas]);
 
+  // ─── Validação IA de comprovantes ─────────────────────────────────────────
+  const validarComIA = async (mode: "all" | "missing" | string) => {
+    setValidating(mode);
+    const t = toast.loading("Analisando comprovantes com IA...");
+    try {
+      const body: any = {};
+      if (mode === "all" || mode === "missing") {
+        body.data_inicio = dataInicio;
+        body.data_fim = dataFim;
+        if (mode === "missing") body.only_missing = true;
+      } else {
+        body.ids = [mode];
+      }
+      const { data, error } = await supabase.functions.invoke("validate-auvo-receipts", { body });
+      if (error) throw error;
+      const sum = data?.summary ?? {};
+      const parts = Object.entries(sum).map(([k, v]) => `${k}: ${v}`).join(" · ");
+      toast.success(`Validado ${data?.analyzed ?? 0} item(ns). ${parts}`, { id: t, duration: 6000 });
+      invalidate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro na validação IA.", { id: t });
+    } finally {
+      setValidating(null);
+    }
+  };
+
   // ─── Exports ──────────────────────────────────────────────────────────────
   // Fetch attachment URL → dataURL (base64). Falls back to null on CORS/error.
   const fetchAsDataUrl = async (url: string): Promise<{ dataUrl: string; mime: string } | null> => {
