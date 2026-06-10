@@ -565,7 +565,7 @@ export default function DespesasAuvoPanel() {
                 const sug = !d.conciliado ? suggestions.get(d.id) : undefined;
                 const linkedTrans = d.fatura_transacao_id ? transById.get(d.fatura_transacao_id) : undefined;
                 const ai = d.ai_validation_status;
-                const isDivergente = ai === "valor_divergente" || ai === "tipo_divergente";
+                const isDivergente = ai === "valor_divergente" || ai === "tipo_divergente" || ai === "data_divergente";
                 const rowCls = isDivergente
                   ? "bg-red-500/10 hover:bg-red-500/15 border-l-4 border-l-red-500"
                   : ai === "ilegivel" || ai === "erro"
@@ -600,10 +600,10 @@ export default function DespesasAuvoPanel() {
                           <Badge className="bg-emerald-600 text-white text-[9px]"><ShieldCheck className="h-2.5 w-2.5 mr-0.5" />OK</Badge>
                           {d.ai_extracted_merchant && <p className="text-[10px] text-muted-foreground truncate max-w-[200px]" title={d.ai_extracted_merchant}>{d.ai_extracted_merchant}</p>}
                         </div>
-                      ) : ai === "valor_divergente" || ai === "tipo_divergente" ? (
+                      ) : ai === "valor_divergente" || ai === "tipo_divergente" || ai === "data_divergente" ? (
                         <div className="space-y-0.5">
-                          <Badge className="bg-red-600 text-white text-[9px]"><ShieldAlert className="h-2.5 w-2.5 mr-0.5" />{ai === "valor_divergente" ? "Valor divergente" : "Tipo divergente"}</Badge>
-                          {d.ai_validation_notes && <p className="text-[10px] text-red-600 leading-tight" title={d.ai_validation_notes}>{d.ai_validation_notes.slice(0, 120)}</p>}
+                          <Badge className="bg-red-600 text-white text-[9px]"><ShieldAlert className="h-2.5 w-2.5 mr-0.5" />{ai === "valor_divergente" ? "Valor divergente" : ai === "tipo_divergente" ? "Tipo divergente" : "Data divergente"}</Badge>
+                          {d.ai_validation_notes && <p className="text-[10px] text-red-600 leading-tight" title={d.ai_validation_notes}>{d.ai_validation_notes.slice(0, 140)}</p>}
                         </div>
                       ) : ai === "ilegivel" ? (
                         <Badge className="bg-amber-500/30 text-amber-700 text-[9px]"><AlertCircle className="h-2.5 w-2.5 mr-0.5" />Ilegível</Badge>
