@@ -47,6 +47,7 @@ interface AuvoExpense {
   ai_extracted_value: number | null;
   ai_extracted_merchant: string | null;
   ai_extracted_category: string | null;
+  ai_extracted_date: string | null;
   ai_validated_at: string | null;
 }
 
