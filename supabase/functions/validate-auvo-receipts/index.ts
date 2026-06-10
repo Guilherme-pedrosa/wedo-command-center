@@ -83,6 +83,11 @@ Responda APENAS com JSON válido neste schema:
 Analise o comprovante anexado e extraia os dados.`;
 
   try {
+    const isPdf = dataUrl.startsWith("data:application/pdf");
+    const contentBlock = isPdf
+      ? { type: "file", file: { filename: "comprovante.pdf", file_data: dataUrl } }
+      : { type: "image_url", image_url: { url: dataUrl } };
+
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -94,13 +99,14 @@ Analise o comprovante anexado e extraia os dados.`;
             role: "user",
             content: [
               { type: "text", text: userText },
-              { type: "image_url", image_url: { url: dataUrl } },
+              contentBlock,
             ],
           },
         ],
         response_format: { type: "json_object" },
       }),
     });
+
 
     if (res.status === 429) return { status: "erro", notes: "Rate limit IA. Tente novamente.", extracted_value: null, extracted_merchant: null, extracted_category: null };
     if (res.status === 402) return { status: "erro", notes: "Créditos IA esgotados.", extracted_value: null, extracted_merchant: null, extracted_category: null };
