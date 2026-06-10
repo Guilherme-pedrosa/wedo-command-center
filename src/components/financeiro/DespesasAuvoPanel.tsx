@@ -66,6 +66,8 @@ export default function DespesasAuvoPanel() {
   const [dataFim, setDataFim] = useState(today);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "matched">("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [exporting, setExporting] = useState<null | "pdf" | "xlsx">(null);
   const [syncing, setSyncing] = useState(false);
   const [matchTarget, setMatchTarget] = useState<AuvoExpense | null>(null);
   const [matchSearch, setMatchSearch] = useState("");
