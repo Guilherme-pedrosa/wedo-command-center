@@ -143,18 +143,26 @@ export default function DespesasAuvoPanel() {
   }, [despesas, faturaTransacoes]);
 
   // ─── Stats & filter ───────────────────────────────────────────────────────
+  // distinct types for filter
+  const tipos = useMemo(() => {
+    const s = new Set<string>();
+    for (const d of despesas) if (d.type_name) s.add(d.type_name);
+    return Array.from(s).sort();
+  }, [despesas]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return despesas.filter(d => {
       if (statusFilter === "pending" && d.conciliado) return false;
       if (statusFilter === "matched" && !d.conciliado) return false;
+      if (typeFilter !== "all" && (d.type_name ?? "") !== typeFilter) return false;
       if (q) {
         const hay = `${d.description ?? ""} ${d.user_to_name ?? ""} ${d.type_name ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [despesas, search, statusFilter]);
+  }, [despesas, search, statusFilter, typeFilter]);
 
   const stats = useMemo(() => {
     const total = despesas.reduce((s, d) => s + (d.amount ?? 0), 0);
