@@ -463,6 +463,14 @@ export default function DespesasAuvoPanel() {
           </Button>
         )}
         <div className="ml-auto flex gap-2">
+          <Button onClick={() => validarComIA("missing")} disabled={validating !== null} size="sm" variant="outline" title="Valida apenas despesas ainda não analisadas no período">
+            {validating === "missing" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ScanEye className="h-3.5 w-3.5 mr-1.5" />}
+            Validar IA (pendentes)
+          </Button>
+          <Button onClick={() => validarComIA("all")} disabled={validating !== null} size="sm" variant="outline" title="Re-analisa todas as despesas do período">
+            {validating === "all" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ScanEye className="h-3.5 w-3.5 mr-1.5" />}
+            Validar IA (todas)
+          </Button>
           <Button onClick={exportExcel} disabled={exporting !== null || filtered.length === 0} size="sm" variant="outline">
             {exporting === "xlsx" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />}
             Excel
