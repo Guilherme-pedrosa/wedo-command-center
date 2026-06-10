@@ -29,20 +29,35 @@ interface IAResult {
 
 async function fetchImageAsDataUrl(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { redirect: "follow" });
     if (!res.ok) return null;
-    const ct = res.headers.get("content-type") || "image/jpeg";
-    if (!ct.startsWith("image/")) return null;
+    let ct = (res.headers.get("content-type") || "").toLowerCase();
+    // S3 e outros CDNs frequentemente devolvem application/octet-stream ou binary/octet-stream.
+    // Inferir o mime pela extensão do URL nesse caso.
+    if (!ct.startsWith("image/")) {
+      const lower = url.toLowerCase().split("?")[0];
+      if (lower.endsWith(".png")) ct = "image/png";
+      else if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) ct = "image/jpeg";
+      else if (lower.endsWith(".webp")) ct = "image/webp";
+      else if (lower.endsWith(".gif")) ct = "image/gif";
+      else if (lower.endsWith(".heic")) ct = "image/heic";
+      else if (lower.endsWith(".pdf")) ct = "application/pdf";
+      else return null;
+    }
     const buf = new Uint8Array(await res.arrayBuffer());
-    // base64 encode
+    // base64 encode em chunks (evita stack overflow em imagens grandes)
     let bin = "";
-    for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+    const CHUNK = 0x8000;
+    for (let i = 0; i < buf.length; i += CHUNK) {
+      bin += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + CHUNK)) as any);
+    }
     const b64 = btoa(bin);
     return `data:${ct};base64,${b64}`;
   } catch {
     return null;
   }
 }
+
 
 async function analyzeReceipt(row: ExpenseRow, apiKey: string): Promise<IAResult> {
   if (!row.attachment_url) {
@@ -68,6 +83,11 @@ Responda APENAS com JSON válido neste schema:
 Analise o comprovante anexado e extraia os dados.`;
 
   try {
+    const isPdf = dataUrl.startsWith("data:application/pdf");
+    const contentBlock = isPdf
+      ? { type: "file", file: { filename: "comprovante.pdf", file_data: dataUrl } }
+      : { type: "image_url", image_url: { url: dataUrl } };
+
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -79,13 +99,14 @@ Analise o comprovante anexado e extraia os dados.`;
             role: "user",
             content: [
               { type: "text", text: userText },
-              { type: "image_url", image_url: { url: dataUrl } },
+              contentBlock,
             ],
           },
         ],
         response_format: { type: "json_object" },
       }),
     });
+
 
     if (res.status === 429) return { status: "erro", notes: "Rate limit IA. Tente novamente.", extracted_value: null, extracted_merchant: null, extracted_category: null };
     if (res.status === 402) return { status: "erro", notes: "Créditos IA esgotados.", extracted_value: null, extracted_merchant: null, extracted_category: null };
