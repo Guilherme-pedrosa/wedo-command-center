@@ -21,6 +21,8 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import DespesasAuvoPanel from "@/components/financeiro/DespesasAuvoPanel";
 import {
   Tooltip, TooltipContent, TooltipTrigger,
 } from "@/components/ui/tooltip";
@@ -692,6 +694,19 @@ export default function FaturaCartaoPage() {
         </div>
       </div>
 
+      <Tabs defaultValue="faturas" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="faturas">Faturas</TabsTrigger>
+          <TabsTrigger value="auvo">Despesas Auvo</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="auvo" className="space-y-4">
+          <DespesasAuvoPanel />
+        </TabsContent>
+
+        <TabsContent value="faturas" className="space-y-4">
+
+
       {/* KPIs */}
       <div className="grid grid-cols-3 gap-4">
         {[
@@ -891,6 +906,8 @@ export default function FaturaCartaoPage() {
           })}
         </div>
       )}
+        </TabsContent>
+      </Tabs>
 
       {/* ── Dialogs ──────────────────────────────────────────────────────── */}
 
