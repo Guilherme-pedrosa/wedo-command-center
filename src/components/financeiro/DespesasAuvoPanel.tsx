@@ -17,10 +17,16 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  RefreshCw, Loader2, Link2, Unlink, CheckCircle2, AlertCircle, Search, Sparkles, Paperclip,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  RefreshCw, Loader2, Link2, Unlink, CheckCircle2, AlertCircle, Search, Sparkles, Paperclip, FileDown, FileSpreadsheet,
 } from "lucide-react";
 import { format, parseISO, addDays, subDays } from "date-fns";
 import toast from "react-hot-toast";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 interface AuvoExpense {
   id: string;
@@ -60,6 +66,8 @@ export default function DespesasAuvoPanel() {
   const [dataFim, setDataFim] = useState(today);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "matched">("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [exporting, setExporting] = useState<null | "pdf" | "xlsx">(null);
   const [syncing, setSyncing] = useState(false);
   const [matchTarget, setMatchTarget] = useState<AuvoExpense | null>(null);
   const [matchSearch, setMatchSearch] = useState("");
@@ -135,18 +143,26 @@ export default function DespesasAuvoPanel() {
   }, [despesas, faturaTransacoes]);
 
   // ─── Stats & filter ───────────────────────────────────────────────────────
+  // distinct types for filter
+  const tipos = useMemo(() => {
+    const s = new Set<string>();
+    for (const d of despesas) if (d.type_name) s.add(d.type_name);
+    return Array.from(s).sort();
+  }, [despesas]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return despesas.filter(d => {
       if (statusFilter === "pending" && d.conciliado) return false;
       if (statusFilter === "matched" && !d.conciliado) return false;
+      if (typeFilter !== "all" && (d.type_name ?? "") !== typeFilter) return false;
       if (q) {
         const hay = `${d.description ?? ""} ${d.user_to_name ?? ""} ${d.type_name ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [despesas, search, statusFilter]);
+  }, [despesas, search, statusFilter, typeFilter]);
 
   const stats = useMemo(() => {
     const total = despesas.reduce((s, d) => s + (d.amount ?? 0), 0);
@@ -270,6 +286,126 @@ export default function DespesasAuvoPanel() {
       .map(x => x.t);
   }, [matchTarget, matchSearch, faturaTransacoes, despesas]);
 
+  // ─── Exports ──────────────────────────────────────────────────────────────
+  // Fetch attachment URL → dataURL (base64). Falls back to null on CORS/error.
+  const fetchAsDataUrl = async (url: string): Promise<{ dataUrl: string; mime: string } | null> => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      const mime = blob.type || "image/jpeg";
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = reject;
+        r.readAsDataURL(blob);
+      });
+      return { dataUrl, mime };
+    } catch {
+      return null;
+    }
+  };
+
+  const exportExcel = async () => {
+    setExporting("xlsx");
+    try {
+      const rows = filtered.map(d => ({
+        Data: fmtDate(d.expense_date),
+        Tipo: d.type_name ?? "",
+        Responsável: d.user_to_name ?? "",
+        Descrição: d.description ?? "",
+        Valor: Number(d.amount ?? 0),
+        Status: d.conciliado ? "Conciliada" : "Pendente",
+        "Match Method": d.match_method ?? "",
+        Anexo: d.attachment_url ?? "",
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      // Make "Anexo" cells clickable
+      const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+      for (let R = 1; R <= range.e.r; R++) {
+        const cellRef = XLSX.utils.encode_cell({ c: 7, r: R });
+        const cell = ws[cellRef];
+        if (cell && cell.v) cell.l = { Target: String(cell.v), Tooltip: "Abrir anexo" };
+      }
+      ws["!cols"] = [{ wch: 10 }, { wch: 18 }, { wch: 22 }, { wch: 50 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 60 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Despesas Auvo");
+      XLSX.writeFile(wb, `despesas-auvo_${dataInicio}_${dataFim}.xlsx`);
+      toast.success("Excel exportado (anexos como link).");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao exportar Excel.");
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const exportPDF = async () => {
+    setExporting("pdf");
+    const t = toast.loading("Gerando PDF (baixando anexos)...");
+    try {
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      const pageW = doc.internal.pageSize.getWidth();
+      doc.setFontSize(14);
+      doc.text("Despesas Auvo", 40, 40);
+      doc.setFontSize(10);
+      doc.text(`Período: ${fmtDate(dataInicio)} a ${fmtDate(dataFim)}  ·  ${filtered.length} item(ns)  ·  Total: ${fmt(filtered.reduce((s, d) => s + (d.amount ?? 0), 0))}`, 40, 58);
+
+      autoTable(doc, {
+        startY: 75,
+        head: [["Data", "Tipo", "Responsável", "Descrição", "Valor", "Status"]],
+        body: filtered.map(d => [
+          fmtDate(d.expense_date),
+          d.type_name ?? "—",
+          d.user_to_name ?? "—",
+          d.description ?? "—",
+          fmt(d.amount ?? 0),
+          d.conciliado ? "Conciliada" : "Pendente",
+        ]),
+        styles: { fontSize: 8, cellPadding: 3 },
+        headStyles: { fillColor: [59, 130, 246] },
+        columnStyles: { 4: { halign: "right" } },
+      });
+
+      // Anexos: uma despesa por página com imagem (se for imagem)
+      const comAnexo = filtered.filter(d => d.attachment_url);
+      for (let i = 0; i < comAnexo.length; i++) {
+        const d = comAnexo[i];
+        doc.addPage();
+        doc.setFontSize(11);
+        doc.text(`Anexo ${i + 1}/${comAnexo.length} — ${d.description ?? ""}`.slice(0, 95), 40, 40);
+        doc.setFontSize(9);
+        doc.text(`${fmtDate(d.expense_date)} · ${d.type_name ?? "—"} · ${d.user_to_name ?? "—"} · ${fmt(d.amount ?? 0)}`, 40, 56);
+        doc.setTextColor(59, 130, 246);
+        doc.textWithLink("Abrir anexo original", 40, 72, { url: d.attachment_url! });
+        doc.setTextColor(0, 0, 0);
+
+        const img = await fetchAsDataUrl(d.attachment_url!);
+        if (img && img.mime.startsWith("image/")) {
+          try {
+            const fmtImg = img.mime.includes("png") ? "PNG" : "JPEG";
+            const maxW = pageW - 80;
+            const maxH = 680;
+            // place image at fit ratio
+            doc.addImage(img.dataUrl, fmtImg, 40, 90, maxW, maxH, undefined, "FAST");
+          } catch {
+            doc.setFontSize(9);
+            doc.text("(não foi possível embutir a imagem)", 40, 100);
+          }
+        } else {
+          doc.setFontSize(9);
+          doc.text("(anexo não é imagem ou bloqueado por CORS — use o link acima)", 40, 100);
+        }
+      }
+
+      doc.save(`despesas-auvo_${dataInicio}_${dataFim}.pdf`);
+      toast.success("PDF exportado.", { id: t });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao exportar PDF.", { id: t });
+    } finally {
+      setExporting(null);
+    }
+  };
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
@@ -293,6 +429,16 @@ export default function DespesasAuvoPanel() {
             Aceitar {suggestions.size} sugestão(ões)
           </Button>
         )}
+        <div className="ml-auto flex gap-2">
+          <Button onClick={exportExcel} disabled={exporting !== null || filtered.length === 0} size="sm" variant="outline">
+            {exporting === "xlsx" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />}
+            Excel
+          </Button>
+          <Button onClick={exportPDF} disabled={exporting !== null || filtered.length === 0} size="sm" variant="outline">
+            {exporting === "pdf" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5 mr-1.5" />}
+            PDF
+          </Button>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -319,6 +465,16 @@ export default function DespesasAuvoPanel() {
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input className="pl-8" placeholder="Buscar descrição, responsável, tipo..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-[220px]"><SelectValue placeholder="Tipo de despesa" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos os tipos ({despesas.length})</SelectItem>
+            {tipos.map(t => {
+              const count = despesas.filter(d => d.type_name === t).length;
+              return <SelectItem key={t} value={t}>{t} ({count})</SelectItem>;
+            })}
+          </SelectContent>
+        </Select>
         <div className="flex gap-1">
           {(["all", "pending", "matched"] as const).map(s => (
             <Button key={s} size="sm" variant={statusFilter === s ? "default" : "outline"} onClick={() => setStatusFilter(s)}>
