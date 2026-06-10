@@ -19,12 +19,16 @@ export type Database = {
           amount: number | null
           attachment_url: string | null
           auvo_id: number
+          conciliado: boolean
+          conciliado_em: string | null
           created_at: string | null
           description: string | null
           expense_date: string
+          fatura_transacao_id: string | null
           id: string
+          match_method: string | null
           synced_at: string | null
-          type_id: number
+          type_id: number | null
           type_name: string | null
           user_to_id: number | null
           user_to_name: string | null
@@ -33,12 +37,16 @@ export type Database = {
           amount?: number | null
           attachment_url?: string | null
           auvo_id: number
+          conciliado?: boolean
+          conciliado_em?: string | null
           created_at?: string | null
           description?: string | null
           expense_date: string
+          fatura_transacao_id?: string | null
           id?: string
+          match_method?: string | null
           synced_at?: string | null
-          type_id: number
+          type_id?: number | null
           type_name?: string | null
           user_to_id?: number | null
           user_to_name?: string | null
@@ -47,17 +55,36 @@ export type Database = {
           amount?: number | null
           attachment_url?: string | null
           auvo_id?: number
+          conciliado?: boolean
+          conciliado_em?: string | null
           created_at?: string | null
           description?: string | null
           expense_date?: string
+          fatura_transacao_id?: string | null
           id?: string
+          match_method?: string | null
           synced_at?: string | null
-          type_id?: number
+          type_id?: number | null
           type_name?: string | null
           user_to_id?: number | null
           user_to_name?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "auvo_expenses_sync_fatura_transacao_id_fkey"
+            columns: ["fatura_transacao_id"]
+            isOneToOne: false
+            referencedRelation: "fin_fatura_transacoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "auvo_expenses_sync_fatura_transacao_id_fkey"
+            columns: ["fatura_transacao_id"]
+            isOneToOne: false
+            referencedRelation: "vw_fatura_pendente"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       configuracoes: {
         Row: {
