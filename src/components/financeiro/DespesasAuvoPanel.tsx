@@ -599,11 +599,22 @@ export default function DespesasAuvoPanel() {
                       ) : ai === "ok" ? (
                         <div className="space-y-0.5">
                           <Badge className="bg-emerald-600 text-white text-[9px]"><ShieldCheck className="h-2.5 w-2.5 mr-0.5" />OK</Badge>
-                          {d.ai_extracted_merchant && <p className="text-[10px] text-muted-foreground truncate max-w-[200px]" title={d.ai_extracted_merchant}>{d.ai_extracted_merchant}</p>}
+                          {d.ai_extracted_merchant && <p className="text-[10px] font-medium truncate max-w-[220px]" title={d.ai_extracted_merchant}>{d.ai_extracted_merchant}</p>}
+                          <div className="flex flex-wrap gap-x-1.5 gap-y-0 text-[9px] text-muted-foreground">
+                            {d.ai_extracted_value != null && <span>✓ R$ {Number(d.ai_extracted_value).toFixed(2)}</span>}
+                            {d.ai_extracted_date && <span>✓ {fmtDate(d.ai_extracted_date)}</span>}
+                            {d.ai_extracted_category && <span>✓ {d.ai_extracted_category}</span>}
+                          </div>
                         </div>
                       ) : ai === "valor_divergente" || ai === "tipo_divergente" || ai === "data_divergente" ? (
                         <div className="space-y-0.5">
                           <Badge className="bg-red-600 text-white text-[9px]"><ShieldAlert className="h-2.5 w-2.5 mr-0.5" />{ai === "valor_divergente" ? "Valor divergente" : ai === "tipo_divergente" ? "Tipo divergente" : "Data divergente"}</Badge>
+                          {d.ai_extracted_merchant && <p className="text-[10px] font-medium truncate max-w-[220px]" title={d.ai_extracted_merchant}>{d.ai_extracted_merchant}</p>}
+                          <div className="flex flex-wrap gap-x-1.5 gap-y-0 text-[9px]">
+                            {d.ai_extracted_value != null && <span className={ai === "valor_divergente" ? "text-red-600 font-semibold" : "text-muted-foreground"}>R$ {Number(d.ai_extracted_value).toFixed(2)}</span>}
+                            {d.ai_extracted_date && <span className={ai === "data_divergente" ? "text-red-600 font-semibold" : "text-muted-foreground"}>{fmtDate(d.ai_extracted_date)}</span>}
+                            {d.ai_extracted_category && <span className={ai === "tipo_divergente" ? "text-red-600 font-semibold" : "text-muted-foreground"}>{d.ai_extracted_category}</span>}
+                          </div>
                           {d.ai_validation_notes && <p className="text-[10px] text-red-600 leading-tight" title={d.ai_validation_notes}>{d.ai_validation_notes.slice(0, 140)}</p>}
                         </div>
                       ) : ai === "ilegivel" ? (
