@@ -286,6 +286,126 @@ export default function DespesasAuvoPanel() {
       .map(x => x.t);
   }, [matchTarget, matchSearch, faturaTransacoes, despesas]);
 
+  // ─── Exports ──────────────────────────────────────────────────────────────
+  // Fetch attachment URL → dataURL (base64). Falls back to null on CORS/error.
+  const fetchAsDataUrl = async (url: string): Promise<{ dataUrl: string; mime: string } | null> => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      const mime = blob.type || "image/jpeg";
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = reject;
+        r.readAsDataURL(blob);
+      });
+      return { dataUrl, mime };
+    } catch {
+      return null;
+    }
+  };
+
+  const exportExcel = async () => {
+    setExporting("xlsx");
+    try {
+      const rows = filtered.map(d => ({
+        Data: fmtDate(d.expense_date),
+        Tipo: d.type_name ?? "",
+        Responsável: d.user_to_name ?? "",
+        Descrição: d.description ?? "",
+        Valor: Number(d.amount ?? 0),
+        Status: d.conciliado ? "Conciliada" : "Pendente",
+        "Match Method": d.match_method ?? "",
+        Anexo: d.attachment_url ?? "",
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      // Make "Anexo" cells clickable
+      const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+      for (let R = 1; R <= range.e.r; R++) {
+        const cellRef = XLSX.utils.encode_cell({ c: 7, r: R });
+        const cell = ws[cellRef];
+        if (cell && cell.v) cell.l = { Target: String(cell.v), Tooltip: "Abrir anexo" };
+      }
+      ws["!cols"] = [{ wch: 10 }, { wch: 18 }, { wch: 22 }, { wch: 50 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 60 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Despesas Auvo");
+      XLSX.writeFile(wb, `despesas-auvo_${dataInicio}_${dataFim}.xlsx`);
+      toast.success("Excel exportado (anexos como link).");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao exportar Excel.");
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const exportPDF = async () => {
+    setExporting("pdf");
+    const t = toast.loading("Gerando PDF (baixando anexos)...");
+    try {
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      const pageW = doc.internal.pageSize.getWidth();
+      doc.setFontSize(14);
+      doc.text("Despesas Auvo", 40, 40);
+      doc.setFontSize(10);
+      doc.text(`Período: ${fmtDate(dataInicio)} a ${fmtDate(dataFim)}  ·  ${filtered.length} item(ns)  ·  Total: ${fmt(filtered.reduce((s, d) => s + (d.amount ?? 0), 0))}`, 40, 58);
+
+      autoTable(doc, {
+        startY: 75,
+        head: [["Data", "Tipo", "Responsável", "Descrição", "Valor", "Status"]],
+        body: filtered.map(d => [
+          fmtDate(d.expense_date),
+          d.type_name ?? "—",
+          d.user_to_name ?? "—",
+          d.description ?? "—",
+          fmt(d.amount ?? 0),
+          d.conciliado ? "Conciliada" : "Pendente",
+        ]),
+        styles: { fontSize: 8, cellPadding: 3 },
+        headStyles: { fillColor: [59, 130, 246] },
+        columnStyles: { 4: { halign: "right" } },
+      });
+
+      // Anexos: uma despesa por página com imagem (se for imagem)
+      const comAnexo = filtered.filter(d => d.attachment_url);
+      for (let i = 0; i < comAnexo.length; i++) {
+        const d = comAnexo[i];
+        doc.addPage();
+        doc.setFontSize(11);
+        doc.text(`Anexo ${i + 1}/${comAnexo.length} — ${d.description ?? ""}`.slice(0, 95), 40, 40);
+        doc.setFontSize(9);
+        doc.text(`${fmtDate(d.expense_date)} · ${d.type_name ?? "—"} · ${d.user_to_name ?? "—"} · ${fmt(d.amount ?? 0)}`, 40, 56);
+        doc.setTextColor(59, 130, 246);
+        doc.textWithLink("Abrir anexo original", 40, 72, { url: d.attachment_url! });
+        doc.setTextColor(0, 0, 0);
+
+        const img = await fetchAsDataUrl(d.attachment_url!);
+        if (img && img.mime.startsWith("image/")) {
+          try {
+            const fmtImg = img.mime.includes("png") ? "PNG" : "JPEG";
+            const maxW = pageW - 80;
+            const maxH = 680;
+            // place image at fit ratio
+            doc.addImage(img.dataUrl, fmtImg, 40, 90, maxW, maxH, undefined, "FAST");
+          } catch {
+            doc.setFontSize(9);
+            doc.text("(não foi possível embutir a imagem)", 40, 100);
+          }
+        } else {
+          doc.setFontSize(9);
+          doc.text("(anexo não é imagem ou bloqueado por CORS — use o link acima)", 40, 100);
+        }
+      }
+
+      doc.save(`despesas-auvo_${dataInicio}_${dataFim}.pdf`);
+      toast.success("PDF exportado.", { id: t });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao exportar PDF.", { id: t });
+    } finally {
+      setExporting(null);
+    }
+  };
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
