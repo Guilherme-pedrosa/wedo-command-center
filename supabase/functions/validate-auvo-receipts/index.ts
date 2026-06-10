@@ -29,20 +29,35 @@ interface IAResult {
 
 async function fetchImageAsDataUrl(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { redirect: "follow" });
     if (!res.ok) return null;
-    const ct = res.headers.get("content-type") || "image/jpeg";
-    if (!ct.startsWith("image/")) return null;
+    let ct = (res.headers.get("content-type") || "").toLowerCase();
+    // S3 e outros CDNs frequentemente devolvem application/octet-stream ou binary/octet-stream.
+    // Inferir o mime pela extensão do URL nesse caso.
+    if (!ct.startsWith("image/")) {
+      const lower = url.toLowerCase().split("?")[0];
+      if (lower.endsWith(".png")) ct = "image/png";
+      else if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) ct = "image/jpeg";
+      else if (lower.endsWith(".webp")) ct = "image/webp";
+      else if (lower.endsWith(".gif")) ct = "image/gif";
+      else if (lower.endsWith(".heic")) ct = "image/heic";
+      else if (lower.endsWith(".pdf")) ct = "application/pdf";
+      else return null;
+    }
     const buf = new Uint8Array(await res.arrayBuffer());
-    // base64 encode
+    // base64 encode em chunks (evita stack overflow em imagens grandes)
     let bin = "";
-    for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+    const CHUNK = 0x8000;
+    for (let i = 0; i < buf.length; i += CHUNK) {
+      bin += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + CHUNK)) as any);
+    }
     const b64 = btoa(bin);
     return `data:${ct};base64,${b64}`;
   } catch {
     return null;
   }
 }
+
 
 async function analyzeReceipt(row: ExpenseRow, apiKey: string): Promise<IAResult> {
   if (!row.attachment_url) {
