@@ -465,6 +465,16 @@ export default function DespesasAuvoPanel() {
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input className="pl-8" placeholder="Buscar descrição, responsável, tipo..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-[220px]"><SelectValue placeholder="Tipo de despesa" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos os tipos ({despesas.length})</SelectItem>
+            {tipos.map(t => {
+              const count = despesas.filter(d => d.type_name === t).length;
+              return <SelectItem key={t} value={t}>{t} ({count})</SelectItem>;
+            })}
+          </SelectContent>
+        </Select>
         <div className="flex gap-1">
           {(["all", "pending", "matched"] as const).map(s => (
             <Button key={s} size="sm" variant={statusFilter === s ? "default" : "outline"} onClick={() => setStatusFilter(s)}>
