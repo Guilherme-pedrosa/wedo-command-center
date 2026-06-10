@@ -17,10 +17,16 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  RefreshCw, Loader2, Link2, Unlink, CheckCircle2, AlertCircle, Search, Sparkles, Paperclip,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  RefreshCw, Loader2, Link2, Unlink, CheckCircle2, AlertCircle, Search, Sparkles, Paperclip, FileDown, FileSpreadsheet,
 } from "lucide-react";
 import { format, parseISO, addDays, subDays } from "date-fns";
 import toast from "react-hot-toast";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 interface AuvoExpense {
   id: string;
