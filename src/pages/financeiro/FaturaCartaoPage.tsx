@@ -694,6 +694,19 @@ export default function FaturaCartaoPage() {
         </div>
       </div>
 
+      <Tabs defaultValue="faturas" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="faturas">Faturas</TabsTrigger>
+          <TabsTrigger value="auvo">Despesas Auvo</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="auvo" className="space-y-4">
+          <DespesasAuvoPanel />
+        </TabsContent>
+
+        <TabsContent value="faturas" className="space-y-4">
+
+
       {/* KPIs */}
       <div className="grid grid-cols-3 gap-4">
         {[
