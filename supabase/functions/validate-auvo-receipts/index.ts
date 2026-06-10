@@ -10,6 +10,7 @@ const corsHeaders = {
 
 const TOLERANCE_PCT = 0.02; // 2%
 const TOLERANCE_ABS = 0.5;  // R$ 0,50
+const DATE_TOLERANCE_DAYS = 3;
 
 interface ExpenseRow {
   id: string;
@@ -17,14 +18,16 @@ interface ExpenseRow {
   amount: number | null;
   description: string | null;
   attachment_url: string | null;
+  expense_date: string | null;
 }
 
 interface IAResult {
-  status: "ok" | "valor_divergente" | "tipo_divergente" | "ilegivel" | "sem_anexo" | "erro";
+  status: "ok" | "valor_divergente" | "tipo_divergente" | "data_divergente" | "ilegivel" | "sem_anexo" | "erro";
   notes: string;
   extracted_value: number | null;
   extracted_merchant: string | null;
   extracted_category: string | null;
+  extracted_date: string | null;
 }
 
 async function fetchImageAsDataUrl(url: string): Promise<string | null> {
@@ -61,26 +64,29 @@ async function fetchImageAsDataUrl(url: string): Promise<string | null> {
 
 async function analyzeReceipt(row: ExpenseRow, apiKey: string): Promise<IAResult> {
   if (!row.attachment_url) {
-    return { status: "sem_anexo", notes: "Despesa sem anexo.", extracted_value: null, extracted_merchant: null, extracted_category: null };
+    return { status: "sem_anexo", notes: "Despesa sem anexo.", extracted_value: null, extracted_merchant: null, extracted_category: null, extracted_date: null };
   }
 
   const dataUrl = await fetchImageAsDataUrl(row.attachment_url);
   if (!dataUrl) {
-    return { status: "erro", notes: "Não foi possível baixar o anexo (formato não suportado ou erro de rede).", extracted_value: null, extracted_merchant: null, extracted_category: null };
+    return { status: "erro", notes: "Não foi possível baixar o anexo (formato não suportado ou erro de rede).", extracted_value: null, extracted_merchant: null, extracted_category: null, extracted_date: null };
   }
 
-  const systemPrompt = `Você é um auditor de despesas. Analise a imagem de um comprovante/nota e extraia:
+  const systemPrompt = `Você é um auditor de despesas. Analise a imagem de um comprovante/nota fiscal/cupom e extraia:
 - valor total pago (number, em reais)
 - nome do estabelecimento
+- CNPJ do estabelecimento (somente dígitos, se visível)
+- data da transação no formato YYYY-MM-DD (procure por data de emissão, data da compra, data/hora do cupom)
 - categoria provável (combustível, hospedagem, alimentação, pedágio, estacionamento, taxi/uber, outros)
 Responda APENAS com JSON válido neste schema:
-{"valor": number|null, "estabelecimento": string|null, "categoria": string|null, "legivel": boolean, "observacao": string}`;
+{"valor": number|null, "estabelecimento": string|null, "cnpj": string|null, "data": string|null, "categoria": string|null, "legivel": boolean, "observacao": string}`;
 
   const userText = `Despesa cadastrada no app:
 - Tipo: ${row.type_name ?? "—"}
 - Valor: R$ ${(row.amount ?? 0).toFixed(2)}
+- Data: ${row.expense_date ?? "—"}
 - Descrição: ${row.description ?? "—"}
-Analise o comprovante anexado e extraia os dados.`;
+Analise o comprovante anexado e extraia TODOS os dados (valor, data, estabelecimento, CNPJ, categoria).`;
 
   try {
     const isPdf = dataUrl.startsWith("data:application/pdf");
@@ -95,22 +101,15 @@ Analise o comprovante anexado e extraia os dados.`;
         model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: userText },
-              contentBlock,
-            ],
-          },
+          { role: "user", content: [{ type: "text", text: userText }, contentBlock] },
         ],
         response_format: { type: "json_object" },
       }),
     });
 
-
-    if (res.status === 429) return { status: "erro", notes: "Rate limit IA. Tente novamente.", extracted_value: null, extracted_merchant: null, extracted_category: null };
-    if (res.status === 402) return { status: "erro", notes: "Créditos IA esgotados.", extracted_value: null, extracted_merchant: null, extracted_category: null };
-    if (!res.ok) return { status: "erro", notes: `IA HTTP ${res.status}`, extracted_value: null, extracted_merchant: null, extracted_category: null };
+    if (res.status === 429) return { status: "erro", notes: "Rate limit IA. Tente novamente.", extracted_value: null, extracted_merchant: null, extracted_category: null, extracted_date: null };
+    if (res.status === 402) return { status: "erro", notes: "Créditos IA esgotados.", extracted_value: null, extracted_merchant: null, extracted_category: null, extracted_date: null };
+    if (!res.ok) return { status: "erro", notes: `IA HTTP ${res.status}`, extracted_value: null, extracted_merchant: null, extracted_category: null, extracted_date: null };
 
     const json = await res.json();
     const raw = json.choices?.[0]?.message?.content ?? "{}";
@@ -120,11 +119,14 @@ Analise o comprovante anexado e extraia os dados.`;
     const extractedValue: number | null = parsed.valor != null ? Number(parsed.valor) : null;
     const merchant: string | null = parsed.estabelecimento ?? null;
     const categoria: string | null = parsed.categoria ?? null;
+    const cnpj: string | null = parsed.cnpj ? String(parsed.cnpj).replace(/\D/g, "") : null;
+    const dataMatch = String(parsed.data ?? "").match(/^\d{4}-\d{2}-\d{2}/);
+    const extractedDate: string | null = dataMatch ? dataMatch[0] : null;
     const legivel: boolean = parsed.legivel !== false;
     const obs: string = parsed.observacao ?? "";
 
     if (!legivel || (extractedValue == null && !merchant)) {
-      return { status: "ilegivel", notes: obs || "Comprovante ilegível.", extracted_value: extractedValue, extracted_merchant: merchant, extracted_category: categoria };
+      return { status: "ilegivel", notes: obs || "Comprovante ilegível.", extracted_value: extractedValue, extracted_merchant: merchant, extracted_category: categoria, extracted_date: extractedDate };
     }
 
     // Compara valor
@@ -136,6 +138,16 @@ Analise o comprovante anexado e extraia os dados.`;
       if (diff > tol) valorDivergente = true;
     }
 
+    // Compara data
+    let dataDivergente = false;
+    let diasDiff = 0;
+    if (extractedDate && row.expense_date) {
+      const d1 = new Date(extractedDate + "T00:00:00Z").getTime();
+      const d2 = new Date(row.expense_date + "T00:00:00Z").getTime();
+      diasDiff = Math.round(Math.abs(d1 - d2) / 86400000);
+      if (diasDiff > DATE_TOLERANCE_DAYS) dataDivergente = true;
+    }
+
     // Compara tipo (heurística por palavras-chave)
     const tipo = (row.type_name ?? "").toLowerCase();
     const cat = (categoria ?? "").toLowerCase();
@@ -143,7 +155,7 @@ Analise o comprovante anexado e extraia os dados.`;
     const CATS: Record<string, string[]> = {
       combustivel: ["combust", "posto", "gasolina", "etanol", "diesel", "shell", "ipiranga", "petrobras", "br ", "ale "],
       hospedagem: ["hospedagem", "hotel", "pousada", "hostel", "motel", "airbnb"],
-      alimenta: ["alimenta", "restaur", "lanchonete", "padaria", "ifood", "rappi", "bar ", "café", "cafe", "pizzar", "churras"],
+      alimenta: ["alimenta", "refei", "almoço", "almoco", "jantar", "restaur", "lanchonete", "padaria", "ifood", "rappi", "bar ", "café", "cafe", "pizzar", "churras"],
       pedagio: ["pedag", "ccr", "autopista", "ecorodov"],
       estacionamento: ["estacion", "parking", "garagem"],
       taxi: ["uber", "99 ", "taxi", "táxi", "cabify"],
@@ -159,22 +171,32 @@ Analise o comprovante anexado e extraia os dados.`;
     let tipoDivergente = false;
     if (tipoEsperado && tipoDetectado && tipoEsperado !== tipoDetectado) tipoDivergente = true;
 
+    // Prioridade: valor > tipo > data
     let status: IAResult["status"] = "ok";
     const notesArr: string[] = [];
     if (valorDivergente) {
       status = "valor_divergente";
-      notesArr.push(`Valor cadastrado R$ ${expected.toFixed(2)} vs comprovante R$ ${extractedValue!.toFixed(2)}.`);
+      notesArr.push(`⚠️ Valor cadastrado R$ ${expected.toFixed(2)} vs comprovante R$ ${extractedValue!.toFixed(2)}.`);
     }
     if (tipoDivergente) {
-      status = status === "valor_divergente" ? "valor_divergente" : "tipo_divergente";
-      notesArr.push(`Tipo "${row.type_name}" não bate com categoria detectada "${categoria}".`);
+      if (status === "ok") status = "tipo_divergente";
+      notesArr.push(`⚠️ Tipo "${row.type_name}" não bate com categoria detectada "${categoria}".`);
     }
-    if (status === "ok") notesArr.push(`Comprovante confere: ${merchant ?? "—"} · R$ ${(extractedValue ?? 0).toFixed(2)}.`);
+    if (dataDivergente) {
+      if (status === "ok") status = "data_divergente";
+      notesArr.push(`⚠️ Data cadastrada ${row.expense_date} vs comprovante ${extractedDate} (${diasDiff} dias).`);
+    }
+    if (status === "ok") {
+      const parts = [merchant ?? "—", `R$ ${(extractedValue ?? 0).toFixed(2)}`];
+      if (extractedDate) parts.push(extractedDate);
+      if (cnpj) parts.push(`CNPJ ${cnpj}`);
+      notesArr.push(`✓ Confere: ${parts.join(" · ")}.`);
+    }
     if (obs) notesArr.push(obs);
 
-    return { status, notes: notesArr.join(" "), extracted_value: extractedValue, extracted_merchant: merchant, extracted_category: categoria };
+    return { status, notes: notesArr.join(" "), extracted_value: extractedValue, extracted_merchant: merchant, extracted_category: categoria, extracted_date: extractedDate };
   } catch (e) {
-    return { status: "erro", notes: e instanceof Error ? e.message : String(e), extracted_value: null, extracted_merchant: null, extracted_category: null };
+    return { status: "erro", notes: e instanceof Error ? e.message : String(e), extracted_value: null, extracted_merchant: null, extracted_category: null, extracted_date: null };
   }
 }
 
