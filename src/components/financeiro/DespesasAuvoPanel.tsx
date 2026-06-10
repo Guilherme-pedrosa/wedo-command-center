@@ -150,12 +150,28 @@ export default function DespesasAuvoPanel() {
   }, [despesas, faturaTransacoes]);
 
   // ─── Stats & filter ───────────────────────────────────────────────────────
-  // distinct types for filter
+  // distinct types for filter (global — não restringe ao período selecionado)
+  const { data: allTypeNames = [] } = useQuery<string[]>({
+    queryKey: ["auvo_expenses_sync_types"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("auvo_expenses_sync")
+        .select("type_name")
+        .not("type_name", "is", null)
+        .limit(10000);
+      if (error) throw error;
+      const s = new Set<string>();
+      for (const r of (data ?? []) as { type_name: string | null }[]) {
+        if (r.type_name) s.add(r.type_name);
+      }
+      return Array.from(s).sort();
+    },
+  });
   const tipos = useMemo(() => {
-    const s = new Set<string>();
+    const s = new Set<string>(allTypeNames);
     for (const d of despesas) if (d.type_name) s.add(d.type_name);
     return Array.from(s).sort();
-  }, [despesas]);
+  }, [despesas, allTypeNames]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
