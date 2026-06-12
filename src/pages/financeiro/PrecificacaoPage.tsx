@@ -2708,8 +2708,20 @@ export default function PrecificacaoPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{estoque}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{formatCurrency(custoBase)}</TableCell>
-                      <TableCell className="text-right font-mono text-xs text-muted-foreground" title="Custo cadastrado no GestãoClick">
+                      <TableCell className="text-right font-mono text-sm">
+                        {hasNF ? (
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>{formatCurrency(custoBase)}</span>
+                            <span className="text-[9px] text-muted-foreground">NF c/ frete+IPI</span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-end leading-tight" title="Sem NF importada — usando custo cadastrado no GC como fallback">
+                            <span className="text-amber-400">{formatCurrency(custoBase)}</span>
+                            <span className="text-[9px] text-amber-500/70">⚠ sem NF (= GC)</span>
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground" title="Custo cadastrado no GestãoClick (gc_produtos_cache.valor_custo)">
                         {formatCurrency(Number(p.valor_custo) || 0)}
                       </TableCell>
                       <TableCell className="text-center">
