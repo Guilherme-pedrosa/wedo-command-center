@@ -14,6 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      audit_trail: {
+        Row: {
+          action: string
+          action_type: string
+          after_data: Json | null
+          before_data: Json | null
+          context: Json | null
+          created_at: string
+          diff: Json | null
+          id: number
+          record_id: string | null
+          severity: string
+          table_name: string | null
+          user_email: string | null
+          user_id: string | null
+          user_role: string | null
+        }
+        Insert: {
+          action: string
+          action_type: string
+          after_data?: Json | null
+          before_data?: Json | null
+          context?: Json | null
+          created_at?: string
+          diff?: Json | null
+          id?: number
+          record_id?: string | null
+          severity?: string
+          table_name?: string | null
+          user_email?: string | null
+          user_id?: string | null
+          user_role?: string | null
+        }
+        Update: {
+          action?: string
+          action_type?: string
+          after_data?: Json | null
+          before_data?: Json | null
+          context?: Json | null
+          created_at?: string
+          diff?: Json | null
+          id?: number
+          record_id?: string | null
+          severity?: string
+          table_name?: string | null
+          user_email?: string | null
+          user_id?: string | null
+          user_role?: string | null
+        }
+        Relationships: []
+      }
       auvo_expenses_sync: {
         Row: {
           ai_extracted_category: string | null
@@ -3966,6 +4017,19 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      log_audit_event: {
+        Args: {
+          _action: string
+          _action_type: string
+          _after?: Json
+          _before?: Json
+          _context?: Json
+          _record_id?: string
+          _severity?: string
+          _table_name?: string
+        }
+        Returns: number
       }
       next_negociacao_number: { Args: never; Returns: number }
       normalizar_cnpj: { Args: { c: string }; Returns: string }
