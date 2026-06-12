@@ -2348,6 +2348,7 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs" rowSpan={2}>Produto</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Estoque</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo</TableHead>
+                  <TableHead className="text-xs text-right" rowSpan={2} title="Custo cadastrado no GestãoClick (gc_produtos_cache.valor_custo)">Custo GC</TableHead>
                   <TableHead className="text-xs text-center" rowSpan={2}>Fonte</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Créd. Entrada</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo Total</TableHead>
@@ -2376,7 +2377,7 @@ export default function PrecificacaoPage() {
               <TableBody>
                 {filtered.length === 0 && !loadingProdutos && (
                   <TableRow>
-                    <TableCell colSpan={17} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={18} className="text-center text-muted-foreground py-8">
                       {search ? "Nenhum produto encontrado" : "Busque produtos do estoque GestãoClick"}
                     </TableCell>
                   </TableRow>
@@ -2708,6 +2709,9 @@ export default function PrecificacaoPage() {
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{estoque}</TableCell>
                       <TableCell className="text-right font-mono text-sm">{formatCurrency(custoBase)}</TableCell>
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground" title="Custo cadastrado no GestãoClick">
+                        {formatCurrency(Number(p.valor_custo) || 0)}
+                      </TableCell>
                       <TableCell className="text-center">
                         {hasNF ? (
                           <Tooltip>
