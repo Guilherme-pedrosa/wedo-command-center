@@ -39,10 +39,18 @@ Deno.serve(async (req) => {
 
   try {
     const { adminClient, callerId } = await verifyAdmin(req);
+    const { data: callerProfile } = await adminClient.from("profiles").select("email").eq("id", callerId).maybeSingle();
+    const callerEmail = callerProfile?.email ?? null;
+
     const { action, user_id, nome, gc_codigo, auvo_codigo, role, roles, password } = await req.json();
 
     if (action === "update") {
       if (!user_id) throw new Error("user_id obrigatório");
+
+      // Snapshot ANTES
+      const { data: beforeProfile } = await adminClient.from("profiles").select("*").eq("id", user_id).maybeSingle();
+      const { data: beforeRoles } = await adminClient.from("user_roles").select("role").eq("user_id", user_id);
+      const beforeSnapshot = { ...(beforeProfile ?? {}), roles: (beforeRoles ?? []).map((r: any) => r.role) };
 
       // Update profile
       const updates: Record<string, any> = {};
@@ -77,6 +85,28 @@ Deno.serve(async (req) => {
         );
       }
 
+      // Snapshot DEPOIS
+      const { data: afterProfile } = await adminClient.from("profiles").select("*").eq("id", user_id).maybeSingle();
+      const { data: afterRoles } = await adminClient.from("user_roles").select("role").eq("user_id", user_id);
+      const afterSnapshot = {
+        ...(afterProfile ?? {}),
+        roles: (afterRoles ?? []).map((r: any) => r.role),
+        password_changed: !!password,
+      };
+
+      await adminClient.from("audit_trail").insert({
+        user_id: callerId,
+        user_email: callerEmail,
+        action_type: "auth",
+        action: "user_updated",
+        table_name: "auth.users",
+        record_id: user_id,
+        before_data: beforeSnapshot,
+        after_data: afterSnapshot,
+        context: { source: "edge:admin-manage-user", password_reset: !!password },
+        severity: password ? "warning" : "info",
+      });
+
       return new Response(
         JSON.stringify({ success: true }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -87,8 +117,28 @@ Deno.serve(async (req) => {
       if (!user_id) throw new Error("user_id obrigatório");
       if (user_id === callerId) throw new Error("Você não pode deletar sua própria conta.");
 
+      // Snapshot completo ANTES da exclusão (preserva rastreabilidade)
+      const { data: profSnapshot } = await adminClient.from("profiles").select("*").eq("id", user_id).maybeSingle();
+      const { data: rolesSnapshot } = await adminClient.from("user_roles").select("role").eq("user_id", user_id);
+      const beforeSnapshot = {
+        ...(profSnapshot ?? {}),
+        roles: (rolesSnapshot ?? []).map((r: any) => r.role),
+      };
+
       const { error } = await adminClient.auth.admin.deleteUser(user_id);
       if (error) throw new Error(error.message);
+
+      await adminClient.from("audit_trail").insert({
+        user_id: callerId,
+        user_email: callerEmail,
+        action_type: "auth",
+        action: "user_deleted",
+        table_name: "auth.users",
+        record_id: user_id,
+        before_data: beforeSnapshot,
+        context: { source: "edge:admin-manage-user" },
+        severity: "critical",
+      });
 
       return new Response(
         JSON.stringify({ success: true }),

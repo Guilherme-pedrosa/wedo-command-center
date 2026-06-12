@@ -88,6 +88,19 @@ Deno.serve(async (req) => {
       finalRoles.map((r) => ({ user_id: newUser.user.id, role: r }))
     );
 
+    // Audit
+    await adminClient.from("audit_trail").insert({
+      user_id: caller.id,
+      user_email: caller.email,
+      action_type: "auth",
+      action: "user_created",
+      table_name: "auth.users",
+      record_id: newUser.user.id,
+      after_data: { email, nome, gc_codigo, auvo_codigo, roles: finalRoles },
+      context: { source: "edge:admin-create-user" },
+      severity: "info",
+    });
+
     return new Response(
       JSON.stringify({ success: true, user_id: newUser.user.id, email, roles: finalRoles }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
