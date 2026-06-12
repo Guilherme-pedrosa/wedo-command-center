@@ -751,20 +751,23 @@ export default function PrecificacaoPage() {
           .order("compra_gc_id", { ascending: true })
           .range(from, from + pageSize - 1);
         if (error) throw error;
-        const batch = ((data || []) as any[]).map((row) => {
-          const compra = compraMeta.get(String(row.compra_gc_id));
-          return {
-            produto_gc_id: String(row.produto_gc_id),
-            compra_gc_id: String(row.compra_gc_id),
-            compra_codigo: compra?.codigo ?? null,
-            numero_nfe: compra?.numero_nfe ?? null,
-            data: compra?.data ?? null,
-            fornecedor_nome: compra?.nome_fornecedor ?? null,
-            nome_situacao: compra?.nome_situacao ?? null,
-            quantidade: row.quantidade != null ? Number(row.quantidade) : null,
-            valor_custo: row.valor_custo != null ? Number(row.valor_custo) : null,
-          };
-        }) as UltimaCompraProduto[];
+        const batch = ((data || []) as any[])
+          .map((row) => {
+            const compra = compraMeta.get(String(row.compra_gc_id));
+            if (!compra) return null; // descarta itens de compras não-recebidas/serviços
+            return {
+              produto_gc_id: String(row.produto_gc_id),
+              compra_gc_id: String(row.compra_gc_id),
+              compra_codigo: compra?.codigo ?? null,
+              numero_nfe: compra?.numero_nfe ?? null,
+              data: compra?.data ?? null,
+              fornecedor_nome: compra?.nome_fornecedor ?? null,
+              nome_situacao: compra?.nome_situacao ?? null,
+              quantidade: row.quantidade != null ? Number(row.quantidade) : null,
+              valor_custo: row.valor_custo != null ? Number(row.valor_custo) : null,
+            };
+          })
+          .filter(Boolean) as UltimaCompraProduto[];
         allRows.push(...batch);
         if (batch.length < pageSize) break;
         from += pageSize;
