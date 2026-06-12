@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, LogIn } from "lucide-react";
 import toast from "react-hot-toast";
+import { logAudit } from "@/lib/auditLog";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -20,10 +21,18 @@ export default function Login() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) {
+      // Tentativa falha — loga mesmo sem usuário (user_id ficará null)
+      logAudit({
+        actionType: "auth",
+        action: "login_failed",
+        context: { email_tentado: email, motivo: error.message },
+        severity: "warning",
+      });
       toast.error(error.message === "Invalid login credentials"
         ? "Email ou senha incorretos"
         : error.message);
     } else {
+      logAudit({ actionType: "auth", action: "login", context: { email } });
       navigate("/", { replace: true });
     }
   };

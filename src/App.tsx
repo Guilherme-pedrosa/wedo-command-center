@@ -49,6 +49,7 @@ const FinPrecPoliticas = lazy(() => import("@/pages/financeiro/precificacao/Poli
 const FinArgusAgent = lazy(() => import("@/pages/financeiro/ArgusAgentPage"));
 const FinAuditor = lazy(() => import("@/pages/financeiro/AuditorIAPage"));
 const AdminUsuarios = lazy(() => import("@/pages/AdminUsuarios"));
+const AdminAuditoria = lazy(() => import("@/pages/AdminAuditoria"));
 
 const queryClient = new QueryClient();
 
@@ -90,6 +91,7 @@ const App = () => (
               <Route path="/log" element={<SyncLog />} />
               <Route path="/configuracoes" element={<Configuracoes />} />
               <Route path="/admin/usuarios" element={<Suspense fallback={<LazyFallback />}><AdminUsuarios /></Suspense>} />
+              <Route path="/admin/auditoria" element={<Suspense fallback={<LazyFallback />}><AdminAuditoria /></Suspense>} />
 
               {/* Financeiro Hub */}
               <Route path="/financeiro" element={<Navigate to="/financeiro/dashboard" replace />} />
