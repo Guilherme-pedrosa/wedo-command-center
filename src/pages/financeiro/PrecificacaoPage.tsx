@@ -2453,6 +2453,10 @@ export default function PrecificacaoPage() {
                   } else {
                     calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlatLinha }, taxSaidaLinha, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
                   }
+                  {
+                    const gcCustoRaw = parseFloat(p.valor_custo) || 0;
+                    if (!excecao && gcCustoRaw > calc.custoTotal) calc.custoTotal = gcCustoRaw;
+                  }
 
 
 
