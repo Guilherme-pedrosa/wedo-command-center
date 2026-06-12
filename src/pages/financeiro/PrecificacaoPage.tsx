@@ -719,6 +719,11 @@ export default function PrecificacaoPage() {
       const allRows: UltimaCompraProduto[] = [];
 
       const compraMeta = new Map<string, any>();
+      const SITUACOES_RECEBIDAS = new Set([
+        "Finalizado (mercadoria chegou)",
+        "CONCRETIZADO - ESTOQUE",
+        "CONCRETIZADO - COMERCIAL EQUIPAMENTOS",
+      ]);
       while (true) {
         const { data, error } = await supabase
           .from("gc_compras" as any)
@@ -726,7 +731,13 @@ export default function PrecificacaoPage() {
           .order("gc_id", { ascending: true })
           .range(from, from + pageSize - 1);
         if (error) throw error;
-        for (const row of (data || []) as any[]) compraMeta.set(String(row.gc_id), row);
+        for (const row of (data || []) as any[]) {
+          // Só considera compras efetivamente recebidas/concretizadas.
+          // Ignora "COMPRADO - AG CHEGADA" e "SERVIÇOS" (valores provisórios / não-mercadoria)
+          if (SITUACOES_RECEBIDAS.has(String(row.nome_situacao || ""))) {
+            compraMeta.set(String(row.gc_id), row);
+          }
+        }
         if (!data || data.length < pageSize) break;
         from += pageSize;
       }
