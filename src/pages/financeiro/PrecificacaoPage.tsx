@@ -1048,6 +1048,12 @@ export default function PrecificacaoPage() {
       } else {
         calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
       }
+      // Margem sempre conservadora: usa o MAIOR entre custo calculado e custo cadastrado no GC.
+      // Isso evita margem inflada quando NF antiga está abaixo do custo atual do GC.
+      {
+        const gcCustoRaw = parseFloat(p.valor_custo) || 0;
+        if (!excecao && gcCustoRaw > calc.custoTotal) calc.custoTotal = gcCustoRaw;
+      }
       const valoresProd = valoresMap.get(p.id);
       const itemsOut: Array<{ gc_produto_id: string; nome_produto: string; tipo_id: string; nome_tabela: string; preco_atual: number; preco_sugerido: number; margem_minima: number; margem_resultante: number; custo_referencia: number; }> = [];
       for (const pol of politicas) {
@@ -1106,6 +1112,10 @@ export default function PrecificacaoPage() {
         calc = { ...nfCalc, custoLiquido: nfCalc.custoEfetivo, custoFrete: tributo!.valor_frete_unit, margemReal: 0 } as ReturnType<typeof calcPricing>;
       } else {
         calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
+      }
+      {
+        const gcCustoRaw = parseFloat(p.valor_custo) || 0;
+        if (!excecao && gcCustoRaw > calc.custoTotal) calc.custoTotal = gcCustoRaw;
       }
       const valoresProd = valoresMap.get(p.id);
       const itemsAbove: Array<{ gc_produto_id: string; nome_produto: string; tipo_id: string; nome_tabela: string; preco_atual: number; preco_sugerido: number; margem_minima: number; margem_resultante: number; custo_referencia: number; }> = [];
@@ -1838,6 +1848,10 @@ export default function PrecificacaoPage() {
       } else {
         calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
       }
+      {
+        const gcCustoRaw = parseFloat(p.valor_custo) || 0;
+        if (!excecao && gcCustoRaw > calc.custoTotal) calc.custoTotal = gcCustoRaw;
+      }
       const valoresProd = valoresMap.get(p.id);
       const tabelas: Record<string, any> = {};
       for (const pol of (politicas ?? [])) {
@@ -2438,6 +2452,10 @@ export default function PrecificacaoPage() {
                     };
                   } else {
                     calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlatLinha }, taxSaidaLinha, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
+                  }
+                  {
+                    const gcCustoRaw = parseFloat(p.valor_custo) || 0;
+                    if (!excecao && gcCustoRaw > calc.custoTotal) calc.custoTotal = gcCustoRaw;
                   }
 
 
