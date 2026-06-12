@@ -719,6 +719,11 @@ export default function PrecificacaoPage() {
       const allRows: UltimaCompraProduto[] = [];
 
       const compraMeta = new Map<string, any>();
+      const SITUACOES_RECEBIDAS = new Set([
+        "Finalizado (mercadoria chegou)",
+        "CONCRETIZADO - ESTOQUE",
+        "CONCRETIZADO - COMERCIAL EQUIPAMENTOS",
+      ]);
       while (true) {
         const { data, error } = await supabase
           .from("gc_compras" as any)
@@ -726,7 +731,13 @@ export default function PrecificacaoPage() {
           .order("gc_id", { ascending: true })
           .range(from, from + pageSize - 1);
         if (error) throw error;
-        for (const row of (data || []) as any[]) compraMeta.set(String(row.gc_id), row);
+        for (const row of (data || []) as any[]) {
+          // Só considera compras efetivamente recebidas/concretizadas.
+          // Ignora "COMPRADO - AG CHEGADA" e "SERVIÇOS" (valores provisórios / não-mercadoria)
+          if (SITUACOES_RECEBIDAS.has(String(row.nome_situacao || ""))) {
+            compraMeta.set(String(row.gc_id), row);
+          }
+        }
         if (!data || data.length < pageSize) break;
         from += pageSize;
       }
@@ -740,20 +751,23 @@ export default function PrecificacaoPage() {
           .order("compra_gc_id", { ascending: true })
           .range(from, from + pageSize - 1);
         if (error) throw error;
-        const batch = ((data || []) as any[]).map((row) => {
-          const compra = compraMeta.get(String(row.compra_gc_id));
-          return {
-            produto_gc_id: String(row.produto_gc_id),
-            compra_gc_id: String(row.compra_gc_id),
-            compra_codigo: compra?.codigo ?? null,
-            numero_nfe: compra?.numero_nfe ?? null,
-            data: compra?.data ?? null,
-            fornecedor_nome: compra?.nome_fornecedor ?? null,
-            nome_situacao: compra?.nome_situacao ?? null,
-            quantidade: row.quantidade != null ? Number(row.quantidade) : null,
-            valor_custo: row.valor_custo != null ? Number(row.valor_custo) : null,
-          };
-        }) as UltimaCompraProduto[];
+        const batch = ((data || []) as any[])
+          .map((row) => {
+            const compra = compraMeta.get(String(row.compra_gc_id));
+            if (!compra) return null; // descarta itens de compras não-recebidas/serviços
+            return {
+              produto_gc_id: String(row.produto_gc_id),
+              compra_gc_id: String(row.compra_gc_id),
+              compra_codigo: compra?.codigo ?? null,
+              numero_nfe: compra?.numero_nfe ?? null,
+              data: compra?.data ?? null,
+              fornecedor_nome: compra?.nome_fornecedor ?? null,
+              nome_situacao: compra?.nome_situacao ?? null,
+              quantidade: row.quantidade != null ? Number(row.quantidade) : null,
+              valor_custo: row.valor_custo != null ? Number(row.valor_custo) : null,
+            };
+          })
+          .filter(Boolean) as UltimaCompraProduto[];
         allRows.push(...batch);
         if (batch.length < pageSize) break;
         from += pageSize;
