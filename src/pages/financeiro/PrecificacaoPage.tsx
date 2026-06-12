@@ -1848,6 +1848,10 @@ export default function PrecificacaoPage() {
       } else {
         calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
       }
+      {
+        const gcCustoRaw = parseFloat(p.valor_custo) || 0;
+        if (!excecao && gcCustoRaw > calc.custoTotal) calc.custoTotal = gcCustoRaw;
+      }
       const valoresProd = valoresMap.get(p.id);
       const tabelas: Record<string, any> = {};
       for (const pol of (politicas ?? [])) {
