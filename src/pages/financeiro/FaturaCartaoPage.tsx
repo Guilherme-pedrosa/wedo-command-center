@@ -250,6 +250,87 @@ export default function FaturaCartaoPage() {
     } finally { setSaving(false); }
   };
 
+  // Helper único para buscar TODOS pagamentos elegíveis para uma fatura.
+  // - Usa .in() em uma única query (não loopa por forma_pagamento).
+  // - Pagina em chunks de 1000 para evitar o limite default do PostgREST.
+  // - Critério: data_vencimento = data informada (exato). Se não informada,
+  //   cai para mes_referencia (mês completo) e por último data_competencia no período.
+  const fetchPagamentosForFatura = async (params: {
+    formaPagamentoIds: string[];
+    dataVencimento?: string;
+    mesReferencia?: string;
+    dataFechamentoInicio?: string;
+    dataFechamentoFim?: string;
+  }) => {
+    const fpIds = params.formaPagamentoIds.filter(Boolean);
+    if (fpIds.length === 0) return [] as any[];
+
+    const runPaged = async (
+      build: (q: ReturnType<typeof supabase.from>) => any
+    ) => {
+      const all: any[] = [];
+      const pageSize = 1000;
+      let from = 0;
+      while (true) {
+        const q = build(supabase.from("fin_pagamentos"))
+          .range(from, from + pageSize - 1);
+        const { data, error } = await q;
+        if (error) throw error;
+        const rows = data ?? [];
+        all.push(...rows);
+        if (rows.length < pageSize) break;
+        from += pageSize;
+      }
+      return all;
+    };
+
+    const baseSelect = "id,descricao,valor,data_vencimento,data_competencia,nome_fornecedor,status,forma_pagamento_id";
+
+    // 1) Tenta por data de vencimento EXATA (comportamento esperado pelo usuário)
+    if (params.dataVencimento) {
+      const rows = await runPaged((t: any) =>
+        t.select(baseSelect)
+          .in("forma_pagamento_id", fpIds)
+          .neq("status", "cancelado")
+          .eq("data_vencimento", params.dataVencimento)
+          .order("data_vencimento")
+      );
+      if (rows.length > 0) return rows;
+    }
+
+    // 2) Fallback: mês de referência inteiro
+    if (params.mesReferencia) {
+      const [ano, mes] = params.mesReferencia.split("-").map(Number);
+      const mesInicio = `${params.mesReferencia}-01`;
+      const mesFim = format(new Date(ano, mes, 0), "yyyy-MM-dd");
+      const rows = await runPaged((t: any) =>
+        t.select(baseSelect)
+          .in("forma_pagamento_id", fpIds)
+          .neq("status", "cancelado")
+          .gte("data_vencimento", mesInicio)
+          .lte("data_vencimento", mesFim)
+          .order("data_vencimento")
+      );
+      if (rows.length > 0) return rows;
+    }
+
+    // 3) Fallback: data de competência no período de fechamento
+    if (params.dataFechamentoInicio && params.dataFechamentoFim) {
+      const rows = await runPaged((t: any) =>
+        t.select(baseSelect)
+          .in("forma_pagamento_id", fpIds)
+          .neq("status", "cancelado")
+          .gte("data_competencia", params.dataFechamentoInicio)
+          .lte("data_competencia", params.dataFechamentoFim)
+          .order("data_competencia")
+      );
+      return rows;
+    }
+
+    return [] as any[];
+  };
+
+
   const handleCriarFatura = async () => {
     if (!novaFatura.cartao_id || novaFatura.forma_pagamento_ids.length === 0) {
       toast.error("Selecione o cartão e pelo menos uma forma de pagamento.");
