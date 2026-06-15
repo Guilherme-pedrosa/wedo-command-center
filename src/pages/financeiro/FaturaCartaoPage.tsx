@@ -637,50 +637,14 @@ export default function FaturaCartaoPage() {
       await supabase.from("fin_fatura_transacoes").delete().eq("fatura_id", editFatura.id);
 
       // 3. Re-buscar pagamentos com as formas de pagamento atualizadas
-      let allPagamentos: any[] = [];
+      const allPagamentos = await fetchPagamentosForFatura({
+        formaPagamentoIds: editForm.forma_pagamento_ids,
+        dataVencimento: editForm.data_vencimento || undefined,
+        mesReferencia: editForm.mes_referencia || undefined,
+        dataFechamentoInicio: editForm.data_fechamento_inicio || undefined,
+        dataFechamentoFim: editForm.data_fechamento_fim || undefined,
+      });
 
-      for (const fpId of editForm.forma_pagamento_ids) {
-        const baseQuery = supabase
-          .from("fin_pagamentos")
-          .select("id,descricao,valor,data_vencimento,data_competencia,nome_fornecedor,status")
-          .eq("forma_pagamento_id", fpId)
-          .neq("status", "cancelado")
-          .order("data_vencimento");
-
-        let pagamentos: any[] = [];
-
-        if (editForm.data_vencimento) {
-          const vencDate = editForm.data_vencimento;
-          const mesInicio = vencDate.substring(0, 7) + "-01";
-          const { data, error: qErr } = await baseQuery
-            .gte("data_vencimento", mesInicio)
-            .lte("data_vencimento", vencDate);
-          if (qErr) throw qErr;
-          pagamentos = data ?? [];
-        }
-
-        if (pagamentos.length === 0 && editForm.mes_referencia) {
-          const [ano, mes] = editForm.mes_referencia.split("-").map(Number);
-          const mesInicio = `${editForm.mes_referencia}-01`;
-          const mesFim = format(new Date(ano, mes, 0), "yyyy-MM-dd");
-
-          const { data, error: qErr } = await baseQuery
-            .gte("data_vencimento", mesInicio)
-            .lte("data_vencimento", mesFim);
-          if (qErr) throw qErr;
-          pagamentos = data ?? [];
-        }
-
-        if (pagamentos.length === 0 && editForm.data_fechamento_inicio && editForm.data_fechamento_fim) {
-          const { data, error: qErr } = await baseQuery
-            .gte("data_competencia", editForm.data_fechamento_inicio)
-            .lte("data_competencia", editForm.data_fechamento_fim);
-          if (qErr) throw qErr;
-          pagamentos = data ?? [];
-        }
-
-        allPagamentos = [...allPagamentos, ...pagamentos];
-      }
 
       const valorTotal = allPagamentos.reduce((s, p) => s + Math.abs(p.valor), 0);
 
