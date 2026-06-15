@@ -1022,7 +1022,7 @@ export default function FaturaCartaoPage() {
                 {novaFatura.forma_pagamento_ids.length > 1 ? (
                   <p>Uma fatura será criada com pagamentos de <strong>{novaFatura.forma_pagamento_ids.length} formas de pagamento</strong> combinadas.</p>
                 ) : novaFatura.data_vencimento ? (
-                  <p>O sistema tenta primeiro <strong>data de vencimento = {fmtDate(novaFatura.data_vencimento)}</strong>; se não encontrar, usa o <strong>mês de referência</strong> e depois a <strong>data de competência</strong> no período.</p>
+                  <p>Serão importados <strong>todos</strong> os lançamentos das formas selecionadas com <strong>data de vencimento = {fmtDate(novaFatura.data_vencimento)}</strong>. Se nenhum lançamento bater, o sistema usa o <strong>mês de referência</strong> e depois a <strong>data de competência</strong> no período de fechamento.</p>
                 ) : novaFatura.data_fechamento_inicio && novaFatura.data_fechamento_fim ? (
                   <p>Sem data de vencimento, o sistema usará o <strong>mês de referência</strong> e depois a <strong>data de competência</strong> entre <strong>{fmtDate(novaFatura.data_fechamento_inicio)}</strong> e <strong>{fmtDate(novaFatura.data_fechamento_fim)}</strong>.</p>
                 ) : (
