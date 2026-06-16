@@ -1345,21 +1345,40 @@ serve(async (req) => {
       console.error(`[sync-all] pagamentos error: ${(err as Error).message}`);
     }
 
-    // ── Disparar reconciliation-engine (fire-and-forget pra não estourar timeout de 150s) ──
+    // ── Disparar reconciliation-engine + argus-baixa-confirmada (fire-and-forget) ──
+    // Fluxo:
+    //   1. reconciliation-engine: casa extratos Inter ↔ fin_pagamentos/recebimentos por nome+data+valor
+    //      (regras 0-6, exige identidade forte — CNPJ/PIX/nome ≥80% — em janelas ±7/±30d, valor exato).
+    //      Insere vínculos em fin_extrato_lancamentos.
+    //   2. Trigger fn_trigger_argus_baixa_confirmada dispara baixa no GC para cada link novo.
+    //   3. argus-baixa-confirmada modo "auto": rede de segurança que varre TODOS os vínculos
+    //      já existentes em fin_extrato_lancamentos cujo lançamento GC ainda não foi baixado
+    //      (gc_baixado false/null) e baixa de uma vez. Garante consistência mesmo se o
+    //      trigger pg_net tiver falhado em algum INSERT anterior.
     try {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
       console.log("[sync-all] Disparando reconciliation-engine pós-sync (async)...");
-      // Não aguarda resposta — reconciliation-engine roda em background
       fetch(`${supabaseUrl}/functions/v1/reconciliation-engine`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
         body: JSON.stringify({}),
       }).catch((e) => console.error(`[sync-all] reconciliation-engine fire-and-forget error: ${(e as Error).message}`));
+
+      // Dá uma folga de 30s para o motor criar vínculos antes da varredura de baixa GC.
+      console.log("[sync-all] Agendando argus-baixa-confirmada (auto) em 30s...");
+      setTimeout(() => {
+        fetch(`${supabaseUrl}/functions/v1/argus-baixa-confirmada`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ mode: "auto", scope: "ambos" }),
+        }).catch((e) => console.error(`[sync-all] argus-baixa-confirmada fire-and-forget error: ${(e as Error).message}`));
+      }, 30000);
     } catch (reconErr) {
-      console.error(`[sync-all] reconciliation-engine dispatch error: ${(reconErr as Error).message}`);
+      console.error(`[sync-all] reconciliation/baixa dispatch error: ${(reconErr as Error).message}`);
     }
     (results as any).reconciliacao = { status: "dispatched_async" };
+    (results as any).baixa_gc_auto = { status: "scheduled_30s" };
 
     // ── Log final ──
     const totalDuration = Date.now() - startTime;
