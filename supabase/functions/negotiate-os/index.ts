@@ -980,7 +980,21 @@ serve(async (req) => {
             const val = refreshedOS[key];
             if (val === undefined || val === null) continue;
             if (key === "forma_pagamento_id" && String(val).trim() === "") continue;
+            if (key === "atributos") {
+              stepCPayload.atributos = normalizeAtributos(val);
+              continue;
+            }
             stepCPayload[key] = val;
+          }
+          // Reaproveita os atributos injetados no Step A (placeholders para campos obrigatórios)
+          if (Array.isArray(stepAPayload.atributos)) {
+            const refreshedAtributos = Array.isArray(stepCPayload.atributos) ? stepCPayload.atributos as any[] : [];
+            const presentIds = new Set(refreshedAtributos.map((a: any) => String(a?.atributo?.atributo_id ?? "")));
+            for (const a of stepAPayload.atributos as any[]) {
+              const id = String(a?.atributo?.atributo_id ?? "");
+              if (id && !presentIds.has(id)) refreshedAtributos.push(a);
+            }
+            stepCPayload.atributos = refreshedAtributos;
           }
           if (actingGcUserId) {
             stepCPayload.usuario_id = actingGcUserId;
