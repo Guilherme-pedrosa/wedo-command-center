@@ -697,6 +697,7 @@ serve(async (req) => {
         "valor_frete", "condicao_pagamento", "forma_pagamento_id",
         "data_primeira_parcela", "numero_parcelas", "intervalo_dias",
         "equipamentos", "pagamentos", "produtos", "servicos",
+        "campos_personalizados", "campos_customizados", "campos_extras",
       ];
 
       for (const os of osDetails) {
