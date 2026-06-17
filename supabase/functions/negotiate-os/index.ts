@@ -698,7 +698,23 @@ serve(async (req) => {
         "data_primeira_parcela", "numero_parcelas", "intervalo_dias",
         "equipamentos", "pagamentos", "produtos", "servicos",
         "campos_personalizados", "campos_customizados", "campos_extras",
+        "atributos",
       ];
+
+      // GET retorna atributos como [{atributo: {atributo_id, conteudo, ...}}].
+      // O PUT do GC aceita o mesmo wrapper; normalizamos para garantir os campos mínimos.
+      const normalizeAtributos = (raw: unknown): Array<{ atributo: { atributo_id: string; conteudo: string } }> => {
+        if (!Array.isArray(raw)) return [];
+        return raw.map((item: any) => {
+          const a = item?.atributo ?? item ?? {};
+          return {
+            atributo: {
+              atributo_id: String(a.atributo_id ?? a.id ?? ""),
+              conteudo: a.conteudo == null ? "" : String(a.conteudo),
+            },
+          };
+        }).filter((x) => x.atributo.atributo_id);
+      };
 
       for (const os of osDetails) {
         try {
@@ -713,6 +729,10 @@ serve(async (req) => {
             const rawValue = os.raw[key];
             if (rawValue === undefined || rawValue === null) continue;
             if (key === "forma_pagamento_id" && String(rawValue).trim() === "") continue;
+            if (key === "atributos") {
+              basePayload.atributos = normalizeAtributos(rawValue);
+              continue;
+            }
             basePayload[key] = rawValue;
           }
           if (actingGcUserId) {
@@ -721,16 +741,48 @@ serve(async (req) => {
 
           // ── STEP A ──
           console.log(`[negotiate-os] STEP A: OS ${os.id} (cod ${os.codigo}) → intermediário`);
-          const stepAPayload = { ...basePayload, situacao_id: SITUACAO_INTERMEDIARIA };
-          const stepAResp = await rateLimitedFetch(
-            `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
-            { method: "PUT", headers: gcHeaders, body: JSON.stringify(stepAPayload) }
-          );
-          const stepARawText = await stepAResp.text();
-          let stepAData: any = null;
-          try { stepAData = JSON.parse(stepARawText); } catch { /* not json */ }
+          const doStepA = async (payload: Record<string, unknown>) => {
+            const resp = await rateLimitedFetch(
+              `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
+              { method: "PUT", headers: gcHeaders, body: JSON.stringify(payload) }
+            );
+            const text = await resp.text();
+            let data: any = null;
+            try { data = JSON.parse(text); } catch { /* not json */ }
+            return { resp, text, data };
+          };
+
+          let stepAPayload: Record<string, unknown> = { ...basePayload, situacao_id: SITUACAO_INTERMEDIARIA };
+          let { resp: stepAResp, text: stepARawText, data: stepAData } = await doStepA(stepAPayload);
+
+          // Auto-recovery: situação destino exige atributos obrigatórios ausentes.
+          // Extrai IDs do erro do GC (ex: "TAREFA EXECUÇÃO (#73344)") e injeta placeholder.
+          const errorMsg = String(stepAData?.data?.mensagem || stepAData?.message || stepARawText || "");
+          if (!stepAResp.ok && /atributos?\s+obrigat/i.test(errorMsg)) {
+            const missingIds = [...new Set(
+              [...errorMsg.matchAll(/#(\d{3,})/g)].map((m) => m[1])
+            )];
+            if (missingIds.length > 0) {
+              const currentAtributos = Array.isArray(stepAPayload.atributos)
+                ? [...(stepAPayload.atributos as any[])]
+                : [];
+              const presentIds = new Set(
+                currentAtributos.map((a: any) => String(a?.atributo?.atributo_id ?? ""))
+              );
+              for (const id of missingIds) {
+                if (!presentIds.has(id)) {
+                  currentAtributos.push({ atributo: { atributo_id: id, conteudo: "Negociação" } });
+                }
+              }
+              console.log(`[negotiate-os] STEP A retry OS ${os.id}: injetando atributos obrigatórios [${missingIds.join(", ")}]`);
+              stepAPayload = { ...stepAPayload, atributos: currentAtributos };
+              ({ resp: stepAResp, text: stepARawText, data: stepAData } = await doStepA(stepAPayload));
+            }
+          }
+
           if (!stepAResp.ok && stepAData?.code !== 200) {
-            const gcMsg = stepAData?.message
+            const gcMsg = stepAData?.data?.mensagem
+              || stepAData?.message
               || (Array.isArray(stepAData?.errors) ? stepAData.errors.join("; ") : null)
               || (stepAData?.errors && typeof stepAData.errors === "object" ? JSON.stringify(stepAData.errors) : null)
               || stepARawText?.slice(0, 500)
@@ -742,6 +794,7 @@ serve(async (req) => {
           }
           console.log(`[negotiate-os] STEP A OK: OS ${os.id}`);
           await new Promise((r) => setTimeout(r, 500));
+
 
           // ── GET REFRESH após Step A: capturar valor_total que o GC usa na validação ──
           let gcValidationCents = os.header_valor_total_cents; // fallback = valor do GET inicial
@@ -927,7 +980,21 @@ serve(async (req) => {
             const val = refreshedOS[key];
             if (val === undefined || val === null) continue;
             if (key === "forma_pagamento_id" && String(val).trim() === "") continue;
+            if (key === "atributos") {
+              stepCPayload.atributos = normalizeAtributos(val);
+              continue;
+            }
             stepCPayload[key] = val;
+          }
+          // Reaproveita os atributos injetados no Step A (placeholders para campos obrigatórios)
+          if (Array.isArray(stepAPayload.atributos)) {
+            const refreshedAtributos = Array.isArray(stepCPayload.atributos) ? stepCPayload.atributos as any[] : [];
+            const presentIds = new Set(refreshedAtributos.map((a: any) => String(a?.atributo?.atributo_id ?? "")));
+            for (const a of stepAPayload.atributos as any[]) {
+              const id = String(a?.atributo?.atributo_id ?? "");
+              if (id && !presentIds.has(id)) refreshedAtributos.push(a);
+            }
+            stepCPayload.atributos = refreshedAtributos;
           }
           if (actingGcUserId) {
             stepCPayload.usuario_id = actingGcUserId;
