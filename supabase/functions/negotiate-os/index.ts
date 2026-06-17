@@ -719,15 +719,24 @@ serve(async (req) => {
           }
 
           // ── STEP A ──
-          console.log(`[negotiate-os] STEP A: OS ${os.id} → intermediário`);
+          console.log(`[negotiate-os] STEP A: OS ${os.id} (cod ${os.codigo}) → intermediário`);
           const stepAPayload = { ...basePayload, situacao_id: SITUACAO_INTERMEDIARIA };
           const stepAResp = await rateLimitedFetch(
             `${GC_BASE_URL}/api/ordens_servicos/${os.id}`,
             { method: "PUT", headers: gcHeaders, body: JSON.stringify(stepAPayload) }
           );
-          const stepAData = await stepAResp.json();
+          const stepARawText = await stepAResp.text();
+          let stepAData: any = null;
+          try { stepAData = JSON.parse(stepARawText); } catch { /* not json */ }
           if (!stepAResp.ok && stepAData?.code !== 200) {
-            gcUpdateResults.push({ os_id: os.id, status: "error", error: `Step A failed: ${stepAData?.message || stepAResp.status}` });
+            const gcMsg = stepAData?.message
+              || (Array.isArray(stepAData?.errors) ? stepAData.errors.join("; ") : null)
+              || (stepAData?.errors && typeof stepAData.errors === "object" ? JSON.stringify(stepAData.errors) : null)
+              || stepARawText?.slice(0, 500)
+              || String(stepAResp.status);
+            console.error(`[negotiate-os] STEP A FAIL OS ${os.id} (cod ${os.codigo}) status=${stepAResp.status} body=${stepARawText?.slice(0, 1000)}`);
+            console.error(`[negotiate-os] STEP A FAIL payload=${JSON.stringify(stepAPayload).slice(0, 1500)}`);
+            gcUpdateResults.push({ os_id: os.id, status: "error", error: `Step A failed (${stepAResp.status}): ${gcMsg}` });
             continue;
           }
           console.log(`[negotiate-os] STEP A OK: OS ${os.id}`);
