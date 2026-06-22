@@ -304,6 +304,16 @@ export default function RecebimentosPage() {
         }
       }
 
+      // Atualiza situação das OS no GC: EXECUTADO - FECHADO CHAMADO → CHAMADO FECHADO - FATURADO
+      // Não toca em financeiros (omite pagamentos/parcelas no payload).
+      supabase.functions.invoke("update-os-faturado", {
+        body: { grupo_id: (grupo as any).id },
+      }).then(({ data, error }) => {
+        if (error) { console.warn("[update-os-faturado] erro:", error); return; }
+        const d: any = data;
+        if (d?.atualizadas > 0) toast(`${d.atualizadas} OS marcada(s) como Faturada no GC`, { icon: "✅" });
+      }).catch((e) => console.warn("[update-os-faturado] falha:", e));
+
       toast.success(`Grupo criado com ${items.length} itens · ${formatCurrency(total)}`);
       setSelected(new Set());
       setShowCreateGroup(false);
