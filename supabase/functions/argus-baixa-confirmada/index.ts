@@ -405,7 +405,14 @@ Deno.serve(async (req) => {
       const scope = normalizeScope(body.scope);
       alvos = await buscarPendentes(dataInicio, dataFim, scope);
     } else if (Array.isArray(body.links)) {
-      alvos = body.links.filter((l: any) => l?.lancamento_id && l?.tabela);
+      alvos = body.links
+        .filter((l: any) => l?.lancamento_id && l?.tabela)
+        .map((l: any) => ({
+          lancamento_id: String(l.lancamento_id),
+          tabela: String(l.tabela),
+          data_liquidacao_override: typeof l.data_liquidacao_override === "string" ? l.data_liquidacao_override : undefined,
+          observacao_contexto: typeof l.observacao_contexto === "string" ? l.observacao_contexto : undefined,
+        }));
     }
 
     if (alvos.length === 0) {
