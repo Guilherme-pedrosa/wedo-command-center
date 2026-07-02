@@ -41,6 +41,8 @@ function isLiquidadoGC(value: unknown): boolean {
 interface LinkInput {
   lancamento_id: string;
   tabela: string; // "fin_pagamentos" | "fin_recebimentos"
+  data_liquidacao_override?: string; // yyyy-mm-dd — força a data_liquidacao (bypass extrato)
+  observacao_contexto?: string; // trecho de contexto adicional (ex.: fatura de cartão)
 }
 
 interface ExtratoInfo {
