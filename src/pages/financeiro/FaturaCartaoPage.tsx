@@ -508,6 +508,35 @@ export default function FaturaCartaoPage() {
         throw extratoErr;
       }
 
+      // 5. Baixar automaticamente todos os financeiros no GC como "Confirmado"
+      //    usando data_compensacao = data_vencimento da fatura de cartão
+      const faturaAtual = faturas.find(f => f.id === extratoFaturaId);
+      const dataVencFatura = faturaAtual?.data_vencimento;
+      const linksBaixa = (trans || [])
+        .filter(t => t.lancamento_id)
+        .map(t => ({
+          lancamento_id: t.lancamento_id!,
+          tabela: "fin_pagamentos",
+          data_liquidacao_override: dataVencFatura || undefined,
+          observacao_contexto: `Fatura cartão ${faturaAtual?.fin_cartoes?.nome ?? ""} — venc. ${dataVencFatura ? format(parseISO(dataVencFatura), "dd/MM/yyyy") : "—"}`,
+        }));
+
+      if (linksBaixa.length > 0 && dataVencFatura) {
+        supabase.functions
+          .invoke("argus-baixa-confirmada", { body: { mode: "links", links: linksBaixa } })
+          .then(({ data, error }) => {
+            if (error) {
+              toast.error(`Baixa GC parcial/falha: ${error.message}`);
+            } else {
+              const sucesso = (data as any)?.sucesso ?? 0;
+              const falha = (data as any)?.falha ?? 0;
+              if (falha > 0) toast.error(`Baixa GC: ${sucesso} ok, ${falha} falha(s).`);
+              else if (sucesso > 0) toast.success(`Baixa GC concluída em ${sucesso} financeiro(s).`);
+            }
+            invalidateAll();
+          });
+      }
+
       invalidateAll();
       toast.success("Extrato vinculado — fatura marcada como paga e conciliação registrada.");
       setShowExtratoDialog(false);
