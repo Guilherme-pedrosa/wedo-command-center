@@ -215,49 +215,67 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
     return { ...link, ok: true, gc_id: lanc.gc_id, erro: "Já baixado (skip)" };
   }
 
-  // Buscar data do extrato vinculado (a mais recente, caso N:N)
-  // Aceita tanto "fin_pagamentos"/"fin_recebimentos" quanto sem prefixo (legado)
-  const tabelaShort = tabela.replace(/^fin_/, "");
-  const { data: vinculos, error: vincErr } = await supabase
-    .from("fin_extrato_lancamentos")
-    .select("extrato_id, tabela")
-    .eq("lancamento_id", link.lancamento_id);
+  // Se um override de data_liquidacao foi passado, pula toda a busca de extrato
+  let dataLiq: string;
+  let extratosNorm: ExtratoInfo[] = [];
 
-  console.log(`[processarLink] ${link.lancamento_id} (${tabela}): vinculos=`, JSON.stringify(vinculos), "err=", vincErr?.message);
+  if (link.data_liquidacao_override && /^\d{4}-\d{2}-\d{2}$/.test(link.data_liquidacao_override)) {
+    dataLiq = link.data_liquidacao_override;
+    if (link.observacao_contexto) {
+      extratosNorm = [{
+        data: dataLiq,
+        valor: null,
+        descricao: link.observacao_contexto,
+        contraparte: null,
+        tipo: null,
+        end_to_end_id: null,
+      }];
+    }
+  } else {
+    // Buscar data do extrato vinculado (a mais recente, caso N:N)
+    // Aceita tanto "fin_pagamentos"/"fin_recebimentos" quanto sem prefixo (legado)
+    const tabelaShort = tabela.replace(/^fin_/, "");
+    const { data: vinculos, error: vincErr } = await supabase
+      .from("fin_extrato_lancamentos")
+      .select("extrato_id, tabela")
+      .eq("lancamento_id", link.lancamento_id);
 
-  const vinculosFiltrados = (vinculos || []).filter((v: any) => {
-    const t = (v.tabela || "").toString();
-    return t === tabela || t === tabelaShort;
-  });
+    console.log(`[processarLink] ${link.lancamento_id} (${tabela}): vinculos=`, JSON.stringify(vinculos), "err=", vincErr?.message);
 
-  const extratoIds = Array.from(new Set(vinculosFiltrados.map((v: any) => v.extrato_id).filter(Boolean)));
-  if (extratoIds.length === 0) {
-    return { ...link, ok: false, erro: `Sem extrato vinculado (raw=${vinculos?.length ?? 0}, filt=${vinculosFiltrados.length}, tab=${tabela})` };
+    const vinculosFiltrados = (vinculos || []).filter((v: any) => {
+      const t = (v.tabela || "").toString();
+      return t === tabela || t === tabelaShort;
+    });
+
+    const extratoIds = Array.from(new Set(vinculosFiltrados.map((v: any) => v.extrato_id).filter(Boolean)));
+    if (extratoIds.length === 0) {
+      return { ...link, ok: false, erro: `Sem extrato vinculado (raw=${vinculos?.length ?? 0}, filt=${vinculosFiltrados.length}, tab=${tabela})` };
+    }
+
+    const { data: extratos } = await supabase
+      .from("fin_extrato_inter")
+      .select("id, data_hora, valor, descricao, nome_contraparte, tipo, tipo_transacao, end_to_end_id")
+      .in("id", extratoIds);
+
+    extratosNorm = ((extratos || []) as any[])
+      .map((e) => ({
+        data: dateOnly(e.data_hora) || "",
+        valor: e.valor != null ? Number(e.valor) : null,
+        descricao: e.descricao || null,
+        contraparte: e.nome_contraparte || null,
+        tipo: e.tipo_transacao || e.tipo || null,
+        end_to_end_id: e.end_to_end_id || null,
+      }))
+      .filter((e) => !!e.data)
+      .sort((a, b) => a.data.localeCompare(b.data));
+
+    if (extratosNorm.length === 0) {
+      return { ...link, ok: false, erro: "Sem extrato vinculado" };
+    }
+
+    // Maior data (última liquidação)
+    dataLiq = extratosNorm[extratosNorm.length - 1].data;
   }
-
-  const { data: extratos } = await supabase
-    .from("fin_extrato_inter")
-    .select("id, data_hora, valor, descricao, nome_contraparte, tipo, tipo_transacao, end_to_end_id")
-    .in("id", extratoIds);
-
-  const extratosNorm: ExtratoInfo[] = ((extratos || []) as any[])
-    .map((e) => ({
-      data: dateOnly(e.data_hora) || "",
-      valor: e.valor != null ? Number(e.valor) : null,
-      descricao: e.descricao || null,
-      contraparte: e.nome_contraparte || null,
-      tipo: e.tipo_transacao || e.tipo || null,
-      end_to_end_id: e.end_to_end_id || null,
-    }))
-    .filter((e) => !!e.data)
-    .sort((a, b) => a.data.localeCompare(b.data));
-
-  if (extratosNorm.length === 0) {
-    return { ...link, ok: false, erro: "Sem extrato vinculado" };
-  }
-
-  // Maior data (última liquidação)
-  const dataLiq = extratosNorm[extratosNorm.length - 1].data;
 
   if (dataLiq < CUTOFF_DATE) {
     return { ...link, ok: false, erro: `Antes do cutoff ${CUTOFF_DATE}` };
