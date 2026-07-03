@@ -1331,17 +1331,23 @@ export async function syncPagamentosGC(
       .lte("data_vencimento", filtros.dataFim)
       .not("gc_id", "is", null) as any;
 
-    const orphans = (localPags ?? []).filter(
+    const orphanCandidates = (localPags ?? []).filter(
       (r: any) => r.gc_id && !gcIdsFromGC.has(String(r.gc_id))
     );
-    if (orphans.length > 0) {
-      const orphanIds = orphans.map((o: any) => o.id);
-      extratosResetados = await resetExtratosByLancamentos(orphanIds, ["pagamentos", "fin_pagamentos"]);
-      await supabase.from("fin_grupo_pagar_itens" as any).delete().in("pagamento_id", orphanIds);
-      await supabase.from("fin_pagamentos" as any).delete().in("id", orphanIds);
-      orphansRemoved = orphanIds.length;
-      console.log(`[syncPagamentosGC] Removed ${orphansRemoved} orphaned local pagamentos not found in GC; reset ${extratosResetados} extratos`);
+    if (orphanCandidates.length > 0) {
+      // Probe each candidate via per-id GET — if GC still has it, refresh
+      // (data_vencimento may have shifted out of the fetched window).
+      const { trueOrphans } = await probeOrphansFromGC("pagamentos", orphanCandidates, pcMap, ccMap, fpMap);
+      if (trueOrphans.length > 0) {
+        const orphanIds = trueOrphans.map((o: any) => o.id);
+        extratosResetados = await resetExtratosByLancamentos(orphanIds, ["pagamentos", "fin_pagamentos"]);
+        await supabase.from("fin_grupo_pagar_itens" as any).delete().in("pagamento_id", orphanIds);
+        await supabase.from("fin_pagamentos" as any).delete().in("id", orphanIds);
+        orphansRemoved = orphanIds.length;
+        console.log(`[syncPagamentosGC] Removed ${orphansRemoved} truly orphaned local pagamentos; reset ${extratosResetados} extratos`);
+      }
     }
+
   }
 
   try {
