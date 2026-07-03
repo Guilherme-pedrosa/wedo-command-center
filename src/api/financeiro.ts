@@ -1248,6 +1248,9 @@ export async function syncRecebimentosGC(
         console.log(`[syncRecebimentosGC] Removed ${orphansRemoved} truly orphaned local records; reset ${extratosResetados} extratos`);
       }
     }
+  }
+
+
 
 
   await supabase.from("fin_sync_log" as any).insert({
