@@ -240,6 +240,15 @@ export default function RecebimentosPage() {
       toast.success(`Importados: ${result.importados} registros`);
       queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
       setShowSyncDialog(false);
+      // Dispara conciliação extrato ↔ GC e baixa automática dos confirmados
+      onStep?.("Conciliando com extrato bancário...");
+      supabase.functions.invoke("reconciliation-engine", { body: {} })
+        .catch((e) => console.error("[recebimentos] reconciliation dispatch:", e));
+      setTimeout(() => {
+        supabase.functions.invoke("argus-baixa-confirmada", { body: { mode: "auto", scope: "recebimentos" } })
+          .catch((e) => console.error("[recebimentos] baixa auto dispatch:", e));
+      }, 30000);
+      toast("Conciliação + baixa GC agendadas", { icon: "🔄" });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
     } finally {
