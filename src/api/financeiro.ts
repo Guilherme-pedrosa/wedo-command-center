@@ -1088,6 +1088,81 @@ export async function syncByMonthChunks(
   return totals;
 }
 
+// ─── Probe orphan candidates via per-id GET to preserve records whose
+//     data_vencimento changed in GC (moved out of the fetched window).
+//     Returns true-orphans (404 in GC) and count of refreshed records.
+async function probeOrphansFromGC(
+  scope: "recebimentos" | "pagamentos",
+  orphans: Array<{ id: string; gc_id: string }>,
+  pcMap: Record<string, string>,
+  ccMap: Record<string, string>,
+  fpMap: Record<string, string>,
+): Promise<{ trueOrphans: Array<{ id: string; gc_id: string }>; refreshed: number }> {
+  const trueOrphans: Array<{ id: string; gc_id: string }> = [];
+  const refreshRows: any[] = [];
+  const table = scope === "recebimentos" ? "fin_recebimentos" : "fin_pagamentos";
+
+  const CONCURRENCY = 4;
+  for (let i = 0; i < orphans.length; i += CONCURRENCY) {
+    const slice = orphans.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(slice.map(async (o) => {
+      try {
+        const res = await callGC<any>({ endpoint: `/api/${scope}/${o.gc_id}` });
+        const raw = res?.data?.data ?? res?.data;
+        if (res?.status >= 400 || !raw?.id) return { orphan: o, raw: null as any };
+        return { orphan: o, raw };
+      } catch {
+        return { orphan: o, raw: null as any };
+      }
+    }));
+
+    for (const { orphan, raw } of results) {
+      if (!raw) {
+        trueOrphans.push(orphan);
+        continue;
+      }
+      const base: any = {
+        gc_id: raw.id,
+        gc_codigo: raw.codigo,
+        gc_payload_raw: raw,
+        descricao: raw.descricao ?? "Sem descrição",
+        os_codigo: extrairOsCodigo(raw.descricao),
+        tipo: inferirTipo(raw.descricao),
+        origem: inferirOrigem(raw.descricao),
+        valor: parseFloat(raw.valor_total ?? raw.valor ?? "0"),
+        plano_contas_id: raw.plano_contas_id ? (pcMap[raw.plano_contas_id] ?? null) : null,
+        centro_custo_id: raw.centro_custo_id ? (ccMap[raw.centro_custo_id] ?? null) : null,
+        forma_pagamento_id: raw.forma_pagamento_id ? (fpMap[raw.forma_pagamento_id] ?? null) : null,
+        data_vencimento: raw.data_vencimento || null,
+        data_competencia: raw.data_competencia || null,
+        data_liquidacao: raw.data_liquidacao || null,
+        liquidado: isLiquidadoGC(raw.liquidado),
+        status: normalizeLancamentoStatus(raw),
+        last_synced_at: new Date().toISOString(),
+      };
+      if (scope === "recebimentos") {
+        base.cliente_gc_id = raw.cliente_id ?? null;
+        base.nome_cliente = raw.nome_cliente ?? null;
+      } else {
+        base.fornecedor_gc_id = raw.fornecedor_id ?? null;
+        base.nome_fornecedor = raw.nome_fornecedor ?? null;
+      }
+      refreshRows.push(base);
+    }
+  }
+
+  if (refreshRows.length > 0) {
+    const B = 50;
+    for (let i = 0; i < refreshRows.length; i += B) {
+      await supabase.from(table as any).upsert(refreshRows.slice(i, i + B), { onConflict: "gc_id" });
+    }
+    console.log(`[probeOrphansFromGC:${scope}] refreshed ${refreshRows.length} records (data_vencimento shifted in GC)`);
+  }
+
+  return { trueOrphans, refreshed: refreshRows.length };
+}
+
+
 export async function syncRecebimentosGC(
   onProgress?: (atual: number, total: number) => void,
   filtros?: SyncDateFilter
@@ -1156,19 +1231,27 @@ export async function syncRecebimentosGC(
       .lte("data_vencimento", filtros.dataFim)
       .not("gc_id", "is", null) as any;
 
-    const orphans = (localRecs ?? []).filter(
+    const orphanCandidates = (localRecs ?? []).filter(
       (r: any) => r.gc_id && !gcIdsFromGC.has(String(r.gc_id))
     );
 
-    if (orphans.length > 0) {
-      const orphanIds = orphans.map((o: any) => o.id);
-      extratosResetados = await resetExtratosByLancamentos(orphanIds, ["recebimentos", "fin_recebimentos"]);
-      await supabase.from("fin_grupo_receber_itens" as any).delete().in("recebimento_id", orphanIds);
-      await supabase.from("fin_recebimentos" as any).delete().in("id", orphanIds);
-      orphansRemoved = orphanIds.length;
-      console.log(`[syncRecebimentosGC] Removed ${orphansRemoved} orphaned local records not found in GC; reset ${extratosResetados} extratos`);
+    if (orphanCandidates.length > 0) {
+      // Probe each candidate via per-id GET — if GC still has it, refresh
+      // (data_vencimento may have shifted out of the fetched window).
+      const { trueOrphans } = await probeOrphansFromGC("recebimentos", orphanCandidates, pcMap, ccMap, fpMap);
+      if (trueOrphans.length > 0) {
+        const orphanIds = trueOrphans.map((o: any) => o.id);
+        extratosResetados = await resetExtratosByLancamentos(orphanIds, ["recebimentos", "fin_recebimentos"]);
+        await supabase.from("fin_grupo_receber_itens" as any).delete().in("recebimento_id", orphanIds);
+        await supabase.from("fin_recebimentos" as any).delete().in("id", orphanIds);
+        orphansRemoved = orphanIds.length;
+        console.log(`[syncRecebimentosGC] Removed ${orphansRemoved} truly orphaned local records; reset ${extratosResetados} extratos`);
+      }
     }
   }
+
+
+
 
   await supabase.from("fin_sync_log" as any).insert({
     tipo: "gc_import_recebimentos",
@@ -1248,17 +1331,23 @@ export async function syncPagamentosGC(
       .lte("data_vencimento", filtros.dataFim)
       .not("gc_id", "is", null) as any;
 
-    const orphans = (localPags ?? []).filter(
+    const orphanCandidates = (localPags ?? []).filter(
       (r: any) => r.gc_id && !gcIdsFromGC.has(String(r.gc_id))
     );
-    if (orphans.length > 0) {
-      const orphanIds = orphans.map((o: any) => o.id);
-      extratosResetados = await resetExtratosByLancamentos(orphanIds, ["pagamentos", "fin_pagamentos"]);
-      await supabase.from("fin_grupo_pagar_itens" as any).delete().in("pagamento_id", orphanIds);
-      await supabase.from("fin_pagamentos" as any).delete().in("id", orphanIds);
-      orphansRemoved = orphanIds.length;
-      console.log(`[syncPagamentosGC] Removed ${orphansRemoved} orphaned local pagamentos not found in GC; reset ${extratosResetados} extratos`);
+    if (orphanCandidates.length > 0) {
+      // Probe each candidate via per-id GET — if GC still has it, refresh
+      // (data_vencimento may have shifted out of the fetched window).
+      const { trueOrphans } = await probeOrphansFromGC("pagamentos", orphanCandidates, pcMap, ccMap, fpMap);
+      if (trueOrphans.length > 0) {
+        const orphanIds = trueOrphans.map((o: any) => o.id);
+        extratosResetados = await resetExtratosByLancamentos(orphanIds, ["pagamentos", "fin_pagamentos"]);
+        await supabase.from("fin_grupo_pagar_itens" as any).delete().in("pagamento_id", orphanIds);
+        await supabase.from("fin_pagamentos" as any).delete().in("id", orphanIds);
+        orphansRemoved = orphanIds.length;
+        console.log(`[syncPagamentosGC] Removed ${orphansRemoved} truly orphaned local pagamentos; reset ${extratosResetados} extratos`);
+      }
     }
+
   }
 
   try {
