@@ -332,17 +332,28 @@ async function buscarPendentes(dataInicio?: string, dataFim?: string, scope: Bai
   const seen = new Set<string>();
 
   async function collect(table: "fin_pagamentos" | "fin_recebimentos", aliases: string[]) {
-    const { data: rows, error } = await supabase
-      .from(table)
-      .select("id, gc_id, status, gc_baixado, liquidado, pago_sistema")
-      .not("gc_id", "is", null)
-      .or("gc_baixado.is.null,gc_baixado.eq.false")
-      .limit(10000);
-
-    if (error) {
-      console.warn(`[buscarPendentes] Falha ao buscar ${table}:`, error.message);
-      return;
+    // Pagina em blocos de 1000 para não bater no teto do PostgREST (default ~1000 rows).
+    const rows: any[] = [];
+    const PAGE = 1000;
+    let from = 0;
+    // Limite defensivo de 200k linhas (200 páginas).
+    for (let p = 0; p < 200; p++) {
+      const { data: chunk, error } = await supabase
+        .from(table)
+        .select("id, gc_id, status, gc_baixado, liquidado, pago_sistema")
+        .not("gc_id", "is", null)
+        .or("gc_baixado.is.null,gc_baixado.eq.false")
+        .range(from, from + PAGE - 1);
+      if (error) {
+        console.warn(`[buscarPendentes] Falha ao buscar ${table} (page ${p}):`, error.message);
+        break;
+      }
+      if (!chunk || chunk.length === 0) break;
+      rows.push(...chunk);
+      if (chunk.length < PAGE) break;
+      from += PAGE;
     }
+
 
     const candidates = ((rows || []) as any[]).filter((row) =>
       !isLiquidadoGC(row.liquidado) && String(row.status || "").toLowerCase() !== "cancelado"
