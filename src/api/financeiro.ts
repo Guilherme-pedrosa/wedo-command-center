@@ -1231,19 +1231,24 @@ export async function syncRecebimentosGC(
       .lte("data_vencimento", filtros.dataFim)
       .not("gc_id", "is", null) as any;
 
-    const orphans = (localRecs ?? []).filter(
+    const orphanCandidates = (localRecs ?? []).filter(
       (r: any) => r.gc_id && !gcIdsFromGC.has(String(r.gc_id))
     );
 
-    if (orphans.length > 0) {
-      const orphanIds = orphans.map((o: any) => o.id);
-      extratosResetados = await resetExtratosByLancamentos(orphanIds, ["recebimentos", "fin_recebimentos"]);
-      await supabase.from("fin_grupo_receber_itens" as any).delete().in("recebimento_id", orphanIds);
-      await supabase.from("fin_recebimentos" as any).delete().in("id", orphanIds);
-      orphansRemoved = orphanIds.length;
-      console.log(`[syncRecebimentosGC] Removed ${orphansRemoved} orphaned local records not found in GC; reset ${extratosResetados} extratos`);
+    if (orphanCandidates.length > 0) {
+      // Probe each candidate via per-id GET — if GC still has it, refresh
+      // (data_vencimento may have shifted out of the fetched window).
+      const { trueOrphans } = await probeOrphansFromGC("recebimentos", orphanCandidates, pcMap, ccMap, fpMap);
+      if (trueOrphans.length > 0) {
+        const orphanIds = trueOrphans.map((o: any) => o.id);
+        extratosResetados = await resetExtratosByLancamentos(orphanIds, ["recebimentos", "fin_recebimentos"]);
+        await supabase.from("fin_grupo_receber_itens" as any).delete().in("recebimento_id", orphanIds);
+        await supabase.from("fin_recebimentos" as any).delete().in("id", orphanIds);
+        orphansRemoved = orphanIds.length;
+        console.log(`[syncRecebimentosGC] Removed ${orphansRemoved} truly orphaned local records; reset ${extratosResetados} extratos`);
+      }
     }
-  }
+
 
   await supabase.from("fin_sync_log" as any).insert({
     tipo: "gc_import_recebimentos",
