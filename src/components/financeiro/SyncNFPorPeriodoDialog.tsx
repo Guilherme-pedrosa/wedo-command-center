@@ -213,6 +213,14 @@ export function SyncNFPorPeriodoDialog({ open, onOpenChange, onDone }: Props) {
               <CheckCircle className="h-3.5 w-3.5" /> Sincronização concluída.
             </div>
           )}
+
+          {result && (result.fretes_processados ?? 0) + (result.fretes_ignorados ?? 0) > 0 && (
+            <div className="rounded-md border border-border bg-muted/20 p-2 text-xs text-muted-foreground">
+              <strong className="text-foreground">Rateio de frete:</strong> {result.fretes_processados} pedido(s) de frete aplicado(s)
+              {result.fretes_ignorados ? `, ${result.fretes_ignorados} já aplicado(s) anteriormente` : ""}
+              {result.frete_valor_total ? ` • total rateado R$ ${result.frete_valor_total.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : ""}.
+            </div>
+          )}
         </div>
 
         <DialogFooter>
