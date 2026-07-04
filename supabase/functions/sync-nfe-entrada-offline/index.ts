@@ -122,6 +122,7 @@ interface XmlItemTax {
   qCom: number;
   vProd: number;
   vUnCom: number;
+  vDesc: number;
   icms_orig: string;
   icms_cst: string;
   icms_pRedBC: number;
