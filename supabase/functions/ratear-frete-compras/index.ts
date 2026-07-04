@@ -747,12 +747,18 @@ serve(async (req) => {
         frete_embutido_detectado: embutidas.length,
         frete_embutido_processado: embutidasProcessadas,
         frete_embutido_ignorado: embutidasIgnoradas,
+        frete_embutido_bloqueado_por_externo: embutidasBloqueadasPorExterno.length,
+        conflitos_frete_duplicado: conflitosFreteGlobal,
+        aviso_geral: conflitosFreteGlobal.length > 0 || embutidasBloqueadasPorExterno.length > 0
+          ? `⚠️ Detectados ${conflitosFreteGlobal.length + embutidasBloqueadasPorExterno.length} caso(s) de frete duplicado (pedido tem frete embutido E está amarrado por outro pedido de frete). O frete embutido foi ignorado — corrija no GC removendo a duplicidade.`
+          : undefined,
         total_rateado: Math.round(totalRateado * 100) / 100,
         resultados,
         tempo_ms: Date.now() - inicio,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
+
   } catch (err) {
     return new Response(
       JSON.stringify({
