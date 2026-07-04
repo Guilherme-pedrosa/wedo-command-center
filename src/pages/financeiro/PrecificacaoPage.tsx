@@ -371,6 +371,9 @@ export default function PrecificacaoPage() {
   const [taxSaida, setTaxSaida] = useState<TaxConfigSaida>(DEFAULT_SAIDA);
   const [tipoSaidaGlobal, setTipoSaidaGlobal] = useState<TipoSaida>("venda");
   const [margemAlvo, setMargemAlvo] = useState(30);
+  // Se true, desconta créditos de entrada (ICMS/PIS/COFINS) do custo → reduz preço.
+  // Se false (padrão), créditos viram margem extra de caixa.
+  const [usarCreditoNaPrecificacao, setUsarCreditoNaPrecificacao] = useState(false);
   // Override manual do % de custo fixo (vazio = usa rateio auto cap'd em CUSTO_FIXO_PCT_MAX)
   const [custoFixoPctOverride, setCustoFixoPctOverride] = useState<string>("");
   const [tabelaVenda, setTabelaVenda] = useState<"A" | "B" | "P">("B");
