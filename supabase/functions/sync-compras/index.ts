@@ -248,20 +248,28 @@ serve(async (req) => {
         console.log(`[sync-compras] sit=${currentSitId} page ${page}/${totalPages} — ${records.length} recs`);
         page++;
       }
+      // Se saiu do while sem break (todas as páginas OK), marca situação como totalmente sincronizada.
+      if (page > totalPages) {
+        fullySyncedSitIds.add(currentSitId);
+      }
     }
 
-    // Se um pedido saiu das situações sincronizadas (ex.: foi cancelado), ele não aparece
-    // mais nas páginas acima. Nesse caso removemos o órfão local do período para não virar frete/custo fantasma.
-    if (!situacaoId && dataInicio && dataFim && errors === 0) {
+    // ── STALE CLEANUP OBRIGATÓRIO ──
+    // Se um pedido saiu das situações sincronizadas (ex.: cancelado, mudou de status para não-tracked),
+    // ele não aparece mais nas páginas acima. Removemos o órfão local para não virar frete/custo fantasma.
+    // Só purga registros cuja situacao_id foi COMPLETAMENTE sincronizada nesta run (evita apagar dados válidos
+    // se a API falhou parcialmente em outra situação, ou se o usuário filtrou por 1 situação apenas).
+    if (dataInicio && dataFim && fullySyncedSitIds.size > 0) {
       const localRows: any[] = [];
       const pageSize = 500;
       let from = 0;
       while (true) {
         const { data, error } = await supabase
           .from("gc_compras")
-          .select("gc_id, codigo, data")
+          .select("gc_id, codigo, data, situacao_id")
           .gte("data", dataInicio)
           .lte("data", dataFim)
+          .in("situacao_id", Array.from(fullySyncedSitIds))
           .range(from, from + pageSize - 1);
         if (error) {
           console.error(`[sync-compras] Select stale local error: ${error.message}`);
@@ -277,6 +285,7 @@ serve(async (req) => {
       const staleIds = localRows
         .map((r) => String(r.gc_id || ""))
         .filter((id) => id && !seenActiveIds.has(id));
+      console.log(`[sync-compras] Stale check: ${localRows.length} locais / ${staleIds.length} órfãos em situações sincronizadas [${Array.from(fullySyncedSitIds).join(",")}]`);
       for (let i = 0; i < staleIds.length; i += 100) {
         const chunk = staleIds.slice(i, i + 100);
         await supabase.from("gc_compras_itens").delete().in("compra_gc_id", chunk);
@@ -286,9 +295,13 @@ serve(async (req) => {
           errors++;
         } else {
           staleRemoved += chunk.length;
+          console.log(`[sync-compras] ✅ Stale removidos: ${chunk.join(", ")}`);
         }
       }
+    } else if (dataInicio && dataFim) {
+      console.warn(`[sync-compras] ⚠️ Stale cleanup PULADO — nenhuma situação foi 100% sincronizada (errors=${errors}).`);
     }
+
 
     const duration = Date.now() - startTime;
 
