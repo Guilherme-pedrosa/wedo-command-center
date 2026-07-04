@@ -2800,15 +2800,38 @@ export default function PrecificacaoPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{estoque}</TableCell>
-                      <TableCell className="text-right font-mono text-sm" title="Custo final do GC (gc_produtos_cache.valor_custo) — fonte de verdade da precificação">
-                        <div className="flex flex-col items-end leading-tight">
-                          <span>{formatCurrency(custoBase)}</span>
-                          <span className="text-[9px] text-muted-foreground">Custo final GC</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-xs text-muted-foreground" title="Custo cadastrado no GestãoClick (gc_produtos_cache.valor_custo)">
-                        {formatCurrency(Number(p.valor_custo) || 0)}
-                      </TableCell>
+                      {(() => {
+                        const fr = freteRateioMap.get(String(p.id));
+                        const rateioUnit = fr?.rateio_unit || 0;
+                        const valorUnitNF = Number(tributo?.valor_unitario_nf) || 0;
+                        const eff = tributo ? getEffectiveRates(tributo) : null;
+                        const ipiUnit = eff ? valorUnitNF * (eff.ipi / 100) : 0;
+                        const custoRealCalc = valorUnitNF > 0 ? (valorUnitNF + ipiUnit + rateioUnit) : 0;
+                        const custoGCFinal = Number(p.valor_custo) || 0;
+                        return (
+                          <>
+                            <TableCell
+                              className="text-right font-mono text-sm"
+                              title={custoRealCalc > 0
+                                ? `Produto NF: ${formatCurrency(valorUnitNF)}\n+ IPI (${eff?.ipi.toFixed(2)}%): ${formatCurrency(ipiUnit)}\n+ Rateio frete: ${formatCurrency(rateioUnit)}\n= ${formatCurrency(custoRealCalc)}`
+                                : "Sem NF vinculada — fallback para Custo GC"}
+                            >
+                              <div className="flex flex-col items-end leading-tight">
+                                <span>{formatCurrency(custoRealCalc > 0 ? custoRealCalc : custoGCFinal)}</span>
+                                <span className="text-[9px] text-muted-foreground">
+                                  {custoRealCalc > 0 ? "NF+IPI+Frete" : "Custo GC (s/NF)"}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-sm" title="Custo final do GestãoClick (gc_produtos_cache.valor_custo)">
+                              <div className="flex flex-col items-end leading-tight">
+                                <span>{formatCurrency(custoGCFinal)}</span>
+                                <span className="text-[9px] text-muted-foreground">Custo final GC</span>
+                              </div>
+                            </TableCell>
+                          </>
+                        );
+                      })()}
                       <TableCell className="text-right font-mono text-xs">
                         {(() => {
                           const fr = freteRateioMap.get(String(p.id));
