@@ -242,10 +242,12 @@ serve(async (req) => {
 
         const itensBatch = produtos.map((wrap: any, idx: number) => {
           const p = wrap?.produto ?? wrap ?? {};
+          const rawItemId = (p.id ?? p.item_id ?? p.compra_item_id ?? "").toString().trim();
           const rawProdutoId = (p.produto_id ?? "").toString().trim();
           const temVinculo = !!rawProdutoId && rawProdutoId !== "0";
           return {
             compra_gc_id: compraGcId,
+            item_gc_id: rawItemId || null,
             produto_gc_id: temVinculo ? rawProdutoId : null,
             nome_produto: (p.nome_produto ?? "").toString().trim() || null,
             unidade: p.unidade ?? null,

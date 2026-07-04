@@ -3109,6 +3109,7 @@ export type Database = {
           compra_gc_id: string
           created_at: string | null
           id: string
+          item_gc_id: string | null
           nome_produto: string | null
           ordem_item: number | null
           origem_vinculo: string | null
@@ -3122,6 +3123,7 @@ export type Database = {
           compra_gc_id: string
           created_at?: string | null
           id?: string
+          item_gc_id?: string | null
           nome_produto?: string | null
           ordem_item?: number | null
           origem_vinculo?: string | null
@@ -3135,6 +3137,7 @@ export type Database = {
           compra_gc_id?: string
           created_at?: string | null
           id?: string
+          item_gc_id?: string | null
           nome_produto?: string | null
           ordem_item?: number | null
           origem_vinculo?: string | null
