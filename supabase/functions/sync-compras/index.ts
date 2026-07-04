@@ -91,12 +91,13 @@ serve(async (req) => {
     } catch { /* no body */ }
 
     // Step 1: Use hardcoded situação IDs for purchases
-    // Inclui situações que NÃO contam como custo (1739937 SERVIÇOS, 2072508/2072571 CONCRETIZADO)
+    // Inclui produto + serviços. Serviços podem ser pedido de frete e precisam entrar no rateio.
+    // Situações que NÃO contam como custo final continuam sincronizadas para capturar transições.
     // para capturar transições de status — assim uma compra movida pra fora de "Finalizado/AG CHEGADA"
     // tem o nome_situacao local atualizado e sai do custo de peças.
     let situacaoIds: string[] = situacaoId
       ? [situacaoId]
-      : ["1675083", "1675070", "1739937", "2072508", "2072571"];
+      : ["1675083", "1675070", "1739937", "2072508", "2072571", "2072608"];
     console.log(`[sync-compras] Using situacaoIds: ${situacaoIds.join(", ")}`);
 
     if (situacaoIds.length === 0) {
