@@ -2399,20 +2399,6 @@ export default function PrecificacaoPage() {
               </div>
               <Badge variant="secondary" className="text-xs font-mono w-12 justify-center">{margemAlvo}%</Badge>
             </div>
-            <div
-              className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-2 py-1"
-              title="Se ligado, os créditos de entrada (ICMS/PIS/COFINS) são descontados do custo e REDUZEM o preço mínimo. Se desligado, viram margem extra de caixa."
-            >
-              <Checkbox
-                id="usar-credito-entrada"
-                checked={usarCreditoNaPrecificacao}
-                onCheckedChange={(v) => setUsarCreditoNaPrecificacao(v === true)}
-                className="h-4 w-4"
-              />
-              <Label htmlFor="usar-credito-entrada" className="text-xs text-emerald-300 cursor-pointer whitespace-nowrap">
-                Usar créd. entrada no preço
-              </Label>
-            </div>
             {loadingProdutos && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             <Button size="sm" variant="outline" onClick={handleExportExcel} disabled={filtered.length === 0} title="Exportar filtro atual para Excel">
               <Download className="h-4 w-4 mr-1" />
