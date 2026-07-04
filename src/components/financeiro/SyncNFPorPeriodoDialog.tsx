@@ -23,6 +23,9 @@ interface Result {
   produtos: number;
   xmls: number;
   pendentes: number;
+  fretes_processados?: number;
+  fretes_ignorados?: number;
+  frete_valor_total?: number;
 }
 
 export function SyncNFPorPeriodoDialog({ open, onOpenChange, onDone }: Props) {
