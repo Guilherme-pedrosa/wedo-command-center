@@ -3451,11 +3451,6 @@ export default function PrecificacaoPage() {
         onOpenChange={setSyncPeriodoOpen}
         onDone={() => refetchTributos()}
       />
-
-      <RatearFreteDialog
-        open={ratearFreteOpen}
-        onOpenChange={setRatearFreteOpen}
-      />
     </div>
   );
 }
