@@ -414,7 +414,7 @@ serve(async (req) => {
       const xmlItems = parseXmlItems(xmlContent);
       const xmlFrete = getXmlFrete(xmlContent);
       const isSN = isXmlSimplesNacional(xmlContent, xmlItems);
-      const totalVProd = xmlItems.reduce((s, i) => s + i.vProd, 0);
+      const totalVProd = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd - (i.vDesc || 0)), 0);
       const usedXmlIndices = new Set<number>();
       const r = (v: number) => Math.round(v * 100) / 100;
 
