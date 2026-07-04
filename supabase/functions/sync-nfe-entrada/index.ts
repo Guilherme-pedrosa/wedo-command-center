@@ -445,9 +445,12 @@ async function reindexBucketDelta(supabase: any) {
   const missing = allFiles.filter((p) => !known.has(p));
   stats.missing = missing.length;
 
-  // Cap por chamada para caber no timeout (~60s)
+  // Cap por chamada para caber no timeout (~60s).
+  // Além dos XMLs novos, refresca parte dos já conhecidos: versões antigas do
+  // indexador gravavam valor_produtos usando o <vProd> do primeiro item.
   const cap = 600;
-  const toProcess = missing.slice(0, cap);
+  const refreshKnown = allFiles.filter((p) => known.has(p)).slice(0, Math.max(0, cap - missing.length));
+  const toProcess = [...missing.slice(0, cap), ...refreshKnown];
   const batchSize = 25;
   const upsertBuffer: Record<string, unknown>[] = [];
 
