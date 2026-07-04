@@ -2608,28 +2608,20 @@ export default function PrecificacaoPage() {
                           {(() => {
                             if (!hasNF) return null;
                             if (tributoRaw?.excecao_manual) return null;
-                            // BASE = CUSTO real do item na compra (gc_compras_itens.valor_custo).
-                            // NÃO usar valor_unitario_nf — ele é o "valor da nota", não o custo.
-                            const custoItemReal = Number(ultimaCompra?.valor_custo) || 0;
-                            const nfBaseInvoice = Number(tributo.valor_unitario_nf) || 0;
-                            const nfBase = custoItemReal > 0 ? custoItemReal : nfBaseInvoice;
-                            const fretePct = Number(tributo.frete_percentual) || 0;
-                            const ipiPct = Number(tributo.ipi_aliquota_manual ?? tributo.ipi_aliquota) || 0;
-                            const freteUnit = Number(tributo.valor_frete_unit) || 0;
-                            const ipiUnit = Number(tributo.valor_ipi_unit) || 0;
-                            // Custo real = CUSTO do item + IPI unit + Frete rateado unit.
-                            // Se não houver valores $ reais, cai para % sobre a base de custo.
-                            const nfCusto = freteUnit > 0 || ipiUnit > 0
-                              ? nfBase + ipiUnit + freteUnit
-                              : nfBase * (1 + fretePct / 100 + ipiPct / 100);
+                            // Sugestão DEVE bater exatamente com o valor exibido na coluna "Custo":
+                            //   custoRealCalc = valor_unitario_nf + IPI unit + rateio de frete unit
+                            const fr = freteRateioMap.get(String(p.id));
+                            const rateioUnit = fr?.rateio_unit || 0;
+                            const valorUnitNF = Number(tributo.valor_unitario_nf) || 0;
+                            const eff = getEffectiveRates(tributo);
+                            const ipiUnit = valorUnitNF * (eff.ipi / 100);
+                            const nfCusto = valorUnitNF > 0 ? (valorUnitNF + ipiUnit + rateioUnit) : 0;
                             const gcCusto = Number(p.valor_custo) || 0;
                             if (nfCusto <= 0 || gcCusto <= 0) return null;
                             const diffPct = ((gcCusto - nfCusto) / nfCusto) * 100;
                             if (Math.abs(diffPct) < 1) return null;
                             const acima = diffPct > 0;
-                            const origemDetalhe = freteUnit > 0 || ipiUnit > 0
-                              ? `custo ${formatCurrency(nfBase)}${ipiUnit > 0 ? ` + IPI ${formatCurrency(ipiUnit)}` : ""}${freteUnit > 0 ? ` + frete ${formatCurrency(freteUnit)}` : ""}`
-                              : `custo ${formatCurrency(nfBase)}${fretePct > 0 ? ` + frete ${fretePct}%` : ""}${ipiPct > 0 ? ` + IPI ${ipiPct}%` : ""}`;
+                            const origemDetalhe = `NF ${formatCurrency(valorUnitNF)}${ipiUnit > 0 ? ` + IPI ${formatCurrency(ipiUnit)}` : ""}${rateioUnit > 0 ? ` + frete ${formatCurrency(rateioUnit)}` : ""}`;
                             const argsAtualizar: AtualizarCustoArgs = {
                               gc_produto_id: String(p.id),
                               nome_produto: p.nome,
@@ -2647,9 +2639,9 @@ export default function PrecificacaoPage() {
                                       ? "bg-red-500/20 text-red-400 border-red-500/30"
                                       : "bg-orange-500/20 text-orange-400 border-orange-500/30"
                                   }`}
-                                  title={`Custo usado na precificação: ${formatCurrency(nfCusto)} (base ${formatCurrency(nfBase)} + frete ${fretePct}%${ipiPct > 0 ? ` + IPI ${ipiPct}%` : ""}). Cadastro GC preservado: ${formatCurrency(gcCusto)}.`}
+                                  title={`Custo (coluna): ${formatCurrency(nfCusto)} — ${origemDetalhe}. Cadastro GC: ${formatCurrency(gcCusto)}.`}
                                 >
-                                  {`⚠ Precificação usa NF c/ frete${ipiPct > 0 ? "+IPI" : ""} (${diffPct > 0 ? "+" : ""}${diffPct.toFixed(1)}% vs GC)`}
+                                  {`⚠ Coluna Custo ≠ GC (${diffPct > 0 ? "+" : ""}${diffPct.toFixed(1)}%)`}
                                 </Badge>
                                 <Button
                                   size="sm"
