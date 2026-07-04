@@ -306,13 +306,13 @@ function calcPricingWithNF(
 
   // ── REGRA: precificação usa CUSTO FINAL DO GC (fonte de verdade). ──
   // Créditos de entrada (ICMS/PIS/COFINS) por padrão viram margem extra de caixa.
-  // Se `usarCreditoEntrada` = true, eles são descontados do custo (reduzem o preço).
-  const custoEfetivoBruto = usarCustoGC ? (custoBaseUnit as number) : (valorUnitNF + ipiUnit + freteUnit);
+  // Se `usarCreditoEntrada` = true, eles são descontados do TRIBUTO DE SAÍDA (matematicamente
+  // equivalente a reduzir o custo no numerador do mark-up; ver dedução no README).
+  const custoEfetivo = usarCustoGC ? (custoBaseUnit as number) : (valorUnitNF + ipiUnit + freteUnit);
   const totalCreditosEntrada = creditoIcms + creditoPis + creditoCofins;
-  const custoEfetivo = usarCreditoEntrada
-    ? Math.max(0, custoEfetivoBruto - totalCreditosEntrada)
-    : custoEfetivoBruto;
-  const custoTotal = custoEfetivo + custoFixo; // custoFixo aqui = override flat manual
+  const custoTotal = custoEfetivo + custoFixo; // bruto (exibido)
+  const creditoAplicado = usarCreditoEntrada ? totalCreditosEntrada : 0;
+  const custoParaPreco = Math.max(0, custoTotal - creditoAplicado);
 
   let aliquotaSaidaFaturamento: number;
   if (tipo === "venda") {
@@ -323,18 +323,17 @@ function calcPricingWithNF(
 
   const irpjPct = saida.irpjCsll / 100;
   const margemDecimal = margemDesejada / 100;
-  // Mark-up Divisor com custo fixo embutido
   const divisor = 1 - aliquotaSaidaFaturamento - custoFixoPct - margemDecimal;
-  // Safety: divisor pequeno gera preços absurdos. Trava em no máx 5x o custo.
   const PRECO_MAX_MULTIPLICADOR = 5;
-  const precoMinimoCalculado = divisor > 0.05 ? custoTotal / divisor : custoTotal * PRECO_MAX_MULTIPLICADOR;
+  const precoMinimoCalculado = divisor > 0.05 ? custoParaPreco / divisor : custoParaPreco * PRECO_MAX_MULTIPLICADOR;
   const precoMinimo = Math.min(precoMinimoCalculado, custoTotal * PRECO_MAX_MULTIPLICADOR);
 
-  const tributosSaida = precoMinimo * aliquotaSaidaFaturamento;
+  const tributosSaidaBruto = precoMinimo * aliquotaSaidaFaturamento;
+  const tributosSaida = Math.max(0, tributosSaidaBruto - creditoAplicado);
   const custoFixoEmbutido = precoMinimo * custoFixoPct;
   const lucroAnteIR = precoMinimo - custoTotal - tributosSaida - custoFixoEmbutido;
   const impostoRenda = Math.max(0, lucroAnteIR * irpjPct);
-  // Se crédito já foi descontado do custo, não soma de novo como margem extra.
+  // Se crédito já foi descontado do tributo, não soma de novo como margem extra.
   const margemExtraCreditos = usarCreditoEntrada ? 0 : totalCreditosEntrada;
   const lucroLiquido = lucroAnteIR - impostoRenda + margemExtraCreditos;
 
@@ -344,10 +343,12 @@ function calcPricingWithNF(
     creditoCofins,
     totalCreditosEntrada,
     creditoAplicadoNoPreco: usarCreditoEntrada,
+    creditoAplicado, // valor absoluto subtraído do tributo (0 se desligado)
     custoEfetivo,
     custoTotal,
     precoMinimo,
-    tributosSaida,
+    tributosSaida,      // líquido (já com crédito subtraído se aplicável)
+    tributosSaidaBruto, // bruto (venda × alíquota, sem crédito)
     custoFixoEmbutido,
     impostoRenda,
     lucroAnteIR,
@@ -356,6 +357,7 @@ function calcPricingWithNF(
     custoFixoPct,
   };
 }
+
 
 
 export default function PrecificacaoPage() {
