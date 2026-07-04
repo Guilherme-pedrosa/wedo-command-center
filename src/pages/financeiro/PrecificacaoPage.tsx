@@ -3068,18 +3068,22 @@ export default function PrecificacaoPage() {
                       {/* Tabelas dinâmicas (lê fin_politica_markup_tabela + valor_venda real de gc_produtos_cache) */}
                       {(() => {
                         const valoresProd = valoresMap.get(p.id);
+                        const credOn = useCredFor(p.id);
+                        const credValor = credOn ? (calc.totalCreditosEntrada || 0) : 0;
                         return (politicas ?? []).map((pol, idx) => {
                           const margemMin = Number(pol.margem_minima) || 0;
-                          // Divisor SEM custoFixoPct — alinha com a margem exibida (venda - custo - trib)/venda
                           const divInline = 1 - calc.aliquotaSaidaFaturamento - margemMin;
-                          const precoBruto = calc.custoTotal > 0 && divInline > 0.05 ? calc.custoTotal / divInline : calc.custoTotal * 5;
+                          // Numerador do mark-up desconta o crédito (matematicamente equivalente
+                          // a reduzir custo OU reduzir tributo por unidade fixa).
+                          const numerador = Math.max(0, calc.custoTotal - credValor);
+                          const precoBruto = numerador > 0 && divInline > 0.05 ? numerador / divInline : calc.custoTotal * 5;
                           const precoSugerido = calc.custoTotal > 0 ? Math.min(precoBruto, calc.custoTotal * 5) : 0;
                           const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
                           const temPrecoCadastrado = vendaReal > 0;
                           const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
-                          const trib = venda * calc.aliquotaSaidaFaturamento;
+                          const tribBruto = venda * calc.aliquotaSaidaFaturamento;
+                          const trib = Math.max(0, tribBruto - credValor); // exibido líquido
                           const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
-                          // Tolerância de 0.05pp para evitar que 4.97% exibido como "5.0%" apareça como fora da margem
                           const okMin = temPrecoCadastrado && margem >= (margemMin * 100 - 0.05);
                           const cor = idx % 3 === 0 ? "text-blue-400" : idx % 3 === 1 ? "text-yellow-400" : "text-purple-400";
                           return (
@@ -3087,7 +3091,15 @@ export default function PrecificacaoPage() {
                               <TableCell className={`text-right font-mono text-xs ${cor} border-l border-border`}>
                                 {vendaReal > 0 ? formatCurrency(vendaReal) : <span className="italic text-muted-foreground">sug. {formatCurrency(precoSugerido)}</span>}
                               </TableCell>
-                              <TableCell className="text-right font-mono text-[10px] text-orange-400">-{formatCurrency(trib)}</TableCell>
+                              <TableCell
+                                className={`text-right font-mono text-[10px] ${credOn && credValor > 0 ? "text-sky-400" : "text-orange-400"}`}
+                                title={credOn && credValor > 0 ? `Tributo bruto ${formatCurrency(tribBruto)} − crédito entrada ${formatCurrency(credValor)}` : undefined}
+                              >
+                                -{formatCurrency(trib)}
+                                {credOn && credValor > 0 && (
+                                  <div className="text-[8px] text-sky-400/60">líq. c/ créd.</div>
+                                )}
+                              </TableCell>
                               <TableCell className="text-center">
                                 <div className="flex flex-col items-center gap-1">
                                   <Badge className={`text-[10px] gap-0.5 ${okMin ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>
