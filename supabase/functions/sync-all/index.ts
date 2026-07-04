@@ -182,7 +182,8 @@ const OS_SITUACAO_IDS = [
 // Uso Interno/Maleta (7340612) precisa entrar no sync para compor custo de estoque.
 let VENDAS_SITUACAO_IDS: string[] = ["7063585", "8163483", "7340612"];
 
-// Compras: Finalizado (mercadoria chegou) + Comprado - AG CHEGADA (hardcoded to avoid situacoes_compras API call)
+// Compras: produtos + serviços. Serviços também podem carregar pedidos de frete
+// que precisam entrar no rateio de custos.
 let COMPRAS_SITUACAO_IDS: string[] = [];
 
 function computeValorPecasCusto(
@@ -534,7 +535,10 @@ async function syncCompras(
         const nome = String(sit.nome || "").toLowerCase().trim();
         if (
           (nome.includes("finalizado") && nome.includes("mercadoria chegou")) ||
-          (nome.includes("comprado") && nome.includes("ag chegada"))
+          (nome.includes("comprado") && nome.includes("ag chegada")) ||
+          nome.includes("servicos") ||
+          nome.includes("serviços") ||
+          nome.includes("concretizado")
         ) {
           COMPRAS_SITUACAO_IDS.push(String(sit.id));
           console.log(`[sync-all/compras] Found situacao: ${sit.nome} (id=${sit.id})`);

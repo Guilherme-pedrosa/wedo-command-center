@@ -1,6 +1,6 @@
 // ══════════════════════════════════════════════════════════════
 //  ratear-frete-compras
-//  Detecta pedidos de compra de FRETE (campo customizado com
+//  Detecta pedidos de FRETE em compras de produto ou serviço (campo customizado com
 //  descrição contendo "FRETE" e "PEDIDO") e rateia o valor total
 //  do frete entre os itens dos pedidos referenciados,
 //  proporcionalmente ao valor_total de cada item.
@@ -80,6 +80,8 @@ serve(async (req) => {
     const enqueueGcCost: boolean = body.enqueue_gc_cost !== false; // default true
 
     // ── 1) Carrega candidatos de frete ──
+    // Usa gc_compras já sincronizada; essa base precisa conter tanto pedidos de
+    // produto quanto pedidos de serviço, pois o frete pode estar lançado como serviço.
     let q = supabase
       .from("gc_compras")
       .select("gc_id, codigo, data, valor_total, valor_produtos, gc_payload_raw");

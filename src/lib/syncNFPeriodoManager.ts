@@ -91,9 +91,15 @@ export function startSyncNFPeriodo(params: StartSyncParams): boolean {
 
   (async () => {
     try {
+      update({ progress: "Sincronizando pedidos GC do período..." });
+      const { data: comprasSync, error: comprasSyncErr } = await supabase.functions.invoke("sync-compras", {
+        body: { data_inicio: diStr, data_fim: dfStr },
+      });
+      if (comprasSyncErr) throw new Error(comprasSyncErr.message);
+
       let offset = 0;
       const batchSize = 60;
-      let totalCompras = 0;
+      let totalCompras = Number(comprasSync?.upserted || comprasSync?.totalFetched || 0);
       let totalProdutos = 0;
       let totalXmls = 0;
       let totalPendentes = 0;
