@@ -1085,6 +1085,57 @@ function processarXml(
 
     if (!pick) {
       // Sem correspondência confiável → grava tributo vazio mas com produto_gc_id
+      // e loga TOP 3 candidatos do XML com pontuação, pra diagnóstico
+      try {
+        const compraNome = normalizeText(item.nome_produto);
+        const tokensCompra = compraNome.split(/\s+/).filter((t) => t.length > 1);
+        const compraQtd = item.quantidade || 1;
+        const compraUnit = item.valor_custo || 0;
+        const compraTotal = item.valor_total || (compraUnit * compraQtd);
+        const ranking = xmlItems.map((xi, idx) => {
+          const tokensXml = new Set(normalizeText(xi.xProd).split(/\s+/).filter((t) => t.length > 1));
+          const comuns = tokensCompra.filter((t) => tokensXml.has(t)).length;
+          const tokenScore = comuns / Math.max(1, Math.min(tokensCompra.length, tokensXml.size));
+          const unitDiff = compraUnit > 0 ? Math.abs(xi.vUnCom - compraUnit) / compraUnit : 1;
+          const totalDiff = compraTotal > 0 ? Math.abs(xi.vProd - compraTotal) / compraTotal : 1;
+          return {
+            idx,
+            nome_nf: xi.xProd,
+            cprod_nf: xi.cProd,
+            vunit_nf: Math.round(xi.vUnCom * 100) / 100,
+            vtotal_nf: Math.round(xi.vProd * 100) / 100,
+            qcom_nf: xi.qCom,
+            token_score: Math.round(tokenScore * 1000) / 1000,
+            unit_diff_pct: Math.round(unitDiff * 1000) / 10,
+            total_diff_pct: Math.round(totalDiff * 1000) / 10,
+            usado_por_outro: usedXmlIdx.has(idx),
+          };
+        });
+        ranking.sort((a, b) => b.token_score - a.token_score || a.unit_diff_pct - b.unit_diff_pct);
+        const motivoDesc = xmlItems.length === 0
+          ? "xml_sem_itens"
+          : xmlItems.length === 1 && compraItens.length > 1
+            ? "xml_1_item_mas_pedido_multi"
+            : ranking[0] && ranking[0].token_score < 0.35
+              ? "nome_muito_diferente"
+              : ranking[0] && ranking[0].token_score < 0.45
+                ? "score_abaixo_do_threshold"
+                : "preco_incompativel";
+        descartesPicker.push({
+          compra_gc_id: compra.gc_id,
+          compra_codigo: compra.codigo,
+          produto_gc_id: gcProdId,
+          nome_produto_pedido: item.nome_produto,
+          codigo_interno_pedido: codigoPorProdutoId.get(gcProdId) || null,
+          quantidade_pedido: compraQtd,
+          valor_unit_pedido: compraUnit,
+          valor_total_pedido: compraTotal,
+          nf_chave: xmlMeta.chave,
+          nf_numero: xmlMeta.numero_nf,
+          motivo: motivoDesc,
+          candidatos: ranking.slice(0, 3),
+        });
+      } catch (_e) { /* diagnóstico não deve quebrar o sync */ }
       upsertSemTributo(gcProdId, item);
       continue;
     }
