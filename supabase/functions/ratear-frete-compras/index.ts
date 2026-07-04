@@ -14,6 +14,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const GC_BASE_URL = "https://api.gestaoclick.com";
+const MIN_DELAY_MS = 350;
+let lastGcCallTime = 0;
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -25,6 +29,108 @@ function stripAccents(s: string): string {
 }
 function normDesc(s: string | null | undefined): string {
   return stripAccents(String(s || "")).toUpperCase().trim();
+}
+
+function compraPayload(raw: any): any {
+  return raw?.Compra ?? raw?.compra ?? raw ?? {};
+}
+
+function compraNomeSituacao(raw: any): string {
+  const c = compraPayload(raw);
+  return String(c?.nome_situacao ?? c?.situacao_nome ?? c?.status ?? c?.situacao ?? "").trim();
+}
+
+function compraEstaCancelada(raw: any): boolean {
+  return normDesc(compraNomeSituacao(raw)).includes("CANCEL");
+}
+
+async function rateLimitedGcFetch(url: string, options: RequestInit): Promise<Response> {
+  const now = Date.now();
+  const elapsed = now - lastGcCallTime;
+  if (elapsed < MIN_DELAY_MS) await new Promise((r) => setTimeout(r, MIN_DELAY_MS - elapsed));
+  lastGcCallTime = Date.now();
+  return fetch(url, options);
+}
+
+async function buscarCompraAtualNoGc(
+  compraGcId: string,
+  gcHeaders: Record<string, string>,
+): Promise<{ ok: boolean; encontrada: boolean; cancelada: boolean; nome_situacao: string; erro?: string }> {
+  try {
+    const resp = await rateLimitedGcFetch(`${GC_BASE_URL}/api/compras/${compraGcId}`, { headers: gcHeaders });
+    if (resp.status === 404) return { ok: true, encontrada: false, cancelada: true, nome_situacao: "não encontrada" };
+    if (!resp.ok) return { ok: false, encontrada: false, cancelada: false, nome_situacao: "", erro: `HTTP ${resp.status}` };
+    const json = await resp.json();
+    const rawData = json?.data?.data ?? json?.data ?? null;
+    const compra = compraPayload(rawData);
+    const nomeSituacao = compraNomeSituacao(compra);
+    return {
+      ok: true,
+      encontrada: !!compra && typeof compra === "object" && Object.keys(compra).length > 0,
+      cancelada: compraEstaCancelada(compra),
+      nome_situacao: nomeSituacao,
+    };
+  } catch (err) {
+    return { ok: false, encontrada: false, cancelada: false, nome_situacao: "", erro: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function cancelarRateiosDoFrete(
+  supabase: any,
+  freteCompraGcId: string,
+  motivo: string,
+): Promise<number> {
+  const { data: rateios } = await supabase
+    .from("fin_frete_rateios")
+    .select("id, observacao")
+    .eq("frete_compra_gc_id", freteCompraGcId)
+    .is("reverted_at", null);
+
+  let revertidos = 0;
+  for (const rateio of rateios || []) {
+    const { data: itensAntigos } = await supabase
+      .from("fin_frete_rateio_itens")
+      .select("compra_gc_id, produto_gc_id, rateio_unit, aplicado_em_tributos")
+      .eq("rateio_id", rateio.id);
+
+    for (const ia of itensAntigos || []) {
+      if (!ia.aplicado_em_tributos || !ia.produto_gc_id) continue;
+      const { data: trib } = await supabase
+        .from("fin_produto_tributos")
+        .select("id, valor_frete_unit, custo_efetivo_unit, excecao_manual")
+        .eq("compra_gc_id", ia.compra_gc_id)
+        .eq("gc_produto_id", ia.produto_gc_id)
+        .maybeSingle();
+      if (!trib || trib.excecao_manual) continue;
+
+      const novoFrete = Math.max(0, Number(trib.valor_frete_unit || 0) - Number(ia.rateio_unit || 0));
+      const novoCusto = Math.max(0, Number(trib.custo_efetivo_unit || 0) - Number(ia.rateio_unit || 0));
+      await supabase
+        .from("fin_produto_tributos")
+        .update({ valor_frete_unit: novoFrete, custo_efetivo_unit: novoCusto, ultima_atualizacao: new Date().toISOString() })
+        .eq("id", trib.id);
+    }
+
+    await supabase
+      .from("fin_frete_rateios")
+      .update({
+        status: "revertido_cancelado",
+        reverted_at: new Date().toISOString(),
+        observacao: `${rateio.observacao || ""} | ${motivo}`.trim(),
+      })
+      .eq("id", rateio.id);
+    revertidos++;
+  }
+
+  const { data: jobs } = await supabase
+    .from("fin_gc_write_jobs")
+    .select("id")
+    .contains("payload", { frete_compra_gc_id: freteCompraGcId })
+    .in("status", ["pendente", "erro_retentavel"]);
+  const jobIds = (jobs || []).map((j: any) => j.id).filter(Boolean);
+  if (jobIds.length > 0) await supabase.from("fin_gc_write_jobs").delete().in("id", jobIds);
+
+  return revertidos;
 }
 
 /** Detecta se um pedido é de FRETE olhando campos_extras[].extras.descricao */
@@ -67,6 +173,15 @@ serve(async (req) => {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
+    const gcAccessToken = Deno.env.get("GC_ACCESS_TOKEN");
+    const gcSecretToken = Deno.env.get("GC_SECRET_TOKEN");
+    const gcHeaders: Record<string, string> | null = gcAccessToken && gcSecretToken
+      ? {
+        "access-token": gcAccessToken,
+        "secret-access-token": gcSecretToken,
+        "Content-Type": "application/json",
+      }
+      : null;
 
   try {
     const body = await req.json().catch(() => ({}));
@@ -145,12 +260,72 @@ serve(async (req) => {
     const refsCobertasPorExterno = new Set<string>();
     const conflitosFreteGlobal: any[] = [];
 
+    // Limpeza preventiva: rateios já aplicados cujo pedido de frete foi cancelado/removido no GC
+    // não podem continuar aparecendo nem compondo custo.
+    if (gcHeaders) {
+      let rq = supabase
+        .from("fin_frete_rateios")
+        .select("frete_compra_gc_id, frete_compra_codigo, frete_data")
+        .is("reverted_at", null)
+        .eq("status", "aplicado");
+      if (dataInicio) rq = rq.gte("frete_data", dataInicio);
+      if (dataFim) rq = rq.lte("frete_data", dataFim);
+      const { data: rateiosAtivos } = await rq.limit(300);
+      const vistos = new Set<string>();
+      for (const r of rateiosAtivos || []) {
+        const freteId = String(r.frete_compra_gc_id || "");
+        if (!freteId || vistos.has(freteId)) continue;
+        vistos.add(freteId);
+        const atual = await buscarCompraAtualNoGc(freteId, gcHeaders);
+        if (atual.ok && (!atual.encontrada || atual.cancelada)) {
+          const revertidos = await cancelarRateiosDoFrete(
+            supabase,
+            freteId,
+            `pedido de frete cancelado/removido no GC (${atual.nome_situacao || "sem situação"})`,
+          );
+          resultados.push({
+            frete_codigo: String(r.frete_compra_codigo || freteId),
+            status: "revertido_frete_cancelado",
+            rateios_revertidos: revertidos,
+            situacao_gc: atual.nome_situacao,
+          });
+        }
+      }
+    }
 
 
     for (const { compra, info } of fretesDetectados) {
       const freteGcId = String(compra.gc_id);
       const freteCodigo = String(compra.codigo || "");
       const freteValor = Number(compra.valor_total) || Number(compra.valor_produtos) || 0;
+
+      if (compraEstaCancelada(compra.gc_payload_raw)) {
+        const revertidos = await cancelarRateiosDoFrete(supabase, freteGcId, "pedido de frete cancelado na base local");
+        resultados.push({ frete_codigo: freteCodigo, status: "ignorado_frete_cancelado", rateios_revertidos: revertidos });
+        continue;
+      }
+
+      if (gcHeaders) {
+        const atual = await buscarCompraAtualNoGc(freteGcId, gcHeaders);
+        if (!atual.ok) {
+          resultados.push({ frete_codigo: freteCodigo, status: "ignorado_validacao_gc_falhou", detalhe: atual.erro });
+          continue;
+        }
+        if (!atual.encontrada || atual.cancelada) {
+          const revertidos = await cancelarRateiosDoFrete(
+            supabase,
+            freteGcId,
+            `pedido de frete cancelado/removido no GC (${atual.nome_situacao || "sem situação"})`,
+          );
+          resultados.push({
+            frete_codigo: freteCodigo,
+            status: "ignorado_frete_cancelado_gc",
+            situacao_gc: atual.nome_situacao,
+            rateios_revertidos: revertidos,
+          });
+          continue;
+        }
+      }
 
       if (freteValor <= 0) {
         resultados.push({
@@ -184,11 +359,16 @@ serve(async (req) => {
       // Busca as compras referenciadas (inclui valor_frete p/ detectar conflito)
       const { data: refCompras } = await supabase
         .from("gc_compras")
-        .select("gc_id, codigo, valor_frete")
+        .select("gc_id, codigo, valor_frete, nome_situacao, gc_payload_raw")
         .in("codigo", refsCodigos);
       const encontrados = new Map<string, string>(); // codigo -> gc_id
       const refValorFrete = new Map<string, number>(); // gc_id -> valor_frete embutido
+      const refsCanceladas: string[] = [];
       for (const r of refCompras || []) {
+        if (compraEstaCancelada(r) || compraEstaCancelada(r.gc_payload_raw)) {
+          refsCanceladas.push(String(r.codigo));
+          continue;
+        }
         encontrados.set(String(r.codigo), String(r.gc_id));
         refValorFrete.set(String(r.gc_id), Number(r.valor_frete || 0));
       }
@@ -199,7 +379,8 @@ serve(async (req) => {
         resultados.push({
           frete_codigo: freteCodigo,
           status: "refs_nao_encontradas",
-          detalhe: `códigos não encontrados: ${refsCodigos.join(", ")}`,
+          detalhe: `códigos não encontrados/cancelados: ${refsCodigos.join(", ")}`,
+          refs_canceladas: refsCanceladas,
         });
         continue;
       }
