@@ -820,6 +820,52 @@ export default function PrecificacaoPage() {
     return map;
   }, [ultimasComprasProduto]);
 
+  // ── Rateio de frete por produto (última compra rateada) ──
+  const { data: freteRateiosRows } = useQuery({
+    queryKey: ["frete-rateio-por-produto"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("fin_frete_rateio_itens")
+        .select("produto_gc_id, compra_gc_id, compra_codigo, rateio_unit, rateio_valor, quantidade, rateio_id, fin_frete_rateios!inner(frete_compra_codigo, frete_compra_gc_id, status, applied_at, reverted_at)")
+        .order("id", { ascending: false })
+        .limit(5000);
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const freteRateioMap = useMemo(() => {
+    // Map produto_gc_id -> { rateio_unit total, pedidos_frete[], compra_codigo (última) }
+    const map = new Map<string, { rateio_unit: number; rateio_valor: number; pedidos_frete: string[]; compra_codigo: string | null; compra_gc_id: string | null }>();
+    for (const row of (freteRateiosRows || []) as any[]) {
+      const rateio = row.fin_frete_rateios;
+      if (!rateio) continue;
+      if (rateio.reverted_at) continue; // ignora rateios revertidos
+      const pid = String(row.produto_gc_id);
+      const existing = map.get(pid);
+      const freteCod = rateio.frete_compra_codigo ? String(rateio.frete_compra_codigo) : (rateio.frete_compra_gc_id ? `#${rateio.frete_compra_gc_id}` : "—");
+      if (!existing) {
+        map.set(pid, {
+          rateio_unit: Number(row.rateio_unit) || 0,
+          rateio_valor: Number(row.rateio_valor) || 0,
+          pedidos_frete: [freteCod],
+          compra_codigo: row.compra_codigo ? String(row.compra_codigo) : null,
+          compra_gc_id: row.compra_gc_id ? String(row.compra_gc_id) : null,
+        });
+      } else {
+        // Só acumula rateios da MESMA compra do produto (última compra rateada)
+        if (existing.compra_gc_id && String(row.compra_gc_id) === existing.compra_gc_id) {
+          existing.rateio_unit += Number(row.rateio_unit) || 0;
+          existing.rateio_valor += Number(row.rateio_valor) || 0;
+          if (!existing.pedidos_frete.includes(freteCod)) existing.pedidos_frete.push(freteCod);
+        }
+      }
+    }
+    return map;
+  }, [freteRateiosRows]);
+
+
   // ── Fetch monthly fixed costs using same logic as Resultados Operação ──
   const now = new Date();
   const { data: custoFixoMensal } = useQuery({
@@ -2385,6 +2431,7 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs text-right" rowSpan={2}>Estoque</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2} title="Custo cadastrado no GestãoClick (gc_produtos_cache.valor_custo)">Custo GC</TableHead>
+                  <TableHead className="text-xs text-right" rowSpan={2} title="Rateio de frete unitário aplicado à última compra do produto + pedido(s) de frete usado(s)">Frete Rateio</TableHead>
                   <TableHead className="text-xs text-center" rowSpan={2}>Fonte</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Créd. Entrada</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo Total</TableHead>
@@ -2413,7 +2460,7 @@ export default function PrecificacaoPage() {
               <TableBody>
                 {filtered.length === 0 && !loadingProdutos && (
                   <TableRow>
-                    <TableCell colSpan={18} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={19} className="text-center text-muted-foreground py-8">
                       {search ? "Nenhum produto encontrado" : "Busque produtos do estoque GestãoClick"}
                     </TableCell>
                   </TableRow>
@@ -2761,6 +2808,26 @@ export default function PrecificacaoPage() {
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs text-muted-foreground" title="Custo cadastrado no GestãoClick (gc_produtos_cache.valor_custo)">
                         {formatCurrency(Number(p.valor_custo) || 0)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        {(() => {
+                          const fr = freteRateioMap.get(String(p.id));
+                          if (!fr || fr.rateio_unit <= 0) {
+                            return <span className="text-muted-foreground/50">—</span>;
+                          }
+                          const pedidosLabel = fr.pedidos_frete.join(", ");
+                          return (
+                            <div
+                              className="flex flex-col items-end leading-tight"
+                              title={`Rateio total do frete no pedido do produto: ${formatCurrency(fr.rateio_valor)}\nPedido(s) de frete usado(s): ${pedidosLabel}\nCompra do produto: #${fr.compra_codigo || fr.compra_gc_id || "—"}`}
+                            >
+                              <span className="text-cyan-400">{formatCurrency(fr.rateio_unit)}/un</span>
+                              <span className="text-[9px] text-muted-foreground">
+                                frete #{pedidosLabel}
+                              </span>
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="text-center">
                         {hasNF ? (
