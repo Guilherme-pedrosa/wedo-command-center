@@ -145,16 +145,40 @@ serve(async (req) => {
       pagina++;
     }
 
-    // SYNC COMPLETO
+    // SYNC COMPLETO — remove órfãos (produtos que sumiram do GC)
     await setConfig("LAST_SYNC_GC_PRODUTOS_PAGE", "0");
     await setConfig("LAST_SYNC_GC_PRODUTOS_COMPLETED_AT", new Date().toISOString());
 
-    // TODO: dispatch sentinela-margem after FASE F
+    let orfaosRemovidos = 0;
+    // Só faz cleanup se o run rodou sem page_errors — evita apagar tudo por falha transitória
+    if (pageErrors === 0) {
+      const startedAt = await getConfig("LAST_SYNC_GC_PRODUTOS_STARTED_AT");
+      if (startedAt) {
+        const { data: orfaos, error: selErr } = await supabase
+          .from("gc_produtos_cache")
+          .select("produto_gc_id, nome, codigo_interno")
+          .lt("ultima_sincronizacao", startedAt);
+        if (!selErr && orfaos && orfaos.length > 0) {
+          const ids = (orfaos as any[]).map((o) => o.produto_gc_id);
+          const { error: delErr } = await supabase
+            .from("gc_produtos_cache")
+            .delete()
+            .in("produto_gc_id", ids);
+          if (delErr) {
+            console.error(`[sync-gc-produtos] falha ao remover órfãos: ${delErr.message}`);
+          } else {
+            orfaosRemovidos = ids.length;
+            console.log(`[sync-gc-produtos] removidos ${ids.length} produto(s) órfão(s) do GC:`, ids.slice(0, 20));
+          }
+        }
+      }
+    }
 
     return new Response(JSON.stringify({
       status: "completo",
       produtos_sincronizados: totalSincronizados,
       paginas_processadas: paginasProcessadas,
+      orfaos_removidos: orfaosRemovidos,
       page_errors: pageErrors,
       tempo_ms: Date.now() - inicio,
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
