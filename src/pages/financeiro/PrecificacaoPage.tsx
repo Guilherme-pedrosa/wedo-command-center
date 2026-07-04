@@ -2437,11 +2437,15 @@ export default function PrecificacaoPage() {
                     const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
                     const hasNF = hasEntradaFiscal(tributo);
                     const custoTributoComFreteIpi = getCustoBrutoComFreteIpi(tributo);
-                    // Exceção manual: força custo do cadastro GC. Caso contrário, NF editada + frete/IPI manda no custo bruto.
+                    // Fonte de verdade do CUSTO: "Custo final" do cadastro GC (p.valor_custo).
+                    // Só cai em fallback se GC não tiver custo (0). Exceção manual sobrescreve tudo.
                     const custoOverride = tributoRaw?.excecao_custo_unitario;
+                    const gcCustoFinalLinha = parseFloat(p.valor_custo) || 0;
                     const custoBruto = excecao
-                      ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
-                      : (custoTributoComFreteIpi > 0 ? custoTributoComFreteIpi : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache));
+                      ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : gcCustoFinalLinha)
+                      : (gcCustoFinalLinha > 0
+                          ? gcCustoFinalLinha
+                          : (custoTributoComFreteIpi > 0 ? custoTributoComFreteIpi : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache)));
                     const custoBase = custoBruto;
                    // Tabelas dinâmicas — preços reais vêm de valoresMap por tipo_id (não há mais markup hardcoded A/B/P)
 
@@ -2453,7 +2457,10 @@ export default function PrecificacaoPage() {
                     ? { ...taxSaida, icmsSaida: icmsOvLinha }
                     : taxSaida;
                   if (hasNF) {
-                    const nfCalc = calcPricingWithNF(tributo, taxSaidaLinha, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, excecao ? custoBruto : undefined);
+                    const custoBaseParaNF = excecao
+                      ? custoBruto
+                      : (gcCustoFinalLinha > 0 ? gcCustoFinalLinha : undefined);
+                    const nfCalc = calcPricingWithNF(tributo, taxSaidaLinha, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, custoBaseParaNF);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
                       creditoPis: nfCalc.creditoPis,
