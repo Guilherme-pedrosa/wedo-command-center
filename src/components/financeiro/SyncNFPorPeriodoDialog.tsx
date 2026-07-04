@@ -23,6 +23,9 @@ interface Result {
   produtos: number;
   xmls: number;
   pendentes: number;
+  fretes_processados?: number;
+  fretes_ignorados?: number;
+  frete_valor_total?: number;
 }
 
 export function SyncNFPorPeriodoDialog({ open, onOpenChange, onDone }: Props) {
@@ -70,8 +73,39 @@ export function SyncNFPorPeriodoDialog({ open, onOpenChange, onDone }: Props) {
         offset = data.next_offset;
       }
 
-      setResult({ compras: totalCompras, produtos: totalProdutos, xmls: totalXmls, pendentes: totalPendentes });
-      toast.success(`Sincronizado: ${totalProdutos} produto(s) de ${totalCompras} pedido(s)`);
+      setProgress("Rateando fretes do período...");
+      let fretesProcessados = 0;
+      let fretesIgnorados = 0;
+      let freteValorTotal = 0;
+      try {
+        const { data: freteData, error: freteErr } = await supabase.functions.invoke("ratear-frete-compras", {
+          body: {
+            data_inicio: format(dataInicio, "yyyy-MM-dd"),
+            data_fim: format(dataFim, "yyyy-MM-dd"),
+          },
+        });
+        if (freteErr) throw new Error(freteErr.message);
+        fretesProcessados = freteData?.fretes_processados || 0;
+        fretesIgnorados = freteData?.ja_aplicados_ignorados || 0;
+        freteValorTotal = freteData?.total_rateado || 0;
+      } catch (fe) {
+        // não bloqueia o resultado do sync principal
+        console.warn("Falha no rateio de frete:", fe);
+      }
+
+      setResult({
+        compras: totalCompras,
+        produtos: totalProdutos,
+        xmls: totalXmls,
+        pendentes: totalPendentes,
+        fretes_processados: fretesProcessados,
+        fretes_ignorados: fretesIgnorados,
+        frete_valor_total: freteValorTotal,
+      });
+      toast.success(
+        `Sincronizado: ${totalProdutos} produto(s) de ${totalCompras} pedido(s)` +
+          (fretesProcessados > 0 ? ` • ${fretesProcessados} frete(s) rateado(s)` : ""),
+      );
       onDone?.();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -177,6 +211,14 @@ export function SyncNFPorPeriodoDialog({ open, onOpenChange, onDone }: Props) {
           {result && result.produtos > 0 && (
             <div className="flex items-center gap-2 text-xs text-emerald-500">
               <CheckCircle className="h-3.5 w-3.5" /> Sincronização concluída.
+            </div>
+          )}
+
+          {result && (result.fretes_processados ?? 0) + (result.fretes_ignorados ?? 0) > 0 && (
+            <div className="rounded-md border border-border bg-muted/20 p-2 text-xs text-muted-foreground">
+              <strong className="text-foreground">Rateio de frete:</strong> {result.fretes_processados} pedido(s) de frete aplicado(s)
+              {result.fretes_ignorados ? `, ${result.fretes_ignorados} já aplicado(s) anteriormente` : ""}
+              {result.frete_valor_total ? ` • total rateado R$ ${result.frete_valor_total.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : ""}.
             </div>
           )}
         </div>
