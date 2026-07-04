@@ -1197,6 +1197,119 @@ export type Database = {
         }
         Relationships: []
       }
+      fin_frete_rateio_itens: {
+        Row: {
+          aplicado_em_tributos: boolean
+          compra_codigo: string | null
+          compra_gc_id: string
+          created_at: string
+          id: string
+          item_valor_total: number
+          nome_produto: string | null
+          produto_gc_id: string | null
+          quantidade: number
+          rateio_id: string
+          rateio_unit: number
+          rateio_valor: number
+        }
+        Insert: {
+          aplicado_em_tributos?: boolean
+          compra_codigo?: string | null
+          compra_gc_id: string
+          created_at?: string
+          id?: string
+          item_valor_total?: number
+          nome_produto?: string | null
+          produto_gc_id?: string | null
+          quantidade?: number
+          rateio_id: string
+          rateio_unit?: number
+          rateio_valor?: number
+        }
+        Update: {
+          aplicado_em_tributos?: boolean
+          compra_codigo?: string | null
+          compra_gc_id?: string
+          created_at?: string
+          id?: string
+          item_valor_total?: number
+          nome_produto?: string | null
+          produto_gc_id?: string | null
+          quantidade?: number
+          rateio_id?: string
+          rateio_unit?: number
+          rateio_valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_frete_rateio_itens_rateio_id_fkey"
+            columns: ["rateio_id"]
+            isOneToOne: false
+            referencedRelation: "fin_frete_rateios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fin_frete_rateios: {
+        Row: {
+          applied_at: string
+          created_at: string
+          frete_compra_codigo: string
+          frete_compra_gc_id: string
+          frete_data: string | null
+          frete_valor_total: number
+          id: string
+          itens_impactados: number
+          observacao: string | null
+          pool_valor: number
+          refs_codigos: string[]
+          refs_encontrados: number
+          refs_faltantes: string[]
+          refs_gc_ids: string[]
+          reverted_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          applied_at?: string
+          created_at?: string
+          frete_compra_codigo: string
+          frete_compra_gc_id: string
+          frete_data?: string | null
+          frete_valor_total: number
+          id?: string
+          itens_impactados?: number
+          observacao?: string | null
+          pool_valor?: number
+          refs_codigos?: string[]
+          refs_encontrados?: number
+          refs_faltantes?: string[]
+          refs_gc_ids?: string[]
+          reverted_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          applied_at?: string
+          created_at?: string
+          frete_compra_codigo?: string
+          frete_compra_gc_id?: string
+          frete_data?: string | null
+          frete_valor_total?: number
+          id?: string
+          itens_impactados?: number
+          observacao?: string | null
+          pool_valor?: number
+          refs_codigos?: string[]
+          refs_encontrados?: number
+          refs_faltantes?: string[]
+          refs_gc_ids?: string[]
+          reverted_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       fin_gc_custo_history: {
         Row: {
           created_at: string | null
