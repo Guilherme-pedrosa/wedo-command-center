@@ -139,6 +139,13 @@ serve(async (req) => {
     let totalRateado = 0;
     let processados = 0;
     let ignoradosJa = 0;
+    // Conjunto global de compras referenciadas por algum pedido de frete externo.
+    // Usado no Pass 2 para NÃO ratear novamente o valor_frete embutido dessas compras
+    // (frete deve vir de uma fonte única).
+    const refsCobertasPorExterno = new Set<string>();
+    const conflitosFreteGlobal: any[] = [];
+
+
 
     for (const { compra, info } of fretesDetectados) {
       const freteGcId = String(compra.gc_id);
