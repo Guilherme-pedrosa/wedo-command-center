@@ -2536,19 +2536,17 @@ export default function PrecificacaoPage() {
                                 >
                                   {`⚠ Precificação usa NF c/ frete${ipiPct > 0 ? "+IPI" : ""} (${diffPct > 0 ? "+" : ""}${diffPct.toFixed(1)}% vs GC)`}
                                 </Badge>
-                                {acima && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="ml-2 h-6 px-2 text-[10px] gap-1 border-red-500/50 text-red-300 hover:bg-red-500/10"
-                                    disabled={!!atualizandoCustoKey || !!bulkCorrigindo || !!corrigindoKey}
-                                    onClick={() => atualizarCustoGC(argsAtualizar)}
-                                    title={`Atualiza o cadastro do produto no GC: ${formatCurrency(gcCusto)} → ${formatCurrency(nfCusto)} (origem: ${argsAtualizar.origem_label})`}
-                                  >
-                                    {atualizandoCustoKey === keyAtualizar ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                                    Atualizar custo GC → {formatCurrency(nfCusto)}
-                                  </Button>
-                                )}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className={`ml-2 h-6 px-2 text-[10px] gap-1 ${acima ? "border-red-500/50 text-red-300 hover:bg-red-500/10" : "border-orange-500/50 text-orange-300 hover:bg-orange-500/10"}`}
+                                  disabled={!!atualizandoCustoKey || !!bulkCorrigindo || !!corrigindoKey}
+                                  onClick={() => atualizarCustoGC(argsAtualizar)}
+                                  title={`Atualiza o cadastro do produto no GC: ${formatCurrency(gcCusto)} → ${formatCurrency(nfCusto)} (origem: ${argsAtualizar.origem_label})`}
+                                >
+                                  {atualizandoCustoKey === keyAtualizar ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                                  Atualizar custo GC → {formatCurrency(nfCusto)}
+                                </Button>
                               </>
                             );
                           })()}
