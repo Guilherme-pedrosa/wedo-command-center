@@ -112,6 +112,8 @@ serve(async (req) => {
     let errors = 0;
     let staleRemoved = 0;
     const seenActiveIds = new Set<string>();
+    // Situações que foram completamente sincronizadas (sem erros) — só nessas podemos purgar órfãos locais.
+    const fullySyncedSitIds = new Set<string>();
 
     for (const currentSitId of situacaoIds) {
       let page = 1;
