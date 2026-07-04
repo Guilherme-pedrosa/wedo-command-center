@@ -1198,15 +1198,19 @@ export default function PrecificacaoPage() {
         if (!excecao && gcCustoRaw > calc.custoTotal) calc.custoTotal = gcCustoRaw;
       }
       const valoresProd = valoresMap.get(p.id);
+      const credOn = useCredFor(p.id);
+      const credValor = credOn ? (calc.totalCreditosEntrada || 0) : 0;
       const itemsAbove: Array<{ gc_produto_id: string; nome_produto: string; tipo_id: string; nome_tabela: string; preco_atual: number; preco_sugerido: number; margem_minima: number; margem_resultante: number; custo_referencia: number; }> = [];
       for (const pol of politicas) {
         const margemMin = Number(pol.margem_minima) || 0;
         const divLinha = 1 - calc.aliquotaSaidaFaturamento - margemMin;
-        const precoSugeridoBruto = calc.custoTotal > 0 && divLinha > 0.05 ? calc.custoTotal / divLinha : calc.custoTotal * 5;
+        const numerador = Math.max(0, calc.custoTotal - credValor);
+        const precoSugeridoBruto = numerador > 0 && divLinha > 0.05 ? numerador / divLinha : calc.custoTotal * 5;
         const precoSugerido = calc.custoTotal > 0 ? Math.min(precoSugeridoBruto, calc.custoTotal * 5) : 0;
         const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
         if (vendaReal <= 0 || precoSugerido <= 0) continue;
-        const trib = vendaReal * calc.aliquotaSaidaFaturamento;
+        const tribBruto = vendaReal * calc.aliquotaSaidaFaturamento;
+        const trib = Math.max(0, tribBruto - credValor);
         const margem = ((vendaReal - calc.custoTotal - trib) / vendaReal) * 100;
         // ACIMA: margem > margemMin + 0.5pp E preço atual maior que o sugerido (mais que R$0,01)
         if (margem > margemMin * 100 + 0.5 && vendaReal - precoSugerido > 0.01) {
@@ -1220,7 +1224,7 @@ export default function PrecificacaoPage() {
       if (itemsAbove.length > 0) map.set(String(p.id), itemsAbove);
     }
     return map;
-  }, [preFiltered, politicas, custoCanonicoMap, ultimaCompraMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo, activeEntrada]);
+  }, [preFiltered, politicas, custoCanonicoMap, ultimaCompraMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo, activeEntrada, usarCredEntradaSet]);
 
   const allOutOfMargin = useMemo(() => Array.from(outOfMarginByProduct.values()).flat(), [outOfMarginByProduct]);
   const allAboveMargin = useMemo(() => Array.from(aboveMarginByProduct.values()).flat(), [aboveMarginByProduct]);
