@@ -1112,7 +1112,8 @@ export default function PrecificacaoPage() {
       const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
       const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
       const hasNF = hasEntradaFiscal(tributo);
-      const custoBaseCalculo = excecao ? custoBruto : undefined;
+      const gcCustoFinal = parseFloat(p.valor_custo) || 0;
+      const custoBaseCalculo = excecao ? custoBruto : (gcCustoFinal > 0 ? gcCustoFinal : undefined);
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
