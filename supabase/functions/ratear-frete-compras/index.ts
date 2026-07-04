@@ -403,9 +403,9 @@ serve(async (req) => {
                 recurso_id: produtoId,
                 payload,
                 payload_hash: payloadHash,
-                status: "pending",
+                status: "pendente",
               },
-              { onConflict: "payload_hash" },
+              { onConflict: "recurso,recurso_id,payload_hash" },
             );
           enqueuedGc++;
         }
