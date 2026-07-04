@@ -430,6 +430,259 @@ serve(async (req) => {
       });
     }
 
+    // ══════════════════════════════════════════════════════════════
+    // ── Pass 2: FRETE EMBUTIDO no próprio pedido de compra ──
+    // gc_compras.valor_frete > 0 → rateia esse valor entre os itens
+    // da própria compra, proporcional ao valor_total de cada item.
+    // Idempotência: usa frete_compra_gc_id = gc_id da compra e
+    // observacao = "VALOR_FRETE_EMBUTIDO" para distinguir do pass 1.
+    // ══════════════════════════════════════════════════════════════
+    const setFreteExterno = new Set(fretesDetectados.map((f) => String(f.compra.gc_id)));
+    const embutidas = candidatas.filter(
+      (c) => Number(c.valor_frete || 0) > 0 && !setFreteExterno.has(String(c.gc_id)),
+    );
+
+    let embutidasProcessadas = 0;
+    let embutidasIgnoradas = 0;
+
+    if (embutidas.length > 0) {
+      const embIds = embutidas.map((c) => String(c.gc_id));
+      const { data: jaAplEmb } = await supabase
+        .from("fin_frete_rateios")
+        .select("frete_compra_gc_id, observacao")
+        .in("frete_compra_gc_id", embIds)
+        .eq("observacao", "VALOR_FRETE_EMBUTIDO");
+      const setEmbAplicados = new Set(
+        (jaAplEmb || []).map((r: any) => String(r.frete_compra_gc_id)),
+      );
+
+      for (const compra of embutidas) {
+        const compraGcId = String(compra.gc_id);
+        const compraCodigo = String(compra.codigo || "");
+        const freteValor = Number(compra.valor_frete) || 0;
+
+        if (setEmbAplicados.has(compraGcId) && !forceReapply) {
+          embutidasIgnoradas++;
+          resultados.push({
+            frete_codigo: compraCodigo,
+            status: "ja_aplicado_embutido",
+            detalhe: "valor_frete embutido; use force=true para reaplicar",
+          });
+          continue;
+        }
+
+        const { data: itensRaw } = await supabase
+          .from("gc_compras_itens")
+          .select("compra_gc_id, produto_gc_id, nome_produto, quantidade, valor_total")
+          .eq("compra_gc_id", compraGcId);
+
+        const itens: FreteItem[] = (itensRaw || []).map((it: any) => ({
+          compra_gc_id: String(it.compra_gc_id),
+          compra_codigo: compraCodigo,
+          produto_gc_id: it.produto_gc_id ? String(it.produto_gc_id) : null,
+          nome_produto: it.nome_produto || "",
+          quantidade: Number(it.quantidade) || 0,
+          item_valor_total: Number(it.valor_total) || 0,
+        }));
+
+        const pool = itens.reduce((s, i) => s + i.item_valor_total, 0);
+        if (pool <= 0 || itens.length === 0) {
+          resultados.push({
+            frete_codigo: compraCodigo,
+            status: "pool_zero_embutido",
+            detalhe: "sem itens ou pool zero",
+          });
+          continue;
+        }
+
+        const freteCentavos = Math.round(freteValor * 100);
+        const alocados: number[] = new Array(itens.length).fill(0);
+        let somaAlocada = 0;
+        for (let i = 0; i < itens.length; i++) {
+          const share = Math.floor((itens[i].item_valor_total / pool) * freteCentavos);
+          alocados[i] = share;
+          somaAlocada += share;
+        }
+        alocados[alocados.length - 1] += freteCentavos - somaAlocada;
+
+        const itensRateio = itens.map((it, i) => {
+          const rateioValor = alocados[i] / 100;
+          const rateioUnit = it.quantidade > 0 ? rateioValor / it.quantidade : 0;
+          return {
+            ...it,
+            rateio_valor: Math.round(rateioValor * 10000) / 10000,
+            rateio_unit: Math.round(rateioUnit * 1000000) / 1000000,
+          };
+        });
+
+        if (dryRun) {
+          resultados.push({
+            frete_codigo: compraCodigo,
+            status: "dry_run_embutido",
+            frete_valor: freteValor,
+            pool_valor: pool,
+            itens: itensRateio.length,
+          });
+          embutidasProcessadas++;
+          totalRateado += freteValor;
+          continue;
+        }
+
+        // Reverter aplicação anterior se force
+        if (setEmbAplicados.has(compraGcId) && forceReapply) {
+          const { data: rateioAntigo } = await supabase
+            .from("fin_frete_rateios")
+            .select("id")
+            .eq("frete_compra_gc_id", compraGcId)
+            .eq("observacao", "VALOR_FRETE_EMBUTIDO")
+            .maybeSingle();
+          if (rateioAntigo?.id) {
+            const { data: itensAntigos } = await supabase
+              .from("fin_frete_rateio_itens")
+              .select("compra_gc_id, produto_gc_id, rateio_unit, aplicado_em_tributos")
+              .eq("rateio_id", rateioAntigo.id);
+            for (const ia of itensAntigos || []) {
+              if (!ia.aplicado_em_tributos || !ia.produto_gc_id) continue;
+              const { data: trib } = await supabase
+                .from("fin_produto_tributos")
+                .select("id, valor_frete_unit, custo_efetivo_unit, excecao_manual")
+                .eq("compra_gc_id", ia.compra_gc_id)
+                .eq("gc_produto_id", ia.produto_gc_id)
+                .maybeSingle();
+              if (trib && !trib.excecao_manual) {
+                const novoFrete = Math.max(0, Number(trib.valor_frete_unit || 0) - Number(ia.rateio_unit || 0));
+                const novoCusto = Math.max(0, Number(trib.custo_efetivo_unit || 0) - Number(ia.rateio_unit || 0));
+                await supabase
+                  .from("fin_produto_tributos")
+                  .update({ valor_frete_unit: novoFrete, custo_efetivo_unit: novoCusto })
+                  .eq("id", trib.id);
+              }
+            }
+            await supabase.from("fin_frete_rateio_itens").delete().eq("rateio_id", rateioAntigo.id);
+            await supabase.from("fin_frete_rateios").delete().eq("id", rateioAntigo.id);
+          }
+        }
+
+        const { data: cab, error: cabErr } = await supabase
+          .from("fin_frete_rateios")
+          .insert({
+            frete_compra_gc_id: compraGcId,
+            frete_compra_codigo: compraCodigo,
+            frete_valor_total: freteValor,
+            frete_data: compra.data,
+            refs_codigos: [compraCodigo],
+            refs_gc_ids: [compraGcId],
+            refs_encontrados: 1,
+            refs_faltantes: [],
+            pool_valor: Math.round(pool * 100) / 100,
+            itens_impactados: itensRateio.length,
+            status: "aplicado",
+            observacao: "VALOR_FRETE_EMBUTIDO",
+          })
+          .select("id")
+          .single();
+        if (cabErr) {
+          resultados.push({ frete_codigo: compraCodigo, status: "erro_insert_cab_embutido", detalhe: cabErr.message });
+          continue;
+        }
+
+        const rowsItens = itensRateio.map((r) => ({
+          rateio_id: cab.id,
+          compra_gc_id: r.compra_gc_id,
+          compra_codigo: r.compra_codigo,
+          produto_gc_id: r.produto_gc_id,
+          nome_produto: r.nome_produto,
+          quantidade: r.quantidade,
+          item_valor_total: r.item_valor_total,
+          rateio_valor: r.rateio_valor,
+          rateio_unit: r.rateio_unit,
+          aplicado_em_tributos: false,
+        }));
+        if (rowsItens.length > 0) {
+          const { error: itErr } = await supabase.from("fin_frete_rateio_itens").insert(rowsItens);
+          if (itErr) {
+            resultados.push({ frete_codigo: compraCodigo, status: "erro_insert_itens_embutido", detalhe: itErr.message });
+            continue;
+          }
+        }
+
+        let aplicadosTrib = 0;
+        for (const r of itensRateio) {
+          if (!r.produto_gc_id || r.rateio_unit <= 0) continue;
+          const { data: trib } = await supabase
+            .from("fin_produto_tributos")
+            .select("id, valor_frete_unit, custo_efetivo_unit, excecao_manual")
+            .eq("compra_gc_id", r.compra_gc_id)
+            .eq("gc_produto_id", r.produto_gc_id)
+            .maybeSingle();
+          if (!trib || trib.excecao_manual) continue;
+          const novoFrete = Number(trib.valor_frete_unit || 0) + r.rateio_unit;
+          const novoCusto = Number(trib.custo_efetivo_unit || 0) + r.rateio_unit;
+          await supabase
+            .from("fin_produto_tributos")
+            .update({ valor_frete_unit: novoFrete, custo_efetivo_unit: novoCusto, ultima_atualizacao: new Date().toISOString() })
+            .eq("id", trib.id);
+          await supabase
+            .from("fin_frete_rateio_itens")
+            .update({ aplicado_em_tributos: true })
+            .eq("rateio_id", cab.id)
+            .eq("compra_gc_id", r.compra_gc_id)
+            .eq("produto_gc_id", r.produto_gc_id);
+          aplicadosTrib++;
+        }
+
+        let enqueuedGc = 0;
+        if (enqueueGcCost) {
+          const acc = new Map<string, { rateio_total: number; qtd_total: number; nome: string }>();
+          for (const r of itensRateio) {
+            if (!r.produto_gc_id) continue;
+            const cur = acc.get(r.produto_gc_id) || { rateio_total: 0, qtd_total: 0, nome: r.nome_produto };
+            cur.rateio_total += r.rateio_valor;
+            cur.qtd_total += r.quantidade;
+            acc.set(r.produto_gc_id, cur);
+          }
+          for (const [produtoId, agg] of acc) {
+            if (agg.qtd_total <= 0) continue;
+            const incUnit = agg.rateio_total / agg.qtd_total;
+            const payload = {
+              produto_gc_id: produtoId,
+              nome_produto: agg.nome,
+              incremento_custo_unit: Math.round(incUnit * 10000) / 10000,
+              origem: "rateio_frete_embutido",
+              frete_compra_codigo: compraCodigo,
+              frete_compra_gc_id: compraGcId,
+            };
+            const payloadHash = `frete_emb:${compraGcId}:${produtoId}`;
+            await supabase
+              .from("fin_gc_write_jobs")
+              .upsert(
+                {
+                  recurso: "produto_custo_incremento",
+                  recurso_id: produtoId,
+                  payload,
+                  payload_hash: payloadHash,
+                  status: "pendente",
+                },
+                { onConflict: "recurso,recurso_id,payload_hash" },
+              );
+            enqueuedGc++;
+          }
+        }
+
+        embutidasProcessadas++;
+        totalRateado += freteValor;
+        resultados.push({
+          frete_codigo: compraCodigo,
+          frete_valor: freteValor,
+          pool_valor: Math.round(pool * 100) / 100,
+          itens: itensRateio.length,
+          aplicados_em_tributos: aplicadosTrib,
+          gc_jobs_enfileirados: enqueuedGc,
+          status: "aplicado_embutido",
+        });
+      }
+    }
+
     return new Response(
       JSON.stringify({
         ok: true,
