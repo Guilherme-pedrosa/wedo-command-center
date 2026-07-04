@@ -639,19 +639,11 @@ serve(async (req) => {
       }
     }
 
-    // ── Step 4: Limpa tributos antigos (preserva manuais) — só no offset=0 ──
+    // ── Step 4: NÃO deleta tributos antigos — apenas upsert por gc_produto_id ──
+    // Antes: DELETE atacado wipeava tributos que não fossem re-inseridos nesta rodada,
+    // fazendo sumir NFs vinculadas quando o XML não estava no índice atual.
+    // Agora só limpa pendências (reprocessadas a cada rodada).
     if (offset === 0 && !dryRun && compraCodigosFilter.length === 0) {
-      await supabase
-        .from("fin_produto_tributos")
-        .delete()
-        .is("icms_aliquota_manual", null)
-        .is("pis_aliquota_manual", null)
-        .is("cofins_aliquota_manual", null)
-        .is("ipi_aliquota_manual", null)
-        .eq("sem_credito", false)
-        // Preserva exceções manuais — usuário marcou "🔕 Ignorar (exceção manual)"
-        .or("excecao_manual.is.null,excecao_manual.eq.false");
-      // Limpa pendências antigas para reprocessar
       // Preserva pendências de custo zero (criadas pela migration / fora do escopo do matcher de NF)
       await supabase.from("fin_nfe_match_pendentes").delete().neq("motivo", "custo_zero_no_cadastro_gc");
     }
