@@ -2809,6 +2809,26 @@ export default function PrecificacaoPage() {
                       <TableCell className="text-right font-mono text-xs text-muted-foreground" title="Custo cadastrado no GestãoClick (gc_produtos_cache.valor_custo)">
                         {formatCurrency(Number(p.valor_custo) || 0)}
                       </TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        {(() => {
+                          const fr = freteRateioMap.get(String(p.id));
+                          if (!fr || fr.rateio_unit <= 0) {
+                            return <span className="text-muted-foreground/50">—</span>;
+                          }
+                          const pedidosLabel = fr.pedidos_frete.join(", ");
+                          return (
+                            <div
+                              className="flex flex-col items-end leading-tight"
+                              title={`Rateio total do frete no pedido do produto: ${formatCurrency(fr.rateio_valor)}\nPedido(s) de frete usado(s): ${pedidosLabel}\nCompra do produto: #${fr.compra_codigo || fr.compra_gc_id || "—"}`}
+                            >
+                              <span className="text-cyan-400">{formatCurrency(fr.rateio_unit)}/un</span>
+                              <span className="text-[9px] text-muted-foreground">
+                                frete #{pedidosLabel}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                      </TableCell>
                       <TableCell className="text-center">
                         {hasNF ? (
                           <Tooltip>
