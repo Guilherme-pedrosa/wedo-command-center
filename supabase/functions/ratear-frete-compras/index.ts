@@ -181,13 +181,17 @@ serve(async (req) => {
         continue;
       }
 
-      // Busca as compras referenciadas
+      // Busca as compras referenciadas (inclui valor_frete p/ detectar conflito)
       const { data: refCompras } = await supabase
         .from("gc_compras")
-        .select("gc_id, codigo")
+        .select("gc_id, codigo, valor_frete")
         .in("codigo", refsCodigos);
       const encontrados = new Map<string, string>(); // codigo -> gc_id
-      for (const r of refCompras || []) encontrados.set(String(r.codigo), String(r.gc_id));
+      const refValorFrete = new Map<string, number>(); // gc_id -> valor_frete embutido
+      for (const r of refCompras || []) {
+        encontrados.set(String(r.codigo), String(r.gc_id));
+        refValorFrete.set(String(r.gc_id), Number(r.valor_frete || 0));
+      }
       const faltantes = refsCodigos.filter((c) => !encontrados.has(c));
       const refsGcIds = [...encontrados.values()];
 
@@ -200,11 +204,29 @@ serve(async (req) => {
         continue;
       }
 
+      // Marca refs como cobertas por frete externo (bloqueia pass 2 embutido)
+      for (const rid of refsGcIds) refsCobertasPorExterno.add(rid);
+
+      // Detecta conflito: refs que já possuem valor_frete embutido no próprio pedido
+      const conflitosLocais: { compra_codigo: string; gc_id: string; valor_frete_embutido: number }[] = [];
+      for (const [codigo, gcId] of encontrados) {
+        const vf = refValorFrete.get(gcId) || 0;
+        if (vf > 0) {
+          conflitosLocais.push({ compra_codigo: codigo, gc_id: gcId, valor_frete_embutido: vf });
+          conflitosFreteGlobal.push({
+            frete_externo_codigo: freteCodigo,
+            compra_com_frete_embutido: codigo,
+            valor_frete_embutido: vf,
+          });
+        }
+      }
+
       // Carrega itens de todas as compras referenciadas
       const { data: itensRaw } = await supabase
         .from("gc_compras_itens")
         .select("compra_gc_id, produto_gc_id, nome_produto, quantidade, valor_total")
         .in("compra_gc_id", refsGcIds);
+
 
       const codigoPorGcId = new Map<string, string>();
       for (const [codigo, gcId] of encontrados) codigoPorGcId.set(gcId, codigo);
