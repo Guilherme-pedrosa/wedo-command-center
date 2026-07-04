@@ -927,7 +927,7 @@ function processarXml(
   const xmlItems = parseXmlItems(xml);
   const xmlFrete = getXmlFrete(xml);
   const isSN = isXmlSimplesNacional(xml, xmlItems);
-  const totalVProd = xmlItems.reduce((s, i) => s + i.vProd, 0);
+  const totalVProd = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd - (i.vDesc || 0)), 0);
   const meta = getXmlMeta(xml);
 
   const compraItens = compra.itens;
@@ -1069,7 +1069,7 @@ function processarXml(
     let qtd = qComRaw;
     let packRuleTag = "";
     if (compraQtd > 0 && qComRaw > 0) {
-      const totalNF = xi.vProd;
+      const totalNF = Math.max(0, xi.vProd - (xi.vDesc || 0));
       const totalPedido = item.valor_total || (item.valor_custo * compraQtd);
       const ratio = compraQtd / qComRaw;
       const totaisBatem = totalPedido > 0 &&
@@ -1082,8 +1082,9 @@ function processarXml(
       }
     }
 
-    const valorUnit = xi.vProd / qtd;
-    const proporcao = totalVProd > 0 ? xi.vProd / totalVProd : 0;
+    const vProdLiquido = Math.max(0, xi.vProd - (xi.vDesc || 0));
+    const valorUnit = vProdLiquido / qtd;
+    const proporcao = totalVProd > 0 ? vProdLiquido / totalVProd : 0;
     const freteUnit = qtd > 0 ? (xmlFrete * proporcao) / qtd : 0;
     const ipiUnit = qtd > 0 ? xi.ipi_vIPI / qtd : 0;
     const icmsUnit = isSN ? 0 : qtd > 0 ? xi.icms_vICMS / qtd : 0;

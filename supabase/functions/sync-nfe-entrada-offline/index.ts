@@ -122,6 +122,7 @@ interface XmlItemTax {
   qCom: number;
   vProd: number;
   vUnCom: number;
+  vDesc: number;
   icms_orig: string;
   icms_cst: string;
   icms_pRedBC: number;
@@ -157,6 +158,7 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const qCom = parseFloat(getTag(prod, "qCom")) || 1;
     const vProd = parseFloat(getTag(prod, "vProd")) || 0;
     const vUnCom = parseFloat(getTag(prod, "vUnCom")) || 0;
+    const vDesc = parseFloat(getTag(prod, "vDesc")) || 0;
     const icmsBlock = getBlock(imposto, "ICMS");
     const icmsInner = icmsBlock.replace(/<\/?(?:[a-zA-Z0-9]+:)?ICMS>/gi, "").trim();
     const icms_orig = getTag(icmsInner, "orig");
@@ -184,7 +186,7 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const cofins_pCOFINS = parseFloat(getTag(cofinsInner, "pCOFINS")) || 0;
     const cofins_vCOFINS = parseFloat(getTag(cofinsInner, "vCOFINS")) || 0;
     items.push({
-      nItem, cProd, xProd, NCM, CFOP, qCom, vProd, vUnCom,
+      nItem, cProd, xProd, NCM, CFOP, qCom, vProd, vUnCom, vDesc,
       icms_orig, icms_cst, icms_pRedBC, icms_vBC, icms_pICMS, icms_vICMS,
       ipi_cst, ipi_vBC, ipi_pIPI, ipi_vIPI,
       pis_cst, pis_vBC, pis_pPIS, pis_vPIS,
@@ -412,7 +414,7 @@ serve(async (req) => {
       const xmlItems = parseXmlItems(xmlContent);
       const xmlFrete = getXmlFrete(xmlContent);
       const isSN = isXmlSimplesNacional(xmlContent, xmlItems);
-      const totalVProd = xmlItems.reduce((s, i) => s + i.vProd, 0);
+      const totalVProd = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd - (i.vDesc || 0)), 0);
       const usedXmlIndices = new Set<number>();
       const r = (v: number) => Math.round(v * 100) / 100;
 
@@ -480,8 +482,9 @@ serve(async (req) => {
           usedXmlIndices.add(bestIdx);
 
           const qtd = xmlItem.qCom || 1;
-          const valorUnit = xmlItem.vProd / qtd;
-          const proporcao = totalVProd > 0 ? xmlItem.vProd / totalVProd : 0;
+          const vProdLiquido = Math.max(0, xmlItem.vProd - (xmlItem.vDesc || 0));
+          const valorUnit = vProdLiquido / qtd;
+          const proporcao = totalVProd > 0 ? vProdLiquido / totalVProd : 0;
           const freteUnit = qtd > 0 ? (xmlFrete * proporcao) / qtd : 0;
           const ipiUnit = qtd > 0 ? xmlItem.ipi_vIPI / qtd : 0;
           const icmsUnit = isSN ? 0 : (qtd > 0 ? xmlItem.icms_vICMS / qtd : 0);
