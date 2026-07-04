@@ -2612,12 +2612,17 @@ export default function PrecificacaoPage() {
                           {(() => {
                             if (!hasNF) return null;
                             if (tributoRaw?.excecao_manual) return null;
-                            const nfBase = Number(tributo.valor_unitario_nf) || 0;
+                            // BASE = CUSTO real do item na compra (gc_compras_itens.valor_custo).
+                            // NÃO usar valor_unitario_nf — ele é o "valor da nota", não o custo.
+                            const custoItemReal = Number(ultimaCompra?.valor_custo) || 0;
+                            const nfBaseInvoice = Number(tributo.valor_unitario_nf) || 0;
+                            const nfBase = custoItemReal > 0 ? custoItemReal : nfBaseInvoice;
                             const fretePct = Number(tributo.frete_percentual) || 0;
                             const ipiPct = Number(tributo.ipi_aliquota_manual ?? tributo.ipi_aliquota) || 0;
                             const freteUnit = Number(tributo.valor_frete_unit) || 0;
                             const ipiUnit = Number(tributo.valor_ipi_unit) || 0;
-                            // Custo NF bruto (item + IPI + Frete) — usa valores $ reais quando existem, senão cai no % do cadastro
+                            // Custo real = CUSTO do item + IPI unit + Frete rateado unit.
+                            // Se não houver valores $ reais, cai para % sobre a base de custo.
                             const nfCusto = freteUnit > 0 || ipiUnit > 0
                               ? nfBase + ipiUnit + freteUnit
                               : nfBase * (1 + fretePct / 100 + ipiPct / 100);
@@ -2627,15 +2632,16 @@ export default function PrecificacaoPage() {
                             if (Math.abs(diffPct) < 1) return null;
                             const acima = diffPct > 0;
                             const origemDetalhe = freteUnit > 0 || ipiUnit > 0
-                              ? `base ${formatCurrency(nfBase)}${ipiUnit > 0 ? ` + IPI ${formatCurrency(ipiUnit)}` : ""}${freteUnit > 0 ? ` + frete ${formatCurrency(freteUnit)}` : ""}`
-                              : `base ${formatCurrency(nfBase)}${fretePct > 0 ? ` + frete ${fretePct}%` : ""}${ipiPct > 0 ? ` + IPI ${ipiPct}%` : ""}`;
+                              ? `custo ${formatCurrency(nfBase)}${ipiUnit > 0 ? ` + IPI ${formatCurrency(ipiUnit)}` : ""}${freteUnit > 0 ? ` + frete ${formatCurrency(freteUnit)}` : ""}`
+                              : `custo ${formatCurrency(nfBase)}${fretePct > 0 ? ` + frete ${fretePct}%` : ""}${ipiPct > 0 ? ` + IPI ${ipiPct}%` : ""}`;
                             const argsAtualizar: AtualizarCustoArgs = {
                               gc_produto_id: String(p.id),
                               nome_produto: p.nome,
                               custo_atual_gc: gcCusto,
                               custo_novo: nfCusto,
-                              origem_label: `NF #${tributo.nf_numero || "—"} (${origemDetalhe})`,
+                              origem_label: `Compra #${ultimaCompra?.compra_codigo || ultimaCompra?.compra_gc_id || "—"} — NF #${tributo.nf_numero || "—"} (${origemDetalhe})`,
                             };
+
                             const keyAtualizar = `custo:${p.id}`;
                             return (
                               <>
