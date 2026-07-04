@@ -281,11 +281,13 @@ serve(async (req) => {
           pool_valor: pool,
           itens: itensRateio.length,
           faltantes,
+          conflitos_frete_embutido: conflitosLocais,
         });
         processados++;
         totalRateado += freteValor;
         continue;
       }
+
 
       // ── Reverter aplicação anterior se force ──
       if (setAplicados.has(freteGcId) && forceReapply) {
