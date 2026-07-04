@@ -501,7 +501,7 @@ export default function PrecificacaoPage() {
         const batch = (data || []).map((p) => ({
           id: String(p.produto_gc_id),
           nome: p.nome,
-          codigo: p.codigo_interno || p.codigo_barra || undefined,
+          codigo: p.codigo_barra || p.codigo_interno || undefined,
           codigo_interno: p.codigo_interno || undefined,
           codigo_barra: p.codigo_barra || undefined,
           estoque: p.estoque ?? 0,
