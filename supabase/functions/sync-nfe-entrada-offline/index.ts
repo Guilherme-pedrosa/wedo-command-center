@@ -186,7 +186,7 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const cofins_pCOFINS = parseFloat(getTag(cofinsInner, "pCOFINS")) || 0;
     const cofins_vCOFINS = parseFloat(getTag(cofinsInner, "vCOFINS")) || 0;
     items.push({
-      nItem, cProd, xProd, NCM, CFOP, qCom, vProd, vUnCom,
+      nItem, cProd, xProd, NCM, CFOP, qCom, vProd, vUnCom, vDesc,
       icms_orig, icms_cst, icms_pRedBC, icms_vBC, icms_pICMS, icms_vICMS,
       ipi_cst, ipi_vBC, ipi_pIPI, ipi_vIPI,
       pis_cst, pis_vBC, pis_pPIS, pis_vPIS,
