@@ -927,7 +927,7 @@ function processarXml(
   const xmlItems = parseXmlItems(xml);
   const xmlFrete = getXmlFrete(xml);
   const isSN = isXmlSimplesNacional(xml, xmlItems);
-  const totalVProd = xmlItems.reduce((s, i) => s + i.vProd, 0);
+  const totalVProd = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd - (i.vDesc || 0)), 0);
   const meta = getXmlMeta(xml);
 
   const compraItens = compra.itens;
