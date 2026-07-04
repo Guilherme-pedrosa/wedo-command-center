@@ -1963,12 +1963,12 @@ export default function PrecificacaoPage() {
               variant="outline"
               size="sm"
               onClick={() => setSyncPeriodoOpen(true)}
-              disabled={isSyncing}
-              title="Sincroniza NFs filtrando pedidos de compra por período (mais rápido pra rodadas incrementais)"
+              title="Sincroniza NFs em segundo plano filtrando pedidos de compra por período"
             >
               <CalendarIcon className="h-4 w-4 mr-1" />
               Sincronizar por período
             </Button>
+            <SyncNFStatusChip />
             <Button variant="outline" size="sm" onClick={handleSyncEstoque} disabled={fetchingProdutos}>
               {fetchingProdutos ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Package className="h-4 w-4 mr-1" />}
               Sincronizar Cadastro GC
