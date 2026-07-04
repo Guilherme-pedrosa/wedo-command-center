@@ -3023,9 +3023,18 @@ export default function PrecificacaoPage() {
                           </Button>
                         )}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-sm text-emerald-400" title="Créditos de entrada (ICMS/PIS/COFINS) — viram margem extra de caixa, NÃO reduzem o preço de venda. Blinda contra troca de fornecedor.">
-                        +{formatCurrency(calc.totalCreditosEntrada)}
-                        <div className="text-[9px] text-emerald-400/60 font-normal">margem extra</div>
+                      <TableCell
+                        className={`text-right font-mono text-sm ${usarCreditoNaPrecificacao ? "text-sky-400" : "text-emerald-400"}`}
+                        title={
+                          usarCreditoNaPrecificacao
+                            ? "Créditos de entrada descontados do custo — REDUZEM o preço mínimo."
+                            : "Créditos de entrada viram margem extra de caixa, NÃO reduzem o preço de venda."
+                        }
+                      >
+                        {usarCreditoNaPrecificacao ? "−" : "+"}{formatCurrency(calc.totalCreditosEntrada)}
+                        <div className={`text-[9px] font-normal ${usarCreditoNaPrecificacao ? "text-sky-400/60" : "text-emerald-400/60"}`}>
+                          {usarCreditoNaPrecificacao ? "descontado do custo" : "margem extra"}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(calc.custoTotal)}</TableCell>
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
