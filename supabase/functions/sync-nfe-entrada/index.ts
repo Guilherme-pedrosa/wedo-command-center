@@ -1073,12 +1073,11 @@ function processarXml(
 
     let pick: { xi: XmlItemTax; idx: number; rule: string } | null = null;
 
-    // PRIORIDADE 0: o GC já amarrou cada linha da compra ao produto cadastrado
-    // via produtos[].produto.produto_id. Se o XML tem a mesma quantidade de linhas,
-    // usamos a ordem da linha apenas para trazer os impostos da NF para esse produto.
-    if (compraItens.length === xmlItems.length && xmlItems[pIdx] && !usedXmlIdx.has(pIdx)) {
-      pick = { xi: xmlItems[pIdx], idx: pIdx, rule: "ordem_gc_xml" };
-    }
+    // PRIORIDADE 0 (REMOVIDA): antes assumíamos que compra[i] ↔ xml[i] quando
+    // ambos tinham o mesmo tamanho. GC e SEFAZ NÃO garantem a mesma ordem —
+    // isso produzia vínculos absurdos (ex.: PE BORRACHA amarrado ao CONJUNTO BRACO
+    // R$115 só porque caíram na mesma posição). Agora dependemos exclusivamente
+    // de cProd (código), nome+valor, ou item único 1×1.
 
     // PRIORIDADE 1: cProd normalizado == codigo_interno do cadastro
     const codigoCompra = codigoPorProdutoId.get(gcProdId);
