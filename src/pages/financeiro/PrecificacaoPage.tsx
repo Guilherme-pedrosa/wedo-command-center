@@ -3030,18 +3030,36 @@ export default function PrecificacaoPage() {
                           </Button>
                         )}
                       </TableCell>
-                      <TableCell
-                        className={`text-right font-mono text-sm ${usarCreditoNaPrecificacao ? "text-sky-400" : "text-emerald-400"}`}
-                        title={
-                          usarCreditoNaPrecificacao
-                            ? "Créditos de entrada descontados do custo — REDUZEM o preço mínimo."
-                            : "Créditos de entrada viram margem extra de caixa, NÃO reduzem o preço de venda."
-                        }
-                      >
-                        {usarCreditoNaPrecificacao ? "−" : "+"}{formatCurrency(calc.totalCreditosEntrada)}
-                        <div className={`text-[9px] font-normal ${usarCreditoNaPrecificacao ? "text-sky-400/60" : "text-emerald-400/60"}`}>
-                          {usarCreditoNaPrecificacao ? "descontado do custo" : "margem extra"}
-                        </div>
+                      <TableCell className="text-right font-mono text-sm">
+                        {(() => {
+                          const on = useCredFor(p.id);
+                          const hasCred = (calc.totalCreditosEntrada || 0) > 0;
+                          return (
+                            <div className="flex flex-col items-end gap-0.5">
+                              <span className={on ? "text-sky-400" : "text-emerald-400"}>
+                                {on ? "−" : "+"}{formatCurrency(calc.totalCreditosEntrada)}
+                              </span>
+                              <label
+                                className={`flex items-center gap-1 cursor-pointer ${!hasCred ? "opacity-40 cursor-not-allowed" : ""}`}
+                                title={
+                                  on
+                                    ? "Crédito de entrada está sendo descontado do TRIBUTO de saída — reduz preço mínimo e tributos nas tabelas."
+                                    : "Marque para descontar este crédito do tributo de saída (reduz preço e tributos nas tabelas). Desligado = vira margem extra de caixa."
+                                }
+                              >
+                                <Checkbox
+                                  checked={on}
+                                  disabled={!hasCred}
+                                  onCheckedChange={(v) => toggleCredFor(p.id, v === true)}
+                                  className="h-3 w-3"
+                                />
+                                <span className={`text-[9px] font-normal ${on ? "text-sky-400/80" : "text-muted-foreground"}`}>
+                                  {on ? "descontar do tributo" : "usar no preço"}
+                                </span>
+                              </label>
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(calc.custoTotal)}</TableCell>
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
