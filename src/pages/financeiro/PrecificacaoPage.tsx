@@ -20,7 +20,6 @@ import toast from "react-hot-toast";
 import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import { SyncNFPorPeriodoDialog } from "@/components/financeiro/SyncNFPorPeriodoDialog";
-import { RatearFreteDialog } from "@/components/financeiro/RatearFreteDialog";
 
 // ── Types ──
 interface GCProduto {
@@ -1498,7 +1497,7 @@ export default function PrecificacaoPage() {
   // ── Reprocessa tributos usando apenas itens do pedido GC + XML vinculado ──
   const [syncProgress, setSyncProgress] = useState("");
   const [syncPeriodoOpen, setSyncPeriodoOpen] = useState(false);
-  const [ratearFreteOpen, setRatearFreteOpen] = useState(false);
+  
   const handleSyncNFEntrada = async () => {
     if (activeSyncRef.current) {
       toast.error("Já existe uma sincronização em andamento.");
@@ -1969,16 +1968,6 @@ export default function PrecificacaoPage() {
             >
               <CalendarIcon className="h-4 w-4 mr-1" />
               Sincronizar por período
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setRatearFreteOpen(true)}
-              disabled={isSyncing}
-              title="Detecta pedidos de compra de FRETE no período e rateia o valor entre os itens dos pedidos referenciados"
-            >
-              <CalendarIcon className="h-4 w-4 mr-1" />
-              Ratear frete
             </Button>
             <Button variant="outline" size="sm" onClick={handleSyncEstoque} disabled={fetchingProdutos}>
               {fetchingProdutos ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Package className="h-4 w-4 mr-1" />}
@@ -3461,11 +3450,6 @@ export default function PrecificacaoPage() {
         open={syncPeriodoOpen}
         onOpenChange={setSyncPeriodoOpen}
         onDone={() => refetchTributos()}
-      />
-
-      <RatearFreteDialog
-        open={ratearFreteOpen}
-        onOpenChange={setRatearFreteOpen}
       />
     </div>
   );
