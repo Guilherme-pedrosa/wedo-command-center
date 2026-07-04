@@ -820,6 +820,52 @@ export default function PrecificacaoPage() {
     return map;
   }, [ultimasComprasProduto]);
 
+  // ── Rateio de frete por produto (última compra rateada) ──
+  const { data: freteRateiosRows } = useQuery({
+    queryKey: ["frete-rateio-por-produto"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("fin_frete_rateio_itens")
+        .select("produto_gc_id, compra_gc_id, compra_codigo, rateio_unit, rateio_valor, quantidade, rateio_id, fin_frete_rateios!inner(frete_compra_codigo, frete_compra_gc_id, status, applied_at, reverted_at)")
+        .order("id", { ascending: false })
+        .limit(5000);
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const freteRateioMap = useMemo(() => {
+    // Map produto_gc_id -> { rateio_unit total, pedidos_frete[], compra_codigo (última) }
+    const map = new Map<string, { rateio_unit: number; rateio_valor: number; pedidos_frete: string[]; compra_codigo: string | null; compra_gc_id: string | null }>();
+    for (const row of (freteRateiosRows || []) as any[]) {
+      const rateio = row.fin_frete_rateios;
+      if (!rateio) continue;
+      if (rateio.reverted_at) continue; // ignora rateios revertidos
+      const pid = String(row.produto_gc_id);
+      const existing = map.get(pid);
+      const freteCod = rateio.frete_compra_codigo ? String(rateio.frete_compra_codigo) : (rateio.frete_compra_gc_id ? `#${rateio.frete_compra_gc_id}` : "—");
+      if (!existing) {
+        map.set(pid, {
+          rateio_unit: Number(row.rateio_unit) || 0,
+          rateio_valor: Number(row.rateio_valor) || 0,
+          pedidos_frete: [freteCod],
+          compra_codigo: row.compra_codigo ? String(row.compra_codigo) : null,
+          compra_gc_id: row.compra_gc_id ? String(row.compra_gc_id) : null,
+        });
+      } else {
+        // Só acumula rateios da MESMA compra do produto (última compra rateada)
+        if (existing.compra_gc_id && String(row.compra_gc_id) === existing.compra_gc_id) {
+          existing.rateio_unit += Number(row.rateio_unit) || 0;
+          existing.rateio_valor += Number(row.rateio_valor) || 0;
+          if (!existing.pedidos_frete.includes(freteCod)) existing.pedidos_frete.push(freteCod);
+        }
+      }
+    }
+    return map;
+  }, [freteRateiosRows]);
+
+
   // ── Fetch monthly fixed costs using same logic as Resultados Operação ──
   const now = new Date();
   const { data: custoFixoMensal } = useQuery({
