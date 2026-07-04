@@ -290,18 +290,23 @@ function calcPricingWithNF(
   custoBaseUnit?: number
 ) {
   const eff = getEffectiveRates(tributo);
-  const valorUnit = custoBaseUnit && custoBaseUnit > 0 ? custoBaseUnit : tributo.valor_unitario_nf;
-  
-  const creditoIcms = tipo === "servico" ? 0 : valorUnit * (eff.icms / 100);
-  const creditoPis = tipo === "servico" ? 0 : valorUnit * (eff.pis / 100);
-  const creditoCofins = tipo === "servico" ? 0 : valorUnit * (eff.cofins / 100);
-  const ipiUnit = valorUnit * (eff.ipi / 100);
-  const freteUnit = valorUnit * ((tributo.frete_percentual || 0) / 100);
-  
-  // ── REGRA: precificação usa NF CHEIA (sem subtrair créditos de entrada). ──
-  // Créditos viram margem extra de caixa (ganho fiscal), não redução de preço.
-  // Isso blinda a precificação contra troca de fornecedor (Simples vs Lucro Real).
-  const custoEfetivo = valorUnit + ipiUnit + freteUnit;
+  // Base tributária (créditos) SEMPRE vem do valor unitário da NF.
+  const valorUnitNF = Number(tributo.valor_unitario_nf) || 0;
+  // Base de CUSTO: se GC "Custo final" (custoBaseUnit) foi informado, ELE é o custo final
+  // (já inclui despesas acessórias, outras despesas, frete, IPI conforme cadastro GC).
+  // Caso contrário, cai no fallback histórico (NF + frete% + IPI%).
+  const usarCustoGC = custoBaseUnit != null && custoBaseUnit > 0;
+
+  const creditoIcms = tipo === "servico" ? 0 : valorUnitNF * (eff.icms / 100);
+  const creditoPis = tipo === "servico" ? 0 : valorUnitNF * (eff.pis / 100);
+  const creditoCofins = tipo === "servico" ? 0 : valorUnitNF * (eff.cofins / 100);
+  const ipiUnit = valorUnitNF * (eff.ipi / 100);
+  const freteUnit = valorUnitNF * ((tributo.frete_percentual || 0) / 100);
+
+  // ── REGRA: precificação usa CUSTO FINAL DO GC (fonte de verdade). ──
+  // Créditos de entrada (ICMS/PIS/COFINS) continuam calculados sobre a base da NF
+  // e viram margem extra de caixa (ganho fiscal), não reduzem preço.
+  const custoEfetivo = usarCustoGC ? (custoBaseUnit as number) : (valorUnitNF + ipiUnit + freteUnit);
   const custoTotal = custoEfetivo + custoFixo; // custoFixo aqui = override flat manual
 
   let aliquotaSaidaFaturamento: number;
