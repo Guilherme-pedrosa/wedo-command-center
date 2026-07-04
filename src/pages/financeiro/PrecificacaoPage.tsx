@@ -287,7 +287,8 @@ function calcPricingWithNF(
   custoFixo: number,
   margemDesejada: number,
   custoFixoPct: number = 0,
-  custoBaseUnit?: number
+  custoBaseUnit?: number,
+  usarCreditoEntrada: boolean = false
 ) {
   const eff = getEffectiveRates(tributo);
   // Base tributária (créditos) SEMPRE vem do valor unitário da NF.
@@ -304,9 +305,13 @@ function calcPricingWithNF(
   const freteUnit = valorUnitNF * ((tributo.frete_percentual || 0) / 100);
 
   // ── REGRA: precificação usa CUSTO FINAL DO GC (fonte de verdade). ──
-  // Créditos de entrada (ICMS/PIS/COFINS) continuam calculados sobre a base da NF
-  // e viram margem extra de caixa (ganho fiscal), não reduzem preço.
-  const custoEfetivo = usarCustoGC ? (custoBaseUnit as number) : (valorUnitNF + ipiUnit + freteUnit);
+  // Créditos de entrada (ICMS/PIS/COFINS) por padrão viram margem extra de caixa.
+  // Se `usarCreditoEntrada` = true, eles são descontados do custo (reduzem o preço).
+  const custoEfetivoBruto = usarCustoGC ? (custoBaseUnit as number) : (valorUnitNF + ipiUnit + freteUnit);
+  const totalCreditosEntrada = creditoIcms + creditoPis + creditoCofins;
+  const custoEfetivo = usarCreditoEntrada
+    ? Math.max(0, custoEfetivoBruto - totalCreditosEntrada)
+    : custoEfetivoBruto;
   const custoTotal = custoEfetivo + custoFixo; // custoFixo aqui = override flat manual
 
   let aliquotaSaidaFaturamento: number;
@@ -329,15 +334,16 @@ function calcPricingWithNF(
   const custoFixoEmbutido = precoMinimo * custoFixoPct;
   const lucroAnteIR = precoMinimo - custoTotal - tributosSaida - custoFixoEmbutido;
   const impostoRenda = Math.max(0, lucroAnteIR * irpjPct);
-  // Créditos de entrada entram como ganho extra de margem (caixa), não no preço.
-  const margemExtraCreditos = creditoIcms + creditoPis + creditoCofins;
+  // Se crédito já foi descontado do custo, não soma de novo como margem extra.
+  const margemExtraCreditos = usarCreditoEntrada ? 0 : totalCreditosEntrada;
   const lucroLiquido = lucroAnteIR - impostoRenda + margemExtraCreditos;
 
   return {
     creditoIcms,
     creditoPis,
     creditoCofins,
-    totalCreditosEntrada: creditoIcms + creditoPis + creditoCofins,
+    totalCreditosEntrada,
+    creditoAplicadoNoPreco: usarCreditoEntrada,
     custoEfetivo,
     custoTotal,
     precoMinimo,
@@ -350,6 +356,7 @@ function calcPricingWithNF(
     custoFixoPct,
   };
 }
+
 
 export default function PrecificacaoPage() {
   const [search, setSearch] = useState("");
