@@ -955,6 +955,7 @@ function processarXml(
   matchRuleTag: string,
   productTaxMap: Map<string, ProductTaxRecord>,
   codigoPorProdutoId: Map<string, string>,
+  descartesPicker: any[],
 ) {
   const r = (v: number) => Math.round(v * 100) / 100;
   const xmlItems = parseXmlItems(xml);
