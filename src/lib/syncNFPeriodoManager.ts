@@ -150,12 +150,13 @@ export function startSyncNFPeriodo(params: StartSyncParams): boolean {
             .slice(0, 3)
             .map((c: any) => `#${c.compra_com_frete_embutido} (frete externo #${c.frete_externo_codigo})`)
             .join(", ");
-          toast.warning(
+          toast(
             `⚠️ Frete duplicado detectado em ${conflitos.length + bloqueadosEmb} pedido(s)` +
               (detalhe ? `: ${detalhe}${conflitos.length > 3 ? "..." : ""}` : "") +
               ". Frete embutido foi ignorado — corrija no GC para evitar duplicidade.",
-            { duration: 12000 },
+            { duration: 12000, icon: "⚠️" },
           );
+
         }
       } catch (fe) {
         console.warn("Falha no rateio de frete:", fe);
