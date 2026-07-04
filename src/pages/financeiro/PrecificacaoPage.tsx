@@ -2586,18 +2586,26 @@ export default function PrecificacaoPage() {
                             const nfBase = Number(tributo.valor_unitario_nf) || 0;
                             const fretePct = Number(tributo.frete_percentual) || 0;
                             const ipiPct = Number(tributo.ipi_aliquota_manual ?? tributo.ipi_aliquota) || 0;
-                            const nfCusto = nfBase * (1 + fretePct / 100 + ipiPct / 100);
+                            const freteUnit = Number(tributo.valor_frete_unit) || 0;
+                            const ipiUnit = Number(tributo.valor_ipi_unit) || 0;
+                            // Custo NF bruto (item + IPI + Frete) — usa valores $ reais quando existem, senão cai no % do cadastro
+                            const nfCusto = freteUnit > 0 || ipiUnit > 0
+                              ? nfBase + ipiUnit + freteUnit
+                              : nfBase * (1 + fretePct / 100 + ipiPct / 100);
                             const gcCusto = Number(p.valor_custo) || 0;
                             if (nfCusto <= 0 || gcCusto <= 0) return null;
                             const diffPct = ((gcCusto - nfCusto) / nfCusto) * 100;
                             if (Math.abs(diffPct) < 1) return null;
                             const acima = diffPct > 0;
+                            const origemDetalhe = freteUnit > 0 || ipiUnit > 0
+                              ? `base ${formatCurrency(nfBase)}${ipiUnit > 0 ? ` + IPI ${formatCurrency(ipiUnit)}` : ""}${freteUnit > 0 ? ` + frete ${formatCurrency(freteUnit)}` : ""}`
+                              : `base ${formatCurrency(nfBase)}${fretePct > 0 ? ` + frete ${fretePct}%` : ""}${ipiPct > 0 ? ` + IPI ${ipiPct}%` : ""}`;
                             const argsAtualizar: AtualizarCustoArgs = {
                               gc_produto_id: String(p.id),
                               nome_produto: p.nome,
                               custo_atual_gc: gcCusto,
                               custo_novo: nfCusto,
-                              origem_label: `NF #${tributo.nf_numero || "—"} (base ${formatCurrency(nfBase)}${fretePct > 0 ? ` + frete ${fretePct}%` : ""}${ipiPct > 0 ? ` + IPI ${ipiPct}%` : ""})`,
+                              origem_label: `NF #${tributo.nf_numero || "—"} (${origemDetalhe})`,
                             };
                             const keyAtualizar = `custo:${p.id}`;
                             return (
