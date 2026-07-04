@@ -1082,7 +1082,7 @@ function processarXml(
 
     // PRIORIDADE 1: cProd normalizado == codigo_interno do cadastro
     const codigoCompra = codigoPorProdutoId.get(gcProdId);
-    if (codigoCompra) {
+    if (!pick && codigoCompra) {
       const candidatos = (xmlPorCProd.get(codigoCompra) || []).filter((idx) => !usedXmlIdx.has(idx));
       if (candidatos.length === 1) {
         pick = { xi: xmlItems[candidatos[0]], idx: candidatos[0], rule: "cprod" };
