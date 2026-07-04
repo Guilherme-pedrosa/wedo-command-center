@@ -306,13 +306,13 @@ function calcPricingWithNF(
 
   // ── REGRA: precificação usa CUSTO FINAL DO GC (fonte de verdade). ──
   // Créditos de entrada (ICMS/PIS/COFINS) por padrão viram margem extra de caixa.
-  // Se `usarCreditoEntrada` = true, eles são descontados do custo (reduzem o preço).
-  const custoEfetivoBruto = usarCustoGC ? (custoBaseUnit as number) : (valorUnitNF + ipiUnit + freteUnit);
+  // Se `usarCreditoEntrada` = true, eles são descontados do TRIBUTO DE SAÍDA (matematicamente
+  // equivalente a reduzir o custo no numerador do mark-up; ver dedução no README).
+  const custoEfetivo = usarCustoGC ? (custoBaseUnit as number) : (valorUnitNF + ipiUnit + freteUnit);
   const totalCreditosEntrada = creditoIcms + creditoPis + creditoCofins;
-  const custoEfetivo = usarCreditoEntrada
-    ? Math.max(0, custoEfetivoBruto - totalCreditosEntrada)
-    : custoEfetivoBruto;
-  const custoTotal = custoEfetivo + custoFixo; // custoFixo aqui = override flat manual
+  const custoTotal = custoEfetivo + custoFixo; // bruto (exibido)
+  const creditoAplicado = usarCreditoEntrada ? totalCreditosEntrada : 0;
+  const custoParaPreco = Math.max(0, custoTotal - creditoAplicado);
 
   let aliquotaSaidaFaturamento: number;
   if (tipo === "venda") {
@@ -323,18 +323,17 @@ function calcPricingWithNF(
 
   const irpjPct = saida.irpjCsll / 100;
   const margemDecimal = margemDesejada / 100;
-  // Mark-up Divisor com custo fixo embutido
   const divisor = 1 - aliquotaSaidaFaturamento - custoFixoPct - margemDecimal;
-  // Safety: divisor pequeno gera preços absurdos. Trava em no máx 5x o custo.
   const PRECO_MAX_MULTIPLICADOR = 5;
-  const precoMinimoCalculado = divisor > 0.05 ? custoTotal / divisor : custoTotal * PRECO_MAX_MULTIPLICADOR;
+  const precoMinimoCalculado = divisor > 0.05 ? custoParaPreco / divisor : custoParaPreco * PRECO_MAX_MULTIPLICADOR;
   const precoMinimo = Math.min(precoMinimoCalculado, custoTotal * PRECO_MAX_MULTIPLICADOR);
 
-  const tributosSaida = precoMinimo * aliquotaSaidaFaturamento;
+  const tributosSaidaBruto = precoMinimo * aliquotaSaidaFaturamento;
+  const tributosSaida = Math.max(0, tributosSaidaBruto - creditoAplicado);
   const custoFixoEmbutido = precoMinimo * custoFixoPct;
   const lucroAnteIR = precoMinimo - custoTotal - tributosSaida - custoFixoEmbutido;
   const impostoRenda = Math.max(0, lucroAnteIR * irpjPct);
-  // Se crédito já foi descontado do custo, não soma de novo como margem extra.
+  // Se crédito já foi descontado do tributo, não soma de novo como margem extra.
   const margemExtraCreditos = usarCreditoEntrada ? 0 : totalCreditosEntrada;
   const lucroLiquido = lucroAnteIR - impostoRenda + margemExtraCreditos;
 
@@ -344,10 +343,12 @@ function calcPricingWithNF(
     creditoCofins,
     totalCreditosEntrada,
     creditoAplicadoNoPreco: usarCreditoEntrada,
+    creditoAplicado, // valor absoluto subtraído do tributo (0 se desligado)
     custoEfetivo,
     custoTotal,
     precoMinimo,
-    tributosSaida,
+    tributosSaida,      // líquido (já com crédito subtraído se aplicável)
+    tributosSaidaBruto, // bruto (venda × alíquota, sem crédito)
     custoFixoEmbutido,
     impostoRenda,
     lucroAnteIR,
@@ -356,6 +357,7 @@ function calcPricingWithNF(
     custoFixoPct,
   };
 }
+
 
 
 export default function PrecificacaoPage() {
@@ -371,9 +373,17 @@ export default function PrecificacaoPage() {
   const [taxSaida, setTaxSaida] = useState<TaxConfigSaida>(DEFAULT_SAIDA);
   const [tipoSaidaGlobal, setTipoSaidaGlobal] = useState<TipoSaida>("venda");
   const [margemAlvo, setMargemAlvo] = useState(30);
-  // Se true, desconta créditos de entrada (ICMS/PIS/COFINS) do custo → reduz preço.
-  // Se false (padrão), créditos viram margem extra de caixa.
-  const [usarCreditoNaPrecificacao, setUsarCreditoNaPrecificacao] = useState(false);
+  // Set de gc_produto_id que devem descontar créditos de entrada do tributo de saída.
+  // Ligado por produto (checkbox na coluna "Créd. Entrada").
+  const [usarCredEntradaSet, setUsarCredEntradaSet] = useState<Set<string>>(new Set());
+  const useCredFor = (id: string) => usarCredEntradaSet.has(String(id));
+  const toggleCredFor = (id: string, on: boolean) => {
+    setUsarCredEntradaSet((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(String(id)); else next.delete(String(id));
+      return next;
+    });
+  };
   // Override manual do % de custo fixo (vazio = usa rateio auto cap'd em CUSTO_FIXO_PCT_MAX)
   const [custoFixoPctOverride, setCustoFixoPctOverride] = useState<string>("");
   const [tabelaVenda, setTabelaVenda] = useState<"A" | "B" | "P">("B");
@@ -1098,7 +1108,7 @@ export default function PrecificacaoPage() {
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo, usarCreditoNaPrecificacao);
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo, useCredFor(p.id));
         calc = {
           creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
           totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
@@ -1173,7 +1183,7 @@ export default function PrecificacaoPage() {
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo, usarCreditoNaPrecificacao);
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo, useCredFor(p.id));
         calc = { ...nfCalc, custoLiquido: nfCalc.custoEfetivo, custoFrete: tributo!.valor_frete_unit, margemReal: 0 } as ReturnType<typeof calcPricing>;
       } else {
         calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
@@ -1903,7 +1913,7 @@ export default function PrecificacaoPage() {
       const cfuFlat = !!(taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0) ? (taxEntrada.custoFixoUnit || 0) : 0;
       let calc: ReturnType<typeof calcPricing>;
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo, usarCreditoNaPrecificacao);
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo, useCredFor(p.id));
         calc = {
           creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
           totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
@@ -2444,23 +2454,9 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs text-right" rowSpan={2} title="Rateio de frete unitário aplicado à última compra do produto + pedido(s) de frete usado(s)">Frete Rateio</TableHead>
                   <TableHead className="text-xs text-center" rowSpan={2}>Fonte</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>
-                    <div className="flex flex-col items-end gap-1">
+                    <div className="flex flex-col items-end">
                       <span>Créd. Entrada</span>
-                      <label
-                        htmlFor="usar-credito-entrada"
-                        className="flex items-center gap-1 cursor-pointer font-normal normal-case"
-                        title="Se ligado, os créditos de entrada (ICMS/PIS/COFINS) são descontados do custo e REDUZEM o preço mínimo. Se desligado, viram margem extra de caixa."
-                      >
-                        <Checkbox
-                          id="usar-credito-entrada"
-                          checked={usarCreditoNaPrecificacao}
-                          onCheckedChange={(v) => setUsarCreditoNaPrecificacao(v === true)}
-                          className="h-3.5 w-3.5"
-                        />
-                        <span className={`text-[10px] ${usarCreditoNaPrecificacao ? "text-sky-400" : "text-muted-foreground"}`}>
-                          usar no preço
-                        </span>
-                      </label>
+                      <span className="text-[9px] font-normal text-muted-foreground normal-case">☑ p/ descontar do tributo</span>
                     </div>
                   </TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo Total</TableHead>
@@ -2536,7 +2532,7 @@ export default function PrecificacaoPage() {
                     const custoBaseParaNF = excecao
                       ? custoBruto
                       : (gcCustoFinalLinha > 0 ? gcCustoFinalLinha : undefined);
-                    const nfCalc = calcPricingWithNF(tributo, taxSaidaLinha, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, custoBaseParaNF, usarCreditoNaPrecificacao);
+                    const nfCalc = calcPricingWithNF(tributo, taxSaidaLinha, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, custoBaseParaNF, useCredFor(p.id));
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
                       creditoPis: nfCalc.creditoPis,
@@ -3034,18 +3030,36 @@ export default function PrecificacaoPage() {
                           </Button>
                         )}
                       </TableCell>
-                      <TableCell
-                        className={`text-right font-mono text-sm ${usarCreditoNaPrecificacao ? "text-sky-400" : "text-emerald-400"}`}
-                        title={
-                          usarCreditoNaPrecificacao
-                            ? "Créditos de entrada descontados do custo — REDUZEM o preço mínimo."
-                            : "Créditos de entrada viram margem extra de caixa, NÃO reduzem o preço de venda."
-                        }
-                      >
-                        {usarCreditoNaPrecificacao ? "−" : "+"}{formatCurrency(calc.totalCreditosEntrada)}
-                        <div className={`text-[9px] font-normal ${usarCreditoNaPrecificacao ? "text-sky-400/60" : "text-emerald-400/60"}`}>
-                          {usarCreditoNaPrecificacao ? "descontado do custo" : "margem extra"}
-                        </div>
+                      <TableCell className="text-right font-mono text-sm">
+                        {(() => {
+                          const on = useCredFor(p.id);
+                          const hasCred = (calc.totalCreditosEntrada || 0) > 0;
+                          return (
+                            <div className="flex flex-col items-end gap-0.5">
+                              <span className={on ? "text-sky-400" : "text-emerald-400"}>
+                                {on ? "−" : "+"}{formatCurrency(calc.totalCreditosEntrada)}
+                              </span>
+                              <label
+                                className={`flex items-center gap-1 cursor-pointer ${!hasCred ? "opacity-40 cursor-not-allowed" : ""}`}
+                                title={
+                                  on
+                                    ? "Crédito de entrada está sendo descontado do TRIBUTO de saída — reduz preço mínimo e tributos nas tabelas."
+                                    : "Marque para descontar este crédito do tributo de saída (reduz preço e tributos nas tabelas). Desligado = vira margem extra de caixa."
+                                }
+                              >
+                                <Checkbox
+                                  checked={on}
+                                  disabled={!hasCred}
+                                  onCheckedChange={(v) => toggleCredFor(p.id, v === true)}
+                                  className="h-3 w-3"
+                                />
+                                <span className={`text-[9px] font-normal ${on ? "text-sky-400/80" : "text-muted-foreground"}`}>
+                                  {on ? "descontar do tributo" : "usar no preço"}
+                                </span>
+                              </label>
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(calc.custoTotal)}</TableCell>
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
@@ -3054,18 +3068,22 @@ export default function PrecificacaoPage() {
                       {/* Tabelas dinâmicas (lê fin_politica_markup_tabela + valor_venda real de gc_produtos_cache) */}
                       {(() => {
                         const valoresProd = valoresMap.get(p.id);
+                        const credOn = useCredFor(p.id);
+                        const credValor = credOn ? (calc.totalCreditosEntrada || 0) : 0;
                         return (politicas ?? []).map((pol, idx) => {
                           const margemMin = Number(pol.margem_minima) || 0;
-                          // Divisor SEM custoFixoPct — alinha com a margem exibida (venda - custo - trib)/venda
                           const divInline = 1 - calc.aliquotaSaidaFaturamento - margemMin;
-                          const precoBruto = calc.custoTotal > 0 && divInline > 0.05 ? calc.custoTotal / divInline : calc.custoTotal * 5;
+                          // Numerador do mark-up desconta o crédito (matematicamente equivalente
+                          // a reduzir custo OU reduzir tributo por unidade fixa).
+                          const numerador = Math.max(0, calc.custoTotal - credValor);
+                          const precoBruto = numerador > 0 && divInline > 0.05 ? numerador / divInline : calc.custoTotal * 5;
                           const precoSugerido = calc.custoTotal > 0 ? Math.min(precoBruto, calc.custoTotal * 5) : 0;
                           const vendaReal = valoresProd?.get(String(pol.tipo_id)) ?? 0;
                           const temPrecoCadastrado = vendaReal > 0;
                           const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
-                          const trib = venda * calc.aliquotaSaidaFaturamento;
+                          const tribBruto = venda * calc.aliquotaSaidaFaturamento;
+                          const trib = Math.max(0, tribBruto - credValor); // exibido líquido
                           const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
-                          // Tolerância de 0.05pp para evitar que 4.97% exibido como "5.0%" apareça como fora da margem
                           const okMin = temPrecoCadastrado && margem >= (margemMin * 100 - 0.05);
                           const cor = idx % 3 === 0 ? "text-blue-400" : idx % 3 === 1 ? "text-yellow-400" : "text-purple-400";
                           return (
@@ -3073,7 +3091,15 @@ export default function PrecificacaoPage() {
                               <TableCell className={`text-right font-mono text-xs ${cor} border-l border-border`}>
                                 {vendaReal > 0 ? formatCurrency(vendaReal) : <span className="italic text-muted-foreground">sug. {formatCurrency(precoSugerido)}</span>}
                               </TableCell>
-                              <TableCell className="text-right font-mono text-[10px] text-orange-400">-{formatCurrency(trib)}</TableCell>
+                              <TableCell
+                                className={`text-right font-mono text-[10px] ${credOn && credValor > 0 ? "text-sky-400" : "text-orange-400"}`}
+                                title={credOn && credValor > 0 ? `Tributo bruto ${formatCurrency(tribBruto)} − crédito entrada ${formatCurrency(credValor)}` : undefined}
+                              >
+                                -{formatCurrency(trib)}
+                                {credOn && credValor > 0 && (
+                                  <div className="text-[8px] text-sky-400/60">líq. c/ créd.</div>
+                                )}
+                              </TableCell>
                               <TableCell className="text-center">
                                 <div className="flex flex-col items-center gap-1">
                                   <Badge className={`text-[10px] gap-0.5 ${okMin ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-destructive"}`}>
