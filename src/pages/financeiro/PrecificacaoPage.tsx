@@ -1497,7 +1497,7 @@ export default function PrecificacaoPage() {
   // ── Reprocessa tributos usando apenas itens do pedido GC + XML vinculado ──
   const [syncProgress, setSyncProgress] = useState("");
   const [syncPeriodoOpen, setSyncPeriodoOpen] = useState(false);
-  const [ratearFreteOpen, setRatearFreteOpen] = useState(false);
+  
   const handleSyncNFEntrada = async () => {
     if (activeSyncRef.current) {
       toast.error("Já existe uma sincronização em andamento.");
