@@ -449,7 +449,7 @@ async function reindexBucketDelta(supabase: any) {
   // Além dos XMLs novos, refresca parte dos já conhecidos: versões antigas do
   // indexador gravavam valor_produtos usando o <vProd> do primeiro item.
   const cap = 600;
-  const refreshKnown = allFiles.filter((p) => known.has(p)).slice(0, Math.max(0, cap - missing.length));
+  const refreshKnown = allFiles.filter((p) => known.has(p)).slice(0, Math.min(25, Math.max(0, cap - missing.length)));
   const toProcess = [...missing.slice(0, cap), ...refreshKnown];
   const batchSize = 25;
   const upsertBuffer: Record<string, unknown>[] = [];
