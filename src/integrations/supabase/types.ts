@@ -2062,6 +2062,57 @@ export type Database = {
         }
         Relationships: []
       }
+      fin_nfe_picker_descartes: {
+        Row: {
+          candidatos: Json
+          codigo_interno_pedido: string | null
+          compra_codigo: string | null
+          compra_gc_id: string
+          created_at: string
+          id: string
+          motivo: string
+          nf_chave: string | null
+          nf_numero: string | null
+          nome_produto_pedido: string | null
+          produto_gc_id: string | null
+          quantidade_pedido: number | null
+          valor_total_pedido: number | null
+          valor_unit_pedido: number | null
+        }
+        Insert: {
+          candidatos?: Json
+          codigo_interno_pedido?: string | null
+          compra_codigo?: string | null
+          compra_gc_id: string
+          created_at?: string
+          id?: string
+          motivo: string
+          nf_chave?: string | null
+          nf_numero?: string | null
+          nome_produto_pedido?: string | null
+          produto_gc_id?: string | null
+          quantidade_pedido?: number | null
+          valor_total_pedido?: number | null
+          valor_unit_pedido?: number | null
+        }
+        Update: {
+          candidatos?: Json
+          codigo_interno_pedido?: string | null
+          compra_codigo?: string | null
+          compra_gc_id?: string
+          created_at?: string
+          id?: string
+          motivo?: string
+          nf_chave?: string | null
+          nf_numero?: string | null
+          nome_produto_pedido?: string | null
+          produto_gc_id?: string | null
+          quantidade_pedido?: number | null
+          valor_total_pedido?: number | null
+          valor_unit_pedido?: number | null
+        }
+        Relationships: []
+      }
       fin_nfe_xml_index: {
         Row: {
           chave: string
