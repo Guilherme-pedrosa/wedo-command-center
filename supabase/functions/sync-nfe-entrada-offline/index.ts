@@ -158,6 +158,7 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const qCom = parseFloat(getTag(prod, "qCom")) || 1;
     const vProd = parseFloat(getTag(prod, "vProd")) || 0;
     const vUnCom = parseFloat(getTag(prod, "vUnCom")) || 0;
+    const vDesc = parseFloat(getTag(prod, "vDesc")) || 0;
     const icmsBlock = getBlock(imposto, "ICMS");
     const icmsInner = icmsBlock.replace(/<\/?(?:[a-zA-Z0-9]+:)?ICMS>/gi, "").trim();
     const icms_orig = getTag(icmsInner, "orig");
