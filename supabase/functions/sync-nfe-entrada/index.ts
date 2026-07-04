@@ -353,13 +353,43 @@ function parseXmlMetadataText(text: string) {
   const nome_emitente = nomeMatch?.[1] || null;
   const dhEmiMatch = text.match(/<dhEmi[^>]*>([^<]+)<\/dhEmi>/i) || text.match(/<dEmi[^>]*>([^<]+)<\/dEmi>/i);
   const data_emissao = dhEmiMatch?.[1]?.substring(0, 10) || null;
-  const vNFMatch = text.match(/<vNF[^>]*>([^<]+)<\/vNF>/i);
+  const totalBlock = text.match(/<total[^>]*>[\s\S]*?<\/total>/i)?.[0] || text;
+  const icmsTotBlock = totalBlock.match(/<ICMSTot[^>]*>[\s\S]*?<\/ICMSTot>/i)?.[0] || totalBlock;
+  const vNFMatch = icmsTotBlock.match(/<vNF[^>]*>([^<]+)<\/vNF>/i);
   const valor_total = vNFMatch ? parseFloat(vNFMatch[1]) : null;
-  const vProdMatch = text.match(/<vProd[^>]*>([^<]+)<\/vProd>/i);
+  // Importante: no XML há <prod><vProd> por item. Aqui precisa ser o total da NF
+  // (<total><ICMSTot><vProd>), senão o índice fica com o valor do primeiro item.
+  const vProdMatch = icmsTotBlock.match(/<vProd[^>]*>([^<]+)<\/vProd>/i);
   const valor_produtos = vProdMatch ? parseFloat(vProdMatch[1]) : null;
   const detMatches = text.match(/<det /gi) || text.match(/<det>/gi) || [];
   const qtd_itens = detMatches.length;
   return { chave, numero_nf, cnpj_emitente, nome_emitente, data_emissao, valor_total, valor_produtos, qtd_itens };
+}
+
+function valorCompraSemFrete(compra: CompraRow): number {
+  if (compra.valor_produtos > 0) return compra.valor_produtos;
+  if (compra.valor_total > 0 && compra.valor_frete > 0) return compra.valor_total - compra.valor_frete;
+  return 0;
+}
+
+function diffCompraXml(compra: CompraRow, xml: XmlIndexRow): { diff: number; base: number; rule: string } {
+  const compraTotal = compra.valor_total || 0;
+  const compraProdutos = valorCompraSemFrete(compra);
+  const xmlTotal = Number(xml.valor_total) || 0;
+  const xmlProdutos = Number(xml.valor_produtos) || 0;
+  const combos = [
+    { compra: compraTotal, xml: xmlTotal, rule: "total_vs_total" },
+    { compra: compraProdutos, xml: xmlTotal, rule: "produtos_compra_vs_total_nf" },
+    { compra: compraProdutos, xml: xmlProdutos, rule: "produtos_vs_produtos" },
+    { compra: compraTotal, xml: xmlProdutos, rule: "total_compra_vs_produtos_nf" },
+  ].filter((c) => c.compra > 0 && c.xml > 0);
+
+  let best = { diff: Infinity, base: Math.max(compraTotal, compraProdutos, 1), rule: "sem_valor_comparavel" };
+  for (const c of combos) {
+    const diff = Math.abs(c.xml - c.compra);
+    if (diff < best.diff) best = { diff, base: c.compra, rule: c.rule };
+  }
+  return best;
 }
 
 async function listBucketRecursive(supabase: any, prefix = ""): Promise<string[]> {
@@ -415,9 +445,12 @@ async function reindexBucketDelta(supabase: any) {
   const missing = allFiles.filter((p) => !known.has(p));
   stats.missing = missing.length;
 
-  // Cap por chamada para caber no timeout (~60s)
+  // Cap por chamada para caber no timeout (~60s).
+  // Além dos XMLs novos, refresca parte dos já conhecidos: versões antigas do
+  // indexador gravavam valor_produtos usando o <vProd> do primeiro item.
   const cap = 600;
-  const toProcess = missing.slice(0, cap);
+  const refreshKnown = allFiles.filter((p) => known.has(p)).slice(0, Math.min(25, Math.max(0, cap - missing.length)));
+  const toProcess = [...missing.slice(0, cap), ...refreshKnown];
   const batchSize = 25;
   const upsertBuffer: Record<string, unknown>[] = [];
 
@@ -735,26 +768,31 @@ serve(async (req) => {
       }
 
       if (!matched) {
-        // Nível 2: cnpj + valor (tolerância 1% ou R$5)
+        // Nível 2: cnpj + valor (tolerância 1% ou R$5).
+        // Com frete lançado separado no pedido GC, a NF pode bater com
+        // valor_produtos do pedido, não com valor_total.
         const candidatos = byCnpj.get(cnpj) || [];
         if (candidatos.length === 0) {
           semMatch++;
           registrarPendente(pendentesNovos, semMatchAmostra, compra, "cnpj_sem_xml", []);
           continue;
         }
-        const tol = Math.max(compra.valor_total * 0.01, 5);
+        const compraBaseTol = Math.max(compra.valor_total || 0, valorCompraSemFrete(compra));
+        const tol = Math.max(compraBaseTol * 0.01, 5);
         let best: XmlIndexRow | null = null;
         let bestDiff = Infinity;
+        let bestRule = "";
         for (const x of candidatos) {
-          const diff = Math.abs((x.valor_total || 0) - compra.valor_total);
-          if (diff <= tol && diff < bestDiff) {
-            bestDiff = diff;
+          const valMatch = diffCompraXml(compra, x);
+          if (valMatch.diff <= tol && valMatch.diff < bestDiff) {
+            bestDiff = valMatch.diff;
+            bestRule = valMatch.rule;
             best = x;
           }
         }
         if (best) {
           matched = best;
-          matchRuleTag = "cnpj_valor_frouxo";
+          matchRuleTag = `cnpj_valor_frouxo:${bestRule}`;
           nivel2++;
         } else {
           semMatch++;
@@ -762,17 +800,21 @@ serve(async (req) => {
             .slice()
             .sort(
               (a, b) =>
-                Math.abs((a.valor_total || 0) - compra.valor_total) -
-                Math.abs((b.valor_total || 0) - compra.valor_total),
+                diffCompraXml(compra, a).diff - diffCompraXml(compra, b).diff,
             )
             .slice(0, 3)
-            .map((x) => ({
-              chave: x.chave,
-              numero_nf: x.numero_nf,
-              valor_total: x.valor_total,
-              data_emissao: x.data_emissao,
-              diff: Math.abs((x.valor_total || 0) - compra.valor_total),
-            }));
+            .map((x) => {
+              const valMatch = diffCompraXml(compra, x);
+              return {
+                chave: x.chave,
+                numero_nf: x.numero_nf,
+                valor_total: x.valor_total,
+                valor_produtos: x.valor_produtos,
+                data_emissao: x.data_emissao,
+                diff: valMatch.diff,
+                diff_rule: valMatch.rule,
+              };
+            });
           registrarPendente(pendentesNovos, semMatchAmostra, compra, "valor_fora_tolerancia", top3);
           continue;
         }
