@@ -3444,6 +3444,12 @@ export default function PrecificacaoPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SyncNFPorPeriodoDialog
+        open={syncPeriodoOpen}
+        onOpenChange={setSyncPeriodoOpen}
+        onDone={() => refetchTributos()}
+      />
     </div>
   );
 }
