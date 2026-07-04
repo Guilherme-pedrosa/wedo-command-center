@@ -97,6 +97,7 @@ export function startSyncNFPeriodo(params: StartSyncParams): boolean {
       let totalProdutos = 0;
       let totalXmls = 0;
       let totalPendentes = 0;
+      let totalDescartes = 0;
 
       while (true) {
         const { data, error } = await supabase.functions.invoke("sync-nfe-entrada", {
