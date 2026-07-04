@@ -144,11 +144,19 @@ serve(async (req) => {
 
         const batch = [];
         const itensPorCompra = new Map<string, ReturnType<typeof extrairItensCompra>>();
+        const cancelledIds: string[] = [];
         for (const compra of records) {
           totalFetched++;
           const c = (compra as any).Compra ?? compra;
           const gcId = String(c.id || "");
           if (!gcId) { errors++; continue; }
+
+          const nomeSit = String(c.nome_situacao || c.situacao_nome || "");
+          if (/cancel/i.test(nomeSit)) {
+            cancelledIds.push(gcId);
+            continue;
+          }
+
 
           let dataCompra: string | null = null;
           const rawData = String(c.data_emissao || c.data || c.data_compra || "");
@@ -219,6 +227,18 @@ serve(async (req) => {
             }
           }
         }
+
+        if (cancelledIds.length > 0) {
+          await supabase.from("gc_compras_itens").delete().in("compra_gc_id", cancelledIds);
+          const { error: delCancErr } = await supabase.from("gc_compras").delete().in("gc_id", cancelledIds);
+          if (delCancErr) {
+            console.error(`[sync-compras] Delete cancelled error: ${delCancErr.message}`);
+            errors++;
+          } else {
+            console.log(`[sync-compras] Removidos ${cancelledIds.length} pedidos cancelados`);
+          }
+        }
+
 
         console.log(`[sync-compras] sit=${currentSitId} page ${page}/${totalPages} — ${records.length} recs`);
         page++;
