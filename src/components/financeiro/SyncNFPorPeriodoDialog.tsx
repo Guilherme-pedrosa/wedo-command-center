@@ -63,7 +63,7 @@ export function SyncNFPorPeriodoDialog({ open, onOpenChange, onDone }: Props) {
                     {format(dataInicio, "dd/MM/yyyy")}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
+                <PopoverContent className="w-auto p-0" align="start" side="bottom" sideOffset={4} avoidCollisions={false}>
                   <Calendar mode="single" selected={dataInicio} onSelect={(d) => d && setDataInicio(d)} locale={ptBR} className="p-3 pointer-events-auto" />
                 </PopoverContent>
               </Popover>
@@ -77,7 +77,7 @@ export function SyncNFPorPeriodoDialog({ open, onOpenChange, onDone }: Props) {
                     {format(dataFim, "dd/MM/yyyy")}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
+                <PopoverContent className="w-auto p-0" align="start" side="bottom" sideOffset={4} avoidCollisions={false}>
                   <Calendar mode="single" selected={dataFim} onSelect={(d) => d && setDataFim(d)} locale={ptBR} className="p-3 pointer-events-auto" />
                 </PopoverContent>
               </Popover>
