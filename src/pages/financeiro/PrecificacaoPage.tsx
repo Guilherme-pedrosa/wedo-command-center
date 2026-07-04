@@ -2431,6 +2431,7 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs text-right" rowSpan={2}>Estoque</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2} title="Custo cadastrado no GestãoClick (gc_produtos_cache.valor_custo)">Custo GC</TableHead>
+                  <TableHead className="text-xs text-right" rowSpan={2} title="Rateio de frete unitário aplicado à última compra do produto + pedido(s) de frete usado(s)">Frete Rateio</TableHead>
                   <TableHead className="text-xs text-center" rowSpan={2}>Fonte</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Créd. Entrada</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo Total</TableHead>
