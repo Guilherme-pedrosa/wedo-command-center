@@ -2399,20 +2399,6 @@ export default function PrecificacaoPage() {
               </div>
               <Badge variant="secondary" className="text-xs font-mono w-12 justify-center">{margemAlvo}%</Badge>
             </div>
-            <div
-              className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-2 py-1"
-              title="Se ligado, os créditos de entrada (ICMS/PIS/COFINS) são descontados do custo e REDUZEM o preço mínimo. Se desligado, viram margem extra de caixa."
-            >
-              <Checkbox
-                id="usar-credito-entrada"
-                checked={usarCreditoNaPrecificacao}
-                onCheckedChange={(v) => setUsarCreditoNaPrecificacao(v === true)}
-                className="h-4 w-4"
-              />
-              <Label htmlFor="usar-credito-entrada" className="text-xs text-emerald-300 cursor-pointer whitespace-nowrap">
-                Usar créd. entrada no preço
-              </Label>
-            </div>
             {loadingProdutos && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             <Button size="sm" variant="outline" onClick={handleExportExcel} disabled={filtered.length === 0} title="Exportar filtro atual para Excel">
               <Download className="h-4 w-4 mr-1" />
@@ -2457,7 +2443,26 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs text-right" rowSpan={2} title="Custo cadastrado no GestãoClick (gc_produtos_cache.valor_custo)">Custo GC</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2} title="Rateio de frete unitário aplicado à última compra do produto + pedido(s) de frete usado(s)">Frete Rateio</TableHead>
                   <TableHead className="text-xs text-center" rowSpan={2}>Fonte</TableHead>
-                  <TableHead className="text-xs text-right" rowSpan={2}>Créd. Entrada</TableHead>
+                  <TableHead className="text-xs text-right" rowSpan={2}>
+                    <div className="flex flex-col items-end gap-1">
+                      <span>Créd. Entrada</span>
+                      <label
+                        htmlFor="usar-credito-entrada"
+                        className="flex items-center gap-1 cursor-pointer font-normal normal-case"
+                        title="Se ligado, os créditos de entrada (ICMS/PIS/COFINS) são descontados do custo e REDUZEM o preço mínimo. Se desligado, viram margem extra de caixa."
+                      >
+                        <Checkbox
+                          id="usar-credito-entrada"
+                          checked={usarCreditoNaPrecificacao}
+                          onCheckedChange={(v) => setUsarCreditoNaPrecificacao(v === true)}
+                          className="h-3.5 w-3.5"
+                        />
+                        <span className={`text-[10px] ${usarCreditoNaPrecificacao ? "text-sky-400" : "text-muted-foreground"}`}>
+                          usar no preço
+                        </span>
+                      </label>
+                    </div>
+                  </TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo Total</TableHead>
                   <TableHead className="text-xs text-right font-semibold text-primary" rowSpan={2}>Preço Mín.</TableHead>
                   {(politicas ?? []).map((pol, idx) => (
