@@ -1,6 +1,7 @@
-import { Loader2, CheckCircle, AlertTriangle, Clock } from "lucide-react";
+import { Loader2, CheckCircle, AlertTriangle, Clock, Search } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { Link } from "react-router-dom";
 import { useSyncNFEstado } from "@/hooks/useSyncNFEstado";
 
 export function SyncNFStatusChip() {
