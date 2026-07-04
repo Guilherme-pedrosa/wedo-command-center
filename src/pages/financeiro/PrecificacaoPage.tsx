@@ -2454,23 +2454,9 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs text-right" rowSpan={2} title="Rateio de frete unitário aplicado à última compra do produto + pedido(s) de frete usado(s)">Frete Rateio</TableHead>
                   <TableHead className="text-xs text-center" rowSpan={2}>Fonte</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>
-                    <div className="flex flex-col items-end gap-1">
+                    <div className="flex flex-col items-end">
                       <span>Créd. Entrada</span>
-                      <label
-                        htmlFor="usar-credito-entrada"
-                        className="flex items-center gap-1 cursor-pointer font-normal normal-case"
-                        title="Se ligado, os créditos de entrada (ICMS/PIS/COFINS) são descontados do custo e REDUZEM o preço mínimo. Se desligado, viram margem extra de caixa."
-                      >
-                        <Checkbox
-                          id="usar-credito-entrada"
-                          checked={usarCreditoNaPrecificacao}
-                          onCheckedChange={(v) => setUsarCreditoNaPrecificacao(v === true)}
-                          className="h-3.5 w-3.5"
-                        />
-                        <span className={`text-[10px] ${usarCreditoNaPrecificacao ? "text-sky-400" : "text-muted-foreground"}`}>
-                          usar no preço
-                        </span>
-                      </label>
+                      <span className="text-[9px] font-normal text-muted-foreground normal-case">☑ p/ descontar do tributo</span>
                     </div>
                   </TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo Total</TableHead>
