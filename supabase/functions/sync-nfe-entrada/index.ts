@@ -16,6 +16,7 @@ const corsHeaders = {
 
 // ── Types locais ──
 interface CompraItem {
+  item_gc_id: string | null;
   produto_gc_id: string | null;
   nome_produto: string;
   quantidade: number;
@@ -615,11 +616,12 @@ serve(async (req) => {
       const chunk = compraIds.slice(i, i + 100);
       const { data: itens } = await supabase
         .from("gc_compras_itens")
-        .select("compra_gc_id, produto_gc_id, nome_produto, quantidade, valor_custo, valor_total, unidade, origem_vinculo, ordem_item")
+        .select("compra_gc_id, item_gc_id, produto_gc_id, nome_produto, quantidade, valor_custo, valor_total, unidade, origem_vinculo, ordem_item")
         .in("compra_gc_id", chunk);
       for (const it of itens || []) {
         const arr = itensByCompra.get(String(it.compra_gc_id)) || [];
         arr.push({
+          item_gc_id: it.item_gc_id ?? null,
           produto_gc_id: it.produto_gc_id,
           nome_produto: it.nome_produto || "",
           quantidade: Number(it.quantidade) || 1,
@@ -1070,6 +1072,13 @@ function processarXml(
     if (!gcProdId) continue; // sem produto vinculado no pedido → nada a enriquecer
 
     let pick: { xi: XmlItemTax; idx: number; rule: string } | null = null;
+
+    // PRIORIDADE 0: o GC já amarrou cada linha da compra ao produto cadastrado
+    // via produtos[].produto.produto_id. Se o XML tem a mesma quantidade de linhas,
+    // usamos a ordem da linha apenas para trazer os impostos da NF para esse produto.
+    if (compraItens.length === xmlItems.length && xmlItems[pIdx] && !usedXmlIdx.has(pIdx)) {
+      pick = { xi: xmlItems[pIdx], idx: pIdx, rule: "ordem_gc_xml" };
+    }
 
     // PRIORIDADE 1: cProd normalizado == codigo_interno do cadastro
     const codigoCompra = codigoPorProdutoId.get(gcProdId);
