@@ -457,6 +457,10 @@ serve(async (req) => {
         sem_tributo_ainda: semTrib,
         bloqueados_excecao: excecaoBloqueou,
         gc_jobs_enfileirados: enqueuedGc,
+        conflitos_frete_embutido: conflitosLocais,
+        aviso: conflitosLocais.length > 0
+          ? `ATENÇÃO: ${conflitosLocais.length} pedido(s) referenciado(s) já possuem valor_frete embutido no próprio pedido. O frete embutido foi IGNORADO — mantida apenas a fonte externa (${freteCodigo}). Corrija no GC removendo o frete duplicado.`
+          : undefined,
         status: "aplicado",
       });
     }
@@ -467,11 +471,31 @@ serve(async (req) => {
     // da própria compra, proporcional ao valor_total de cada item.
     // Idempotência: usa frete_compra_gc_id = gc_id da compra e
     // observacao = "VALOR_FRETE_EMBUTIDO" para distinguir do pass 1.
+    //
+    // REGRA: se a compra já é coberta por um pedido de frete externo
+    // (está em refsCobertasPorExterno), NÃO rateia o embutido — evita
+    // duplicidade. Frete deve vir de uma fonte apenas.
     // ══════════════════════════════════════════════════════════════
     const setFreteExterno = new Set(fretesDetectados.map((f) => String(f.compra.gc_id)));
-    const embutidas = candidatas.filter(
+    const embutidasBrutas = candidatas.filter(
       (c) => Number(c.valor_frete || 0) > 0 && !setFreteExterno.has(String(c.gc_id)),
     );
+    const embutidasBloqueadasPorExterno: any[] = [];
+    const embutidas = embutidasBrutas.filter((c) => {
+      if (refsCobertasPorExterno.has(String(c.gc_id))) {
+        embutidasBloqueadasPorExterno.push({
+          frete_codigo: String(c.codigo || ""),
+          gc_id: String(c.gc_id),
+          valor_frete_embutido: Number(c.valor_frete || 0),
+          status: "bloqueado_frete_ja_coberto_por_pedido_externo",
+          aviso: "Este pedido já recebe rateio de um pedido de frete externo; o valor_frete embutido foi ignorado para evitar duplicidade.",
+        });
+        return false;
+      }
+      return true;
+    });
+    resultados.push(...embutidasBloqueadasPorExterno);
+
 
     let embutidasProcessadas = 0;
     let embutidasIgnoradas = 0;
