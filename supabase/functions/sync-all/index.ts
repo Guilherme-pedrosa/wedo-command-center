@@ -57,6 +57,12 @@ function extrairItensCompra(compraGcId: string, compraRaw: any) {
   });
 }
 
+function isCompraCancelada(compraRaw: any): boolean {
+  const c = compraRaw?.Compra ?? compraRaw ?? {};
+  const nome = String(c.nome_situacao || c.situacao_nome || c.status || c.situacao || "");
+  return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().includes("CANCEL");
+}
+
 // ── GC paginated fetch ──
 async function fetchAllPages(
   endpoint: string,
@@ -289,6 +295,8 @@ async function syncOS(
   let totalFetched = 0;
   let upserted = 0;
   let errors = 0;
+  let staleRemoved = 0;
+  const seenActiveIds = new Set<string>();
   const statusCounts: Record<string, number> = {};
 
   // Pre-carrega mapa produto_gc_id -> valor_custo
@@ -593,6 +601,17 @@ async function syncCompras(
         const gcId = String(c.id || "");
         if (!gcId) { errors++; continue; }
 
+        if (isCompraCancelada(c)) {
+          await supabase.from("gc_compras_itens").delete().eq("compra_gc_id", gcId);
+          const { error: delCancelErr } = await supabase.from("gc_compras").delete().eq("gc_id", gcId);
+          if (delCancelErr) {
+            console.error(`[sync-all/compras] Delete cancelled ${gcId}: ${delCancelErr.message}`);
+            errors++;
+          }
+          continue;
+        }
+        seenActiveIds.add(gcId);
+
         let dataCompra: string | null = null;
         const rawData = String(c.data_emissao || c.data || c.data_compra || "");
         if (rawData) {
@@ -666,7 +685,45 @@ async function syncCompras(
     }
   }
 
-  return { status: errors > 0 ? "partial" : "ok", totalFetched, upserted, errors, duration_ms: Date.now() - start };
+  if (dataInicio && dataFim && errors === 0) {
+    const localRows: any[] = [];
+    const pageSize = 500;
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from("gc_compras")
+        .select("gc_id, codigo, data")
+        .gte("data", dataInicio)
+        .lte("data", dataFim)
+        .range(from, from + pageSize - 1);
+      if (error) {
+        console.error(`[sync-all/compras] Select stale local error: ${error.message}`);
+        errors++;
+        break;
+      }
+      if (!data || data.length === 0) break;
+      localRows.push(...data);
+      if (data.length < pageSize) break;
+      from += pageSize;
+    }
+
+    const staleIds = localRows
+      .map((r) => String(r.gc_id || ""))
+      .filter((id) => id && !seenActiveIds.has(id));
+    for (let i = 0; i < staleIds.length; i += 100) {
+      const chunk = staleIds.slice(i, i + 100);
+      await supabase.from("gc_compras_itens").delete().in("compra_gc_id", chunk);
+      const { error: delStaleErr } = await supabase.from("gc_compras").delete().in("gc_id", chunk);
+      if (delStaleErr) {
+        console.error(`[sync-all/compras] Delete stale error: ${delStaleErr.message}`);
+        errors++;
+      } else {
+        staleRemoved += chunk.length;
+      }
+    }
+  }
+
+  return { status: errors > 0 ? "partial" : "ok", totalFetched, upserted, errors, staleRemoved, duration_ms: Date.now() - start };
 }
 
 // ═══════════════════════════════════════════════════════════════
