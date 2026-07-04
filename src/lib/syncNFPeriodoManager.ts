@@ -150,6 +150,7 @@ export function startSyncNFPeriodo(params: StartSyncParams): boolean {
           produtos: totalProdutos,
           xmls: totalXmls,
           pendentes: totalPendentes,
+          picker_descartes: totalDescartes,
           fretes_processados: fretesProcessados,
           fretes_ignorados: fretesIgnorados,
           frete_valor_total: freteValorTotal,
