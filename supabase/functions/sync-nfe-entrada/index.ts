@@ -876,6 +876,15 @@ serve(async (req) => {
       }
     }
 
+    // ── Step 8: Insere descartes do picker (diagnóstico) ──
+    if (!dryRun && descartesPicker.length > 0) {
+      for (let i = 0; i < descartesPicker.length; i += 100) {
+        const batch = descartesPicker.slice(i, i + 100);
+        const { error } = await supabase.from("fin_nfe_picker_descartes").insert(batch);
+        if (error) console.error(`insert descartes batch ${i}:`, error.message);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         ok: true,
@@ -893,6 +902,7 @@ serve(async (req) => {
         upserted,
         skipped_older: skippedOlder,
         pendentes_registrados: pendentesNovos.length,
+        picker_descartes: descartesPicker.length,
         sem_match_amostra: semMatchAmostra.slice(0, 5),
         dry_run: dryRun,
         gc_api_calls: 0,
