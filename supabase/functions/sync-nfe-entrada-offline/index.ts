@@ -482,8 +482,9 @@ serve(async (req) => {
           usedXmlIndices.add(bestIdx);
 
           const qtd = xmlItem.qCom || 1;
-          const valorUnit = xmlItem.vProd / qtd;
-          const proporcao = totalVProd > 0 ? xmlItem.vProd / totalVProd : 0;
+          const vProdLiquido = Math.max(0, xmlItem.vProd - (xmlItem.vDesc || 0));
+          const valorUnit = vProdLiquido / qtd;
+          const proporcao = totalVProd > 0 ? vProdLiquido / totalVProd : 0;
           const freteUnit = qtd > 0 ? (xmlFrete * proporcao) / qtd : 0;
           const ipiUnit = qtd > 0 ? xmlItem.ipi_vIPI / qtd : 0;
           const icmsUnit = isSN ? 0 : (qtd > 0 ? xmlItem.icms_vICMS / qtd : 0);
