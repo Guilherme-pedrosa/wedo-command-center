@@ -116,6 +116,7 @@ export function startSyncNFPeriodo(params: StartSyncParams): boolean {
         totalProdutos += data.upserted || 0;
         totalXmls += data.xmls_lidos || 0;
         totalPendentes += data.pendentes_registrados || 0;
+        totalDescartes += data.picker_descartes || 0;
         const processed = Math.min(offset + (data.processed || 0), totalCompras);
         update({ progress: `${processed}/${totalCompras} pedidos processados` });
 
