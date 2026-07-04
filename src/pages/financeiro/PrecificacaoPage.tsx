@@ -501,7 +501,7 @@ export default function PrecificacaoPage() {
         const batch = (data || []).map((p) => ({
           id: String(p.produto_gc_id),
           nome: p.nome,
-          codigo: p.codigo_barra || p.codigo_interno || undefined,
+          codigo: p.codigo_interno || p.codigo_barra || undefined,
           codigo_interno: p.codigo_interno || undefined,
           codigo_barra: p.codigo_barra || undefined,
           estoque: p.estoque ?? 0,
@@ -2565,8 +2565,8 @@ export default function PrecificacaoPage() {
                       <TableCell>
                         <div>
                           <span className="font-medium text-foreground text-sm">{p.nome}</span>
-                          {(p.codigo_barra || p.codigo_interno) && (
-                            <span className="text-xs text-muted-foreground ml-2" title={`Código GC: ${p.codigo_barra || p.codigo_interno}`}>#{p.codigo_barra || p.codigo_interno}</span>
+                          {(p.codigo_interno || p.codigo_barra) && (
+                            <span className="text-xs text-muted-foreground ml-2" title="Código interno GC">#{p.codigo_interno || p.codigo_barra}</span>
                           )}
                           {p.nome_grupo && (
                             <Badge variant="outline" className="ml-2 text-[10px] py-0">{p.nome_grupo}</Badge>
