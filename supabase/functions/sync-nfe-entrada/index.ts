@@ -489,6 +489,11 @@ serve(async (req) => {
     const compraCodigosFilter: string[] = Array.isArray(body.compra_codigos)
       ? body.compra_codigos.map((c: any) => String(c))
       : [];
+    const dataInicio: string | null = typeof body.data_inicio === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.data_inicio)
+      ? body.data_inicio : null;
+    const dataFim: string | null = typeof body.data_fim === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.data_fim)
+      ? body.data_fim : null;
+    const apenasSemNf = body.apenas_sem_nf === true;
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
@@ -501,25 +506,55 @@ serve(async (req) => {
       reindexStats = await reindexBucketDelta(supabase);
     }
 
+    // ── Filtro opcional: compras sem tributo NF gravado ainda ──
+    let compraIdsSemNf: Set<string> | null = null;
+    if (apenasSemNf) {
+      const jaComNf = new Set<string>();
+      const pageSize = 1000;
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from("fin_produto_tributos")
+          .select("compra_gc_id")
+          .not("nf_chave", "is", null)
+          .neq("nf_chave", "")
+          .range(from, from + pageSize - 1);
+        if (error || !data || data.length === 0) break;
+        for (const r of data) if (r.compra_gc_id) jaComNf.add(String(r.compra_gc_id));
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      compraIdsSemNf = jaComNf; // usado como "excluir estes"
+    }
+
     // ── Step 1: Carrega compras candidatas.
     // Algumas compras do GC vêm com NF-e visível na UI, mas numero_nfe vazio no payload local;
     // nesses casos ainda cruzamos por CNPJ + valor total contra o XML indexado.
-    let countQuery = supabase
-      .from("gc_compras")
-      .select("*", { count: "exact", head: true });
-    if (compraCodigosFilter.length > 0) countQuery = countQuery.in("codigo", compraCodigosFilter);
-    const { count: totalCount, error: countErr } = await countQuery;
+    const applyFilters = (q: any) => {
+      let query = q;
+      if (compraCodigosFilter.length > 0) query = query.in("codigo", compraCodigosFilter);
+      if (dataInicio) query = query.gte("data", dataInicio);
+      if (dataFim) query = query.lte("data", dataFim);
+      if (compraIdsSemNf && compraIdsSemNf.size > 0) {
+        query = query.not("gc_id", "in", `(${[...compraIdsSemNf].map((v) => `"${v}"`).join(",")})`);
+      }
+      return query;
+    };
+
+    const { count: totalCount, error: countErr } = await applyFilters(
+      supabase.from("gc_compras").select("*", { count: "exact", head: true })
+    );
     if (countErr) throw new Error(`count compras: ${countErr.message}`);
 
     const totalCompras = totalCount ?? 0;
 
-    let selectQuery = supabase
-      .from("gc_compras")
-      .select("gc_id, codigo, numero_nfe, cnpj_fornecedor, fornecedor_id, nome_fornecedor, data, valor_total, valor_produtos, valor_frete")
-      .order("data", { ascending: false, nullsFirst: false })
-      .range(offset, offset + batchSize - 1);
-    if (compraCodigosFilter.length > 0) selectQuery = selectQuery.in("codigo", compraCodigosFilter);
-    const { data: comprasRaw, error: comprasErr } = await selectQuery;
+    const { data: comprasRaw, error: comprasErr } = await applyFilters(
+      supabase
+        .from("gc_compras")
+        .select("gc_id, codigo, numero_nfe, cnpj_fornecedor, fornecedor_id, nome_fornecedor, data, valor_total, valor_produtos, valor_frete")
+        .order("data", { ascending: false, nullsFirst: false })
+        .range(offset, offset + batchSize - 1)
+    );
     if (comprasErr) throw new Error(`select compras: ${comprasErr.message}`);
 
 
