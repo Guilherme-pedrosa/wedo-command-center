@@ -1,6 +1,7 @@
-import { Loader2, CheckCircle, AlertTriangle, Clock } from "lucide-react";
+import { Loader2, CheckCircle, AlertTriangle, Clock, Search } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { Link } from "react-router-dom";
 import { useSyncNFEstado } from "@/hooks/useSyncNFEstado";
 
 export function SyncNFStatusChip() {
@@ -31,18 +32,30 @@ export function SyncNFStatusChip() {
   if (estado.lastResult && estado.lastFinishedAt) {
     const r = estado.lastResult;
     return (
-      <div
-        className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400"
-        title={`Período: ${r.dataInicio} → ${r.dataFim}\n${r.compras} pedidos, ${r.produtos} produtos, ${r.xmls} XMLs, ${r.pendentes} pendentes\n${r.fretes_processados} fretes rateados (R$ ${r.frete_valor_total.toLocaleString("pt-BR", { minimumFractionDigits: 2 })})`}
-      >
-        <CheckCircle className="h-3 w-3" />
-        <span>
-          Última sync há {formatDistanceToNow(new Date(estado.lastFinishedAt), { locale: ptBR })}
-          <span className="text-emerald-600/70 dark:text-emerald-400/70"> • {r.produtos} produtos</span>
-          {r.fretes_processados > 0 && (
-            <span className="text-emerald-600/70 dark:text-emerald-400/70"> • {r.fretes_processados} fretes</span>
-          )}
-        </span>
+      <div className="inline-flex items-center gap-2">
+        <div
+          className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400"
+          title={`Período: ${r.dataInicio} → ${r.dataFim}\n${r.compras} pedidos, ${r.produtos} produtos, ${r.xmls} XMLs, ${r.pendentes} pendentes, ${r.picker_descartes} descartes\n${r.fretes_processados} fretes rateados (R$ ${r.frete_valor_total.toLocaleString("pt-BR", { minimumFractionDigits: 2 })})`}
+        >
+          <CheckCircle className="h-3 w-3" />
+          <span>
+            Última sync há {formatDistanceToNow(new Date(estado.lastFinishedAt), { locale: ptBR })}
+            <span className="text-emerald-600/70 dark:text-emerald-400/70"> • {r.produtos} produtos</span>
+            {r.fretes_processados > 0 && (
+              <span className="text-emerald-600/70 dark:text-emerald-400/70"> • {r.fretes_processados} fretes</span>
+            )}
+          </span>
+        </div>
+        {r.picker_descartes > 0 && (
+          <Link
+            to="/financeiro/picker-descartes"
+            className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-500/20"
+            title="Itens do pedido que o picker não conseguiu casar com XML — ver diagnóstico"
+          >
+            <Search className="h-3 w-3" />
+            {r.picker_descartes} itens sem match
+          </Link>
+        )}
       </div>
     );
   }

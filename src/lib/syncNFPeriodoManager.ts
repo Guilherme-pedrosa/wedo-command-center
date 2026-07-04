@@ -14,6 +14,7 @@ export interface SyncNFEstado {
     produtos: number;
     xmls: number;
     pendentes: number;
+    picker_descartes: number;
     fretes_processados: number;
     fretes_ignorados: number;
     frete_valor_total: number;
@@ -96,6 +97,7 @@ export function startSyncNFPeriodo(params: StartSyncParams): boolean {
       let totalProdutos = 0;
       let totalXmls = 0;
       let totalPendentes = 0;
+      let totalDescartes = 0;
 
       while (true) {
         const { data, error } = await supabase.functions.invoke("sync-nfe-entrada", {
@@ -114,6 +116,7 @@ export function startSyncNFPeriodo(params: StartSyncParams): boolean {
         totalProdutos += data.upserted || 0;
         totalXmls += data.xmls_lidos || 0;
         totalPendentes += data.pendentes_registrados || 0;
+        totalDescartes += data.picker_descartes || 0;
         const processed = Math.min(offset + (data.processed || 0), totalCompras);
         update({ progress: `${processed}/${totalCompras} pedidos processados` });
 
@@ -147,6 +150,7 @@ export function startSyncNFPeriodo(params: StartSyncParams): boolean {
           produtos: totalProdutos,
           xmls: totalXmls,
           pendentes: totalPendentes,
+          picker_descartes: totalDescartes,
           fretes_processados: fretesProcessados,
           fretes_ignorados: fretesIgnorados,
           frete_valor_total: freteValorTotal,
