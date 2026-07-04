@@ -228,6 +228,18 @@ serve(async (req) => {
           }
         }
 
+        if (cancelledIds.length > 0) {
+          await supabase.from("gc_compras_itens").delete().in("compra_gc_id", cancelledIds);
+          const { error: delCancErr } = await supabase.from("gc_compras").delete().in("gc_id", cancelledIds);
+          if (delCancErr) {
+            console.error(`[sync-compras] Delete cancelled error: ${delCancErr.message}`);
+            errors++;
+          } else {
+            console.log(`[sync-compras] Removidos ${cancelledIds.length} pedidos cancelados`);
+          }
+        }
+
+
         console.log(`[sync-compras] sit=${currentSitId} page ${page}/${totalPages} — ${records.length} recs`);
         page++;
       }
