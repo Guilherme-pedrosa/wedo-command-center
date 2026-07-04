@@ -84,7 +84,7 @@ serve(async (req) => {
     // produto quanto pedidos de serviço, pois o frete pode estar lançado como serviço.
     let q = supabase
       .from("gc_compras")
-      .select("gc_id, codigo, data, valor_total, valor_produtos, gc_payload_raw");
+      .select("gc_id, codigo, data, valor_total, valor_produtos, valor_frete, gc_payload_raw");
     if (dataInicio) q = q.gte("data", dataInicio);
     if (dataFim) q = q.lte("data", dataFim);
     if (compraCodigosFilter.length > 0) q = q.in("codigo", compraCodigosFilter);
