@@ -20,7 +20,6 @@ import toast from "react-hot-toast";
 import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import { SyncNFPorPeriodoDialog } from "@/components/financeiro/SyncNFPorPeriodoDialog";
-import { RatearFreteDialog } from "@/components/financeiro/RatearFreteDialog";
 
 // ── Types ──
 interface GCProduto {
