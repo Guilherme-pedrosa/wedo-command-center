@@ -13,12 +13,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Loader2, Search, Calculator, Package, TrendingUp, AlertTriangle, DollarSign, BarChart3, RefreshCw, FileText, Info, ShoppingCart, Wrench, Upload, Pencil, Plus, Download } from "lucide-react";
+import { Loader2, Search, Calculator, Package, TrendingUp, AlertTriangle, DollarSign, BarChart3, RefreshCw, FileText, Info, ShoppingCart, Wrench, Upload, Pencil, Plus, Download, Calendar as CalendarIcon } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatCurrency } from "@/lib/format";
 import toast from "react-hot-toast";
 import * as XLSX from "xlsx";
 import { format } from "date-fns";
+import { SyncNFPorPeriodoDialog } from "@/components/financeiro/SyncNFPorPeriodoDialog";
 
 // ── Types ──
 interface GCProduto {
@@ -1495,6 +1496,7 @@ export default function PrecificacaoPage() {
 
   // ── Reprocessa tributos usando apenas itens do pedido GC + XML vinculado ──
   const [syncProgress, setSyncProgress] = useState("");
+  const [syncPeriodoOpen, setSyncPeriodoOpen] = useState(false);
   const handleSyncNFEntrada = async () => {
     if (activeSyncRef.current) {
       toast.error("Já existe uma sincronização em andamento.");
@@ -1955,6 +1957,16 @@ export default function PrecificacaoPage() {
             <Button variant="outline" size="sm" onClick={handleSyncGC} disabled={isSyncing}>
               {syncingGC ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
               Cruzar Pedidos GC + XML
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSyncPeriodoOpen(true)}
+              disabled={isSyncing}
+              title="Sincroniza NFs filtrando pedidos de compra por período (mais rápido pra rodadas incrementais)"
+            >
+              <CalendarIcon className="h-4 w-4 mr-1" />
+              Sincronizar por período
             </Button>
             <Button variant="outline" size="sm" onClick={handleSyncEstoque} disabled={fetchingProdutos}>
               {fetchingProdutos ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Package className="h-4 w-4 mr-1" />}
@@ -3432,6 +3444,12 @@ export default function PrecificacaoPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SyncNFPorPeriodoDialog
+        open={syncPeriodoOpen}
+        onOpenChange={setSyncPeriodoOpen}
+        onDone={() => refetchTributos()}
+      />
     </div>
   );
 }

@@ -1,103 +1,66 @@
+
 ## Objetivo
 
-Eliminar a dependência da API GC `/api/notas_fiscais_produtos` e do paginador `/api/compras` no `sync-nfe-entrada`. Tudo que precisamos já está local:
+Trocar o modelo "processa todos os XMLs do índice e tenta casar com pedidos" por "escolho um período, o sistema varre os pedidos de compra desse período e, para cada um, procura a NF/XML correspondente e atualiza tributos + custo". Mais rápido, mais previsível e vinculado a algo tangível pro usuário (a data do pedido).
 
-- `gc_compras` → `numero_nfe`, `cnpj_fornecedor`, `fornecedor_id`, `data` (após enrichment P1+P2)
-- `gc_compras_itens` → produtos da compra com `produto_gc_id` (ou legacy `nome_produto`+`valor_custo`)
-- `fin_nfe_xml_index` → `chave`, `cnpj_emitente`, `numero_nf` (a extrair), `data_emissao`, `valor_total`
-- Bucket `nf-xmls` → XML completo para parsing por item
-
-## Estratégia do matcher (3 níveis, em ordem)
+## Fluxo novo
 
 ```text
-Nível 1 — DETERMINÍSTICO (preferencial)
-  match em fin_nfe_xml_index por:
-    normalizar_cnpj(cnpj_emitente) = normalizar_cnpj(gc_compras.cnpj_fornecedor)
-    AND normalizar_numero_nf(numero_nf_extraido) = normalizar_numero_nf(gc_compras.numero_nfe)
-  → 1 candidato → usa direto
-  → N candidatos → desempate por menor |valor_total_xml − gc_compras.valor_total| e |data − data_emissao| ≤ 30d
-
-Nível 2 — CNPJ + VALOR (fallback brando, mesma janela)
-  só CNPJ bate, sem nº NF confiável → escolhe XML com menor diff de valor (tol 1% ou R$5)
-  marca match_rule = "cnpj_valor_frouxo"
-
-Nível 3 — SEM MATCH
-  registra em fin_nfe_match_pendentes (nova tabela) com motivo:
-    "sem_cnpj_compra" | "cnpj_sem_xml" | "valor_fora_tolerancia" | "multiplo_ambiguo"
-  NÃO marca passivos retroativos ainda (combinado).
+[UI] Modal "Sincronizar por pedidos"
+  ├─ Data início / Data fim (default: mês atual)
+  ├─ [ ] Só pedidos sem NF vinculada
+  ├─ [ ] Atualizar custo GC quando NF > cadastro
+  └─ Botão "Sincronizar N pedidos"
+        │
+        ▼
+[Edge] sync-nfe-por-pedido
+  1. Carrega gc_compras no período (data_pedido entre X e Y)
+  2. Para cada compra:
+       a. Busca XML em fin_nfe_xml_index por CNPJ+numero_nf (nível 1)
+          fallback: CNPJ+valor com tolerância (nível 2)
+       b. Se achou → parseia XML, casa itens do pedido com itens da NF
+          (cProd → codigo_interno, depois nome+preço, depois 1x1)
+       c. Upsert em fin_produto_tributos por gc_produto_id
+          (respeita excecao_manual, usa vProd-vDesc / qtd)
+       d. Se flag "atualizar custo" marcada e diff > 1% → enfileira
+          job em fin_gc_write_jobs pro process-gc-write-jobs
+  3. Retorna resumo: {compras_processadas, com_nf, sem_nf, itens_atualizados, custos_enfileirados}
 ```
 
-## Pré-requisito: pré-processar `fin_nfe_xml_index` para extrair `numero_nf`
+## Mudanças
 
-Hoje a tabela tem `chave` (44 dígitos). O número da NF é dígitos 26-34 da chave (posição `nNF`). Adicionar coluna gerada:
+### Backend
 
-```sql
-ALTER TABLE fin_nfe_xml_index
-  ADD COLUMN numero_nf TEXT
-    GENERATED ALWAYS AS (substring(chave from 26 for 9)) STORED;
-CREATE INDEX idx_xml_index_cnpj_numero
-  ON fin_nfe_xml_index (cnpj_emitente, numero_nf);
-```
+- **Nova edge function `sync-nfe-por-pedido`** — extraída de `sync-nfe-entrada`, reaproveita `parseXmlItems`, `enrichCompraWithXml` e o picker de itens já existentes. Não faz DELETE, só upsert.
+- **Parâmetros:** `{ data_inicio, data_fim, apenas_sem_nf?, atualizar_custo?, compra_codigos? }`.
+- **Paginação interna:** processa em lotes de 50 compras, retorna `202` com `next_offset` se estourar 25s (padrão dos syncs existentes).
+- **Logging:** grava em `fin_sync_log` com `tipo='sync_nfe_por_pedido'`, incluindo compras sem match pra o usuário ver depois.
 
-## Fluxo da edge refatorada
+### Frontend
 
-```text
-1. Carregar gc_compras com numero_nfe IS NOT NULL (slice por offset/batch_size)
-   — sem chamar /api/compras
-2. Carregar gc_compras_itens dessas compras em bulk
-   — substitui o array compra.produtos da API
-3. Carregar fin_nfe_xml_index inteiro (já cabe em RAM, ~3-5k linhas)
-   — montar Map<(cnpj+numero), xml> + Map<cnpj, xml[]>
-4. Para cada compra:
-   a. Tenta Nível 1 (cnpj+numero) → match exato
-   b. Senão tenta Nível 2 (cnpj+valor)
-   c. Senão registra em fin_nfe_match_pendentes
-5. Para cada match → baixar XML do bucket e rodar parseXmlItems + matching
-   item-a-item (lógica de impostos atual permanece intacta)
-6. Upsert em fin_produto_tributos (preserva manual overrides — lógica existente OK)
-7. Item com produto_gc_id IS NULL (legacy) → match item por nome_produto + valor_custo
-   com xmlItems do XML; sem gc_produto_id, registra apenas estatística (não grava em
-   fin_produto_tributos, que tem PK = gc_produto_id)
-```
+- **Novo botão na tela de Compras** (`/financeiro/pagamentos` → aba compras, ou onde faz mais sentido): "Sincronizar NFs por período".
+- **Modal** com date-pickers, checkboxes e preview do count de pedidos no período.
+- **Progresso** via toast + refetch da tabela ao final.
 
-## Nova tabela `fin_nfe_match_pendentes`
+### O que fica igual
 
-```sql
-CREATE TABLE fin_nfe_match_pendentes (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  compra_gc_id text NOT NULL,
-  numero_nfe text,
-  cnpj_fornecedor text,
-  nome_fornecedor text,
-  valor_compra numeric,
-  data_compra date,
-  motivo text NOT NULL,
-  candidatos jsonb,
-  created_at timestamptz DEFAULT now(),
-  resolvido boolean DEFAULT false,
-  resolvido_em timestamptz,
-  UNIQUE (compra_gc_id)
-);
-ALTER TABLE fin_nfe_match_pendentes ENABLE ROW LEVEL SECURITY;
-CREATE POLICY ... (ceo/admin/gerente_financeiro SELECT)
-```
+- `sync-nfe-entrada` original permanece pra rodadas em massa e cron; só recebe a correção já aplicada (upsert sem DELETE atacado).
+- `fin_produto_tributos_historico` continua auditando toda mudança.
+- Botão manual "Atualizar custo GC" na tela de Precificação continua funcionando normalmente.
 
-## O que NÃO muda nesta etapa
+## Detalhes técnicos
 
-- Toda a lógica de parsing XML por item (`parseXmlItems`, `isXmlSimplesNacional`, rateio).
-- Upsert em `fin_produto_tributos` (preservar manuais).
-- Contador diário de chamadas GC (vai cair drasticamente, mas mantém o guard).
-- NÃO mexer em `gc_compras_itens` para marcar `pendente_revinculacao_pedido` retroativo (combinado: só após matcher validado).
+- **Ordem de match compra ↔ XML:**
+  1. `cnpj_fornecedor` + `numero_nfe` (exato)
+  2. `cnpj_fornecedor` + valor_total dentro de ±1% ou R$5
+  3. `chave_nfe` se o pedido tiver esse campo preenchido
+- **Ordem de match item pedido ↔ item NF:** cProd normalizado → nome+preço (token score ≥0.45 + diff unit ≤15%) → único-1x1.
+- **Custo por unidade:** `(vProd - vDesc) / qCom` (correção já feita).
+- **Update de custo no GC:** só se `atualizar_custo=true` E diff > 1% E não for exceção manual. Enfileira job com `payload_hash` pra evitar duplicatas.
+- **Timeout:** checkpoint a cada 25s → `202 { next_offset }`, cliente reenvia até `status='completo'`.
 
-## Sequência de execução proposta
+## Fora do escopo
 
-1. **Migration**: gera coluna `numero_nf` em `fin_nfe_xml_index` + índice + tabela `fin_nfe_match_pendentes` + RLS.
-2. **Edge refatorada**: novo `sync-nfe-entrada` com matcher determinístico + leitura local.
-3. **Smoke run**: chamar a edge com `batch_size=20` em compras com `numero_nfe IS NOT NULL` e devolver:
-   - total de compras candidatas
-   - nivel_1 (cnpj+numero) / nivel_2 (cnpj+valor) / sem_match
-   - amostra de 5 sem_match (compra + motivo + candidatos)
-   - tempo total, chamadas GC = 0 (esperado)
-4. **PARAR** para validação antes de processar o resto do batch e antes de qualquer cleanup retroativo.
-
-Aguardo aprovação para gerar a migration (passo 1).
+- Não mexe no cron atual do sync-all.
+- Não altera a UI da Precificação.
+- Não muda regra de match — só troca o disparador de "XML → procura pedido" para "pedido → procura XML".
