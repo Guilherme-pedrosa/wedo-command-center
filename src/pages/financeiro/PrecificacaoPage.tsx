@@ -2565,8 +2565,8 @@ export default function PrecificacaoPage() {
                       <TableCell>
                         <div>
                           <span className="font-medium text-foreground text-sm">{p.nome}</span>
-                          {(p.codigo || p.codigo_interno) && (
-                            <span className="text-xs text-muted-foreground ml-2">#{p.codigo || p.codigo_interno}</span>
+                          {(p.codigo_barra || p.codigo_interno) && (
+                            <span className="text-xs text-muted-foreground ml-2" title={`Código GC: ${p.codigo_barra || p.codigo_interno}`}>#{p.codigo_barra || p.codigo_interno}</span>
                           )}
                           {p.nome_grupo && (
                             <Badge variant="outline" className="ml-2 text-[10px] py-0">{p.nome_grupo}</Badge>
