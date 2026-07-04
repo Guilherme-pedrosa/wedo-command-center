@@ -110,6 +110,8 @@ serve(async (req) => {
     let totalFetched = 0;
     let upserted = 0;
     let errors = 0;
+    let staleRemoved = 0;
+    const seenActiveIds = new Set<string>();
 
     for (const currentSitId of situacaoIds) {
       let page = 1;
@@ -156,6 +158,7 @@ serve(async (req) => {
             cancelledIds.push(gcId);
             continue;
           }
+          seenActiveIds.add(gcId);
 
 
           let dataCompra: string | null = null;
@@ -245,18 +248,58 @@ serve(async (req) => {
       }
     }
 
+    // Se um pedido saiu das situações sincronizadas (ex.: foi cancelado), ele não aparece
+    // mais nas páginas acima. Nesse caso removemos o órfão local do período para não virar frete/custo fantasma.
+    if (!situacaoId && dataInicio && dataFim && errors === 0) {
+      const localRows: any[] = [];
+      const pageSize = 500;
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from("gc_compras")
+          .select("gc_id, codigo, data")
+          .gte("data", dataInicio)
+          .lte("data", dataFim)
+          .range(from, from + pageSize - 1);
+        if (error) {
+          console.error(`[sync-compras] Select stale local error: ${error.message}`);
+          errors++;
+          break;
+        }
+        if (!data || data.length === 0) break;
+        localRows.push(...data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+
+      const staleIds = localRows
+        .map((r) => String(r.gc_id || ""))
+        .filter((id) => id && !seenActiveIds.has(id));
+      for (let i = 0; i < staleIds.length; i += 100) {
+        const chunk = staleIds.slice(i, i + 100);
+        await supabase.from("gc_compras_itens").delete().in("compra_gc_id", chunk);
+        const { error: delStaleErr } = await supabase.from("gc_compras").delete().in("gc_id", chunk);
+        if (delStaleErr) {
+          console.error(`[sync-compras] Delete stale error: ${delStaleErr.message}`);
+          errors++;
+        } else {
+          staleRemoved += chunk.length;
+        }
+      }
+    }
+
     const duration = Date.now() - startTime;
 
     await supabase.from("sync_log").insert({
       tipo: "sync-compras",
       status: errors > 0 ? "partial" : "ok",
-      payload: { totalFetched, upserted, errors, situacaoIds },
+      payload: { totalFetched, upserted, errors, situacaoIds, staleRemoved },
       duracao_ms: duration,
     });
 
     return new Response(JSON.stringify({
       success: true,
-      totalFetched, upserted, errors, situacaoIds, duration_ms: duration,
+      totalFetched, upserted, errors, situacaoIds, staleRemoved, duration_ms: duration,
     }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
