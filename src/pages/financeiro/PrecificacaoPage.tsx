@@ -290,18 +290,23 @@ function calcPricingWithNF(
   custoBaseUnit?: number
 ) {
   const eff = getEffectiveRates(tributo);
-  const valorUnit = custoBaseUnit && custoBaseUnit > 0 ? custoBaseUnit : tributo.valor_unitario_nf;
-  
-  const creditoIcms = tipo === "servico" ? 0 : valorUnit * (eff.icms / 100);
-  const creditoPis = tipo === "servico" ? 0 : valorUnit * (eff.pis / 100);
-  const creditoCofins = tipo === "servico" ? 0 : valorUnit * (eff.cofins / 100);
-  const ipiUnit = valorUnit * (eff.ipi / 100);
-  const freteUnit = valorUnit * ((tributo.frete_percentual || 0) / 100);
-  
-  // ── REGRA: precificação usa NF CHEIA (sem subtrair créditos de entrada). ──
-  // Créditos viram margem extra de caixa (ganho fiscal), não redução de preço.
-  // Isso blinda a precificação contra troca de fornecedor (Simples vs Lucro Real).
-  const custoEfetivo = valorUnit + ipiUnit + freteUnit;
+  // Base tributária (créditos) SEMPRE vem do valor unitário da NF.
+  const valorUnitNF = Number(tributo.valor_unitario_nf) || 0;
+  // Base de CUSTO: se GC "Custo final" (custoBaseUnit) foi informado, ELE é o custo final
+  // (já inclui despesas acessórias, outras despesas, frete, IPI conforme cadastro GC).
+  // Caso contrário, cai no fallback histórico (NF + frete% + IPI%).
+  const usarCustoGC = custoBaseUnit != null && custoBaseUnit > 0;
+
+  const creditoIcms = tipo === "servico" ? 0 : valorUnitNF * (eff.icms / 100);
+  const creditoPis = tipo === "servico" ? 0 : valorUnitNF * (eff.pis / 100);
+  const creditoCofins = tipo === "servico" ? 0 : valorUnitNF * (eff.cofins / 100);
+  const ipiUnit = valorUnitNF * (eff.ipi / 100);
+  const freteUnit = valorUnitNF * ((tributo.frete_percentual || 0) / 100);
+
+  // ── REGRA: precificação usa CUSTO FINAL DO GC (fonte de verdade). ──
+  // Créditos de entrada (ICMS/PIS/COFINS) continuam calculados sobre a base da NF
+  // e viram margem extra de caixa (ganho fiscal), não reduzem preço.
+  const custoEfetivo = usarCustoGC ? (custoBaseUnit as number) : (valorUnitNF + ipiUnit + freteUnit);
   const custoTotal = custoEfetivo + custoFixo; // custoFixo aqui = override flat manual
 
   let aliquotaSaidaFaturamento: number;
@@ -1032,7 +1037,8 @@ export default function PrecificacaoPage() {
       const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
       const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
       const hasNF = hasEntradaFiscal(tributo);
-      const custoBaseCalculo = excecao ? custoBruto : undefined;
+      const gcCustoFinal = parseFloat(p.valor_custo) || 0;
+      const custoBaseCalculo = excecao ? custoBruto : (gcCustoFinal > 0 ? gcCustoFinal : undefined);
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
@@ -1106,7 +1112,8 @@ export default function PrecificacaoPage() {
       const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
       const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
       const hasNF = hasEntradaFiscal(tributo);
-      const custoBaseCalculo = excecao ? custoBruto : undefined;
+      const gcCustoFinal = parseFloat(p.valor_custo) || 0;
+      const custoBaseCalculo = excecao ? custoBruto : (gcCustoFinal > 0 ? gcCustoFinal : undefined);
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
       if (hasNF) {
@@ -1835,7 +1842,8 @@ export default function PrecificacaoPage() {
       const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
       const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
       const hasNF = hasEntradaFiscal(tributo);
-      const custoBaseCalculo = excecao ? custoBruto : undefined;
+      const gcCustoFinalRow = parseFloat(p.valor_custo) || 0;
+      const custoBaseCalculo = excecao ? custoBruto : (gcCustoFinalRow > 0 ? gcCustoFinalRow : undefined);
       const cfuFlat = !!(taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0) ? (taxEntrada.custoFixoUnit || 0) : 0;
       let calc: ReturnType<typeof calcPricing>;
       if (hasNF) {
@@ -2429,11 +2437,15 @@ export default function PrecificacaoPage() {
                     const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
                     const hasNF = hasEntradaFiscal(tributo);
                     const custoTributoComFreteIpi = getCustoBrutoComFreteIpi(tributo);
-                    // Exceção manual: força custo do cadastro GC. Caso contrário, NF editada + frete/IPI manda no custo bruto.
+                    // Fonte de verdade do CUSTO: "Custo final" do cadastro GC (p.valor_custo).
+                    // Só cai em fallback se GC não tiver custo (0). Exceção manual sobrescreve tudo.
                     const custoOverride = tributoRaw?.excecao_custo_unitario;
+                    const gcCustoFinalLinha = parseFloat(p.valor_custo) || 0;
                     const custoBruto = excecao
-                      ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
-                      : (custoTributoComFreteIpi > 0 ? custoTributoComFreteIpi : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache));
+                      ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : gcCustoFinalLinha)
+                      : (gcCustoFinalLinha > 0
+                          ? gcCustoFinalLinha
+                          : (custoTributoComFreteIpi > 0 ? custoTributoComFreteIpi : (custoUltimaCompra > 0 ? custoUltimaCompra : custoCache)));
                     const custoBase = custoBruto;
                    // Tabelas dinâmicas — preços reais vêm de valoresMap por tipo_id (não há mais markup hardcoded A/B/P)
 
@@ -2445,7 +2457,10 @@ export default function PrecificacaoPage() {
                     ? { ...taxSaida, icmsSaida: icmsOvLinha }
                     : taxSaida;
                   if (hasNF) {
-                    const nfCalc = calcPricingWithNF(tributo, taxSaidaLinha, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, excecao ? custoBruto : undefined);
+                    const custoBaseParaNF = excecao
+                      ? custoBruto
+                      : (gcCustoFinalLinha > 0 ? gcCustoFinalLinha : undefined);
+                    const nfCalc = calcPricingWithNF(tributo, taxSaidaLinha, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, custoBaseParaNF);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
                       creditoPis: nfCalc.creditoPis,
@@ -2738,18 +2753,11 @@ export default function PrecificacaoPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{estoque}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">
-                        {hasNF ? (
-                          <div className="flex flex-col items-end leading-tight">
-                            <span>{formatCurrency(custoBase)}</span>
-                            <span className="text-[9px] text-muted-foreground">NF c/ frete+IPI</span>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col items-end leading-tight" title="Sem NF importada — usando custo cadastrado no GC como fallback">
-                            <span className="text-amber-400">{formatCurrency(custoBase)}</span>
-                            <span className="text-[9px] text-amber-500/70">⚠ sem NF (= GC)</span>
-                          </div>
-                        )}
+                      <TableCell className="text-right font-mono text-sm" title="Custo final do GC (gc_produtos_cache.valor_custo) — fonte de verdade da precificação">
+                        <div className="flex flex-col items-end leading-tight">
+                          <span>{formatCurrency(custoBase)}</span>
+                          <span className="text-[9px] text-muted-foreground">Custo final GC</span>
+                        </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs text-muted-foreground" title="Custo cadastrado no GestãoClick (gc_produtos_cache.valor_custo)">
                         {formatCurrency(Number(p.valor_custo) || 0)}
