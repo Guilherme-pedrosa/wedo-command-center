@@ -686,12 +686,18 @@ serve(async (req) => {
     // ── Step 5: Matcher determinístico ──
     const productTaxMap = new Map<string, ProductTaxRecord>();
     const pendentesNovos: any[] = [];
+    const descartesPicker: any[] = [];
     let nivel1 = 0;
     let nivel2 = 0;
     let semMatch = 0;
     let xmlsLidos = 0;
     let xmlsFalha = 0;
     const semMatchAmostra: any[] = [];
+
+    // Limpa descartes anteriores só no primeiro lote pra permitir análise limpa por rodada
+    if (offset === 0 && !dryRun) {
+      await supabase.from("fin_nfe_picker_descartes").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    }
 
     for (const compra of compras) {
       const cnpj = normCnpj(compra.cnpj_fornecedor);
