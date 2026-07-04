@@ -51,6 +51,34 @@ async function gcProxyCall(endpoint: string): Promise<Response> {
   });
 }
 
+async function produtoAindaExisteNoGc(produtoGcId: string): Promise<boolean | null> {
+  try {
+    const resp = await gcProxyCall(`/api/produtos/${encodeURIComponent(produtoGcId)}`);
+    if (resp.status === 404) return false;
+    if (!resp.ok) {
+      console.warn(`[sync-gc-produtos] verificação individual ${produtoGcId} HTTP ${resp.status}`);
+      return null;
+    }
+
+    const proxyJson = await resp.json().catch(() => null);
+    const inner = proxyJson?.data ?? proxyJson;
+    const data = inner?.data ?? inner?.Produto ?? inner?.produto ?? inner;
+
+    if (Array.isArray(data)) {
+      return data.some((p: any) => String(p?.id ?? p?.produto?.id ?? "") === produtoGcId);
+    }
+    if (!data || typeof data !== "object") return false;
+
+    const candidate = (data as any)?.Produto ?? (data as any)?.produto ?? data;
+    const candidateId = candidate?.id ?? candidate?.produto_id ?? candidate?.id_produto;
+    if (candidateId === null || candidateId === undefined || candidateId === "") return false;
+    return String(candidateId) === produtoGcId;
+  } catch (e: any) {
+    console.warn(`[sync-gc-produtos] falha ao verificar produto ${produtoGcId}: ${e?.message ?? e}`);
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -150,16 +178,33 @@ serve(async (req) => {
     await setConfig("LAST_SYNC_GC_PRODUTOS_COMPLETED_AT", new Date().toISOString());
 
     let orfaosRemovidos = 0;
-    // Só faz cleanup se o run rodou sem page_errors — evita apagar tudo por falha transitória
-    if (pageErrors === 0) {
-      const startedAt = await getConfig("LAST_SYNC_GC_PRODUTOS_STARTED_AT");
-      if (startedAt) {
-        const { data: orfaos, error: selErr } = await supabase
-          .from("gc_produtos_cache")
-          .select("produto_gc_id, nome, codigo_interno")
-          .lt("ultima_sincronizacao", startedAt);
-        if (!selErr && orfaos && orfaos.length > 0) {
-          const ids = (orfaos as any[]).map((o) => o.produto_gc_id);
+    let orfaosVerificados = 0;
+    const startedAt = await getConfig("LAST_SYNC_GC_PRODUTOS_STARTED_AT");
+    if (startedAt) {
+      const { data: orfaos, error: selErr } = await supabase
+        .from("gc_produtos_cache")
+        .select("produto_gc_id, nome, codigo_interno")
+        .lt("ultima_sincronizacao", startedAt)
+        .limit(500);
+
+      if (selErr) {
+        console.error(`[sync-gc-produtos] falha ao buscar órfãos: ${selErr.message}`);
+      } else if (orfaos && orfaos.length > 0) {
+        let ids = (orfaos as any[]).map((o) => String(o.produto_gc_id));
+
+        // Se alguma página falhou, não apaga em massa: confirma cada candidato no GC antes.
+        // Se o produto não existe mais no endpoint individual, ele sai do cache local mesmo assim.
+        if (pageErrors > 0) {
+          const confirmadosExcluidos: string[] = [];
+          for (const id of ids) {
+            const existe = await produtoAindaExisteNoGc(id);
+            orfaosVerificados++;
+            if (existe === false) confirmadosExcluidos.push(id);
+          }
+          ids = confirmadosExcluidos;
+        }
+
+        if (ids.length > 0) {
           const { error: delErr } = await supabase
             .from("gc_produtos_cache")
             .delete()
@@ -179,6 +224,7 @@ serve(async (req) => {
       produtos_sincronizados: totalSincronizados,
       paginas_processadas: paginasProcessadas,
       orfaos_removidos: orfaosRemovidos,
+      orfaos_verificados: orfaosVerificados,
       page_errors: pageErrors,
       tempo_ms: Date.now() - inicio,
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
