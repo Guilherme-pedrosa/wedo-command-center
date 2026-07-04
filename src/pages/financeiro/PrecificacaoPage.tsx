@@ -1159,7 +1159,7 @@ export default function PrecificacaoPage() {
       if (itemsOut.length > 0) map.set(String(p.id), itemsOut);
     }
     return map;
-  }, [preFiltered, politicas, custoCanonicoMap, ultimaCompraMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo]);
+  }, [preFiltered, politicas, custoCanonicoMap, ultimaCompraMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo, usarCredEntradaSet]);
 
   // ── Itens ACIMA da margem (preço alto demais — sugere reduzir pro mínimo) ──
   const aboveMarginByProduct = useMemo(() => {
