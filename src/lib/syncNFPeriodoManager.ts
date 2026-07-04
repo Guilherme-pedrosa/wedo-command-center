@@ -14,6 +14,7 @@ export interface SyncNFEstado {
     produtos: number;
     xmls: number;
     pendentes: number;
+    picker_descartes: number;
     fretes_processados: number;
     fretes_ignorados: number;
     frete_valor_total: number;
