@@ -139,6 +139,13 @@ serve(async (req) => {
     let totalRateado = 0;
     let processados = 0;
     let ignoradosJa = 0;
+    // Conjunto global de compras referenciadas por algum pedido de frete externo.
+    // Usado no Pass 2 para NÃO ratear novamente o valor_frete embutido dessas compras
+    // (frete deve vir de uma fonte única).
+    const refsCobertasPorExterno = new Set<string>();
+    const conflitosFreteGlobal: any[] = [];
+
+
 
     for (const { compra, info } of fretesDetectados) {
       const freteGcId = String(compra.gc_id);
@@ -174,13 +181,17 @@ serve(async (req) => {
         continue;
       }
 
-      // Busca as compras referenciadas
+      // Busca as compras referenciadas (inclui valor_frete p/ detectar conflito)
       const { data: refCompras } = await supabase
         .from("gc_compras")
-        .select("gc_id, codigo")
+        .select("gc_id, codigo, valor_frete")
         .in("codigo", refsCodigos);
       const encontrados = new Map<string, string>(); // codigo -> gc_id
-      for (const r of refCompras || []) encontrados.set(String(r.codigo), String(r.gc_id));
+      const refValorFrete = new Map<string, number>(); // gc_id -> valor_frete embutido
+      for (const r of refCompras || []) {
+        encontrados.set(String(r.codigo), String(r.gc_id));
+        refValorFrete.set(String(r.gc_id), Number(r.valor_frete || 0));
+      }
       const faltantes = refsCodigos.filter((c) => !encontrados.has(c));
       const refsGcIds = [...encontrados.values()];
 
@@ -193,11 +204,29 @@ serve(async (req) => {
         continue;
       }
 
+      // Marca refs como cobertas por frete externo (bloqueia pass 2 embutido)
+      for (const rid of refsGcIds) refsCobertasPorExterno.add(rid);
+
+      // Detecta conflito: refs que já possuem valor_frete embutido no próprio pedido
+      const conflitosLocais: { compra_codigo: string; gc_id: string; valor_frete_embutido: number }[] = [];
+      for (const [codigo, gcId] of encontrados) {
+        const vf = refValorFrete.get(gcId) || 0;
+        if (vf > 0) {
+          conflitosLocais.push({ compra_codigo: codigo, gc_id: gcId, valor_frete_embutido: vf });
+          conflitosFreteGlobal.push({
+            frete_externo_codigo: freteCodigo,
+            compra_com_frete_embutido: codigo,
+            valor_frete_embutido: vf,
+          });
+        }
+      }
+
       // Carrega itens de todas as compras referenciadas
       const { data: itensRaw } = await supabase
         .from("gc_compras_itens")
         .select("compra_gc_id, produto_gc_id, nome_produto, quantidade, valor_total")
         .in("compra_gc_id", refsGcIds);
+
 
       const codigoPorGcId = new Map<string, string>();
       for (const [codigo, gcId] of encontrados) codigoPorGcId.set(gcId, codigo);
@@ -252,11 +281,13 @@ serve(async (req) => {
           pool_valor: pool,
           itens: itensRateio.length,
           faltantes,
+          conflitos_frete_embutido: conflitosLocais,
         });
         processados++;
         totalRateado += freteValor;
         continue;
       }
+
 
       // ── Reverter aplicação anterior se force ──
       if (setAplicados.has(freteGcId) && forceReapply) {
@@ -426,6 +457,10 @@ serve(async (req) => {
         sem_tributo_ainda: semTrib,
         bloqueados_excecao: excecaoBloqueou,
         gc_jobs_enfileirados: enqueuedGc,
+        conflitos_frete_embutido: conflitosLocais,
+        aviso: conflitosLocais.length > 0
+          ? `ATENÇÃO: ${conflitosLocais.length} pedido(s) referenciado(s) já possuem valor_frete embutido no próprio pedido. O frete embutido foi IGNORADO — mantida apenas a fonte externa (${freteCodigo}). Corrija no GC removendo o frete duplicado.`
+          : undefined,
         status: "aplicado",
       });
     }
@@ -436,11 +471,31 @@ serve(async (req) => {
     // da própria compra, proporcional ao valor_total de cada item.
     // Idempotência: usa frete_compra_gc_id = gc_id da compra e
     // observacao = "VALOR_FRETE_EMBUTIDO" para distinguir do pass 1.
+    //
+    // REGRA: se a compra já é coberta por um pedido de frete externo
+    // (está em refsCobertasPorExterno), NÃO rateia o embutido — evita
+    // duplicidade. Frete deve vir de uma fonte apenas.
     // ══════════════════════════════════════════════════════════════
     const setFreteExterno = new Set(fretesDetectados.map((f) => String(f.compra.gc_id)));
-    const embutidas = candidatas.filter(
+    const embutidasBrutas = candidatas.filter(
       (c) => Number(c.valor_frete || 0) > 0 && !setFreteExterno.has(String(c.gc_id)),
     );
+    const embutidasBloqueadasPorExterno: any[] = [];
+    const embutidas = embutidasBrutas.filter((c) => {
+      if (refsCobertasPorExterno.has(String(c.gc_id))) {
+        embutidasBloqueadasPorExterno.push({
+          frete_codigo: String(c.codigo || ""),
+          gc_id: String(c.gc_id),
+          valor_frete_embutido: Number(c.valor_frete || 0),
+          status: "bloqueado_frete_ja_coberto_por_pedido_externo",
+          aviso: "Este pedido já recebe rateio de um pedido de frete externo; o valor_frete embutido foi ignorado para evitar duplicidade.",
+        });
+        return false;
+      }
+      return true;
+    });
+    resultados.push(...embutidasBloqueadasPorExterno);
+
 
     let embutidasProcessadas = 0;
     let embutidasIgnoradas = 0;
@@ -692,12 +747,18 @@ serve(async (req) => {
         frete_embutido_detectado: embutidas.length,
         frete_embutido_processado: embutidasProcessadas,
         frete_embutido_ignorado: embutidasIgnoradas,
+        frete_embutido_bloqueado_por_externo: embutidasBloqueadasPorExterno.length,
+        conflitos_frete_duplicado: conflitosFreteGlobal,
+        aviso_geral: conflitosFreteGlobal.length > 0 || embutidasBloqueadasPorExterno.length > 0
+          ? `⚠️ Detectados ${conflitosFreteGlobal.length + embutidasBloqueadasPorExterno.length} caso(s) de frete duplicado (pedido tem frete embutido E está amarrado por outro pedido de frete). O frete embutido foi ignorado — corrija no GC removendo a duplicidade.`
+          : undefined,
         total_rateado: Math.round(totalRateado * 100) / 100,
         resultados,
         tempo_ms: Date.now() - inicio,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
+
   } catch (err) {
     return new Response(
       JSON.stringify({

@@ -142,9 +142,26 @@ export function startSyncNFPeriodo(params: StartSyncParams): boolean {
         fretesProcessados = freteData?.fretes_processados || 0;
         fretesIgnorados = freteData?.ja_aplicados_ignorados || 0;
         freteValorTotal = freteData?.total_rateado || 0;
+        // Aviso de frete duplicado (embutido + externo no mesmo pedido)
+        const conflitos = freteData?.conflitos_frete_duplicado || [];
+        const bloqueadosEmb = freteData?.frete_embutido_bloqueado_por_externo || 0;
+        if (conflitos.length > 0 || bloqueadosEmb > 0) {
+          const detalhe = conflitos
+            .slice(0, 3)
+            .map((c: any) => `#${c.compra_com_frete_embutido} (frete externo #${c.frete_externo_codigo})`)
+            .join(", ");
+          toast(
+            `⚠️ Frete duplicado detectado em ${conflitos.length + bloqueadosEmb} pedido(s)` +
+              (detalhe ? `: ${detalhe}${conflitos.length > 3 ? "..." : ""}` : "") +
+              ". Frete embutido foi ignorado — corrija no GC para evitar duplicidade.",
+            { duration: 12000, icon: "⚠️" },
+          );
+
+        }
       } catch (fe) {
         console.warn("Falha no rateio de frete:", fe);
       }
+
 
       update({
         running: false,
