@@ -2539,6 +2539,13 @@ export default function PrecificacaoPage() {
                     </div>
                   </TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo Total</TableHead>
+                  <TableHead
+                    className="text-xs text-right"
+                    rowSpan={2}
+                    title="Rateio do custo fixo embutido no preço mínimo (preço × custoFixoPct efetivo)"
+                  >
+                    CF Rateio
+                  </TableHead>
                   <TableHead className="text-xs text-right font-semibold text-primary" rowSpan={2}>Preço Mín.</TableHead>
                   {(politicas ?? []).map((pol, idx) => (
                     <TableHead
