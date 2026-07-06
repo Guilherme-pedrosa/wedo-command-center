@@ -2888,19 +2888,25 @@ export default function PrecificacaoPage() {
                         const ipiUnit = eff ? valorUnitNF * (eff.ipi / 100) : 0;
                         const custoRealCalc = valorUnitNF > 0 ? (valorUnitNF + ipiUnit + rateioUnit) : 0;
                         const custoGCFinal = Number(p.valor_custo) || 0;
+                        const ultCompraCusto = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+                        // Fallback chain: NF+IPI+Frete > Última compra (quando NF não tem item amarrado) > Custo GC
+                        const custoExibido = custoRealCalc > 0
+                          ? custoRealCalc
+                          : (ultCompraCusto > 0 ? ultCompraCusto : custoGCFinal);
+                        const origemCusto = custoRealCalc > 0
+                          ? "NF+IPI+Frete"
+                          : (ultCompraCusto > 0 ? `Últ. compra #${ultimaCompra?.compra_codigo || ultimaCompra?.compra_gc_id || "—"}` : "Custo GC (s/NF)");
+                        const tituloCusto = custoRealCalc > 0
+                          ? `Produto NF: ${formatCurrency(valorUnitNF)}\n+ IPI (${eff?.ipi.toFixed(2)}%): ${formatCurrency(ipiUnit)}\n+ Rateio frete: ${formatCurrency(rateioUnit)}\n= ${formatCurrency(custoRealCalc)}`
+                          : (ultCompraCusto > 0
+                              ? `NF vinculada não amarrou o item deste produto — usando custo da última compra (${formatCurrency(ultCompraCusto)}) do pedido #${ultimaCompra?.compra_codigo || ultimaCompra?.compra_gc_id || "—"}${ultimaCompra?.numero_nfe ? ` / NF #${ultimaCompra.numero_nfe}` : ""}.`
+                              : "Sem NF vinculada — fallback para Custo GC");
                         return (
                           <>
-                            <TableCell
-                              className="text-right font-mono text-sm"
-                              title={custoRealCalc > 0
-                                ? `Produto NF: ${formatCurrency(valorUnitNF)}\n+ IPI (${eff?.ipi.toFixed(2)}%): ${formatCurrency(ipiUnit)}\n+ Rateio frete: ${formatCurrency(rateioUnit)}\n= ${formatCurrency(custoRealCalc)}`
-                                : "Sem NF vinculada — fallback para Custo GC"}
-                            >
+                            <TableCell className="text-right font-mono text-sm" title={tituloCusto}>
                               <div className="flex flex-col items-end leading-tight">
-                                <span>{formatCurrency(custoRealCalc > 0 ? custoRealCalc : custoGCFinal)}</span>
-                                <span className="text-[9px] text-muted-foreground">
-                                  {custoRealCalc > 0 ? "NF+IPI+Frete" : "Custo GC (s/NF)"}
-                                </span>
+                                <span>{formatCurrency(custoExibido)}</span>
+                                <span className="text-[9px] text-muted-foreground">{origemCusto}</span>
                               </div>
                             </TableCell>
                             <TableCell className="text-right font-mono text-sm" title="Custo final do GestãoClick (gc_produtos_cache.valor_custo)">
