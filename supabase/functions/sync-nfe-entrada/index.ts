@@ -1249,6 +1249,8 @@ function processarXml(
       v_icms_uf_dest: 0, v_icms_uf_remet: 0,
       // custo_variavel_real NÃO é gravado — fonte é gc_produtos_cache.valor_custo via v_produto_custo_atual
       custo_variavel_real: 0,
+      ineligivel_precificacao: !!nfIneligivelMotivo,
+      ineligivel_motivo: nfIneligivelMotivo ? `NF ${nfIneligivelMotivo} (natureza/observação)` : null,
     });
   };
 
