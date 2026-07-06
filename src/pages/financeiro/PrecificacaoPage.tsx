@@ -2695,7 +2695,6 @@ export default function PrecificacaoPage() {
                           return (
                             <Checkbox
                               checked={selectedProductIds.has(pid)}
-                              disabled={!hasAny}
                               onCheckedChange={(checked) => {
                                 setSelectedProductIds((prev) => {
                                   const next = new Set(prev);
@@ -2704,7 +2703,7 @@ export default function PrecificacaoPage() {
                                 });
                               }}
                               aria-label={`Selecionar ${p.nome}`}
-                              title={hasAny ? `${outCount + aboveCount} tabela(s) p/ corrigir` : "Sem tabelas fora/acima da margem"}
+                              title={hasAny ? `${outCount + aboveCount} tabela(s) p/ corrigir` : "Selecione para aplicar comissão em lote"}
                             />
                           );
                         })()}
@@ -2718,6 +2717,23 @@ export default function PrecificacaoPage() {
                           {p.nome_grupo && (
                             <Badge variant="outline" className="ml-2 text-[10px] py-0">{p.nome_grupo}</Badge>
                           )}
+                          <span className="inline-flex items-center gap-1 ml-2 align-middle" title="Comissão % sobre a venda deste produto. Entra no divisor do mark-up (afeta preço mínimo e margem exibida).">
+                            <span className="text-[10px] text-muted-foreground">Comissão</span>
+                            <Input
+                              type="number"
+                              step="0.1"
+                              value={comissaoPctMap.get(String(p.id)) ?? ""}
+                              placeholder="0"
+                              onChange={(e) => {
+                                const raw = e.target.value.trim();
+                                if (raw === "") { setComissaoFor(p.id, null); return; }
+                                const v = parseFloat(raw.replace(",", "."));
+                                setComissaoFor(p.id, Number.isFinite(v) ? v : null);
+                              }}
+                              className="h-6 w-14 bg-secondary text-[10px] px-1.5"
+                            />
+                            <span className="text-[10px] text-muted-foreground">%</span>
+                          </span>
                           {statusCusto === "ok_com_tributo" && (
                             <Badge className="ml-2 text-[10px] py-0 bg-green-500/20 text-green-400 border-green-500/30">Custo + Tributo OK</Badge>
                           )}
