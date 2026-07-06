@@ -14,6 +14,20 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// Regras que o matcher ATUAL escreve como "match real" (com preço/tributo do XML).
+// Regras posicionais legadas (ex.: `pedido_compra_gc+ordem_gc_xml`) NÃO devem
+// contar — elas ficaram gravadas quando o código antigo assumia compra[i]↔xml[i]
+// e produziam vínculos absurdos. Manter essa lista sincronizada com os `rule`
+// que aparecem em `pedido_compra_gc+${rule}` mais abaixo.
+const CURRENT_REAL_MATCH_RULES = new Set(["cprod", "cprod_multi", "nome_preco", "unico"]);
+function isRealCurrentMatchRule(rule: string): boolean {
+  if (!rule.startsWith("pedido_compra_gc+")) return false;
+  // Corta o "+pack:Nx" opcional pra comparar só o rule base.
+  const base = rule.slice("pedido_compra_gc+".length).split("+")[0];
+  return CURRENT_REAL_MATCH_RULES.has(base);
+}
+
+
 // ── Types locais ──
 interface CompraItem {
   item_gc_id: string | null;
