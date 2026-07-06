@@ -2664,6 +2664,14 @@ export default function PrecificacaoPage() {
                           {statusCusto === "pendente_custo_zero" && (
                             <Badge className="ml-2 text-[10px] py-0 bg-red-500/20 text-red-400 border-red-500/30">⚠ Custo zero no GC</Badge>
                           )}
+                          {tributoRaw?.ineligivel_precificacao && (
+                            <Badge
+                              className="ml-2 text-[10px] py-0 bg-amber-500/20 text-amber-400 border-amber-500/30"
+                              title={tributoRaw.ineligivel_motivo || "NF ignorada na precificação por estar classificada como brinde/bonificação/doação/showroom"}
+                            >
+                              ⚠ NF ignorada na precificação ({tributoRaw.ineligivel_motivo || "brinde/bonificação/doação/showroom"})
+                            </Badge>
+                          )}
                           {(() => {
                             if (!hasNF) return null;
                             if (tributoRaw?.excecao_manual) return null;
