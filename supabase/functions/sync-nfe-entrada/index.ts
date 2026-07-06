@@ -303,16 +303,19 @@ function getXmlFrete(xml: string): number {
   return parseFloat(getTag(icmsTot, "vFrete")) || 0;
 }
 
-function getXmlMeta(xml: string): { chave: string; numero_nf: string; data_emissao: string; nome_emitente: string } {
+function getXmlMeta(xml: string): { chave: string; numero_nf: string; data_emissao: string; nome_emitente: string; nat_op: string; inf_cpl: string } {
   const infNFe = getBlock(xml, "infNFe") || xml;
   const ide = getBlock(infNFe, "ide");
   const emit = getBlock(infNFe, "emit");
+  const infAdic = getBlock(infNFe, "infAdic");
   const idMatch = (getBlock(xml, "infNFe") || "").match(/Id="NFe([0-9]{44})"/i);
   return {
     chave: idMatch?.[1] ?? "",
     numero_nf: getTag(ide, "nNF"),
     data_emissao: (getTag(ide, "dhEmi") || getTag(ide, "dEmi") || "").slice(0, 10),
     nome_emitente: getTag(emit, "xNome") || getTag(emit, "xFant"),
+    nat_op: getTag(ide, "natOp") || "",
+    inf_cpl: getTag(infAdic, "infCpl") || "",
   };
 }
 
