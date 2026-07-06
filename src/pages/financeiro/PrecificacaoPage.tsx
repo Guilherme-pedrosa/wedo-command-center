@@ -307,9 +307,21 @@ function calcPricingWithNF(
   // Caso contrário, cai no fallback histórico (NF + frete% + IPI%).
   const usarCustoGC = custoBaseUnit != null && custoBaseUnit > 0;
 
-  const creditoIcms = tipo === "servico" ? 0 : valorUnitNF * (eff.icms / 100);
-  const creditoPis = tipo === "servico" ? 0 : valorUnitNF * (eff.pis / 100);
-  const creditoCofins = tipo === "servico" ? 0 : valorUnitNF * (eff.cofins / 100);
+  // Crédito de ICMS/PIS/COFINS: priorizar valor unitário efetivo da NF (já reflete
+  // base reduzida, ST, ajustes) em vez de aplicar alíquota nominal sobre valor cheio.
+  // Alíquota manual (icms_aliquota_manual) força recálculo percentual (override do usuário).
+  const icmsUnitNF = Number(tributo.valor_icms_unit) || 0;
+  const pisUnitNF = Number(tributo.valor_pis_unit) || 0;
+  const cofinsUnitNF = Number(tributo.valor_cofins_unit) || 0;
+  const icmsManualOverride = tributo.icms_aliquota_manual != null;
+  const creditoIcms = tipo === "servico" ? 0
+    : (icmsManualOverride || icmsUnitNF <= 0)
+      ? valorUnitNF * (eff.icms / 100)
+      : icmsUnitNF;
+  const creditoPis = tipo === "servico" ? 0
+    : pisUnitNF > 0 ? pisUnitNF : valorUnitNF * (eff.pis / 100);
+  const creditoCofins = tipo === "servico" ? 0
+    : cofinsUnitNF > 0 ? cofinsUnitNF : valorUnitNF * (eff.cofins / 100);
   const ipiUnit = valorUnitNF * (eff.ipi / 100);
   const freteUnit = valorUnitNF * ((tributo.frete_percentual || 0) / 100);
 
