@@ -2514,6 +2514,8 @@ export type Database = {
           icms_aliquota_manual: number | null
           icms_base: number | null
           id: string
+          ineligivel_motivo: string | null
+          ineligivel_precificacao: boolean
           ipi_aliquota: number | null
           ipi_aliquota_manual: number | null
           match_rule: string | null
@@ -2575,6 +2577,8 @@ export type Database = {
           icms_aliquota_manual?: number | null
           icms_base?: number | null
           id?: string
+          ineligivel_motivo?: string | null
+          ineligivel_precificacao?: boolean
           ipi_aliquota?: number | null
           ipi_aliquota_manual?: number | null
           match_rule?: string | null
@@ -2636,6 +2640,8 @@ export type Database = {
           icms_aliquota_manual?: number | null
           icms_base?: number | null
           id?: string
+          ineligivel_motivo?: string | null
+          ineligivel_precificacao?: boolean
           ipi_aliquota?: number | null
           ipi_aliquota_manual?: number | null
           match_rule?: string | null

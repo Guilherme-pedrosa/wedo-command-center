@@ -124,6 +124,8 @@ interface ProductTaxRecord {
   v_icms_uf_dest: number;
   v_icms_uf_remet: number;
   custo_variavel_real: number;
+  ineligivel_precificacao: boolean;
+  ineligivel_motivo: string | null;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -192,6 +194,19 @@ interface XmlItemTax {
   cofins_vBC: number;
   cofins_pCOFINS: number;
   cofins_vCOFINS: number;
+  infAdProd: string;
+}
+
+// Regra de negócio: NF de brinde/bonificação/doação/showroom NÃO alimenta precificação.
+// Detecta em qualquer texto livre (natureza da operação, observação, descrição do item).
+const RE_INELEGIVEL = /(brinde|bonifica[cç][aã]o|doa[cç][aã]o|showroom)/i;
+function detectIneligivelPrecificacao(...textos: (string | null | undefined)[]): string | null {
+  for (const t of textos) {
+    if (!t) continue;
+    const m = String(t).match(RE_INELEGIVEL);
+    if (m) return m[1].toLowerCase().replace(/[cç]a[oõ]/g, "cao");
+  }
+  return null;
 }
 
 function parseXmlItems(xml: string): XmlItemTax[] {
@@ -264,6 +279,8 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const cofins_pCOFINS = parseFloat(getTag(cofinsInner, "pCOFINS")) || 0;
     const cofins_vCOFINS = parseFloat(getTag(cofinsInner, "vCOFINS")) || 0;
 
+    const infAdProd = getTag(det, "infAdProd");
+
     items.push({
       nItem, cProd, cEAN, cEANTrib, xProd, NCM, CFOP,
       qCom, vProd, vUnCom,
@@ -274,6 +291,7 @@ function parseXmlItems(xml: string): XmlItemTax[] {
       ipi_cst, ipi_vBC, ipi_pIPI, ipi_vIPI,
       pis_cst, pis_vBC, pis_pPIS, pis_vPIS,
       cofins_cst, cofins_vBC, cofins_pCOFINS, cofins_vCOFINS,
+      infAdProd,
     });
   }
 
@@ -287,16 +305,19 @@ function getXmlFrete(xml: string): number {
   return parseFloat(getTag(icmsTot, "vFrete")) || 0;
 }
 
-function getXmlMeta(xml: string): { chave: string; numero_nf: string; data_emissao: string; nome_emitente: string } {
+function getXmlMeta(xml: string): { chave: string; numero_nf: string; data_emissao: string; nome_emitente: string; nat_op: string; inf_cpl: string } {
   const infNFe = getBlock(xml, "infNFe") || xml;
   const ide = getBlock(infNFe, "ide");
   const emit = getBlock(infNFe, "emit");
+  const infAdic = getBlock(infNFe, "infAdic");
   const idMatch = (getBlock(xml, "infNFe") || "").match(/Id="NFe([0-9]{44})"/i);
   return {
     chave: idMatch?.[1] ?? "",
     numero_nf: getTag(ide, "nNF"),
     data_emissao: (getTag(ide, "dhEmi") || getTag(ide, "dEmi") || "").slice(0, 10),
     nome_emitente: getTag(emit, "xNome") || getTag(emit, "xFant"),
+    nat_op: getTag(ide, "natOp") || "",
+    inf_cpl: getTag(infAdic, "infCpl") || "",
   };
 }
 
@@ -1156,6 +1177,8 @@ function processarXml(
   const isSN = isXmlSimplesNacional(xml, xmlItems);
   const totalVProd = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd - (i.vDesc || 0)), 0);
   const meta = getXmlMeta(xml);
+  const nfIneligivelMotivo = detectIneligivelPrecificacao(meta.nat_op, meta.inf_cpl);
+
 
   const compraItens = compra.itens;
   const usedXmlIdx = new Set<number>();
@@ -1226,6 +1249,8 @@ function processarXml(
       v_icms_uf_dest: 0, v_icms_uf_remet: 0,
       // custo_variavel_real NÃO é gravado — fonte é gc_produtos_cache.valor_custo via v_produto_custo_atual
       custo_variavel_real: 0,
+      ineligivel_precificacao: !!nfIneligivelMotivo,
+      ineligivel_motivo: nfIneligivelMotivo ? `NF ${nfIneligivelMotivo} (natureza/observação)` : null,
     });
   };
 
@@ -1557,6 +1582,13 @@ function processarXml(
       v_icms_uf_dest: r(xi.icms_vICMSUFDest),
       v_icms_uf_remet: r(xi.icms_vICMSUFRemet),
       custo_variavel_real: 0,
+      ineligivel_precificacao: !!(nfIneligivelMotivo || detectIneligivelPrecificacao(xi.infAdProd, xi.xProd)),
+      ineligivel_motivo: (() => {
+        const itemMotivo = detectIneligivelPrecificacao(xi.infAdProd, xi.xProd);
+        if (nfIneligivelMotivo) return `NF ${nfIneligivelMotivo} (natureza/observação)`;
+        if (itemMotivo) return `Item ${itemMotivo} (descrição/observação)`;
+        return null;
+      })(),
     });
   }
 }

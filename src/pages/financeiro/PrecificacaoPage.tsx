@@ -78,6 +78,8 @@ interface ProdutoTributo {
   excecao_manual?: boolean | null;
   excecao_motivo?: string | null;
   excecao_custo_unitario?: number | null;
+  ineligivel_precificacao?: boolean | null;
+  ineligivel_motivo?: string | null;
 }
 
 interface UltimaCompraProduto {
@@ -240,6 +242,8 @@ function normalizeForMatch(value?: string | null) {
 
 function isTributoCompativelComProduto(produto: GCProduto, tributo?: ProdutoTributo) {
   if (!tributo) return false;
+  // NF classificada como brinde/bonificação/doação/showroom NÃO alimenta precificação.
+  if (tributo.ineligivel_precificacao) return false;
   return tributo.gc_produto_id === produto.id;
 }
 
@@ -2659,6 +2663,14 @@ export default function PrecificacaoPage() {
                           )}
                           {statusCusto === "pendente_custo_zero" && (
                             <Badge className="ml-2 text-[10px] py-0 bg-red-500/20 text-red-400 border-red-500/30">⚠ Custo zero no GC</Badge>
+                          )}
+                          {tributoRaw?.ineligivel_precificacao && (
+                            <Badge
+                              className="ml-2 text-[10px] py-0 bg-amber-500/20 text-amber-400 border-amber-500/30"
+                              title={tributoRaw.ineligivel_motivo || "NF ignorada na precificação por estar classificada como brinde/bonificação/doação/showroom"}
+                            >
+                              ⚠ NF ignorada na precificação ({tributoRaw.ineligivel_motivo || "brinde/bonificação/doação/showroom"})
+                            </Badge>
                           )}
                           {(() => {
                             if (!hasNF) return null;
