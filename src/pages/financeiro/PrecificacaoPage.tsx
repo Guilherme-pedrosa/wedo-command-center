@@ -3149,9 +3149,11 @@ export default function PrecificacaoPage() {
                                   {precoSugerido > 0 && (!temPrecoCadastrado || Math.abs(vendaReal - precoSugerido) > 0.01) && (
                                     <Button
                                       size="sm"
-                                      variant="outline"
-                                      className={`h-5 px-1.5 text-[9px] gap-1 ${okMin ? "border-amber-500/40 text-amber-400 hover:bg-amber-500/10" : ""}`}
-                                      disabled={corrigindoKey === `${p.id}:${pol.tipo_id}`}
+                                      variant={okMin ? "outline" : "destructive"}
+                                      className={okMin
+                                        ? "h-5 px-1.5 text-[9px] gap-1 border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+                                        : "h-7 px-2.5 text-[11px] gap-1 font-semibold shadow-md shadow-destructive/30 animate-pulse"}
+                                      disabled={corrigindoKey === `${p.id}:${pol.tipo_id}` || !!bulkCorrigindo}
                                       onClick={() => corrigirPreco({
                                         gc_produto_id: String(p.id),
                                         nome_produto: p.nome,
@@ -3166,11 +3168,11 @@ export default function PrecificacaoPage() {
                                       title={
                                         okMin
                                           ? `Ajustar p/ margem mín ${(margemMin*100).toFixed(0)}% — preço cai de ${formatCurrency(vendaReal)} → ${formatCurrency(precoSugerido)}`
-                                          : `Enviar ${formatCurrency(precoSugerido)} pro GC (margem mín ${(margemMin*100).toFixed(0)}%)`
+                                          : `Enviar ${formatCurrency(precoSugerido)} pro GC (margem mín ${(margemMin*100).toFixed(0)}%) — preço sobe de ${formatCurrency(vendaReal)}`
                                       }
                                     >
-                                      {corrigindoKey === `${p.id}:${pol.tipo_id}` ? <Loader2 className="h-2.5 w-2.5 animate-spin"/> : <RefreshCw className="h-2.5 w-2.5"/>}
-                                      {okMin ? "Ajustar" : "Corrigir"}
+                                      {corrigindoKey === `${p.id}:${pol.tipo_id}` ? <Loader2 className={okMin ? "h-2.5 w-2.5 animate-spin" : "h-3.5 w-3.5 animate-spin"}/> : <RefreshCw className={okMin ? "h-2.5 w-2.5" : "h-3.5 w-3.5"}/>}
+                                      {okMin ? "Ajustar" : `Corrigir p/ ${formatCurrency(precoSugerido)}`}
                                     </Button>
                                   )}
                                 </div>
