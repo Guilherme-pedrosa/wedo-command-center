@@ -825,13 +825,19 @@ export default function PrecificacaoPage() {
       const latest = new Map<string, UltimaCompraProduto>();
       for (const { row } of grouped.values()) {
         const current = latest.get(row.produto_gc_id);
-        const rowKey = `${row.data || ""}|${row.compra_gc_id}`;
-        const curKey = current ? `${current.data || ""}|${current.compra_gc_id}` : "";
+        // Escolhe SEMPRE a compra mais recente por DATA. Datas nulas ficam
+        // atrás de qualquer data preenchida (evita bug do "|123" > "2026-...")
+        const rowData = row.data || "0000-00-00";
+        const curData = current?.data || "0000-00-00";
+        const rowKey = `${rowData}|${String(row.compra_gc_id).padStart(20, "0")}`;
+        const curKey = current ? `${curData}|${String(current.compra_gc_id).padStart(20, "0")}` : "";
         if (!current || rowKey > curKey) latest.set(row.produto_gc_id, row);
       }
       return [...latest.values()];
     },
-    staleTime: 5 * 60_000,
+    staleTime: 30_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 
   const ultimaCompraMap = useMemo(() => {
