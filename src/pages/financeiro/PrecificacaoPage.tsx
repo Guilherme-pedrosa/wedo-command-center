@@ -1271,8 +1271,12 @@ export default function PrecificacaoPage() {
       if (valorEstoqueB !== valorEstoqueA) return valorEstoqueB - valorEstoqueA;
       if (custoB !== custoA) return custoB - custoA;
       return estoqueB - estoqueA;
-    }).slice(0, 1000);
+    });
   }, [preFiltered, marginFilter, outOfMarginByProduct, custoCanonicoMap, ultimaCompraMap, valoresMap]);
+
+  // Cap para renderização (display apenas). Exportação usa filteredAll completo.
+  const filtered = useMemo(() => filteredAll.slice(0, 1000), [filteredAll]);
+
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
