@@ -3172,7 +3172,7 @@ export default function PrecificacaoPage() {
                         const credValor = credOn ? (calc.totalCreditosEntrada || 0) : 0;
                         return (politicas ?? []).map((pol, idx) => {
                           const margemMin = Number(pol.margem_minima) || 0;
-                          const divInline = 1 - calc.aliquotaSaidaFaturamento - margemMin;
+                          const divInline = 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin;
                           // Numerador do mark-up desconta o crédito (matematicamente equivalente
                           // a reduzir custo OU reduzir tributo por unidade fixa).
                           const numerador = Math.max(0, calc.custoTotal - credValor);
@@ -3183,7 +3183,8 @@ export default function PrecificacaoPage() {
                           const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
                           const tribBruto = venda * calc.aliquotaSaidaFaturamento;
                           const trib = Math.max(0, tribBruto - credValor); // exibido líquido
-                          const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
+                          const cfLinha = venda * custoFixoPctEfetivo;
+                          const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib - cfLinha) / venda) * 100 : 0;
                           const okMin = temPrecoCadastrado && margem >= (margemMin * 100 - 0.05);
                           const cor = idx % 3 === 0 ? "text-blue-400" : idx % 3 === 1 ? "text-yellow-400" : "text-purple-400";
                           return (
