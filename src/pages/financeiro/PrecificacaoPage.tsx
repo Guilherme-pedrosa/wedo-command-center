@@ -1163,9 +1163,8 @@ export default function PrecificacaoPage() {
       const itemsOut: Array<{ gc_produto_id: string; nome_produto: string; tipo_id: string; nome_tabela: string; preco_atual: number; preco_sugerido: number; margem_minima: number; margem_resultante: number; custo_referencia: number; }> = [];
       for (const pol of politicas) {
         const margemMin = Number(pol.margem_minima) || 0;
-        // Divisor SEM custoFixoPct: alinha com o cálculo de margem exibida na linha.
-        // Custo fixo % entra só no "Preço Mín." global (coluna), não no preço por tabela.
-        const divLinha = 1 - calc.aliquotaSaidaFaturamento - margemMin;
+        // Divisor INCLUI custoFixoPctEfetivo — margem exibida também desconta CF rateado.
+        const divLinha = 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin;
         // Numerador desconta o crédito de entrada (se aplicado), igual à tabela inline.
         const numerador = Math.max(0, calc.custoTotal - credValor);
         const precoSugeridoBruto = numerador > 0 && divLinha > 0.05 ? numerador / divLinha : calc.custoTotal * 5;
@@ -1175,7 +1174,8 @@ export default function PrecificacaoPage() {
         const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
         const tribBruto = venda * calc.aliquotaSaidaFaturamento;
         const trib = Math.max(0, tribBruto - credValor);
-        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
+        const cfLinha = venda * custoFixoPctEfetivo;
+        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib - cfLinha) / venda) * 100 : 0;
         const okMin = temPrecoCadastrado && margem >= (margemMin * 100 - 0.05);
         if (!okMin && precoSugerido > 0 && calc.custoTotal > 0) {
           itemsOut.push({
