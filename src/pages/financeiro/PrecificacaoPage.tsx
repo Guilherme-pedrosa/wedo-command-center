@@ -1163,8 +1163,9 @@ export default function PrecificacaoPage() {
       const itemsOut: Array<{ gc_produto_id: string; nome_produto: string; tipo_id: string; nome_tabela: string; preco_atual: number; preco_sugerido: number; margem_minima: number; margem_resultante: number; custo_referencia: number; }> = [];
       for (const pol of politicas) {
         const margemMin = Number(pol.margem_minima) || 0;
-        // Divisor INCLUI custoFixoPctEfetivo — margem exibida também desconta CF rateado.
-        const divLinha = 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin;
+        // Divisor SEM custoFixoPct: alinha com o cálculo de margem exibida na linha.
+        // Custo fixo % entra só no "Preço Mín." global (coluna), não no preço por tabela.
+        const divLinha = 1 - calc.aliquotaSaidaFaturamento - margemMin;
         // Numerador desconta o crédito de entrada (se aplicado), igual à tabela inline.
         const numerador = Math.max(0, calc.custoTotal - credValor);
         const precoSugeridoBruto = numerador > 0 && divLinha > 0.05 ? numerador / divLinha : calc.custoTotal * 5;
@@ -1174,8 +1175,7 @@ export default function PrecificacaoPage() {
         const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
         const tribBruto = venda * calc.aliquotaSaidaFaturamento;
         const trib = Math.max(0, tribBruto - credValor);
-        const cfLinha = venda * custoFixoPctEfetivo;
-        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib - cfLinha) / venda) * 100 : 0;
+        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
         const okMin = temPrecoCadastrado && margem >= (margemMin * 100 - 0.05);
         if (!okMin && precoSugerido > 0 && calc.custoTotal > 0) {
           itemsOut.push({
@@ -1232,7 +1232,7 @@ export default function PrecificacaoPage() {
       const itemsAbove: Array<{ gc_produto_id: string; nome_produto: string; tipo_id: string; nome_tabela: string; preco_atual: number; preco_sugerido: number; margem_minima: number; margem_resultante: number; custo_referencia: number; }> = [];
       for (const pol of politicas) {
         const margemMin = Number(pol.margem_minima) || 0;
-        const divLinha = 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin;
+        const divLinha = 1 - calc.aliquotaSaidaFaturamento - margemMin;
         const numerador = Math.max(0, calc.custoTotal - credValor);
         const precoSugeridoBruto = numerador > 0 && divLinha > 0.05 ? numerador / divLinha : calc.custoTotal * 5;
         const precoSugerido = calc.custoTotal > 0 ? Math.min(precoSugeridoBruto, calc.custoTotal * 5) : 0;
@@ -1240,8 +1240,7 @@ export default function PrecificacaoPage() {
         if (vendaReal <= 0 || precoSugerido <= 0) continue;
         const tribBruto = vendaReal * calc.aliquotaSaidaFaturamento;
         const trib = Math.max(0, tribBruto - credValor);
-        const cfLinha = vendaReal * custoFixoPctEfetivo;
-        const margem = ((vendaReal - calc.custoTotal - trib - cfLinha) / vendaReal) * 100;
+        const margem = ((vendaReal - calc.custoTotal - trib) / vendaReal) * 100;
         // ACIMA: margem > margemMin + 0.5pp E preço atual maior que o sugerido (mais que R$0,01)
         if (margem > margemMin * 100 + 0.5 && vendaReal - precoSugerido > 0.01) {
           itemsAbove.push({
@@ -1980,7 +1979,7 @@ export default function PrecificacaoPage() {
       const tabelas: Record<string, any> = {};
       for (const pol of (politicas ?? [])) {
         const margemMin = Number(pol.margem_minima) || 0;
-        const divLinha = 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin;
+        const divLinha = 1 - calc.aliquotaSaidaFaturamento - margemMin;
         const numerador = Math.max(0, calc.custoTotal - credValorExp);
         const precoSugeridoBruto = numerador > 0 && divLinha > 0.05 ? numerador / divLinha : calc.custoTotal * 5;
         const precoSugerido = calc.custoTotal > 0 ? Math.min(precoSugeridoBruto, calc.custoTotal * 5) : 0;
@@ -1989,8 +1988,7 @@ export default function PrecificacaoPage() {
         const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
         const tribBruto = venda * calc.aliquotaSaidaFaturamento;
         const trib = Math.max(0, tribBruto - credValorExp);
-        const cfLinha = venda * custoFixoPctEfetivo;
-        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib - cfLinha) / venda) * 100 : 0;
+        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
         tabelas[`${pol.nome_tabela}_venda`] = vendaReal > 0 ? vendaReal : precoSugerido;
         tabelas[`${pol.nome_tabela}_margem_pct`] = margem;
       }
@@ -2541,13 +2539,6 @@ export default function PrecificacaoPage() {
                     </div>
                   </TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo Total</TableHead>
-                  <TableHead
-                    className="text-xs text-right"
-                    rowSpan={2}
-                    title="Rateio do custo fixo embutido no preço mínimo (preço × custoFixoPct efetivo)"
-                  >
-                    CF Rateio
-                  </TableHead>
                   <TableHead className="text-xs text-right font-semibold text-primary" rowSpan={2}>Preço Mín.</TableHead>
                   {(politicas ?? []).map((pol, idx) => (
                     <TableHead
@@ -3156,12 +3147,6 @@ export default function PrecificacaoPage() {
                         })()}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(calc.custoTotal)}</TableCell>
-                      <TableCell className="text-right font-mono text-xs">
-                        <div>{formatCurrency(calc.custoFixoEmbutido || 0)}</div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {((custoFixoPctEfetivo || 0) * 100).toFixed(1)}%
-                        </div>
-                      </TableCell>
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
                         {formatCurrency(calc.precoMinimo)}
                       </TableCell>
@@ -3172,7 +3157,7 @@ export default function PrecificacaoPage() {
                         const credValor = credOn ? (calc.totalCreditosEntrada || 0) : 0;
                         return (politicas ?? []).map((pol, idx) => {
                           const margemMin = Number(pol.margem_minima) || 0;
-                          const divInline = 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin;
+                          const divInline = 1 - calc.aliquotaSaidaFaturamento - margemMin;
                           // Numerador do mark-up desconta o crédito (matematicamente equivalente
                           // a reduzir custo OU reduzir tributo por unidade fixa).
                           const numerador = Math.max(0, calc.custoTotal - credValor);
@@ -3183,8 +3168,7 @@ export default function PrecificacaoPage() {
                           const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
                           const tribBruto = venda * calc.aliquotaSaidaFaturamento;
                           const trib = Math.max(0, tribBruto - credValor); // exibido líquido
-                          const cfLinha = venda * custoFixoPctEfetivo;
-                          const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib - cfLinha) / venda) * 100 : 0;
+                          const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
                           const okMin = temPrecoCadastrado && margem >= (margemMin * 100 - 0.05);
                           const cor = idx % 3 === 0 ? "text-blue-400" : idx % 3 === 1 ? "text-yellow-400" : "text-purple-400";
                           return (
