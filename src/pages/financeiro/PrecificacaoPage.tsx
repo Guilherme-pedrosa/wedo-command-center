@@ -78,6 +78,8 @@ interface ProdutoTributo {
   excecao_manual?: boolean | null;
   excecao_motivo?: string | null;
   excecao_custo_unitario?: number | null;
+  ineligivel_precificacao?: boolean | null;
+  ineligivel_motivo?: string | null;
 }
 
 interface UltimaCompraProduto {
