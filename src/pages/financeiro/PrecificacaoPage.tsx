@@ -1982,6 +1982,7 @@ export default function PrecificacaoPage() {
       if (hasNF && !descricaoNF) alertas.push("NF sem descrição original gravada");
       if (ultimaCompra && !ultimaCompra.numero_nfe) alertas.push("Última compra sem nº de NF");
       if (custoUltimaCompra <= 0) alertas.push("Sem histórico de compra");
+      const freteRateio = freteRateioMap.get(p.id);
       rows.push({
         "Produto": p.nome,
         "Codigo": p.codigo || p.codigo_interno || "",
@@ -2006,7 +2007,38 @@ export default function PrecificacaoPage() {
         "Data Compra": dataCompra,
         "Situacao Compra": situacaoCompra,
         "Qtd Comprada": ultimaCompra?.quantidade ?? "",
+        // ── Tributos NF (alíquotas efetivas: manual > cadastro) ──
+        "ICMS % (efetivo)": tributo ? Number(tributo.icms_aliquota_manual ?? tributo.icms_aliquota) || 0 : "",
+        "ICMS % (NF)": tributo?.icms_aliquota ?? "",
+        "ICMS % (manual)": tributo?.icms_aliquota_manual ?? "",
+        "ICMS Valor Unit": tributo?.valor_icms_unit ?? "",
+        "PIS % (efetivo)": tributo ? Number(tributo.pis_aliquota_manual ?? tributo.pis_aliquota) || 0 : "",
+        "PIS % (NF)": tributo?.pis_aliquota ?? "",
+        "PIS % (manual)": tributo?.pis_aliquota_manual ?? "",
+        "PIS Valor Unit": tributo?.valor_pis_unit ?? "",
+        "COFINS % (efetivo)": tributo ? Number(tributo.cofins_aliquota_manual ?? tributo.cofins_aliquota) || 0 : "",
+        "COFINS % (NF)": tributo?.cofins_aliquota ?? "",
+        "COFINS % (manual)": tributo?.cofins_aliquota_manual ?? "",
+        "COFINS Valor Unit": tributo?.valor_cofins_unit ?? "",
+        "IPI % (efetivo)": tributo ? Number(tributo.ipi_aliquota_manual ?? tributo.ipi_aliquota) || 0 : "",
+        "IPI % (NF)": tributo?.ipi_aliquota ?? "",
+        "IPI Valor Unit": tributo?.valor_ipi_unit ?? "",
+        "CFOP": tributo?.cfop || "",
+        "NCM": tributo?.ncm || "",
+        "Regime Fornecedor": tributo?.regime_fornecedor || "",
+        "Sem Credito": tributo?.sem_credito ? "sim" : "nao",
+        // ── Frete NF (embutido no tributo) ──
+        "Frete % (NF)": tributo?.frete_percentual ?? "",
+        "Frete Valor Unit (NF)": tributo?.valor_frete_unit ?? "",
+        // ── Rateio de frete (pedidos de frete externos) ──
+        "Rateio Frete Unit": freteRateio?.rateio_unit ?? "",
+        "Rateio Frete Valor Total": freteRateio?.rateio_valor ?? "",
+        "Pedido(s) de Frete": freteRateio?.pedidos_frete?.join(", ") || "",
+        "Pedido Compra Rateado": freteRateio?.compra_codigo || "",
         "Credito Entrada": calc.totalCreditosEntrada,
+        "Credito ICMS": calc.creditoIcms,
+        "Credito PIS": calc.creditoPis,
+        "Credito COFINS": calc.creditoCofins,
         "Custo Total": calc.custoTotal,
         "Preco Minimo": calc.precoMinimo,
         ...tabelas,
