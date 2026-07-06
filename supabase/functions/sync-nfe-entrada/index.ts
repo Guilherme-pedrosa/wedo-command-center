@@ -192,6 +192,19 @@ interface XmlItemTax {
   cofins_vBC: number;
   cofins_pCOFINS: number;
   cofins_vCOFINS: number;
+  infAdProd: string;
+}
+
+// Regra de negócio: NF de brinde/bonificação/doação/showroom NÃO alimenta precificação.
+// Detecta em qualquer texto livre (natureza da operação, observação, descrição do item).
+const RE_INELEGIVEL = /(brinde|bonifica[cç][aã]o|doa[cç][aã]o|showroom)/i;
+function detectIneligivelPrecificacao(...textos: (string | null | undefined)[]): string | null {
+  for (const t of textos) {
+    if (!t) continue;
+    const m = String(t).match(RE_INELEGIVEL);
+    if (m) return m[1].toLowerCase().replace(/[cç]a[oõ]/g, "cao");
+  }
+  return null;
 }
 
 function parseXmlItems(xml: string): XmlItemTax[] {
