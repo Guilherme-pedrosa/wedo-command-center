@@ -1370,12 +1370,20 @@ function processarXml(
     const livres: number[] = [];
     for (let idx = 0; idx < xmlItems.length; idx++) if (!usedXmlIdx.has(idx)) livres.push(idx);
 
-    // 1×1: um item pendente e um XML livre → match determinístico
+    // 1×1: um item pendente e um XML livre → match determinístico,
+    // MAS só se houver sanidade mínima (nome OU preço). Sem isso o matcher
+    // amarrava produtos totalmente diferentes só porque sobrou um de cada lado.
     if (unresolved.length === 1 && livres.length === 1) {
-      const pIdx = unresolved.shift()!;
+      const pIdx = unresolved[0];
       const item = compraItens[pIdx];
       if (item.produto_gc_id) {
-        enrichAndSet(item, item.produto_gc_id, { xi: xmlItems[livres[0]], idx: livres[0], rule: "residual_1x1" });
+        const compraUnit = item.valor_custo || 0;
+        const compraTotal = item.valor_total || (compraUnit * (item.quantidade || 1));
+        const chk = matchPlausivel(item.nome_produto || "", compraUnit, compraTotal, xmlItems[livres[0]]);
+        if (chk.ok) {
+          unresolved.shift();
+          enrichAndSet(item, item.produto_gc_id, { xi: xmlItems[livres[0]], idx: livres[0], rule: "residual_1x1" });
+        }
       }
     } else if (unresolved.length > 0 && livres.length > 0) {
       // Tentar preço+qtd com tolerância mais frouxa (3%) entre os remanescentes
