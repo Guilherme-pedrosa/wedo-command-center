@@ -1230,7 +1230,7 @@ export default function PrecificacaoPage() {
   const allAboveMargin = useMemo(() => Array.from(aboveMarginByProduct.values()).flat(), [aboveMarginByProduct]);
 
   // ── Filtered final: aplica filtro de margem em cima do preFiltered usando os mapas (alinhado com display da linha) ──
-  const filtered = useMemo(() => {
+  const filteredAll = useMemo(() => {
     const base = (preFiltered ?? []).filter((p) => {
       if (marginFilter === "todos") return true;
       const outs = outOfMarginByProduct.get(String(p.id));
@@ -1271,8 +1271,12 @@ export default function PrecificacaoPage() {
       if (valorEstoqueB !== valorEstoqueA) return valorEstoqueB - valorEstoqueA;
       if (custoB !== custoA) return custoB - custoA;
       return estoqueB - estoqueA;
-    }).slice(0, 1000);
+    });
   }, [preFiltered, marginFilter, outOfMarginByProduct, custoCanonicoMap, ultimaCompraMap, valoresMap]);
+
+  // Cap para renderização (display apenas). Exportação usa filteredAll completo.
+  const filtered = useMemo(() => filteredAll.slice(0, 1000), [filteredAll]);
+
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -1896,12 +1900,12 @@ export default function PrecificacaoPage() {
   );
 
   const handleExportExcel = () => {
-    if (!filtered.length) {
+    if (!filteredAll.length) {
       toast.error("Nenhum dado para exportar");
       return;
     }
     const rows: any[] = [];
-    for (const p of filtered) {
+    for (const p of filteredAll) {
       const custoCan = custoCanonicoMap.get(p.id);
       const custoCache = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
       const ultimaCompra = ultimaCompraMap.get(p.id);
@@ -2455,9 +2459,9 @@ export default function PrecificacaoPage() {
               <Badge variant="secondary" className="text-xs font-mono w-12 justify-center">{margemAlvo}%</Badge>
             </div>
             {loadingProdutos && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-            <Button size="sm" variant="outline" onClick={handleExportExcel} disabled={filtered.length === 0} title="Exportar filtro atual para Excel">
+            <Button size="sm" variant="outline" onClick={handleExportExcel} disabled={filteredAll.length === 0} title="Exportar todos os itens do filtro atual para Excel">
               <Download className="h-4 w-4 mr-1" />
-              Exportar Excel ({filtered.length})
+              Exportar Excel ({filteredAll.length})
             </Button>
           </div>
 
