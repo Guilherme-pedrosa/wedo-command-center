@@ -394,6 +394,31 @@ function normalizeText(value: unknown): string {
     .replace(/\s+/g, " ");
 }
 
+// Sanidade mínima p/ matches "por eliminação" (unico / residual_1x1 / residual_preco):
+// impede amarrar produtos totalmente diferentes (ex: TOMADA ↔ TORNEIRA) só porque
+// sobrou um item livre no XML e um item livre no pedido.
+// Aceita se: (a) nomes têm sobreposição de tokens >= 0.35, OU
+//            (b) preço unit dentro de 5% OU total dentro de 3%.
+function matchPlausivel(
+  compraNomeRaw: string,
+  compraUnit: number,
+  compraTotal: number,
+  xi: { xProd: string; vUnCom: number; vProd: number },
+): { ok: boolean; tokenScore: number; unitDiff: number; totalDiff: number } {
+  const tokensCompra = normalizeText(compraNomeRaw).split(/\s+/).filter((t) => t.length > 1);
+  const tokensXml = new Set(normalizeText(xi.xProd).split(/\s+/).filter((t) => t.length > 1));
+  const comuns = tokensCompra.filter((t) => tokensXml.has(t)).length;
+  const tokenScore = tokensCompra.length && tokensXml.size
+    ? comuns / Math.max(1, Math.min(tokensCompra.length, tokensXml.size))
+    : 0;
+  const unitDiff = compraUnit > 0 ? Math.abs(xi.vUnCom - compraUnit) / compraUnit : 1;
+  const totalDiff = compraTotal > 0 ? Math.abs(xi.vProd - compraTotal) / compraTotal : 1;
+  const ok = tokenScore >= 0.35 || unitDiff <= 0.05 || totalDiff <= 0.03;
+  return { ok, tokenScore, unitDiff, totalDiff };
+}
+
+
+
 async function tryDownloadXml(chave: string, storagePath: string | null, supabase: any): Promise<string | null> {
   if (!chave || chave.length < 44) return null;
   const candidates = [
@@ -1316,8 +1341,14 @@ function processarXml(
 
     // Fallback seguro: NF com 1 item e pedido com 1 item é correspondência inequívoca,
     // mesmo quando o cProd da NF não bate com o código interno do cadastro GC.
+    // Exige sanidade mínima (nome OU preço compatíveis) — bloqueia TOMADA↔TORNEIRA.
     if (!pick && compraItens.length === 1 && xmlItems.length === 1 && !usedXmlIdx.has(0)) {
-      pick = { xi: xmlItems[0], idx: 0, rule: "unico" };
+      const compraUnit = item.valor_custo || 0;
+      const compraTotal = item.valor_total || (compraUnit * (item.quantidade || 1));
+      const chk = matchPlausivel(item.nome_produto || "", compraUnit, compraTotal, xmlItems[0]);
+      if (chk.ok) {
+        pick = { xi: xmlItems[0], idx: 0, rule: "unico" };
+      }
     }
 
 
@@ -1339,12 +1370,20 @@ function processarXml(
     const livres: number[] = [];
     for (let idx = 0; idx < xmlItems.length; idx++) if (!usedXmlIdx.has(idx)) livres.push(idx);
 
-    // 1×1: um item pendente e um XML livre → match determinístico
+    // 1×1: um item pendente e um XML livre → match determinístico,
+    // MAS só se houver sanidade mínima (nome OU preço). Sem isso o matcher
+    // amarrava produtos totalmente diferentes só porque sobrou um de cada lado.
     if (unresolved.length === 1 && livres.length === 1) {
-      const pIdx = unresolved.shift()!;
+      const pIdx = unresolved[0];
       const item = compraItens[pIdx];
       if (item.produto_gc_id) {
-        enrichAndSet(item, item.produto_gc_id, { xi: xmlItems[livres[0]], idx: livres[0], rule: "residual_1x1" });
+        const compraUnit = item.valor_custo || 0;
+        const compraTotal = item.valor_total || (compraUnit * (item.quantidade || 1));
+        const chk = matchPlausivel(item.nome_produto || "", compraUnit, compraTotal, xmlItems[livres[0]]);
+        if (chk.ok) {
+          unresolved.shift();
+          enrichAndSet(item, item.produto_gc_id, { xi: xmlItems[livres[0]], idx: livres[0], rule: "residual_1x1" });
+        }
       }
     } else if (unresolved.length > 0 && livres.length > 0) {
       // Tentar preço+qtd com tolerância mais frouxa (3%) entre os remanescentes
