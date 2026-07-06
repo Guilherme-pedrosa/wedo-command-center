@@ -1122,6 +1122,7 @@ function processarXml(
   matchRuleTag: string,
   productTaxMap: Map<string, ProductTaxRecord>,
   codigoPorProdutoId: Map<string, string>,
+  codigoBarraPorProdutoId: Map<string, string>,
   descartesPicker: any[],
 ) {
   const r = (v: number) => Math.round(v * 100) / 100;
@@ -1136,16 +1137,38 @@ function processarXml(
   const unresolved: number[] = []; // índices em compraItens que não bateram na 1ª passada
 
 
-  // Pré-indexa XML por cProd normalizado
+  // Pré-indexa XML por código do item e EAN. O vínculo primário deve ser código↔código,
+  // inclusive com zero à esquerda removido; nome/preço são fallback, não fonte principal.
   const xmlPorCProd = new Map<string, number[]>();
+  const xmlPorCodigoTexto = new Map<string, number[]>();
+  const xmlPorEan = new Map<string, number[]>();
   for (let i = 0; i < xmlItems.length; i++) {
-    const norm = normalizarCodigoProduto(xmlItems[i].cProd);
-    if (norm) {
-      const arr = xmlPorCProd.get(norm) || [];
-      arr.push(i);
-      xmlPorCProd.set(norm, arr);
-    }
+    for (const code of codigoComparavel(xmlItems[i].cProd)) addMapValue(xmlPorCProd, code, i);
+    for (const code of extractProductCodesFromText(xmlItems[i].xProd)) addMapValue(xmlPorCodigoTexto, code, i);
+    addMapValue(xmlPorEan, normalizarCodigoBarra(xmlItems[i].cEAN), i);
+    addMapValue(xmlPorEan, normalizarCodigoBarra(xmlItems[i].cEANTrib), i);
   }
+
+  const pickBestByCompraValues = (item: CompraItem, candidatosRaw: number[], ruleSingle: string, ruleMulti: string) => {
+    const candidatos = [...new Set(candidatosRaw)].filter((idx) => !usedXmlIdx.has(idx));
+    if (candidatos.length === 0) return null;
+    if (candidatos.length === 1) return { xi: xmlItems[candidatos[0]], idx: candidatos[0], rule: ruleSingle };
+
+    const compraQtd = item.quantidade || 1;
+    const compraUnit = item.valor_custo || 0;
+    const compraTotal = item.valor_total || (compraUnit * compraQtd);
+    let best = candidatos[0];
+    let bestScore = Infinity;
+    for (const idx of candidatos) {
+      const xi = xmlItems[idx];
+      const unitDiff = compraUnit > 0 ? Math.abs(xi.vUnCom - compraUnit) / compraUnit : 1;
+      const totalDiff = compraTotal > 0 ? Math.abs(xi.vProd - compraTotal) / compraTotal : 1;
+      const qtdDiff = compraQtd > 0 ? Math.abs(xi.qCom - compraQtd) / compraQtd : 1;
+      const score = unitDiff * 0.5 + totalDiff * 0.4 + qtdDiff * 0.1;
+      if (score < bestScore) { bestScore = score; best = idx; }
+    }
+    return { xi: xmlItems[best], idx: best, rule: ruleMulti };
+  };
 
   // Helper: cria registro mínimo sem tributo quando não há XML item correspondente
   const upsertSemTributo = (gcProdId: string, item: CompraItem) => {
@@ -1194,30 +1217,44 @@ function processarXml(
     // R$115 só porque caíram na mesma posição). Agora dependemos exclusivamente
     // de cProd (código), nome+valor, ou item único 1×1.
 
-    // PRIORIDADE 1: cProd normalizado == codigo_interno do cadastro
-    const codigoCompra = codigoPorProdutoId.get(gcProdId);
+    // PRIORIDADE 1: cProd da NF == codigo_interno do produto vinculado no item do pedido.
+    const codigosCompra = codigoComparavel(codigoPorProdutoId.get(gcProdId));
     if (!pick && codigoCompra) {
-      const candidatos = (xmlPorCProd.get(codigoCompra) || []).filter((idx) => !usedXmlIdx.has(idx));
-      if (candidatos.length === 1) {
-        pick = { xi: xmlItems[candidatos[0]], idx: candidatos[0], rule: "cprod" };
-      } else if (candidatos.length > 1) {
-        // múltiplos cProd iguais → desempate por proximidade de VALOR (preço unitário e total)
-        // O pedido GC e a NF têm praticamente os mesmos valores; usar isso evita pegar item errado.
-        const compraQtd = item.quantidade || 1;
-        const compraUnit = item.valor_custo || 0;
-        const compraTotal = item.valor_total || (compraUnit * compraQtd);
-        let best = candidatos[0];
-        let bestScore = Infinity;
-        for (const idx of candidatos) {
-          const xi = xmlItems[idx];
-          const unitDiff = compraUnit > 0 ? Math.abs(xi.vUnCom - compraUnit) / compraUnit : 1;
-          const totalDiff = compraTotal > 0 ? Math.abs(xi.vProd - compraTotal) / compraTotal : 1;
-          const qtdDiff = compraQtd > 0 ? Math.abs(xi.qCom - compraQtd) / compraQtd : 1;
-          // Peso maior em valor (unit e total), qtd como desempate fino
-          const score = unitDiff * 0.5 + totalDiff * 0.4 + qtdDiff * 0.1;
-          if (score < bestScore) { bestScore = score; best = idx; }
+      pick = pickBestByCompraValues(
+        item,
+        codigosCompra.flatMap((codigo) => xmlPorCProd.get(codigo) || []),
+        "cprod",
+        "cprod_multi",
+      );
+    }
+
+    // PRIORIDADE 1.1: cProd normalizado/sufixo. Ex.: XML "031978" e cadastro "31978".
+    if (!pick && codigosCompra.length > 0) {
+      const candidatos: number[] = [];
+      for (const [xmlCode, idxs] of xmlPorCProd.entries()) {
+        if (codigosCompra.some((codigo) => xmlCode === codigo || xmlCode.endsWith(codigo) || codigo.endsWith(xmlCode))) {
+          candidatos.push(...idxs);
         }
-        pick = { xi: xmlItems[best], idx: best, rule: "cprod_multi" };
+      }
+      pick = pickBestByCompraValues(item, candidatos, "cprod_normalizado", "cprod_normalizado");
+    }
+
+    // PRIORIDADE 1.2: código interno do produto aparece no xProd da NF.
+    // Ex.: item do pedido produto #76511 ↔ XML xProd "REGULADOR 76511 AM".
+    if (!pick && codigosCompra.length > 0) {
+      pick = pickBestByCompraValues(
+        item,
+        codigosCompra.flatMap((codigo) => xmlPorCodigoTexto.get(codigo) || []),
+        "codigo_interno_xprod",
+        "codigo_interno_xprod",
+      );
+    }
+
+    // PRIORIDADE 1.3: EAN do XML ↔ código de barras do cadastro GC.
+    if (!pick) {
+      const eanCompra = codigoBarraPorProdutoId.get(gcProdId);
+      if (eanCompra) {
+        pick = pickBestByCompraValues(item, xmlPorEan.get(eanCompra) || [], "ean", "ean");
       }
     }
 
