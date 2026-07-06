@@ -7,6 +7,11 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// Regra de precificação: PIS/COFINS do produto NÃO vem da alíquota destacada pelo fornecedor na NF.
+// No Lucro Real, o crédito usado na formação de preço é o não-cumulativo padrão, salvo fornecedor sem crédito.
+const PIS_CREDITO_LUCRO_REAL = 1.65;
+const COFINS_CREDITO_LUCRO_REAL = 7.6;
+
 // ── Types ──
 
 interface CompraProduct {
@@ -488,13 +493,13 @@ serve(async (req) => {
           const freteUnit = qtd > 0 ? (xmlFrete * proporcao) / qtd : 0;
           const ipiUnit = qtd > 0 ? xmlItem.ipi_vIPI / qtd : 0;
           const icmsUnit = isSN ? 0 : (qtd > 0 ? xmlItem.icms_vICMS / qtd : 0);
-          const pisUnit = isSN ? 0 : (qtd > 0 ? xmlItem.pis_vPIS / qtd : 0);
-          const cofinsUnit = isSN ? 0 : (qtd > 0 ? xmlItem.cofins_vCOFINS / qtd : 0);
+          const pisAliqCredito = isSN ? 0 : PIS_CREDITO_LUCRO_REAL;
+          const cofinsAliqCredito = isSN ? 0 : COFINS_CREDITO_LUCRO_REAL;
+          const pisUnit = valorUnit * (pisAliqCredito / 100);
+          const cofinsUnit = valorUnit * (cofinsAliqCredito / 100);
 
           // Fix #5: pICMS direto do XML
           const icmsAliqReal = xmlItem.icms_pICMS || (xmlItem.vProd > 0 ? (xmlItem.icms_vICMS / xmlItem.vProd) * 100 : 0);
-          const pisAliqReal = xmlItem.pis_pPIS || (xmlItem.vProd > 0 ? (xmlItem.pis_vPIS / xmlItem.vProd) * 100 : 0);
-          const cofinsAliqReal = xmlItem.cofins_pCOFINS || (xmlItem.vProd > 0 ? (xmlItem.cofins_vCOFINS / xmlItem.vProd) * 100 : 0);
           const ipiAliqReal = xmlItem.ipi_pIPI || (xmlItem.vProd > 0 ? (xmlItem.ipi_vIPI / xmlItem.vProd) * 100 : 0);
           const freteRate = totalVProd > 0 ? (xmlFrete / totalVProd) * 100 : 0;
           const icmsBasePerc = xmlItem.vProd > 0 ? (xmlItem.icms_vBC / xmlItem.vProd) * 100 : 100;
@@ -519,8 +524,8 @@ serve(async (req) => {
             sem_credito: isSN,
             icms_aliquota: isSN ? 0 : r(icmsAliqReal),
             icms_base: isSN ? 0 : r(icmsBasePerc),
-            pis_aliquota: isSN ? 0 : r(pisAliqReal),
-            cofins_aliquota: isSN ? 0 : r(cofinsAliqReal),
+            pis_aliquota: r(pisAliqCredito),
+            cofins_aliquota: r(cofinsAliqCredito),
             ipi_aliquota: r(ipiAliqReal),
             frete_percentual: r(freteRate),
             valor_unitario_nf: r(valorUnit),
@@ -533,25 +538,17 @@ serve(async (req) => {
             match_rule: matchRule,
           });
 
-          console.log(`[offline] ✓ ${gcProdId} "${xmlItem.xProd}" ICMS=${r(icmsAliqReal)}% PIS=${r(pisAliqReal)}% COFINS=${r(cofinsAliqReal)}%`);
+          console.log(`[offline] ✓ ${gcProdId} "${xmlItem.xProd}" ICMS=${r(icmsAliqReal)}% PIS=${r(pisAliqCredito)}% COFINS=${r(cofinsAliqCredito)}%`);
         } else {
           // Fallback: rateio proporcional pelos totais do XML
           // Use actual values first, but fallback to weighted average of aliquotas if values are zero
           const totalICMS = xmlItems.reduce((s, i) => s + i.icms_vICMS, 0);
-          const totalPIS = xmlItems.reduce((s, i) => s + i.pis_vPIS, 0);
-          const totalCOFINS = xmlItems.reduce((s, i) => s + i.cofins_vCOFINS, 0);
           const totalIPI = xmlItems.reduce((s, i) => s + i.ipi_vIPI, 0);
           const totalBaseICMS = xmlItems.reduce((s, i) => s + i.icms_vBC, 0);
 
-          // If PIS/COFINS values are zero but aliquotas exist, use weighted average of aliquotas
-          const avgPisAliqFromRate = xmlItems.length > 0
-            ? xmlItems.reduce((s, i) => s + i.pis_pPIS * i.vProd, 0) / (totalVProd || 1) : 0;
-          const avgCofinsAliqFromRate = xmlItems.length > 0
-            ? xmlItems.reduce((s, i) => s + i.cofins_pCOFINS * i.vProd, 0) / (totalVProd || 1) : 0;
-
           const avgIcmsAliq = totalVProd > 0 ? (totalICMS / totalVProd) * 100 : 0;
-          const avgPisAliq = totalPIS > 0 ? (totalPIS / totalVProd) * 100 : avgPisAliqFromRate;
-          const avgCofinsAliq = totalCOFINS > 0 ? (totalCOFINS / totalVProd) * 100 : avgCofinsAliqFromRate;
+          const avgPisAliq = isSN ? 0 : PIS_CREDITO_LUCRO_REAL;
+          const avgCofinsAliq = isSN ? 0 : COFINS_CREDITO_LUCRO_REAL;
           const avgIpiAliq = totalVProd > 0 ? (totalIPI / totalVProd) * 100 : 0;
           const freteRate = totalVProd > 0 ? (xmlFrete / totalVProd) * 100 : 0;
           const icmsBasePerc = totalVProd > 0 ? (totalBaseICMS / totalVProd) * 100 : 100;
