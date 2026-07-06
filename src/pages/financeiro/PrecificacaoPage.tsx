@@ -1937,6 +1937,7 @@ export default function PrecificacaoPage() {
       const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
       const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
       const hasNF = hasEntradaFiscal(tributo);
+      const effRates = tributo ? getEffectiveRates(tributo) : null;
       const gcCustoFinalRow = parseFloat(p.valor_custo) || 0;
       const custoBaseCalculo = excecao ? custoBruto : (gcCustoFinalRow > 0 ? gcCustoFinalRow : undefined);
       const cfuFlat = !!(taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0) ? (taxEntrada.custoFixoUnit || 0) : 0;
