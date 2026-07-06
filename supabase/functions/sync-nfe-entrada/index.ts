@@ -749,14 +749,43 @@ serve(async (req) => {
     }
 
     for (const compra of compras) {
-      const cnpj = normCnpj(compra.cnpj_fornecedor);
+      let cnpj = normCnpj(compra.cnpj_fornecedor);
       const numero = normNumeroNf(compra.numero_nfe);
+
+      // Fallback CNPJ: se o pedido veio sem CNPJ (fornecedor não cadastrado em fin_fornecedores),
+      // tenta descobrir via nome_fornecedor vs nome_emitente dos XMLs indexados.
+      if (!cnpj && compra.nome_fornecedor) {
+        const STOP = new Set(["LTDA","EIRELI","EPP","ME","SA","MEI","INDUSTRIA","COMERCIO","COMERCIAL","SERVICOS","DISTRIBUIDORA","IMPORTACAO","EXPORTACAO","LIMITADA","DE","DA","DO","DOS","DAS","E"]);
+        const clean = (s: string) => normalizeText(s).split(/\s+/).filter((t) => t.length > 2 && !STOP.has(t));
+        const tokensAlvo = clean(compra.nome_fornecedor);
+        if (tokensAlvo.length > 0) {
+          const cnpjScore = new Map<string, number>();
+          for (const x of xmlIndex) {
+            if (!x.cnpj_emitente || !x.nome_emitente) continue;
+            const tokensXml = new Set(clean(x.nome_emitente));
+            const comuns = tokensAlvo.filter((t) => tokensXml.has(t)).length;
+            const minReq = tokensAlvo.length === 1 ? 1 : 2;
+            if (comuns >= minReq) {
+              cnpjScore.set(x.cnpj_emitente, Math.max(cnpjScore.get(x.cnpj_emitente) || 0, comuns));
+            }
+          }
+          if (cnpjScore.size === 1) {
+            cnpj = [...cnpjScore.keys()][0];
+          } else if (cnpjScore.size > 1) {
+            const ordered = [...cnpjScore.entries()].sort((a, b) => b[1] - a[1]);
+            // aceita o melhor se estritamente > que o segundo (evita ambiguidade)
+            if (ordered[0][1] > ordered[1][1]) cnpj = ordered[0][0];
+          }
+        }
+      }
+
 
       if (!cnpj) {
         semMatch++;
         registrarPendente(pendentesNovos, semMatchAmostra, compra, "sem_cnpj_compra", []);
         continue;
       }
+
       let matched: XmlIndexRow | null = null;
       let matchRuleTag = "";
       if (numero) {
@@ -1038,6 +1067,8 @@ function processarXml(
 
   const compraItens = compra.itens;
   const usedXmlIdx = new Set<number>();
+  const unresolved: number[] = []; // índices em compraItens que não bateram na 1ª passada
+
 
   // Pré-indexa XML por cProd normalizado
   const xmlPorCProd = new Map<string, number[]>();
@@ -1155,79 +1186,149 @@ function processarXml(
       if (best) pick = { xi: xmlItems[best.idx], idx: best.idx, rule: "nome_preco" };
     }
 
+    // PRIORIDADE 2.5: preço unitário + quantidade praticamente idênticos (tolerância 1%).
+    // Pedidos GC + NF costumam usar exatamente o mesmo unitário/qtd — quando o nome diverge
+    // completamente (código genérico no cProd, sinônimo comercial no xProd) esta regra evita
+    // "perder" o vínculo. Só aplica se o candidato for único ou dominar por larga margem.
+    if (!pick) {
+      const compraQtd = item.quantidade || 0;
+      const compraUnit = item.valor_custo || 0;
+      const compraTotal = item.valor_total || (compraUnit * compraQtd);
+      const candidatos: Array<{ idx: number; score: number }> = [];
+      for (let idx = 0; idx < xmlItems.length; idx++) {
+        if (usedXmlIdx.has(idx)) continue;
+        const xi = xmlItems[idx];
+        const unitDiff = compraUnit > 0 ? Math.abs(xi.vUnCom - compraUnit) / compraUnit : 1;
+        const qtdDiff  = compraQtd  > 0 ? Math.abs(xi.qCom  - compraQtd)  / compraQtd  : 1;
+        const totalDiff = compraTotal > 0 ? Math.abs(xi.vProd - compraTotal) / compraTotal : 1;
+        if ((unitDiff <= 0.01 && qtdDiff <= 0.01) || totalDiff <= 0.005) {
+          candidatos.push({ idx, score: unitDiff + qtdDiff + totalDiff });
+        }
+      }
+      candidatos.sort((a, b) => a.score - b.score);
+      if (candidatos.length === 1 || (candidatos.length > 1 && candidatos[1].score > candidatos[0].score * 3)) {
+        pick = { xi: xmlItems[candidatos[0].idx], idx: candidatos[0].idx, rule: "preco_qtd_exato" };
+      }
+    }
+
     // Fallback seguro: NF com 1 item e pedido com 1 item é correspondência inequívoca,
     // mesmo quando o cProd da NF não bate com o código interno do cadastro GC.
     if (!pick && compraItens.length === 1 && xmlItems.length === 1 && !usedXmlIdx.has(0)) {
       pick = { xi: xmlItems[0], idx: 0, rule: "unico" };
     }
 
+
     if (!pick) {
-      // Sem correspondência confiável → grava tributo vazio mas com produto_gc_id
-      // e loga TOP 3 candidatos do XML com pontuação, pra diagnóstico
-      try {
-        const compraNome = normalizeText(item.nome_produto);
-        const tokensCompra = compraNome.split(/\s+/).filter((t) => t.length > 1);
-        const compraQtd = item.quantidade || 1;
-        const compraUnit = item.valor_custo || 0;
-        const compraTotal = item.valor_total || (compraUnit * compraQtd);
-        const ranking = xmlItems.map((xi, idx) => {
-          const tokensXml = new Set(normalizeText(xi.xProd).split(/\s+/).filter((t) => t.length > 1));
-          const comuns = tokensCompra.filter((t) => tokensXml.has(t)).length;
-          const tokenScore = comuns / Math.max(1, Math.min(tokensCompra.length, tokensXml.size));
-          const unitDiff = compraUnit > 0 ? Math.abs(xi.vUnCom - compraUnit) / compraUnit : 1;
-          const totalDiff = compraTotal > 0 ? Math.abs(xi.vProd - compraTotal) / compraTotal : 1;
-          return {
-            idx,
-            nome_nf: xi.xProd,
-            cprod_nf: xi.cProd,
-            vunit_nf: Math.round(xi.vUnCom * 100) / 100,
-            vtotal_nf: Math.round(xi.vProd * 100) / 100,
-            qcom_nf: xi.qCom,
-            token_score: Math.round(tokenScore * 1000) / 1000,
-            unit_diff_pct: Math.round(unitDiff * 1000) / 10,
-            total_diff_pct: Math.round(totalDiff * 1000) / 10,
-            usado_por_outro: usedXmlIdx.has(idx),
-          };
-        });
-        ranking.sort((a, b) => b.token_score - a.token_score || a.unit_diff_pct - b.unit_diff_pct);
-        const motivoDesc = xmlItems.length === 0
-          ? "xml_sem_itens"
-          : xmlItems.length === 1 && compraItens.length > 1
-            ? "xml_1_item_mas_pedido_multi"
-            : ranking[0] && ranking[0].token_score < 0.35
-              ? "nome_muito_diferente"
-              : ranking[0] && ranking[0].token_score < 0.45
-                ? "score_abaixo_do_threshold"
-                : "preco_incompativel";
-        descartesPicker.push({
-          compra_gc_id: compra.gc_id,
-          compra_codigo: compra.codigo,
-          produto_gc_id: gcProdId,
-          nome_produto_pedido: item.nome_produto,
-          codigo_interno_pedido: codigoPorProdutoId.get(gcProdId) || null,
-          quantidade_pedido: compraQtd,
-          valor_unit_pedido: compraUnit,
-          valor_total_pedido: compraTotal,
-          nf_chave: xmlMeta.chave,
-          nf_numero: xmlMeta.numero_nf,
-          motivo: motivoDesc,
-          candidatos: ranking.slice(0, 3),
-        });
-      } catch (_e) { /* diagnóstico não deve quebrar o sync */ }
-      upsertSemTributo(gcProdId, item);
+      // Adia — depois da 1ª passada, tentamos residual 1×N com os XML items ainda livres
+      unresolved.push(pIdx);
       continue;
     }
 
+
+    enrichAndSet(item, gcProdId, pick);
+  }
+
+  // ── Passada residual ──
+  // Se ainda há itens do pedido sem match e sobrou apenas 1 XML item livre,
+  // faz correspondência 1×1 (a NF/pedido só admite uma leitura possível).
+  // Também tenta preço+qtd com tolerância um pouco mais frouxa entre os remanescentes.
+  if (unresolved.length > 0) {
+    const livres: number[] = [];
+    for (let idx = 0; idx < xmlItems.length; idx++) if (!usedXmlIdx.has(idx)) livres.push(idx);
+
+    // 1×1: um item pendente e um XML livre → match determinístico
+    if (unresolved.length === 1 && livres.length === 1) {
+      const pIdx = unresolved.shift()!;
+      const item = compraItens[pIdx];
+      if (item.produto_gc_id) {
+        enrichAndSet(item, item.produto_gc_id, { xi: xmlItems[livres[0]], idx: livres[0], rule: "residual_1x1" });
+      }
+    } else if (unresolved.length > 0 && livres.length > 0) {
+      // Tentar preço+qtd com tolerância mais frouxa (3%) entre os remanescentes
+      const stillUnresolved: number[] = [];
+      for (const pIdx of unresolved) {
+        const item = compraItens[pIdx];
+        if (!item.produto_gc_id) continue;
+        const compraQtd = item.quantidade || 0;
+        const compraUnit = item.valor_custo || 0;
+        const compraTotal = item.valor_total || (compraUnit * compraQtd);
+        let best: { idx: number; score: number } | null = null;
+        for (const idx of livres) {
+          if (usedXmlIdx.has(idx)) continue;
+          const xi = xmlItems[idx];
+          const unitDiff = compraUnit > 0 ? Math.abs(xi.vUnCom - compraUnit) / compraUnit : 1;
+          const totalDiff = compraTotal > 0 ? Math.abs(xi.vProd - compraTotal) / compraTotal : 1;
+          if (unitDiff <= 0.03 || totalDiff <= 0.02) {
+            const s = unitDiff + totalDiff;
+            if (!best || s < best.score) best = { idx, score: s };
+          }
+        }
+        if (best) {
+          enrichAndSet(item, item.produto_gc_id, { xi: xmlItems[best.idx], idx: best.idx, rule: "residual_preco" });
+        } else {
+          stillUnresolved.push(pIdx);
+        }
+      }
+      unresolved.length = 0;
+      unresolved.push(...stillUnresolved);
+    }
+  }
+
+  // ── Não resolvidos → diagnóstico + registro sem tributo ──
+  for (const pIdx of unresolved) {
+    const item = compraItens[pIdx];
+    const gcProdId = item.produto_gc_id;
+    if (!gcProdId) continue;
+    try {
+      const compraNome = normalizeText(item.nome_produto);
+      const tokensCompra = compraNome.split(/\s+/).filter((t) => t.length > 1);
+      const compraQtd = item.quantidade || 1;
+      const compraUnit = item.valor_custo || 0;
+      const compraTotal = item.valor_total || (compraUnit * compraQtd);
+      const ranking = xmlItems.map((xi, idx) => {
+        const tokensXml = new Set(normalizeText(xi.xProd).split(/\s+/).filter((t) => t.length > 1));
+        const comuns = tokensCompra.filter((t) => tokensXml.has(t)).length;
+        const tokenScore = comuns / Math.max(1, Math.min(tokensCompra.length, tokensXml.size));
+        const unitDiff = compraUnit > 0 ? Math.abs(xi.vUnCom - compraUnit) / compraUnit : 1;
+        const totalDiff = compraTotal > 0 ? Math.abs(xi.vProd - compraTotal) / compraTotal : 1;
+        return {
+          idx, nome_nf: xi.xProd, cprod_nf: xi.cProd,
+          vunit_nf: Math.round(xi.vUnCom * 100) / 100,
+          vtotal_nf: Math.round(xi.vProd * 100) / 100,
+          qcom_nf: xi.qCom,
+          token_score: Math.round(tokenScore * 1000) / 1000,
+          unit_diff_pct: Math.round(unitDiff * 1000) / 10,
+          total_diff_pct: Math.round(totalDiff * 1000) / 10,
+          usado_por_outro: usedXmlIdx.has(idx),
+        };
+      });
+      ranking.sort((a, b) => b.token_score - a.token_score || a.unit_diff_pct - b.unit_diff_pct);
+      const motivoDesc = xmlItems.length === 0
+        ? "xml_sem_itens"
+        : xmlItems.length === 1 && compraItens.length > 1
+          ? "xml_1_item_mas_pedido_multi"
+          : ranking[0] && ranking[0].token_score < 0.35 ? "nome_muito_diferente"
+          : ranking[0] && ranking[0].token_score < 0.45 ? "score_abaixo_do_threshold"
+          : "preco_incompativel";
+      descartesPicker.push({
+        compra_gc_id: compra.gc_id, compra_codigo: compra.codigo,
+        produto_gc_id: gcProdId, nome_produto_pedido: item.nome_produto,
+        codigo_interno_pedido: codigoPorProdutoId.get(gcProdId) || null,
+        quantidade_pedido: compraQtd, valor_unit_pedido: compraUnit, valor_total_pedido: compraTotal,
+        nf_chave: xmlMeta.chave, nf_numero: xmlMeta.numero_nf,
+        motivo: motivoDesc, candidatos: ranking.slice(0, 3),
+      });
+    } catch (_e) { /* diagnóstico não deve quebrar o sync */ }
+    upsertSemTributo(gcProdId, item);
+  }
+
+  // ── enrichAndSet: aplica um pick (XML item) ao produto do pedido, gravando tributos ──
+  function enrichAndSet(item: CompraItem, gcProdId: string, pick: { xi: XmlItemTax; idx: number; rule: string }) {
     usedXmlIdx.add(pick.idx);
     const xi = pick.xi;
     const qComRaw = xi.qCom || 1;
     const compraQtd = item.quantidade || 0;
 
-    // ── Detecção de embalagem ──
-    // Quando o XML diz "1 pacote" mas o pedido tem "100 un" e o TOTAL bate,
-    // a unidade de venda é diferente da unidade comercial da NF.
-    // Nesse caso, dividimos o valor total da NF pela quantidade do pedido
-    // para obter o custo real por unidade de venda.
     let fatorEmbalagem = 1;
     let qtd = qComRaw;
     let packRuleTag = "";
@@ -1267,7 +1368,7 @@ function processarXml(
     const fatorConversao = (qComEst > 0 && qTribEst > 0) ? (qTribEst / qComEst) : 1;
 
     const existing = productTaxMap.get(gcProdId);
-    if (existing && existing.nf_data_emissao > (xmlMeta.data_emissao || meta.data_emissao || "")) continue;
+    if (existing && existing.nf_data_emissao > (xmlMeta.data_emissao || meta.data_emissao || "")) return;
 
     productTaxMap.set(gcProdId, {
       gc_produto_id: gcProdId,
@@ -1313,9 +1414,9 @@ function processarXml(
       v_fcp_st: r(xi.icms_vFCPST),
       v_icms_uf_dest: r(xi.icms_vICMSUFDest),
       v_icms_uf_remet: r(xi.icms_vICMSUFRemet),
-      // custo_variavel_real NÃO escrito pelo matcher — fonte canônica é v_produto_custo_atual
       custo_variavel_real: 0,
     });
   }
 }
+
 
