@@ -124,6 +124,8 @@ interface ProductTaxRecord {
   v_icms_uf_dest: number;
   v_icms_uf_remet: number;
   custo_variavel_real: number;
+  ineligivel_precificacao: boolean;
+  ineligivel_motivo: string | null;
 }
 
 // ══════════════════════════════════════════════════════════════
