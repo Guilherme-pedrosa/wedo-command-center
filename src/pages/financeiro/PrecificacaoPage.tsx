@@ -158,14 +158,12 @@ function calcPricing(
   tipo: TipoSaida,
   margemDesejada: number,
   custoFixoPct: number = 0, // fração (0.08 = 8%) — entra no DIVISOR do mark-up
-  manualCredits?: { icms: number; pis: number; cofins: number; ipi: number; ipiRecuperavel: boolean }
+  manualCredits?: { icms: number; pis: number; cofins: number; ipi: number; ipiRecuperavel: boolean },
+  comissaoPct: number = 0, // fração (0.05 = 5%) — entra no DIVISOR (comissão sobre a venda)
 ) {
-  // Por padrão, sem NF → não infere crédito. Mas se o usuário preencher manualCredits
-  // (caso da Calculadora Margem), usa esses percentuais.
   const creditoIcms = manualCredits ? custoBruto * (manualCredits.icms / 100) : 0;
   const creditoPis = manualCredits ? custoBruto * (manualCredits.pis / 100) : 0;
   const creditoCofins = manualCredits ? custoBruto * (manualCredits.cofins / 100) : 0;
-  // IPI: se recuperável → vira crédito; se não → soma ao custo (revenda comum).
   const ipiValor = manualCredits ? custoBruto * (manualCredits.ipi / 100) : 0;
   const creditoIpi = manualCredits && manualCredits.ipiRecuperavel ? ipiValor : 0;
   const ipiCusto = manualCredits && !manualCredits.ipiRecuperavel ? ipiValor : 0;
@@ -173,11 +171,8 @@ function calcPricing(
 
   const custoLiquido = custoBruto - totalCreditosEntrada;
   const custoFrete = custoBruto * (entrada.frete / 100);
-  // custoFixoUnit (override flat manual) ainda soma direto no custo, se setado.
-  // O rateio proporcional (custoFixoPct) é embutido NO DIVISOR — não no custo.
   const custoTotal = custoLiquido + custoFrete + ipiCusto + entrada.custoFixoUnit;
 
-  // Alíquotas de saída (incidem sobre faturamento)
   let aliquotaSaidaFaturamento: number;
   if (tipo === "venda") {
     aliquotaSaidaFaturamento = (saida.icmsSaida + saida.pisSaida + saida.cofinsSaida) / 100;
@@ -188,19 +183,15 @@ function calcPricing(
   const irpjPct = saida.irpjCsll / 100;
 
   const margemDecimal = margemDesejada / 100;
-  // Mark-up Divisor (padrão de mercado para custo fixo):
-  // Preço = CustoTotal / (1 - tributos_saida - custoFixo% - margem)
-  // CustoFixo% = CustoFixoMensal / FaturamentoMensalMédio
-  // Assim, cada R$ vendido contribui na mesma proporção pra cobrir o custo fixo.
-  const divisor = 1 - aliquotaSaidaFaturamento - custoFixoPct - margemDecimal;
-  // Safety: divisor pequeno gera preços absurdos. Trava em no máx 5x o custo.
+  const divisor = 1 - aliquotaSaidaFaturamento - custoFixoPct - comissaoPct - margemDecimal;
   const PRECO_MAX_MULTIPLICADOR = 5;
   const precoMinimoCalculado = divisor > 0.05 ? custoTotal / divisor : custoTotal * PRECO_MAX_MULTIPLICADOR;
   const precoMinimo = Math.min(precoMinimoCalculado, custoTotal * PRECO_MAX_MULTIPLICADOR);
 
   const tributosSaida = precoMinimo * aliquotaSaidaFaturamento;
   const custoFixoEmbutido = precoMinimo * custoFixoPct;
-  const lucroAnteIR = precoMinimo - custoTotal - tributosSaida - custoFixoEmbutido;
+  const comissaoEmbutida = precoMinimo * comissaoPct;
+  const lucroAnteIR = precoMinimo - custoTotal - tributosSaida - custoFixoEmbutido - comissaoEmbutida;
   const impostoRenda = Math.max(0, lucroAnteIR * irpjPct);
   const lucroLiquido = lucroAnteIR - impostoRenda;
 
@@ -215,12 +206,14 @@ function calcPricing(
     precoMinimo,
     tributosSaida,
     custoFixoEmbutido,
+    comissaoEmbutida,
     impostoRenda,
     lucroAnteIR,
     lucroLiquido,
     margemReal: precoMinimo > 0 ? (lucroLiquido / precoMinimo) * 100 : 0,
     aliquotaSaidaFaturamento,
     custoFixoPct,
+    comissaoPct,
   };
 }
 
@@ -297,19 +290,13 @@ function calcPricingWithNF(
   margemDesejada: number,
   custoFixoPct: number = 0,
   custoBaseUnit?: number,
-  usarCreditoEntrada: boolean = false
+  usarCreditoEntrada: boolean = false,
+  comissaoPct: number = 0,
 ) {
   const eff = getEffectiveRates(tributo);
-  // Base tributária (créditos) SEMPRE vem do valor unitário da NF.
   const valorUnitNF = Number(tributo.valor_unitario_nf) || 0;
-  // Base de CUSTO: se GC "Custo final" (custoBaseUnit) foi informado, ELE é o custo final
-  // (já inclui despesas acessórias, outras despesas, frete, IPI conforme cadastro GC).
-  // Caso contrário, cai no fallback histórico (NF + frete% + IPI%).
   const usarCustoGC = custoBaseUnit != null && custoBaseUnit > 0;
 
-  // Crédito de ICMS/PIS/COFINS: priorizar valor unitário efetivo da NF (já reflete
-  // base reduzida, ST, ajustes) em vez de aplicar alíquota nominal sobre valor cheio.
-  // Alíquota manual (icms_aliquota_manual) força recálculo percentual (override do usuário).
   const icmsUnitNF = Number(tributo.valor_icms_unit) || 0;
   const pisUnitNF = Number(tributo.valor_pis_unit) || 0;
   const cofinsUnitNF = Number(tributo.valor_cofins_unit) || 0;
@@ -325,13 +312,9 @@ function calcPricingWithNF(
   const ipiUnit = valorUnitNF * (eff.ipi / 100);
   const freteUnit = valorUnitNF * ((tributo.frete_percentual || 0) / 100);
 
-  // ── REGRA: precificação usa CUSTO FINAL DO GC (fonte de verdade). ──
-  // Créditos de entrada (ICMS/PIS/COFINS) por padrão viram margem extra de caixa.
-  // Se `usarCreditoEntrada` = true, eles são descontados do TRIBUTO DE SAÍDA (matematicamente
-  // equivalente a reduzir o custo no numerador do mark-up; ver dedução no README).
   const custoEfetivo = usarCustoGC ? (custoBaseUnit as number) : (valorUnitNF + ipiUnit + freteUnit);
   const totalCreditosEntrada = creditoIcms + creditoPis + creditoCofins;
-  const custoTotal = custoEfetivo + custoFixo; // bruto (exibido)
+  const custoTotal = custoEfetivo + custoFixo;
   const creditoAplicado = usarCreditoEntrada ? totalCreditosEntrada : 0;
   const custoParaPreco = Math.max(0, custoTotal - creditoAplicado);
 
@@ -344,7 +327,7 @@ function calcPricingWithNF(
 
   const irpjPct = saida.irpjCsll / 100;
   const margemDecimal = margemDesejada / 100;
-  const divisor = 1 - aliquotaSaidaFaturamento - custoFixoPct - margemDecimal;
+  const divisor = 1 - aliquotaSaidaFaturamento - custoFixoPct - comissaoPct - margemDecimal;
   const PRECO_MAX_MULTIPLICADOR = 5;
   const precoMinimoCalculado = divisor > 0.05 ? custoParaPreco / divisor : custoParaPreco * PRECO_MAX_MULTIPLICADOR;
   const precoMinimo = Math.min(precoMinimoCalculado, custoTotal * PRECO_MAX_MULTIPLICADOR);
@@ -352,9 +335,9 @@ function calcPricingWithNF(
   const tributosSaidaBruto = precoMinimo * aliquotaSaidaFaturamento;
   const tributosSaida = Math.max(0, tributosSaidaBruto - creditoAplicado);
   const custoFixoEmbutido = precoMinimo * custoFixoPct;
-  const lucroAnteIR = precoMinimo - custoTotal - tributosSaida - custoFixoEmbutido;
+  const comissaoEmbutida = precoMinimo * comissaoPct;
+  const lucroAnteIR = precoMinimo - custoTotal - tributosSaida - custoFixoEmbutido - comissaoEmbutida;
   const impostoRenda = Math.max(0, lucroAnteIR * irpjPct);
-  // Se crédito já foi descontado do tributo, não soma de novo como margem extra.
   const margemExtraCreditos = usarCreditoEntrada ? 0 : totalCreditosEntrada;
   const lucroLiquido = lucroAnteIR - impostoRenda + margemExtraCreditos;
 
@@ -364,18 +347,20 @@ function calcPricingWithNF(
     creditoCofins,
     totalCreditosEntrada,
     creditoAplicadoNoPreco: usarCreditoEntrada,
-    creditoAplicado, // valor absoluto subtraído do tributo (0 se desligado)
+    creditoAplicado,
     custoEfetivo,
     custoTotal,
     precoMinimo,
-    tributosSaida,      // líquido (já com crédito subtraído se aplicável)
-    tributosSaidaBruto, // bruto (venda × alíquota, sem crédito)
+    tributosSaida,
+    tributosSaidaBruto,
     custoFixoEmbutido,
+    comissaoEmbutida,
     impostoRenda,
     lucroAnteIR,
     lucroLiquido,
     aliquotaSaidaFaturamento,
     custoFixoPct,
+    comissaoPct,
   };
 }
 
@@ -425,6 +410,32 @@ export default function PrecificacaoPage() {
   const [icmsSaidaOverrides, setIcmsSaidaOverrides] = useState<Map<string, number>>(new Map());
   // Seleção de produtos para correção em lote (checkboxes)
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
+  // Comissão por produto (Map<gc_produto_id, %>). Entra no divisor do mark-up.
+  const [comissaoPctMap, setComissaoPctMap] = useState<Map<string, number>>(new Map());
+  const [comissaoDefaultInput, setComissaoDefaultInput] = useState<string>("");
+  const getComissaoPct = (id: string | number) => (comissaoPctMap.get(String(id)) ?? 0) / 100;
+  const setComissaoFor = (id: string | number, pct: number | null) => {
+    setComissaoPctMap((prev) => {
+      const next = new Map(prev);
+      if (pct == null || !Number.isFinite(pct) || pct <= 0) next.delete(String(id));
+      else next.set(String(id), pct);
+      return next;
+    });
+  };
+  const aplicarComissaoAosSelecionados = () => {
+    const pct = parseFloat(comissaoDefaultInput.replace(",", "."));
+    if (selectedProductIds.size === 0) { toast.error("Selecione ao menos um produto"); return; }
+    if (!Number.isFinite(pct) || pct < 0) { toast.error("Informe um % válido"); return; }
+    setComissaoPctMap((prev) => {
+      const next = new Map(prev);
+      for (const id of selectedProductIds) {
+        if (pct <= 0) next.delete(String(id));
+        else next.set(String(id), pct);
+      }
+      return next;
+    });
+    toast.success(`Comissão ${pct}% aplicada a ${selectedProductIds.size} produto(s)`);
+  };
   const activeSyncRef = useRef<"gc" | "offline" | null>(null);
 
   // ── Manual tributo (crédito manual quando não há NF) ──
@@ -1136,20 +1147,23 @@ export default function PrecificacaoPage() {
       const custoBaseCalculo = excecao ? custoBruto : (gcCustoFinal > 0 ? gcCustoFinal : undefined);
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
+      const comPct = getComissaoPct(p.id);
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo, useCredFor(p.id));
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo, useCredFor(p.id), comPct);
         calc = {
           creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
           totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
           custoFrete: tributo!.valor_frete_unit, custoTotal: nfCalc.custoTotal, precoMinimo: nfCalc.precoMinimo,
-          tributosSaida: nfCalc.tributosSaida, custoFixoEmbutido: nfCalc.custoFixoEmbutido, impostoRenda: nfCalc.impostoRenda,
+          tributosSaida: nfCalc.tributosSaida, custoFixoEmbutido: nfCalc.custoFixoEmbutido,
+          comissaoEmbutida: nfCalc.comissaoEmbutida, impostoRenda: nfCalc.impostoRenda,
           lucroAnteIR: nfCalc.lucroAnteIR, lucroLiquido: nfCalc.lucroLiquido,
           margemReal: nfCalc.precoMinimo > 0 ? (nfCalc.lucroLiquido / nfCalc.precoMinimo) * 100 : 0,
           aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
           custoFixoPct: nfCalc.custoFixoPct,
+          comissaoPct: nfCalc.comissaoPct,
         };
       } else {
-        calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
+        calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo, undefined, comPct);
       }
       // Margem sempre conservadora: usa o MAIOR entre custo calculado e custo cadastrado no GC.
       // Isso evita margem inflada quando NF antiga está abaixo do custo atual do GC.
@@ -1164,9 +1178,8 @@ export default function PrecificacaoPage() {
       for (const pol of politicas) {
         const margemMin = Number(pol.margem_minima) || 0;
         // Divisor SEM custoFixoPct: alinha com o cálculo de margem exibida na linha.
-        // Custo fixo % entra só no "Preço Mín." global (coluna), não no preço por tabela.
-        const divLinha = 1 - calc.aliquotaSaidaFaturamento - margemMin;
-        // Numerador desconta o crédito de entrada (se aplicado), igual à tabela inline.
+        // Comissão % É incluída porque incide sobre a venda (impacta preço mínimo por tabela).
+        const divLinha = 1 - calc.aliquotaSaidaFaturamento - comPct - margemMin;
         const numerador = Math.max(0, calc.custoTotal - credValor);
         const precoSugeridoBruto = numerador > 0 && divLinha > 0.05 ? numerador / divLinha : calc.custoTotal * 5;
         const precoSugerido = calc.custoTotal > 0 ? Math.min(precoSugeridoBruto, calc.custoTotal * 5) : 0;
@@ -1175,7 +1188,8 @@ export default function PrecificacaoPage() {
         const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
         const tribBruto = venda * calc.aliquotaSaidaFaturamento;
         const trib = Math.max(0, tribBruto - credValor);
-        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
+        const comissaoValor = venda * comPct;
+        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib - comissaoValor) / venda) * 100 : 0;
         const okMin = temPrecoCadastrado && margem >= (margemMin * 100 - 0.05);
         if (!okMin && precoSugerido > 0 && calc.custoTotal > 0) {
           itemsOut.push({
@@ -1188,7 +1202,7 @@ export default function PrecificacaoPage() {
       if (itemsOut.length > 0) map.set(String(p.id), itemsOut);
     }
     return map;
-  }, [preFiltered, politicas, custoCanonicoMap, ultimaCompraMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo, usarCredEntradaSet]);
+  }, [preFiltered, politicas, custoCanonicoMap, ultimaCompraMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo, usarCredEntradaSet, comissaoPctMap]);
 
   // ── Itens ACIMA da margem (preço alto demais — sugere reduzir pro mínimo) ──
   const aboveMarginByProduct = useMemo(() => {
@@ -1216,11 +1230,12 @@ export default function PrecificacaoPage() {
       const custoBaseCalculo = excecao ? custoBruto : (gcCustoFinal > 0 ? gcCustoFinal : undefined);
       let calc: ReturnType<typeof calcPricing>;
       const cfuFlat = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
+      const comPct = getComissaoPct(p.id);
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo, useCredFor(p.id));
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo, useCredFor(p.id), comPct);
         calc = { ...nfCalc, custoLiquido: nfCalc.custoEfetivo, custoFrete: tributo!.valor_frete_unit, margemReal: 0 } as ReturnType<typeof calcPricing>;
       } else {
-        calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
+        calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo, undefined, comPct);
       }
       {
         const gcCustoRaw = parseFloat(p.valor_custo) || 0;
@@ -1232,7 +1247,7 @@ export default function PrecificacaoPage() {
       const itemsAbove: Array<{ gc_produto_id: string; nome_produto: string; tipo_id: string; nome_tabela: string; preco_atual: number; preco_sugerido: number; margem_minima: number; margem_resultante: number; custo_referencia: number; }> = [];
       for (const pol of politicas) {
         const margemMin = Number(pol.margem_minima) || 0;
-        const divLinha = 1 - calc.aliquotaSaidaFaturamento - margemMin;
+        const divLinha = 1 - calc.aliquotaSaidaFaturamento - comPct - margemMin;
         const numerador = Math.max(0, calc.custoTotal - credValor);
         const precoSugeridoBruto = numerador > 0 && divLinha > 0.05 ? numerador / divLinha : calc.custoTotal * 5;
         const precoSugerido = calc.custoTotal > 0 ? Math.min(precoSugeridoBruto, calc.custoTotal * 5) : 0;
@@ -1240,7 +1255,8 @@ export default function PrecificacaoPage() {
         if (vendaReal <= 0 || precoSugerido <= 0) continue;
         const tribBruto = vendaReal * calc.aliquotaSaidaFaturamento;
         const trib = Math.max(0, tribBruto - credValor);
-        const margem = ((vendaReal - calc.custoTotal - trib) / vendaReal) * 100;
+        const comissaoValor = vendaReal * comPct;
+        const margem = ((vendaReal - calc.custoTotal - trib - comissaoValor) / vendaReal) * 100;
         // ACIMA: margem > margemMin + 0.5pp E preço atual maior que o sugerido (mais que R$0,01)
         if (margem > margemMin * 100 + 0.5 && vendaReal - precoSugerido > 0.01) {
           itemsAbove.push({
@@ -1253,7 +1269,7 @@ export default function PrecificacaoPage() {
       if (itemsAbove.length > 0) map.set(String(p.id), itemsAbove);
     }
     return map;
-  }, [preFiltered, politicas, custoCanonicoMap, ultimaCompraMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo, activeEntrada, usarCredEntradaSet]);
+  }, [preFiltered, politicas, custoCanonicoMap, ultimaCompraMap, tributosMap, valoresMap, taxSaida, tipoSaidaGlobal, custoFixoPctEfetivo, usarOverrideFlat, taxEntrada.custoFixoUnit, margemAlvo, activeEntrada, usarCredEntradaSet, comissaoPctMap]);
 
   const allOutOfMargin = useMemo(() => Array.from(outOfMarginByProduct.values()).flat(), [outOfMarginByProduct]);
   const allAboveMargin = useMemo(() => Array.from(aboveMarginByProduct.values()).flat(), [aboveMarginByProduct]);
@@ -1954,20 +1970,23 @@ export default function PrecificacaoPage() {
       const gcCustoFinalRow = parseFloat(p.valor_custo) || 0;
       const custoBaseCalculo = excecao ? custoBruto : (gcCustoFinalRow > 0 ? gcCustoFinalRow : undefined);
       const cfuFlat = !!(taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0) ? (taxEntrada.custoFixoUnit || 0) : 0;
+      const comPct = getComissaoPct(p.id);
       let calc: ReturnType<typeof calcPricing>;
       if (hasNF) {
-        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo, useCredFor(p.id));
+        const nfCalc = calcPricingWithNF(tributo!, taxSaida, tipoSaidaGlobal, cfuFlat, margemAlvo, custoFixoPctEfetivo, custoBaseCalculo, useCredFor(p.id), comPct);
         calc = {
           creditoIcms: nfCalc.creditoIcms, creditoPis: nfCalc.creditoPis, creditoCofins: nfCalc.creditoCofins,
           totalCreditosEntrada: nfCalc.totalCreditosEntrada, custoLiquido: nfCalc.custoEfetivo,
           custoFrete: tributo!.valor_frete_unit, custoTotal: nfCalc.custoTotal, precoMinimo: nfCalc.precoMinimo,
-          tributosSaida: nfCalc.tributosSaida, custoFixoEmbutido: nfCalc.custoFixoEmbutido, impostoRenda: nfCalc.impostoRenda,
+          tributosSaida: nfCalc.tributosSaida, custoFixoEmbutido: nfCalc.custoFixoEmbutido,
+          comissaoEmbutida: nfCalc.comissaoEmbutida, impostoRenda: nfCalc.impostoRenda,
           lucroAnteIR: nfCalc.lucroAnteIR, lucroLiquido: nfCalc.lucroLiquido,
           margemReal: nfCalc.precoMinimo > 0 ? (nfCalc.lucroLiquido / nfCalc.precoMinimo) * 100 : 0,
           aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento, custoFixoPct: nfCalc.custoFixoPct,
+          comissaoPct: nfCalc.comissaoPct,
         };
       } else {
-        calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
+        calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlat }, taxSaida, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo, undefined, comPct);
       }
       {
         const gcCustoRaw = parseFloat(p.valor_custo) || 0;
@@ -1979,7 +1998,7 @@ export default function PrecificacaoPage() {
       const tabelas: Record<string, any> = {};
       for (const pol of (politicas ?? [])) {
         const margemMin = Number(pol.margem_minima) || 0;
-        const divLinha = 1 - calc.aliquotaSaidaFaturamento - margemMin;
+        const divLinha = 1 - calc.aliquotaSaidaFaturamento - comPct - margemMin;
         const numerador = Math.max(0, calc.custoTotal - credValorExp);
         const precoSugeridoBruto = numerador > 0 && divLinha > 0.05 ? numerador / divLinha : calc.custoTotal * 5;
         const precoSugerido = calc.custoTotal > 0 ? Math.min(precoSugeridoBruto, calc.custoTotal * 5) : 0;
@@ -1988,7 +2007,8 @@ export default function PrecificacaoPage() {
         const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
         const tribBruto = venda * calc.aliquotaSaidaFaturamento;
         const trib = Math.max(0, tribBruto - credValorExp);
-        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
+        const comissaoValor = venda * comPct;
+        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib - comissaoValor) / venda) * 100 : 0;
         tabelas[`${pol.nome_tabela}_venda`] = vendaReal > 0 ? vendaReal : precoSugerido;
         tabelas[`${pol.nome_tabela}_margem_pct`] = margem;
       }
@@ -2204,6 +2224,26 @@ export default function PrecificacaoPage() {
                     Atualizar custo GC selecionados ({selectedCostMismatch.length})
                   </Button>
                 )}
+                <div className="flex items-center gap-1 pl-2 border-l border-border">
+                  <Label className="text-[10px] text-muted-foreground whitespace-nowrap">Comissão %:</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    placeholder="ex: 5"
+                    value={comissaoDefaultInput}
+                    onChange={(e) => setComissaoDefaultInput(e.target.value)}
+                    className="h-7 w-16 bg-secondary text-xs px-1.5"
+                    title="Comissão % a aplicar nos produtos selecionados. Entra no divisor do mark-up (afeta preço mínimo e margem)."
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={aplicarComissaoAosSelecionados}
+                    title={`Aplica ${comissaoDefaultInput || "?"}% de comissão nos ${selectedProductIds.size} produto(s) selecionado(s). Zero remove a comissão.`}
+                  >
+                    Aplicar comissão ({selectedProductIds.size})
+                  </Button>
+                </div>
                 <Button variant="ghost" size="sm" onClick={() => setSelectedProductIds(new Set())} title="Limpar seleção">
                   Limpar
                 </Button>
@@ -2509,17 +2549,15 @@ export default function PrecificacaoPage() {
                   <TableHead className="text-xs w-8" rowSpan={2}>
                     <Checkbox
                       checked={(() => {
-                        const eligible = paged.filter((p) => (outOfMarginByProduct.get(String(p.id))?.length || 0) + (aboveMarginByProduct.get(String(p.id))?.length || 0) > 0);
-                        if (eligible.length === 0) return false;
-                        const allSel = eligible.every((p) => selectedProductIds.has(String(p.id)));
-                        return allSel ? true : (eligible.some((p) => selectedProductIds.has(String(p.id))) ? "indeterminate" : false);
+                        if (paged.length === 0) return false;
+                        const allSel = paged.every((p) => selectedProductIds.has(String(p.id)));
+                        return allSel ? true : (paged.some((p) => selectedProductIds.has(String(p.id))) ? "indeterminate" : false);
                       })()}
                       onCheckedChange={(checked) => {
                         setSelectedProductIds((prev) => {
                           const next = new Set(prev);
-                          const eligible = paged.filter((p) => (outOfMarginByProduct.get(String(p.id))?.length || 0) + (aboveMarginByProduct.get(String(p.id))?.length || 0) > 0);
-                          if (checked) eligible.forEach((p) => next.add(String(p.id)));
-                          else eligible.forEach((p) => next.delete(String(p.id)));
+                          if (checked) paged.forEach((p) => next.add(String(p.id)));
+                          else paged.forEach((p) => next.delete(String(p.id)));
                           return next;
                         });
                       }}
@@ -2603,6 +2641,7 @@ export default function PrecificacaoPage() {
 
                   let calc: ReturnType<typeof calcPricing>;
                   const cfuFlatLinha = usarOverrideFlat ? (taxEntrada.custoFixoUnit || 0) : 0;
+                  const comPctLinha = getComissaoPct(p.id);
                   const icmsOvLinha = icmsSaidaOverrides.get(p.id);
                   const taxSaidaLinha = icmsOvLinha !== undefined
                     ? { ...taxSaida, icmsSaida: icmsOvLinha }
@@ -2611,7 +2650,7 @@ export default function PrecificacaoPage() {
                     const custoBaseParaNF = excecao
                       ? custoBruto
                       : (gcCustoFinalLinha > 0 ? gcCustoFinalLinha : undefined);
-                    const nfCalc = calcPricingWithNF(tributo, taxSaidaLinha, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, custoBaseParaNF, useCredFor(p.id));
+                    const nfCalc = calcPricingWithNF(tributo, taxSaidaLinha, tipoSaidaGlobal, cfuFlatLinha, margemAlvo, custoFixoPctEfetivo, custoBaseParaNF, useCredFor(p.id), comPctLinha);
                     calc = {
                       creditoIcms: nfCalc.creditoIcms,
                       creditoPis: nfCalc.creditoPis,
@@ -2623,15 +2662,17 @@ export default function PrecificacaoPage() {
                       precoMinimo: nfCalc.precoMinimo,
                       tributosSaida: nfCalc.tributosSaida,
                       custoFixoEmbutido: nfCalc.custoFixoEmbutido,
+                      comissaoEmbutida: nfCalc.comissaoEmbutida,
                       impostoRenda: nfCalc.impostoRenda,
                       lucroAnteIR: nfCalc.lucroAnteIR,
                       lucroLiquido: nfCalc.lucroLiquido,
                       margemReal: nfCalc.precoMinimo > 0 ? (nfCalc.lucroLiquido / nfCalc.precoMinimo) * 100 : 0,
                       aliquotaSaidaFaturamento: nfCalc.aliquotaSaidaFaturamento,
                       custoFixoPct: nfCalc.custoFixoPct,
+                      comissaoPct: nfCalc.comissaoPct,
                     };
                   } else {
-                    calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlatLinha }, taxSaidaLinha, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo);
+                    calc = calcPricing(custoBruto, { ...activeEntrada, custoFixoUnit: cfuFlatLinha }, taxSaidaLinha, tipoSaidaGlobal, margemAlvo, custoFixoPctEfetivo, undefined, comPctLinha);
                   }
                   {
                     const gcCustoRaw = parseFloat(p.valor_custo) || 0;
@@ -2652,7 +2693,6 @@ export default function PrecificacaoPage() {
                           return (
                             <Checkbox
                               checked={selectedProductIds.has(pid)}
-                              disabled={!hasAny}
                               onCheckedChange={(checked) => {
                                 setSelectedProductIds((prev) => {
                                   const next = new Set(prev);
@@ -2661,7 +2701,7 @@ export default function PrecificacaoPage() {
                                 });
                               }}
                               aria-label={`Selecionar ${p.nome}`}
-                              title={hasAny ? `${outCount + aboveCount} tabela(s) p/ corrigir` : "Sem tabelas fora/acima da margem"}
+                              title={hasAny ? `${outCount + aboveCount} tabela(s) p/ corrigir` : "Selecione para aplicar comissão em lote"}
                             />
                           );
                         })()}
@@ -2675,6 +2715,23 @@ export default function PrecificacaoPage() {
                           {p.nome_grupo && (
                             <Badge variant="outline" className="ml-2 text-[10px] py-0">{p.nome_grupo}</Badge>
                           )}
+                          <span className="inline-flex items-center gap-1 ml-2 align-middle" title="Comissão % sobre a venda deste produto. Entra no divisor do mark-up (afeta preço mínimo e margem exibida).">
+                            <span className="text-[10px] text-muted-foreground">Comissão</span>
+                            <Input
+                              type="number"
+                              step="0.1"
+                              value={comissaoPctMap.get(String(p.id)) ?? ""}
+                              placeholder="0"
+                              onChange={(e) => {
+                                const raw = e.target.value.trim();
+                                if (raw === "") { setComissaoFor(p.id, null); return; }
+                                const v = parseFloat(raw.replace(",", "."));
+                                setComissaoFor(p.id, Number.isFinite(v) ? v : null);
+                              }}
+                              className="h-6 w-14 bg-secondary text-[10px] px-1.5"
+                            />
+                            <span className="text-[10px] text-muted-foreground">%</span>
+                          </span>
                           {statusCusto === "ok_com_tributo" && (
                             <Badge className="ml-2 text-[10px] py-0 bg-green-500/20 text-green-400 border-green-500/30">Custo + Tributo OK</Badge>
                           )}
@@ -3155,11 +3212,10 @@ export default function PrecificacaoPage() {
                         const valoresProd = valoresMap.get(p.id);
                         const credOn = useCredFor(p.id);
                         const credValor = credOn ? (calc.totalCreditosEntrada || 0) : 0;
+                        const comPctInline = getComissaoPct(p.id);
                         return (politicas ?? []).map((pol, idx) => {
                           const margemMin = Number(pol.margem_minima) || 0;
-                          const divInline = 1 - calc.aliquotaSaidaFaturamento - margemMin;
-                          // Numerador do mark-up desconta o crédito (matematicamente equivalente
-                          // a reduzir custo OU reduzir tributo por unidade fixa).
+                          const divInline = 1 - calc.aliquotaSaidaFaturamento - comPctInline - margemMin;
                           const numerador = Math.max(0, calc.custoTotal - credValor);
                           const precoBruto = numerador > 0 && divInline > 0.05 ? numerador / divInline : calc.custoTotal * 5;
                           const precoSugerido = calc.custoTotal > 0 ? Math.min(precoBruto, calc.custoTotal * 5) : 0;
@@ -3167,8 +3223,9 @@ export default function PrecificacaoPage() {
                           const temPrecoCadastrado = vendaReal > 0;
                           const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
                           const tribBruto = venda * calc.aliquotaSaidaFaturamento;
-                          const trib = Math.max(0, tribBruto - credValor); // exibido líquido
-                          const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
+                          const trib = Math.max(0, tribBruto - credValor);
+                          const comissaoValor = venda * comPctInline;
+                          const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib - comissaoValor) / venda) * 100 : 0;
                           const okMin = temPrecoCadastrado && margem >= (margemMin * 100 - 0.05);
                           const cor = idx % 3 === 0 ? "text-blue-400" : idx % 3 === 1 ? "text-yellow-400" : "text-purple-400";
                           return (
