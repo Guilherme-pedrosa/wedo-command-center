@@ -16,6 +16,7 @@ import Pagamentos from "@/pages/Pagamentos";
 import Agendamentos from "@/pages/Agendamentos";
 import SyncLog from "@/pages/SyncLog";
 import Configuracoes from "@/pages/Configuracoes";
+import OAuthConsent from "@/pages/OAuthConsent";
 import NotFound from "@/pages/NotFound";
 
 // Financeiro pages (lazy loaded)
@@ -80,6 +81,7 @@ const App = () => (
           <Routes>
             {/* Public */}
             <Route path="/login" element={<Login />} />
+            <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
 
             {/* Protected routes */}
             <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
