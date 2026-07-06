@@ -212,23 +212,25 @@ serve(async (req) => {
             upserted += count || batch.length;
           }
 
-          for (const [compraGcId, itens] of itensPorCompra.entries()) {
+          // Batch items: 1 DELETE + 1 INSERT por página (evita N round-trips que causam timeout).
+          const compraIds = Array.from(itensPorCompra.keys());
+          const allItens = Array.from(itensPorCompra.values()).flat();
+          if (compraIds.length > 0) {
             const { error: delErr } = await supabase
               .from("gc_compras_itens")
               .delete()
-              .eq("compra_gc_id", compraGcId);
+              .in("compra_gc_id", compraIds);
             if (delErr) {
-              console.error(`[sync-compras] Delete itens ${compraGcId}: ${delErr.message}`);
+              console.error(`[sync-compras] Batch delete itens: ${delErr.message}`);
               errors++;
-              continue;
-            }
-
-            const { error: itensErr } = await supabase
-              .from("gc_compras_itens")
-              .insert(itens);
-            if (itensErr) {
-              console.error(`[sync-compras] Insert itens ${compraGcId}: ${itensErr.message}`);
-              errors++;
+            } else if (allItens.length > 0) {
+              const { error: itensErr } = await supabase
+                .from("gc_compras_itens")
+                .insert(allItens);
+              if (itensErr) {
+                console.error(`[sync-compras] Batch insert itens: ${itensErr.message}`);
+                errors++;
+              }
             }
           }
         }
