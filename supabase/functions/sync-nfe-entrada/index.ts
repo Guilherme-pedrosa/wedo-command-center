@@ -26,6 +26,9 @@ const CURRENT_REAL_MATCH_RULES = new Set([
   "codigo_interno_xprod",
   "ean",
   "nome_preco",
+  "preco_qtd_exato",
+  "residual_1x1",
+  "residual_preco",
   "unico",
 ]);
 function isRealCurrentMatchRule(rule: string): boolean {
@@ -369,6 +372,11 @@ function extractProductCodesFromText(text: string | null | undefined): string[] 
   }
 
   for (const token of normalizeText(raw).split(/\s+/)) {
+    // Não trata pedaços de códigos compostos como equivalentes.
+    // Ex.: "76511/02" NÃO deve casar com cadastro "76511".
+    if (raw.includes(`${token}/`) || raw.includes(`${token}-`) || raw.includes(`${token}.`) || raw.includes(`${token}_`)) {
+      continue;
+    }
     if (/^[A-Z0-9]{4,}$/.test(token)) {
       for (const c of codigoComparavel(token)) out.add(c);
     }
@@ -759,22 +767,25 @@ serve(async (req) => {
       byCnpj.set(cnpj, c);
     }
 
-    // ── Step 3.5: Preload codigo_interno dos produtos da compra (para priority 1 do picker) ──
+    // ── Step 3.5: Preload codigo_interno/codigo_barra dos produtos da compra (fonte do vínculo pedido↔NF item) ──
     const allProdIds = Array.from(
       new Set(
         compras.flatMap((c) => c.itens.map((i) => i.produto_gc_id).filter(Boolean) as string[]),
       ),
     );
     const codigoPorProdutoId = new Map<string, string>();
+    const codigoBarraPorProdutoId = new Map<string, string>();
     for (let i = 0; i < allProdIds.length; i += 200) {
       const chunk = allProdIds.slice(i, i + 200);
       const { data: prods } = await supabase
         .from("gc_produtos_cache")
-        .select("produto_gc_id, codigo_interno")
+        .select("produto_gc_id, codigo_interno, codigo_barra")
         .in("produto_gc_id", chunk);
       for (const p of prods || []) {
         const norm = normalizarCodigoProduto(p.codigo_interno);
         if (norm) codigoPorProdutoId.set(String(p.produto_gc_id), norm);
+        const ean = normalizarCodigoBarra(p.codigo_barra);
+        if (ean) codigoBarraPorProdutoId.set(String(p.produto_gc_id), ean);
       }
     }
 
@@ -934,7 +945,7 @@ serve(async (req) => {
       }
       xmlsLidos++;
 
-      processarXml(xml, matched, compra, matchRuleTag, productTaxMap, codigoPorProdutoId, descartesPicker);
+      processarXml(xml, matched, compra, matchRuleTag, productTaxMap, codigoPorProdutoId, codigoBarraPorProdutoId, descartesPicker);
     }
 
     // ── Step 6: Upsert tributos ──
