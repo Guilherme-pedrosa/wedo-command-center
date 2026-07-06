@@ -242,6 +242,8 @@ function normalizeForMatch(value?: string | null) {
 
 function isTributoCompativelComProduto(produto: GCProduto, tributo?: ProdutoTributo) {
   if (!tributo) return false;
+  // NF classificada como brinde/bonificação/doação/showroom NÃO alimenta precificação.
+  if (tributo.ineligivel_precificacao) return false;
   return tributo.gc_produto_id === produto.id;
 }
 
