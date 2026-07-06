@@ -2539,6 +2539,13 @@ export default function PrecificacaoPage() {
                     </div>
                   </TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo Total</TableHead>
+                  <TableHead
+                    className="text-xs text-right"
+                    rowSpan={2}
+                    title="Rateio do custo fixo embutido no preço mínimo (preço × custoFixoPct efetivo)"
+                  >
+                    CF Rateio
+                  </TableHead>
                   <TableHead className="text-xs text-right font-semibold text-primary" rowSpan={2}>Preço Mín.</TableHead>
                   {(politicas ?? []).map((pol, idx) => (
                     <TableHead
@@ -3147,6 +3154,12 @@ export default function PrecificacaoPage() {
                         })()}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(calc.custoTotal)}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        <div>{formatCurrency(calc.custoFixoEmbutido || 0)}</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {((custoFixoPctEfetivo || 0) * 100).toFixed(1)}%
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
                         {formatCurrency(calc.precoMinimo)}
                       </TableCell>
