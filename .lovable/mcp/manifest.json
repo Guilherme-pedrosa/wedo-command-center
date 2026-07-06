@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "sdk_version": "0.20.0",
+  "path": "/mcp",
+  "auth": {
+    "type": "oauth",
+    "issuer": "https://mgiebypxhnmpktljrzjq.supabase.co/auth/v1",
+    "accepted_audiences": [
+      "authenticated"
+    ]
+  },
+  "mcp": {
+    "server": {
+      "name": "argus-finance-mcp",
+      "version": "0.1.0",
+      "title": "ARGUS Finance OS"
+    },
+    "tools": [
+      {
+        "name": "finance_summary",
+        "title": "Resumo financeiro",
+        "description": "Retorna totais em aberto de recebimentos e pagamentos e o saldo previsto (a receber - a pagar).",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "vencimento_ate": {
+              "description": "Considera apenas itens com data de vencimento até esta data (YYYY-MM-DD).",
+              "type": "string"
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_open_receivables",
+        "title": "Listar recebimentos em aberto",
+        "description": "Lista recebimentos financeiros em aberto (não liquidados), opcionalmente filtrando por cliente ou período de vencimento.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "cliente": {
+              "description": "Filtro parcial pelo nome do cliente.",
+              "type": "string"
+            },
+            "vencimento_ate": {
+              "description": "Data de vencimento máxima (YYYY-MM-DD).",
+              "type": "string"
+            },
+            "limit": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_open_payables",
+        "title": "Listar pagamentos em aberto",
+        "description": "Lista contas a pagar em aberto (não liquidadas), opcionalmente filtrando por fornecedor ou período de vencimento.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "fornecedor": {
+              "description": "Filtro parcial pelo nome do fornecedor.",
+              "type": "string"
+            },
+            "vencimento_ate": {
+              "description": "Data de vencimento máxima (YYYY-MM-DD).",
+              "type": "string"
+            },
+            "limit": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        },
+        "outputSchema": null
+      }
+    ]
+  }
+}
