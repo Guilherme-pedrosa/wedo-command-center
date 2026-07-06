@@ -1177,6 +1177,8 @@ function processarXml(
   const isSN = isXmlSimplesNacional(xml, xmlItems);
   const totalVProd = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd - (i.vDesc || 0)), 0);
   const meta = getXmlMeta(xml);
+  const nfIneligivelMotivo = detectIneligivelPrecificacao(meta.nat_op, meta.inf_cpl);
+
 
   const compraItens = compra.itens;
   const usedXmlIdx = new Set<number>();
