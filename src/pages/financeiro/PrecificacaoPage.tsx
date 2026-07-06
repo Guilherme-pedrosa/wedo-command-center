@@ -1230,7 +1230,7 @@ export default function PrecificacaoPage() {
   const allAboveMargin = useMemo(() => Array.from(aboveMarginByProduct.values()).flat(), [aboveMarginByProduct]);
 
   // ── Filtered final: aplica filtro de margem em cima do preFiltered usando os mapas (alinhado com display da linha) ──
-  const filtered = useMemo(() => {
+  const filteredAll = useMemo(() => {
     const base = (preFiltered ?? []).filter((p) => {
       if (marginFilter === "todos") return true;
       const outs = outOfMarginByProduct.get(String(p.id));
