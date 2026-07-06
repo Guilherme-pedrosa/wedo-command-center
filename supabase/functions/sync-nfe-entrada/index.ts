@@ -1219,7 +1219,7 @@ function processarXml(
 
     // PRIORIDADE 1: cProd da NF == codigo_interno do produto vinculado no item do pedido.
     const codigosCompra = codigoComparavel(codigoPorProdutoId.get(gcProdId));
-    if (!pick && codigoCompra) {
+    if (!pick && codigosCompra.length > 0) {
       pick = pickBestByCompraValues(
         item,
         codigosCompra.flatMap((codigo) => xmlPorCProd.get(codigo) || []),
