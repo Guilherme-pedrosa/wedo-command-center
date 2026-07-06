@@ -38,6 +38,11 @@ function isRealCurrentMatchRule(rule: string): boolean {
   return CURRENT_REAL_MATCH_RULES.has(base);
 }
 
+// Regra de precificação: PIS/COFINS do produto NÃO vem da alíquota destacada pelo fornecedor na NF.
+// No Lucro Real, o crédito usado na formação de preço é o não-cumulativo padrão, salvo fornecedor sem crédito.
+const PIS_CREDITO_LUCRO_REAL = 1.65;
+const COFINS_CREDITO_LUCRO_REAL = 7.6;
+
 
 // ── Types locais ──
 interface CompraItem {
@@ -1519,12 +1524,12 @@ function processarXml(
     const freteUnit = qtd > 0 ? (xmlFrete * proporcao) / qtd : 0;
     const ipiUnit = qtd > 0 ? xi.ipi_vIPI / qtd : 0;
     const icmsUnit = isSN ? 0 : qtd > 0 ? xi.icms_vICMS / qtd : 0;
-    const pisUnit = isSN ? 0 : qtd > 0 ? xi.pis_vPIS / qtd : 0;
-    const cofinsUnit = isSN ? 0 : qtd > 0 ? xi.cofins_vCOFINS / qtd : 0;
+    const pisAliqCredito = isSN ? 0 : PIS_CREDITO_LUCRO_REAL;
+    const cofinsAliqCredito = isSN ? 0 : COFINS_CREDITO_LUCRO_REAL;
+    const pisUnit = valorUnit * (pisAliqCredito / 100);
+    const cofinsUnit = valorUnit * (cofinsAliqCredito / 100);
 
     const icmsAliqReal = xi.icms_pICMS || (xi.vProd > 0 ? (xi.icms_vICMS / xi.vProd) * 100 : 0);
-    const pisAliqReal = xi.pis_pPIS || (xi.vProd > 0 ? (xi.pis_vPIS / xi.vProd) * 100 : 0);
-    const cofinsAliqReal = xi.cofins_pCOFINS || (xi.vProd > 0 ? (xi.cofins_vCOFINS / xi.vProd) * 100 : 0);
     const ipiAliqReal = xi.ipi_pIPI || (xi.vProd > 0 ? (xi.ipi_vIPI / xi.vProd) * 100 : 0);
     const freteRate = totalVProd > 0 ? (xmlFrete / totalVProd) * 100 : 0;
     const icmsBasePerc = xi.vProd > 0 ? (xi.icms_vBC / xi.vProd) * 100 : 100;
@@ -1553,8 +1558,8 @@ function processarXml(
       sem_credito: isSN,
       icms_aliquota: isSN ? 0 : r(icmsAliqReal),
       icms_base: isSN ? 0 : r(icmsBasePerc),
-      pis_aliquota: isSN ? 0 : r(pisAliqReal),
-      cofins_aliquota: isSN ? 0 : r(cofinsAliqReal),
+      pis_aliquota: r(pisAliqCredito),
+      cofins_aliquota: r(cofinsAliqCredito),
       ipi_aliquota: r(ipiAliqReal),
       frete_percentual: r(freteRate),
       valor_unitario_nf: r(valorUnit),

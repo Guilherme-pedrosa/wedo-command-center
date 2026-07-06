@@ -135,6 +135,11 @@ const DEFAULT_SAIDA: TaxConfigSaida = {
   irpjCsll: 0, // Desconsiderado no custo da peça — incide sobre lucro da empresa, não do produto
 };
 
+// PIS/COFINS de precificação do produto: regra fiscal do nosso crédito no Lucro Real.
+// Não usar a alíquota destacada pelo fornecedor na NF de entrada (pode vir cumulativa/errada para nossa formação de preço).
+const PIS_CREDITO_PRODUTO = 1.65;
+const COFINS_CREDITO_PRODUTO = 7.6;
+
 // ── Helpers ──
 function parseDecimalInput(value: string): number {
   const raw = String(value ?? "").trim();
@@ -224,8 +229,8 @@ function getEffectiveRates(t: ProdutoTributo) {
   const semCredito = t.sem_credito || t.regime_fornecedor === "simples_nacional";
   return {
     icms: semCredito ? 0 : (t.icms_aliquota_manual ?? t.icms_aliquota),
-    pis: semCredito ? 0 : (t.pis_aliquota_manual ?? t.pis_aliquota),
-    cofins: semCredito ? 0 : (t.cofins_aliquota_manual ?? t.cofins_aliquota),
+    pis: semCredito ? 0 : (t.pis_aliquota_manual ?? PIS_CREDITO_PRODUTO),
+    cofins: semCredito ? 0 : (t.cofins_aliquota_manual ?? COFINS_CREDITO_PRODUTO),
     ipi: t.ipi_aliquota_manual ?? t.ipi_aliquota,
     semCredito,
   };
@@ -431,8 +436,8 @@ export default function PrecificacaoPage() {
     setManualTributoForm({
       valor_unitario_nf: existente ? String(existente.valor_unitario_nf || "") : String(Number(produto.valor_custo) || ""),
       icms_aliquota: existente ? String(existente.icms_aliquota_manual ?? existente.icms_aliquota ?? "") : "",
-      pis_aliquota: existente ? String(existente.pis_aliquota_manual ?? existente.pis_aliquota ?? "1.65") : "1.65",
-      cofins_aliquota: existente ? String(existente.cofins_aliquota_manual ?? existente.cofins_aliquota ?? "7.60") : "7.60",
+      pis_aliquota: existente ? String(existente.pis_aliquota_manual ?? PIS_CREDITO_PRODUTO) : String(PIS_CREDITO_PRODUTO),
+      cofins_aliquota: existente ? String(existente.cofins_aliquota_manual ?? COFINS_CREDITO_PRODUTO) : String(COFINS_CREDITO_PRODUTO),
       ipi_aliquota: existente ? String(existente.ipi_aliquota_manual ?? existente.ipi_aliquota ?? "0") : "0",
       frete_percentual: existente ? String(existente.frete_percentual ?? "0") : "0",
       fornecedor_nome: existente?.fornecedor_nome || "",
@@ -1931,6 +1936,7 @@ export default function PrecificacaoPage() {
       const kitRatio = detectKitRatio(tributoParaCalculo, custoBruto);
       const tributo = tributoParaCalculo && kitRatio > 1 ? ajustarTributoPorKit(tributoParaCalculo, kitRatio) : tributoParaCalculo;
       const hasNF = hasEntradaFiscal(tributo);
+      const effRates = tributo ? getEffectiveRates(tributo) : null;
       const gcCustoFinalRow = parseFloat(p.valor_custo) || 0;
       const custoBaseCalculo = excecao ? custoBruto : (gcCustoFinalRow > 0 ? gcCustoFinalRow : undefined);
       const cfuFlat = !!(taxEntrada.custoFixoUnit && taxEntrada.custoFixoUnit > 0) ? (taxEntrada.custoFixoUnit || 0) : 0;
@@ -2026,14 +2032,14 @@ export default function PrecificacaoPage() {
         "ICMS % (NF)": tributo?.icms_aliquota ?? "",
         "ICMS % (manual)": tributo?.icms_aliquota_manual ?? "",
         "ICMS Valor Unit": tributo?.valor_icms_unit ?? "",
-        "PIS % (efetivo)": tributo ? Number(tributo.pis_aliquota_manual ?? tributo.pis_aliquota) || 0 : "",
-        "PIS % (NF)": tributo?.pis_aliquota ?? "",
+        "PIS % (crédito produto)": effRates?.pis ?? "",
+        "PIS % (XML fornecedor - ignorado)": tributo?.pis_aliquota ?? "",
         "PIS % (manual)": tributo?.pis_aliquota_manual ?? "",
-        "PIS Valor Unit": tributo?.valor_pis_unit ?? "",
-        "COFINS % (efetivo)": tributo ? Number(tributo.cofins_aliquota_manual ?? tributo.cofins_aliquota) || 0 : "",
-        "COFINS % (NF)": tributo?.cofins_aliquota ?? "",
+        "PIS Valor Unit": tributo && effRates ? (Number(tributo.valor_unitario_nf) || 0) * (effRates.pis / 100) : "",
+        "COFINS % (crédito produto)": effRates?.cofins ?? "",
+        "COFINS % (XML fornecedor - ignorado)": tributo?.cofins_aliquota ?? "",
         "COFINS % (manual)": tributo?.cofins_aliquota_manual ?? "",
-        "COFINS Valor Unit": tributo?.valor_cofins_unit ?? "",
+        "COFINS Valor Unit": tributo && effRates ? (Number(tributo.valor_unitario_nf) || 0) * (effRates.cofins / 100) : "",
         "IPI % (efetivo)": tributo ? Number(tributo.ipi_aliquota_manual ?? tributo.ipi_aliquota) || 0 : "",
         "IPI % (NF)": tributo?.ipi_aliquota ?? "",
         "IPI Valor Unit": tributo?.valor_ipi_unit ?? "",
@@ -3562,14 +3568,14 @@ export default function PrecificacaoPage() {
                         }} />
                     </TableCell>
                     <TableCell className="text-right">
-                      <EditableRate value={eff.pis} originalValue={t.pis_aliquota} disabled={eff.semCredito}
+                      <EditableRate value={eff.pis} originalValue={PIS_CREDITO_PRODUTO} disabled={eff.semCredito}
                         onSave={async (v) => {
                           await supabase.from("fin_produto_tributos").update({ pis_aliquota_manual: v }).eq("gc_produto_id", t.gc_produto_id);
                           refetchTributos();
                         }} />
                     </TableCell>
                     <TableCell className="text-right">
-                      <EditableRate value={eff.cofins} originalValue={t.cofins_aliquota} disabled={eff.semCredito}
+                      <EditableRate value={eff.cofins} originalValue={COFINS_CREDITO_PRODUTO} disabled={eff.semCredito}
                         onSave={async (v) => {
                           await supabase.from("fin_produto_tributos").update({ cofins_aliquota_manual: v }).eq("gc_produto_id", t.gc_produto_id);
                           refetchTributos();
