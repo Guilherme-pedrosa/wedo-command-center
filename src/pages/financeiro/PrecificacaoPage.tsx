@@ -1900,12 +1900,12 @@ export default function PrecificacaoPage() {
   );
 
   const handleExportExcel = () => {
-    if (!filtered.length) {
+    if (!filteredAll.length) {
       toast.error("Nenhum dado para exportar");
       return;
     }
     const rows: any[] = [];
-    for (const p of filtered) {
+    for (const p of filteredAll) {
       const custoCan = custoCanonicoMap.get(p.id);
       const custoCache = custoCan ? custoCan.custo : (parseFloat(p.valor_custo) || 0);
       const ultimaCompra = ultimaCompraMap.get(p.id);
