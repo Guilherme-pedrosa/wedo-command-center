@@ -3204,7 +3204,7 @@ export default function PrecificacaoPage() {
                                       }
                                     >
                                       {corrigindoKey === `${p.id}:${pol.tipo_id}` ? <Loader2 className={okMin ? "h-2.5 w-2.5 animate-spin" : "h-3.5 w-3.5 animate-spin"}/> : <RefreshCw className={okMin ? "h-2.5 w-2.5" : "h-3.5 w-3.5"}/>}
-                                      {okMin ? "Ajustar" : `Corrigir p/ ${formatCurrency(precoSugerido)}`}
+                                      {okMin ? `Ajustar p/ ${formatCurrency(precoSugerido)}` : `Corrigir p/ ${formatCurrency(precoSugerido)}`}
                                     </Button>
                                   )}
                                 </div>
