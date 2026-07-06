@@ -394,6 +394,28 @@ function normalizeText(value: unknown): string {
     .replace(/\s+/g, " ");
 }
 
+// Sanidade mínima p/ matches "por eliminação" (unico / residual_1x1 / residual_preco):
+// impede amarrar produtos totalmente diferentes (ex: TOMADA ↔ TORNEIRA) só porque
+// sobrou um item livre no XML e um item livre no pedido.
+// Aceita se: (a) nomes têm sobreposição de tokens >= 0.35, OU
+//            (b) preço unit dentro de 5% OU total dentro de 3%.
+function matchPlausivel(
+  compraNomeRaw: string,
+  compraUnit: number,
+  compraTotal: number,
+  xi: { xProd: string; vUnCom: number; vProd: number },
+): { ok: boolean; tokenScore: number; unitDiff: number; totalDiff: number } {
+  const tokensCompra = normalizeText(compraNomeRaw).split(/\s+/).filter((t) => t.length > 1);
+  const tokensXml = new Set(normalizeText(xi.xProd).split(/\s+/).filter((t) => t.length > 1));
+  const comuns = tokensCompra.filter((t) => tokensXml.has(t)).length;
+  const tokenScore = tokensCompra.length && tokensXml.size
+    ? comuns / Math.max(1, Math.min(tokensCompra.length, tokensXml.size))
+    : 0;
+  const unitDiff = compraUnit > 0 ? Math.abs(xi.vUnCom - compraUnit) / compraUnit : 1;
+  const totalDiff = compraTotal > 0 ? Math.abs(xi.vProd - compraTotal) / compraTotal : 1;
+  const ok = tokenScore >= 0.35 || unitDiff <= 0.05 || totalDiff <= 0.03;
+  return { ok, tokenScore, unitDiff, totalDiff };
+
 async function tryDownloadXml(chave: string, storagePath: string | null, supabase: any): Promise<string | null> {
   if (!chave || chave.length < 44) return null;
   const candidates = [
