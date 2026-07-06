@@ -14,6 +14,20 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// Regras que o matcher ATUAL escreve como "match real" (com preço/tributo do XML).
+// Regras posicionais legadas (ex.: `pedido_compra_gc+ordem_gc_xml`) NÃO devem
+// contar — elas ficaram gravadas quando o código antigo assumia compra[i]↔xml[i]
+// e produziam vínculos absurdos. Manter essa lista sincronizada com os `rule`
+// que aparecem em `pedido_compra_gc+${rule}` mais abaixo.
+const CURRENT_REAL_MATCH_RULES = new Set(["cprod", "cprod_multi", "nome_preco", "unico"]);
+function isRealCurrentMatchRule(rule: string): boolean {
+  if (!rule.startsWith("pedido_compra_gc+")) return false;
+  // Corta o "+pack:Nx" opcional pra comparar só o rule base.
+  const base = rule.slice("pedido_compra_gc+".length).split("+")[0];
+  return CURRENT_REAL_MATCH_RULES.has(base);
+}
+
+
 // ── Types locais ──
 interface CompraItem {
   item_gc_id: string | null;
@@ -867,14 +881,18 @@ serve(async (req) => {
             manuais.add(row.gc_produto_id);
           if (row.excecao_manual === true) excecoes.add(row.gc_produto_id);
           if (row.nf_data_emissao) existingNfDate.set(row.gc_produto_id, String(row.nf_data_emissao));
-          if (row.match_rule && String(row.match_rule).startsWith("pedido_compra_gc+")) {
+          // Só considera "match real" as regras que o matcher ATUAL escreve.
+          // Regras legadas como `+ordem_gc_xml` (heurística posicional removida) NÃO
+          // contam — se contassem, um vínculo posicional errado ficaria eterno,
+          // pois a guarda descartaria toda nova tentativa que caísse em `sem_xml_item`.
+          if (row.match_rule && isRealCurrentMatchRule(String(row.match_rule))) {
             existingHasRealMatch.add(row.gc_produto_id);
           }
         }
       }
       const records = [...productTaxMap.values()]
         .filter((r) => {
-          const novoEhReal = !!r.match_rule?.startsWith("pedido_compra_gc+") && r.match_rule !== "pedido_compra_gc_sem_xml_item";
+          const novoEhReal = !!r.match_rule && isRealCurrentMatchRule(r.match_rule);
           // Exceção manual trava custo/alertas, mas se antes era placeholder sem item,
           // permite enriquecer tributos do XML real sem alterar campos excecao_*.
           if (excecoes.has(r.gc_produto_id) && (!novoEhReal || existingHasRealMatch.has(r.gc_produto_id))) {
