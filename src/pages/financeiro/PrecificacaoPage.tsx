@@ -1980,7 +1980,7 @@ export default function PrecificacaoPage() {
       const tabelas: Record<string, any> = {};
       for (const pol of (politicas ?? [])) {
         const margemMin = Number(pol.margem_minima) || 0;
-        const divLinha = 1 - calc.aliquotaSaidaFaturamento - margemMin;
+        const divLinha = 1 - calc.aliquotaSaidaFaturamento - custoFixoPctEfetivo - margemMin;
         const numerador = Math.max(0, calc.custoTotal - credValorExp);
         const precoSugeridoBruto = numerador > 0 && divLinha > 0.05 ? numerador / divLinha : calc.custoTotal * 5;
         const precoSugerido = calc.custoTotal > 0 ? Math.min(precoSugeridoBruto, calc.custoTotal * 5) : 0;
@@ -1989,7 +1989,8 @@ export default function PrecificacaoPage() {
         const venda = temPrecoCadastrado ? vendaReal : precoSugerido;
         const tribBruto = venda * calc.aliquotaSaidaFaturamento;
         const trib = Math.max(0, tribBruto - credValorExp);
-        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib) / venda) * 100 : 0;
+        const cfLinha = venda * custoFixoPctEfetivo;
+        const margem = venda > 0 && calc.custoTotal > 0 ? ((venda - calc.custoTotal - trib - cfLinha) / venda) * 100 : 0;
         tabelas[`${pol.nome_tabela}_venda`] = vendaReal > 0 ? vendaReal : precoSugerido;
         tabelas[`${pol.nome_tabela}_margem_pct`] = margem;
       }
