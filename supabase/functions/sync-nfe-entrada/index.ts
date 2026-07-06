@@ -19,7 +19,18 @@ const corsHeaders = {
 // contar — elas ficaram gravadas quando o código antigo assumia compra[i]↔xml[i]
 // e produziam vínculos absurdos. Manter essa lista sincronizada com os `rule`
 // que aparecem em `pedido_compra_gc+${rule}` mais abaixo.
-const CURRENT_REAL_MATCH_RULES = new Set(["cprod", "cprod_multi", "nome_preco", "unico"]);
+const CURRENT_REAL_MATCH_RULES = new Set([
+  "cprod",
+  "cprod_multi",
+  "cprod_normalizado",
+  "codigo_interno_xprod",
+  "ean",
+  "nome_preco",
+  "preco_qtd_exato",
+  "residual_1x1",
+  "residual_preco",
+  "unico",
+]);
 function isRealCurrentMatchRule(rule: string): boolean {
   if (!rule.startsWith("pedido_compra_gc+")) return false;
   // Corta o "+pack:Nx" opcional pra comparar só o rule base.
@@ -144,6 +155,8 @@ function getAllBlocks(xml: string, tag: string): string[] {
 interface XmlItemTax {
   nItem: number;
   cProd: string;
+  cEAN: string;
+  cEANTrib: string;
   xProd: string;
   NCM: string;
   CFOP: string;
@@ -193,6 +206,8 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const imposto = getBlock(det, "imposto");
 
     const cProd = getTag(prod, "cProd");
+    const cEAN = getTag(prod, "cEAN");
+    const cEANTrib = getTag(prod, "cEANTrib");
     const xProd = getTag(prod, "xProd");
     const NCM = getTag(prod, "NCM");
     const CFOP = getTag(prod, "CFOP");
@@ -250,7 +265,7 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const cofins_vCOFINS = parseFloat(getTag(cofinsInner, "vCOFINS")) || 0;
 
     items.push({
-      nItem, cProd, xProd, NCM, CFOP,
+      nItem, cProd, cEAN, cEANTrib, xProd, NCM, CFOP,
       qCom, vProd, vUnCom,
       uCom, uTrib, qTrib, vUnTrib,
       vSeg, vOutro, vDesc,
@@ -319,6 +334,54 @@ function normNumeroNf(v: string | null | undefined): string {
 function normalizarCodigoProduto(c: string | null | undefined): string {
   if (!c) return "";
   return String(c).trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function stripLeadingZerosCode(code: string): string {
+  if (!/^[0-9]+$/.test(code)) return code;
+  return code.replace(/^0+/, "") || "0";
+}
+
+function codigoComparavel(raw: string | null | undefined): string[] {
+  const norm = normalizarCodigoProduto(raw);
+  if (!norm || /^0+$/.test(norm)) return [];
+  const out = new Set<string>([norm, stripLeadingZerosCode(norm)]);
+  return [...out].filter((c) => c.length >= 4);
+}
+
+function normalizarCodigoBarra(raw: string | null | undefined): string {
+  const norm = normalizarCodigoProduto(raw);
+  if (!norm || norm === "SEMGTIN" || norm === "SEMGTINTRIB") return "";
+  const comparable = stripLeadingZerosCode(norm);
+  return comparable.length >= 6 ? comparable : "";
+}
+
+function addMapValue(map: Map<string, number[]>, key: string, value: number) {
+  if (!key) return;
+  const arr = map.get(key) || [];
+  arr.push(value);
+  map.set(key, arr);
+}
+
+function extractProductCodesFromText(text: string | null | undefined): string[] {
+  const raw = String(text ?? "").toUpperCase();
+  const out = new Set<string>();
+
+  // Captura códigos compostos antes de quebrar pontuação: "76511/02" -> "7651102".
+  for (const match of raw.matchAll(/[A-Z0-9]+(?:[./_-]+[A-Z0-9]+)+/g)) {
+    for (const c of codigoComparavel(match[0])) out.add(c);
+  }
+
+  for (const token of normalizeText(raw).split(/\s+/)) {
+    // Não trata pedaços de códigos compostos como equivalentes.
+    // Ex.: "76511/02" NÃO deve casar com cadastro "76511".
+    if (raw.includes(`${token}/`) || raw.includes(`${token}-`) || raw.includes(`${token}.`) || raw.includes(`${token}_`)) {
+      continue;
+    }
+    if (/^[A-Z0-9]{4,}$/.test(token)) {
+      for (const c of codigoComparavel(token)) out.add(c);
+    }
+  }
+  return [...out];
 }
 
 function normalizeText(value: unknown): string {
@@ -704,22 +767,25 @@ serve(async (req) => {
       byCnpj.set(cnpj, c);
     }
 
-    // ── Step 3.5: Preload codigo_interno dos produtos da compra (para priority 1 do picker) ──
+    // ── Step 3.5: Preload codigo_interno/codigo_barra dos produtos da compra (fonte do vínculo pedido↔NF item) ──
     const allProdIds = Array.from(
       new Set(
         compras.flatMap((c) => c.itens.map((i) => i.produto_gc_id).filter(Boolean) as string[]),
       ),
     );
     const codigoPorProdutoId = new Map<string, string>();
+    const codigoBarraPorProdutoId = new Map<string, string>();
     for (let i = 0; i < allProdIds.length; i += 200) {
       const chunk = allProdIds.slice(i, i + 200);
       const { data: prods } = await supabase
         .from("gc_produtos_cache")
-        .select("produto_gc_id, codigo_interno")
+        .select("produto_gc_id, codigo_interno, codigo_barra")
         .in("produto_gc_id", chunk);
       for (const p of prods || []) {
         const norm = normalizarCodigoProduto(p.codigo_interno);
         if (norm) codigoPorProdutoId.set(String(p.produto_gc_id), norm);
+        const ean = normalizarCodigoBarra(p.codigo_barra);
+        if (ean) codigoBarraPorProdutoId.set(String(p.produto_gc_id), ean);
       }
     }
 
@@ -879,7 +945,7 @@ serve(async (req) => {
       }
       xmlsLidos++;
 
-      processarXml(xml, matched, compra, matchRuleTag, productTaxMap, codigoPorProdutoId, descartesPicker);
+      processarXml(xml, matched, compra, matchRuleTag, productTaxMap, codigoPorProdutoId, codigoBarraPorProdutoId, descartesPicker);
     }
 
     // ── Step 6: Upsert tributos ──
@@ -1056,6 +1122,7 @@ function processarXml(
   matchRuleTag: string,
   productTaxMap: Map<string, ProductTaxRecord>,
   codigoPorProdutoId: Map<string, string>,
+  codigoBarraPorProdutoId: Map<string, string>,
   descartesPicker: any[],
 ) {
   const r = (v: number) => Math.round(v * 100) / 100;
@@ -1070,16 +1137,38 @@ function processarXml(
   const unresolved: number[] = []; // índices em compraItens que não bateram na 1ª passada
 
 
-  // Pré-indexa XML por cProd normalizado
+  // Pré-indexa XML por código do item e EAN. O vínculo primário deve ser código↔código,
+  // inclusive com zero à esquerda removido; nome/preço são fallback, não fonte principal.
   const xmlPorCProd = new Map<string, number[]>();
+  const xmlPorCodigoTexto = new Map<string, number[]>();
+  const xmlPorEan = new Map<string, number[]>();
   for (let i = 0; i < xmlItems.length; i++) {
-    const norm = normalizarCodigoProduto(xmlItems[i].cProd);
-    if (norm) {
-      const arr = xmlPorCProd.get(norm) || [];
-      arr.push(i);
-      xmlPorCProd.set(norm, arr);
-    }
+    for (const code of codigoComparavel(xmlItems[i].cProd)) addMapValue(xmlPorCProd, code, i);
+    for (const code of extractProductCodesFromText(xmlItems[i].xProd)) addMapValue(xmlPorCodigoTexto, code, i);
+    addMapValue(xmlPorEan, normalizarCodigoBarra(xmlItems[i].cEAN), i);
+    addMapValue(xmlPorEan, normalizarCodigoBarra(xmlItems[i].cEANTrib), i);
   }
+
+  const pickBestByCompraValues = (item: CompraItem, candidatosRaw: number[], ruleSingle: string, ruleMulti: string) => {
+    const candidatos = [...new Set(candidatosRaw)].filter((idx) => !usedXmlIdx.has(idx));
+    if (candidatos.length === 0) return null;
+    if (candidatos.length === 1) return { xi: xmlItems[candidatos[0]], idx: candidatos[0], rule: ruleSingle };
+
+    const compraQtd = item.quantidade || 1;
+    const compraUnit = item.valor_custo || 0;
+    const compraTotal = item.valor_total || (compraUnit * compraQtd);
+    let best = candidatos[0];
+    let bestScore = Infinity;
+    for (const idx of candidatos) {
+      const xi = xmlItems[idx];
+      const unitDiff = compraUnit > 0 ? Math.abs(xi.vUnCom - compraUnit) / compraUnit : 1;
+      const totalDiff = compraTotal > 0 ? Math.abs(xi.vProd - compraTotal) / compraTotal : 1;
+      const qtdDiff = compraQtd > 0 ? Math.abs(xi.qCom - compraQtd) / compraQtd : 1;
+      const score = unitDiff * 0.5 + totalDiff * 0.4 + qtdDiff * 0.1;
+      if (score < bestScore) { bestScore = score; best = idx; }
+    }
+    return { xi: xmlItems[best], idx: best, rule: ruleMulti };
+  };
 
   // Helper: cria registro mínimo sem tributo quando não há XML item correspondente
   const upsertSemTributo = (gcProdId: string, item: CompraItem) => {
@@ -1128,30 +1217,44 @@ function processarXml(
     // R$115 só porque caíram na mesma posição). Agora dependemos exclusivamente
     // de cProd (código), nome+valor, ou item único 1×1.
 
-    // PRIORIDADE 1: cProd normalizado == codigo_interno do cadastro
-    const codigoCompra = codigoPorProdutoId.get(gcProdId);
-    if (!pick && codigoCompra) {
-      const candidatos = (xmlPorCProd.get(codigoCompra) || []).filter((idx) => !usedXmlIdx.has(idx));
-      if (candidatos.length === 1) {
-        pick = { xi: xmlItems[candidatos[0]], idx: candidatos[0], rule: "cprod" };
-      } else if (candidatos.length > 1) {
-        // múltiplos cProd iguais → desempate por proximidade de VALOR (preço unitário e total)
-        // O pedido GC e a NF têm praticamente os mesmos valores; usar isso evita pegar item errado.
-        const compraQtd = item.quantidade || 1;
-        const compraUnit = item.valor_custo || 0;
-        const compraTotal = item.valor_total || (compraUnit * compraQtd);
-        let best = candidatos[0];
-        let bestScore = Infinity;
-        for (const idx of candidatos) {
-          const xi = xmlItems[idx];
-          const unitDiff = compraUnit > 0 ? Math.abs(xi.vUnCom - compraUnit) / compraUnit : 1;
-          const totalDiff = compraTotal > 0 ? Math.abs(xi.vProd - compraTotal) / compraTotal : 1;
-          const qtdDiff = compraQtd > 0 ? Math.abs(xi.qCom - compraQtd) / compraQtd : 1;
-          // Peso maior em valor (unit e total), qtd como desempate fino
-          const score = unitDiff * 0.5 + totalDiff * 0.4 + qtdDiff * 0.1;
-          if (score < bestScore) { bestScore = score; best = idx; }
+    // PRIORIDADE 1: cProd da NF == codigo_interno do produto vinculado no item do pedido.
+    const codigosCompra = codigoComparavel(codigoPorProdutoId.get(gcProdId));
+    if (!pick && codigosCompra.length > 0) {
+      pick = pickBestByCompraValues(
+        item,
+        codigosCompra.flatMap((codigo) => xmlPorCProd.get(codigo) || []),
+        "cprod",
+        "cprod_multi",
+      );
+    }
+
+    // PRIORIDADE 1.1: cProd normalizado/sufixo. Ex.: XML "031978" e cadastro "31978".
+    if (!pick && codigosCompra.length > 0) {
+      const candidatos: number[] = [];
+      for (const [xmlCode, idxs] of xmlPorCProd.entries()) {
+        if (codigosCompra.some((codigo) => xmlCode === codigo || xmlCode.endsWith(codigo) || codigo.endsWith(xmlCode))) {
+          candidatos.push(...idxs);
         }
-        pick = { xi: xmlItems[best], idx: best, rule: "cprod_multi" };
+      }
+      pick = pickBestByCompraValues(item, candidatos, "cprod_normalizado", "cprod_normalizado");
+    }
+
+    // PRIORIDADE 1.2: código interno do produto aparece no xProd da NF.
+    // Ex.: item do pedido produto #76511 ↔ XML xProd "REGULADOR 76511 AM".
+    if (!pick && codigosCompra.length > 0) {
+      pick = pickBestByCompraValues(
+        item,
+        codigosCompra.flatMap((codigo) => xmlPorCodigoTexto.get(codigo) || []),
+        "codigo_interno_xprod",
+        "codigo_interno_xprod",
+      );
+    }
+
+    // PRIORIDADE 1.3: EAN do XML ↔ código de barras do cadastro GC.
+    if (!pick) {
+      const eanCompra = codigoBarraPorProdutoId.get(gcProdId);
+      if (eanCompra) {
+        pick = pickBestByCompraValues(item, xmlPorEan.get(eanCompra) || [], "ean", "ean");
       }
     }
 
