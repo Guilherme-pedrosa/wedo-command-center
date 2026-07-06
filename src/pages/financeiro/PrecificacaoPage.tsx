@@ -3154,6 +3154,12 @@ export default function PrecificacaoPage() {
                         })()}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(calc.custoTotal)}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        <div>{formatCurrency(calc.custoFixoEmbutido || 0)}</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {((custoFixoPctEfetivo || 0) * 100).toFixed(1)}%
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right font-mono text-sm font-bold text-primary">
                         {formatCurrency(calc.precoMinimo)}
                       </TableCell>
