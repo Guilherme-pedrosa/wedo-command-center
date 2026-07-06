@@ -867,14 +867,18 @@ serve(async (req) => {
             manuais.add(row.gc_produto_id);
           if (row.excecao_manual === true) excecoes.add(row.gc_produto_id);
           if (row.nf_data_emissao) existingNfDate.set(row.gc_produto_id, String(row.nf_data_emissao));
-          if (row.match_rule && String(row.match_rule).startsWith("pedido_compra_gc+")) {
+          // Só considera "match real" as regras que o matcher ATUAL escreve.
+          // Regras legadas como `+ordem_gc_xml` (heurística posicional removida) NÃO
+          // contam — se contassem, um vínculo posicional errado ficaria eterno,
+          // pois a guarda descartaria toda nova tentativa que caísse em `sem_xml_item`.
+          if (row.match_rule && isRealCurrentMatchRule(String(row.match_rule))) {
             existingHasRealMatch.add(row.gc_produto_id);
           }
         }
       }
       const records = [...productTaxMap.values()]
         .filter((r) => {
-          const novoEhReal = !!r.match_rule?.startsWith("pedido_compra_gc+") && r.match_rule !== "pedido_compra_gc_sem_xml_item";
+          const novoEhReal = !!r.match_rule && isRealCurrentMatchRule(r.match_rule);
           // Exceção manual trava custo/alertas, mas se antes era placeholder sem item,
           // permite enriquecer tributos do XML real sem alterar campos excecao_*.
           if (excecoes.has(r.gc_produto_id) && (!novoEhReal || existingHasRealMatch.has(r.gc_produto_id))) {
