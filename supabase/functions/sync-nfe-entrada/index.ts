@@ -1341,8 +1341,14 @@ function processarXml(
 
     // Fallback seguro: NF com 1 item e pedido com 1 item é correspondência inequívoca,
     // mesmo quando o cProd da NF não bate com o código interno do cadastro GC.
+    // Exige sanidade mínima (nome OU preço compatíveis) — bloqueia TOMADA↔TORNEIRA.
     if (!pick && compraItens.length === 1 && xmlItems.length === 1 && !usedXmlIdx.has(0)) {
-      pick = { xi: xmlItems[0], idx: 0, rule: "unico" };
+      const compraUnit = item.valor_custo || 0;
+      const compraTotal = item.valor_total || (compraUnit * (item.quantidade || 1));
+      const chk = matchPlausivel(item.nome_produto || "", compraUnit, compraTotal, xmlItems[0]);
+      if (chk.ok) {
+        pick = { xi: xmlItems[0], idx: 0, rule: "unico" };
+      }
     }
 
 
