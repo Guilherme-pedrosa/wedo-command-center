@@ -760,17 +760,21 @@ export default function PrecificacaoPage() {
         "CONCRETIZADO - ESTOQUE",
         "CONCRETIZADO - COMERCIAL EQUIPAMENTOS",
       ]);
+      const OPERACAO_NAO_COMERCIAL = /\b(brinde|bonifica[cç][aã]o|doa[cç][aã]o|showroom|amostra|garantia|conserto|ajuste|demonstra[cç][aã]o)\b/i;
       while (true) {
         const { data, error } = await supabase
           .from("gc_compras" as any)
-          .select("gc_id, codigo, numero_nfe, data, nome_fornecedor, nome_situacao")
-          .order("gc_id", { ascending: true })
+          .select("gc_id, codigo, numero_nfe, data, nome_fornecedor, nome_situacao, observacao")
+          .not("data", "is", null)
+          .order("data", { ascending: false, nullsFirst: false })
+          .order("gc_id", { ascending: false })
           .range(from, from + pageSize - 1);
         if (error) throw error;
         for (const row of (data || []) as any[]) {
           // Só considera compras efetivamente recebidas/concretizadas.
           // Ignora "COMPRADO - AG CHEGADA" e "SERVIÇOS" (valores provisórios / não-mercadoria)
-          if (SITUACOES_RECEBIDAS.has(String(row.nome_situacao || ""))) {
+          const textoOperacao = [row.nome_situacao, row.codigo, row.observacao].filter(Boolean).join(" ");
+          if (SITUACOES_RECEBIDAS.has(String(row.nome_situacao || "")) && !OPERACAO_NAO_COMERCIAL.test(textoOperacao)) {
             compraMeta.set(String(row.gc_id), row);
           }
         }
@@ -784,7 +788,7 @@ export default function PrecificacaoPage() {
           .from("gc_compras_itens" as any)
           .select("produto_gc_id, compra_gc_id, quantidade, valor_custo")
           .not("produto_gc_id", "is", null)
-          .order("compra_gc_id", { ascending: true })
+          .order("compra_gc_id", { ascending: false })
           .range(from, from + pageSize - 1);
         if (error) throw error;
         const batch = ((data || []) as any[])
@@ -805,7 +809,7 @@ export default function PrecificacaoPage() {
           })
           .filter(Boolean) as UltimaCompraProduto[];
         allRows.push(...batch);
-        if (batch.length < pageSize) break;
+        if (!data || data.length < pageSize) break;
         from += pageSize;
       }
 
@@ -834,13 +838,11 @@ export default function PrecificacaoPage() {
       const latest = new Map<string, UltimaCompraProduto>();
       for (const { row } of grouped.values()) {
         const current = latest.get(row.produto_gc_id);
-        // Escolhe SEMPRE a compra mais recente por DATA. Datas nulas ficam
-        // atrás de qualquer data preenchida (evita bug do "|123" > "2026-...")
-        const rowData = row.data || "0000-00-00";
-        const curData = current?.data || "0000-00-00";
-        const rowKey = `${rowData}|${String(row.compra_gc_id).padStart(20, "0")}`;
-        const curKey = current ? `${curData}|${String(current.compra_gc_id).padStart(20, "0")}` : "";
-        if (!current || rowKey > curKey) latest.set(row.produto_gc_id, row);
+        const rowTs = row.data ? Date.parse(String(row.data)) : Number.NEGATIVE_INFINITY;
+        const curTs = current?.data ? Date.parse(String(current.data)) : Number.NEGATIVE_INFINITY;
+        const rowId = Number.parseInt(String(row.compra_gc_id || "0"), 10) || 0;
+        const curId = Number.parseInt(String(current?.compra_gc_id || "0"), 10) || 0;
+        if (!current || rowTs > curTs || (rowTs === curTs && rowId > curId)) latest.set(row.produto_gc_id, row);
       }
       return [...latest.values()];
     },
