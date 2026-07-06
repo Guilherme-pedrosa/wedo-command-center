@@ -19,7 +19,15 @@ const corsHeaders = {
 // contar — elas ficaram gravadas quando o código antigo assumia compra[i]↔xml[i]
 // e produziam vínculos absurdos. Manter essa lista sincronizada com os `rule`
 // que aparecem em `pedido_compra_gc+${rule}` mais abaixo.
-const CURRENT_REAL_MATCH_RULES = new Set(["cprod", "cprod_multi", "nome_preco", "unico"]);
+const CURRENT_REAL_MATCH_RULES = new Set([
+  "cprod",
+  "cprod_multi",
+  "cprod_normalizado",
+  "codigo_interno_xprod",
+  "ean",
+  "nome_preco",
+  "unico",
+]);
 function isRealCurrentMatchRule(rule: string): boolean {
   if (!rule.startsWith("pedido_compra_gc+")) return false;
   // Corta o "+pack:Nx" opcional pra comparar só o rule base.
@@ -144,6 +152,8 @@ function getAllBlocks(xml: string, tag: string): string[] {
 interface XmlItemTax {
   nItem: number;
   cProd: string;
+  cEAN: string;
+  cEANTrib: string;
   xProd: string;
   NCM: string;
   CFOP: string;
@@ -193,6 +203,8 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const imposto = getBlock(det, "imposto");
 
     const cProd = getTag(prod, "cProd");
+    const cEAN = getTag(prod, "cEAN");
+    const cEANTrib = getTag(prod, "cEANTrib");
     const xProd = getTag(prod, "xProd");
     const NCM = getTag(prod, "NCM");
     const CFOP = getTag(prod, "CFOP");
@@ -250,7 +262,7 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const cofins_vCOFINS = parseFloat(getTag(cofinsInner, "vCOFINS")) || 0;
 
     items.push({
-      nItem, cProd, xProd, NCM, CFOP,
+      nItem, cProd, cEAN, cEANTrib, xProd, NCM, CFOP,
       qCom, vProd, vUnCom,
       uCom, uTrib, qTrib, vUnTrib,
       vSeg, vOutro, vDesc,
@@ -319,6 +331,49 @@ function normNumeroNf(v: string | null | undefined): string {
 function normalizarCodigoProduto(c: string | null | undefined): string {
   if (!c) return "";
   return String(c).trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function stripLeadingZerosCode(code: string): string {
+  if (!/^[0-9]+$/.test(code)) return code;
+  return code.replace(/^0+/, "") || "0";
+}
+
+function codigoComparavel(raw: string | null | undefined): string[] {
+  const norm = normalizarCodigoProduto(raw);
+  if (!norm || /^0+$/.test(norm)) return [];
+  const out = new Set<string>([norm, stripLeadingZerosCode(norm)]);
+  return [...out].filter((c) => c.length >= 4);
+}
+
+function normalizarCodigoBarra(raw: string | null | undefined): string {
+  const norm = normalizarCodigoProduto(raw);
+  if (!norm || norm === "SEMGTIN" || norm === "SEMGTINTRIB") return "";
+  const comparable = stripLeadingZerosCode(norm);
+  return comparable.length >= 6 ? comparable : "";
+}
+
+function addMapValue(map: Map<string, number[]>, key: string, value: number) {
+  if (!key) return;
+  const arr = map.get(key) || [];
+  arr.push(value);
+  map.set(key, arr);
+}
+
+function extractProductCodesFromText(text: string | null | undefined): string[] {
+  const raw = String(text ?? "").toUpperCase();
+  const out = new Set<string>();
+
+  // Captura códigos compostos antes de quebrar pontuação: "76511/02" -> "7651102".
+  for (const match of raw.matchAll(/[A-Z0-9]+(?:[./_-]+[A-Z0-9]+)+/g)) {
+    for (const c of codigoComparavel(match[0])) out.add(c);
+  }
+
+  for (const token of normalizeText(raw).split(/\s+/)) {
+    if (/^[A-Z0-9]{4,}$/.test(token)) {
+      for (const c of codigoComparavel(token)) out.add(c);
+    }
+  }
+  return [...out];
 }
 
 function normalizeText(value: unknown): string {
