@@ -415,6 +415,9 @@ function matchPlausivel(
   const totalDiff = compraTotal > 0 ? Math.abs(xi.vProd - compraTotal) / compraTotal : 1;
   const ok = tokenScore >= 0.35 || unitDiff <= 0.05 || totalDiff <= 0.03;
   return { ok, tokenScore, unitDiff, totalDiff };
+}
+
+
 
 async function tryDownloadXml(chave: string, storagePath: string | null, supabase: any): Promise<string | null> {
   if (!chave || chave.length < 44) return null;
