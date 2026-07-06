@@ -2459,9 +2459,9 @@ export default function PrecificacaoPage() {
               <Badge variant="secondary" className="text-xs font-mono w-12 justify-center">{margemAlvo}%</Badge>
             </div>
             {loadingProdutos && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-            <Button size="sm" variant="outline" onClick={handleExportExcel} disabled={filtered.length === 0} title="Exportar filtro atual para Excel">
+            <Button size="sm" variant="outline" onClick={handleExportExcel} disabled={filteredAll.length === 0} title="Exportar todos os itens do filtro atual para Excel">
               <Download className="h-4 w-4 mr-1" />
-              Exportar Excel ({filtered.length})
+              Exportar Excel ({filteredAll.length})
             </Button>
           </div>
 
