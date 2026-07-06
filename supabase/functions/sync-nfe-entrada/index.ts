@@ -1582,6 +1582,13 @@ function processarXml(
       v_icms_uf_dest: r(xi.icms_vICMSUFDest),
       v_icms_uf_remet: r(xi.icms_vICMSUFRemet),
       custo_variavel_real: 0,
+      ineligivel_precificacao: !!(nfIneligivelMotivo || detectIneligivelPrecificacao(xi.infAdProd, xi.xProd)),
+      ineligivel_motivo: (() => {
+        const itemMotivo = detectIneligivelPrecificacao(xi.infAdProd, xi.xProd);
+        if (nfIneligivelMotivo) return `NF ${nfIneligivelMotivo} (natureza/observação)`;
+        if (itemMotivo) return `Item ${itemMotivo} (descrição/observação)`;
+        return null;
+      })(),
     });
   }
 }
