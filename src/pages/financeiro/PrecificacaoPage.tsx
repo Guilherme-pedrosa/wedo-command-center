@@ -135,6 +135,11 @@ const DEFAULT_SAIDA: TaxConfigSaida = {
   irpjCsll: 0, // Desconsiderado no custo da peça — incide sobre lucro da empresa, não do produto
 };
 
+// PIS/COFINS de precificação do produto: regra fiscal do nosso crédito no Lucro Real.
+// Não usar a alíquota destacada pelo fornecedor na NF de entrada (pode vir cumulativa/errada para nossa formação de preço).
+const PIS_CREDITO_PRODUTO = 1.65;
+const COFINS_CREDITO_PRODUTO = 7.6;
+
 // ── Helpers ──
 function parseDecimalInput(value: string): number {
   const raw = String(value ?? "").trim();
@@ -224,8 +229,8 @@ function getEffectiveRates(t: ProdutoTributo) {
   const semCredito = t.sem_credito || t.regime_fornecedor === "simples_nacional";
   return {
     icms: semCredito ? 0 : (t.icms_aliquota_manual ?? t.icms_aliquota),
-    pis: semCredito ? 0 : (t.pis_aliquota_manual ?? t.pis_aliquota),
-    cofins: semCredito ? 0 : (t.cofins_aliquota_manual ?? t.cofins_aliquota),
+    pis: semCredito ? 0 : (t.pis_aliquota_manual ?? PIS_CREDITO_PRODUTO),
+    cofins: semCredito ? 0 : (t.cofins_aliquota_manual ?? COFINS_CREDITO_PRODUTO),
     ipi: t.ipi_aliquota_manual ?? t.ipi_aliquota,
     semCredito,
   };
