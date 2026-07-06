@@ -338,8 +338,9 @@ function calcPricingWithNF(
   const comissaoEmbutida = precoMinimo * comissaoPct;
   const lucroAnteIR = precoMinimo - custoTotal - tributosSaida - custoFixoEmbutido - comissaoEmbutida;
   const impostoRenda = Math.max(0, lucroAnteIR * irpjPct);
-  const margemExtraCreditos = usarCreditoEntrada ? 0 : totalCreditosEntrada;
-  const lucroLiquido = lucroAnteIR - impostoRenda + margemExtraCreditos;
+  // Crédito de entrada SÓ influencia lucro/margem quando o toggle "Usar crédito no preço" está ativo.
+  // Com toggle OFF: crédito é ignorado no cálculo exibido (considera só custo + custo fixo + tributos de saída cheios).
+  const lucroLiquido = lucroAnteIR - impostoRenda;
 
   return {
     creditoIcms,
