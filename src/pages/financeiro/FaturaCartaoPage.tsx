@@ -1079,7 +1079,7 @@ export default function FaturaCartaoPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowFaturaDialog(false)}>Cancelar</Button>
-            <Button onClick={handleCriarFatura} disabled={!novaFatura.cartao_id || novaFatura.forma_pagamento_ids.length === 0 || saving}>
+            <Button onClick={handleCriarFatura} disabled={!novaFatura.cartao_id || novaFatura.forma_pagamento_ids.length === 0 || !novaFatura.data_vencimento || saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Criar Fatura"}
             </Button>
           </DialogFooter>
@@ -1194,7 +1194,7 @@ export default function FaturaCartaoPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancelar</Button>
-            <Button onClick={handleSalvarEdicao} disabled={saving || editForm.forma_pagamento_ids.length === 0}>
+            <Button onClick={handleSalvarEdicao} disabled={saving || editForm.forma_pagamento_ids.length === 0 || !editForm.data_vencimento}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
             </Button>
           </DialogFooter>
