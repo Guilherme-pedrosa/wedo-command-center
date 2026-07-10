@@ -255,10 +255,8 @@ export default function FaturaCartaoPage() {
 
 
   // Helper único para buscar TODOS pagamentos elegíveis para uma fatura.
-  // - Usa .in() em uma única query (não loopa por forma_pagamento).
-  // - Pagina em chunks de 1000 para evitar o limite default do PostgREST.
-  // - Critério: data_vencimento = data informada (exato). Se não informada,
-  //   cai para mes_referencia (mês completo) e por último data_competencia no período.
+  // Primeiro sincroniza diretamente do Gestão Click pela data de vencimento informada,
+  // depois usa os registros locais recém-atualizados para montar as transações.
   const fetchPagamentosForFatura = async (params: {
     formaPagamentoIds: string[];
     dataVencimento?: string;
@@ -270,6 +268,23 @@ export default function FaturaCartaoPage() {
     if (fpIds.length === 0) return [] as any[];
 
     const baseSelect = "id,descricao,valor,data_vencimento,data_competencia,nome_fornecedor,status,forma_pagamento_id";
+
+    if (params.dataVencimento) {
+      const { data, error } = await supabase.functions.invoke("sync-fatura-cartao-pagamentos", {
+        body: {
+          forma_pagamento_ids: fpIds,
+          data_vencimento: params.dataVencimento,
+        },
+      });
+
+      if (error) {
+        throw new Error(`Falha ao buscar financeiros no Gestão Click: ${error.message}`);
+      }
+
+      const response = (data ?? {}) as { pagamentos?: any[]; warning?: string };
+      if (response.warning) toast(response.warning);
+      return response.pagamentos ?? [];
+    }
 
     const fetchByVenc = async (gte: string, lte: string) => {
       const all: any[] = [];
@@ -317,13 +332,7 @@ export default function FaturaCartaoPage() {
       return all;
     };
 
-    // 1) data_vencimento EXATA (comportamento esperado pelo usuário)
-    if (params.dataVencimento) {
-      const rows = await fetchByVenc(params.dataVencimento, params.dataVencimento);
-      if (rows.length > 0) return rows;
-    }
-
-    // 2) Fallback: mês de referência inteiro
+    // Fallback só para cadastros antigos sem data de vencimento informada.
     if (params.mesReferencia) {
       const [ano, mes] = params.mesReferencia.split("-").map(Number);
       const mesInicio = `${params.mesReferencia}-01`;
@@ -332,7 +341,7 @@ export default function FaturaCartaoPage() {
       if (rows.length > 0) return rows;
     }
 
-    // 3) Fallback: data de competência no período de fechamento
+    // Último fallback: data de competência no período de fechamento.
     if (params.dataFechamentoInicio && params.dataFechamentoFim) {
       return await fetchByCompetencia(params.dataFechamentoInicio, params.dataFechamentoFim);
     }
@@ -347,6 +356,10 @@ export default function FaturaCartaoPage() {
     }
     if (!novaFatura.data_fechamento_inicio || !novaFatura.data_fechamento_fim) {
       toast.error("Informe as datas de fechamento (início e fim do período).");
+      return;
+    }
+    if (!novaFatura.data_vencimento) {
+      toast.error("Informe a data de vencimento para buscar os financeiros no Gestão Click.");
       return;
     }
     setSaving(true);
@@ -647,6 +660,10 @@ export default function FaturaCartaoPage() {
   // Salvar edição
   const handleSalvarEdicao = async () => {
     if (!editFatura) return;
+    if (!editForm.data_vencimento) {
+      toast.error("Informe a data de vencimento para buscar os financeiros no Gestão Click.");
+      return;
+    }
     setSaving(true);
     try {
       // 1. Atualizar dados da fatura
@@ -1051,9 +1068,9 @@ export default function FaturaCartaoPage() {
                 {novaFatura.forma_pagamento_ids.length > 1 ? (
                   <p>Uma fatura será criada com pagamentos de <strong>{novaFatura.forma_pagamento_ids.length} formas de pagamento</strong> combinadas.</p>
                 ) : novaFatura.data_vencimento ? (
-                  <p>Serão importados <strong>todos</strong> os lançamentos das formas selecionadas com <strong>data de vencimento = {fmtDate(novaFatura.data_vencimento)}</strong>. Se nenhum lançamento bater, o sistema usa o <strong>mês de referência</strong> e depois a <strong>data de competência</strong> no período de fechamento.</p>
+                  <p>O sistema irá no Gestão Click e importará <strong>todos</strong> os financeiros das formas selecionadas com <strong>data de vencimento = {fmtDate(novaFatura.data_vencimento)}</strong>.</p>
                 ) : novaFatura.data_fechamento_inicio && novaFatura.data_fechamento_fim ? (
-                  <p>Sem data de vencimento, o sistema usará o <strong>mês de referência</strong> e depois a <strong>data de competência</strong> entre <strong>{fmtDate(novaFatura.data_fechamento_inicio)}</strong> e <strong>{fmtDate(novaFatura.data_fechamento_fim)}</strong>.</p>
+                  <p>Informe a data de vencimento para buscar os financeiros diretamente no Gestão Click.</p>
                 ) : (
                   <p>Informe a data de vencimento da fatura para buscar os pagamentos correspondentes.</p>
                 )}
@@ -1168,11 +1185,11 @@ export default function FaturaCartaoPage() {
               </div>
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Data de vencimento</label>
+                <label className="text-xs text-muted-foreground">Data de vencimento *</label>
               <Input type="date" value={editForm.data_vencimento} onChange={e => setEditForm(p => ({ ...p, data_vencimento: e.target.value }))} />
             </div>
             <div className="p-2 rounded bg-muted/50 text-xs text-muted-foreground">
-              <p>Ao salvar, as transações serão recalculadas com base nas formas de pagamento e período selecionados.</p>
+              <p>Ao salvar, o sistema irá no Gestão Click e recalculará as transações pelas formas de pagamento e data de vencimento selecionadas.</p>
             </div>
           </div>
           <DialogFooter>
