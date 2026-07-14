@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Loader2, Trophy, ChevronLeft, ChevronRight } from 'lucide-react';
 import { TecnicoCard } from '@/components/tv-tecnicos/TecnicoCard';
 import { RetornoDialog } from '@/components/tv-tecnicos/RetornoDialog';
+import { latestIsoTimestamp } from '@/lib/latestTimestamp';
 import toast from 'react-hot-toast';
 
 const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -81,31 +82,36 @@ export default function TvTecnicos() {
     refetchIntervalInBackground: true,
   });
 
-  // Fetch last API sync timestamp (new log table + fallback)
+  // Fetch the most recent API sync timestamp across both log tables.
   const { data: lastSync } = useQuery({
     queryKey: ['last_sync_os'],
     queryFn: async () => {
-      const { data: finLog } = await supabase
-        .from('fin_sync_log')
-        .select('created_at')
-        .in('tipo', ['sync-all', 'sync-os'])
-        .in('status', ['success', 'ok'])
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const [finResult, legacyResult] = await Promise.all([
+        supabase
+          .from('fin_sync_log')
+          .select('created_at')
+          .eq('tipo', 'sync-all')
+          .in('status', ['success', 'ok', 'partial'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from('sync_log')
+          .select('created_at')
+          .eq('tipo', 'sync-os')
+          .in('status', ['success', 'ok', 'partial'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
 
-      if (finLog?.created_at) return finLog.created_at;
+      if (finResult.error) throw finResult.error;
+      if (legacyResult.error) throw legacyResult.error;
 
-      const { data: legacyLog } = await supabase
-        .from('sync_log')
-        .select('created_at')
-        .in('tipo', ['sync-all', 'sync-os'])
-        .in('status', ['success', 'ok'])
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      return legacyLog?.created_at ?? null;
+      return latestIsoTimestamp([
+        finResult.data?.created_at,
+        legacyResult.data?.created_at,
+      ]);
     },
     staleTime: 60 * 1000,
     refetchInterval: 60 * 1000,
