@@ -356,7 +356,7 @@ async function buscarPendentes(dataInicio?: string, dataFim?: string, scope: Bai
 
 
     const candidates = ((rows || []) as any[]).filter((row) =>
-      !isLiquidadoGC(row.liquidado) && String(row.status || "").toLowerCase() !== "cancelado"
+      String(row.status || "").toLowerCase() !== "cancelado"
     );
     if (candidates.length === 0) return;
 
