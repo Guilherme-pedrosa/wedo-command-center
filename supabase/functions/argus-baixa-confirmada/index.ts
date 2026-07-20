@@ -402,12 +402,34 @@ async function buscarPendentes(dataInicio?: string, dataFim?: string, scope: Bai
   return out;
 }
 
+async function runBaixaBatch(alvos: LinkInput[]): Promise<BaixaResult[]> {
+  const CONCURRENCY = 5;
+  const resultados: BaixaResult[] = [];
+  let cursor = 0;
+  async function worker() {
+    while (true) {
+      const i = cursor++;
+      if (i >= alvos.length) return;
+      try {
+        const r = await processarLink(alvos[i]);
+        resultados.push(r);
+      } catch (e) {
+        resultados.push({ ...alvos[i], ok: false, erro: e instanceof Error ? e.message : String(e) });
+      }
+      await sleep(150); // throttle GC per worker
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, alvos.length) }, () => worker()));
+  return resultados;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
     const body = await req.json().catch(() => ({}));
     const mode: "auto" | "links" = body.mode === "auto" ? "auto" : "links";
+    const background = body.background !== false; // default true
 
     let alvos: LinkInput[] = [];
     if (mode === "auto") {
@@ -432,16 +454,31 @@ Deno.serve(async (req) => {
       });
     }
 
-    const resultados: BaixaResult[] = [];
-    for (const link of alvos) {
-      const r = await processarLink(link);
-      resultados.push(r);
-      await sleep(200); // throttle GC
+    // Modo auto com muitos alvos: roda em background pra não estourar 150s idle timeout
+    if (mode === "auto" && background) {
+      const task = (async () => {
+        try {
+          const r = await runBaixaBatch(alvos);
+          const ok = r.filter((x) => x.ok).length;
+          console.log(`[argus-baixa-confirmada/bg] concluído: ${ok}/${r.length}`);
+        } catch (e) {
+          console.error("[argus-baixa-confirmada/bg] erro:", e);
+        }
+      })();
+      // @ts-ignore EdgeRuntime existe no runtime da Supabase
+      if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") {
+        // @ts-ignore
+        EdgeRuntime.waitUntil(task);
+      }
+      return new Response(
+        JSON.stringify({ ok: true, dispatched: alvos.length, background: true }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
+    const resultados = await runBaixaBatch(alvos);
     const sucesso = resultados.filter((r) => r.ok).length;
     const falha = resultados.length - sucesso;
-
     return new Response(
       JSON.stringify({ ok: true, processados: resultados.length, sucesso, falha, resultados }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -454,3 +491,4 @@ Deno.serve(async (req) => {
     );
   }
 });
+
