@@ -1,0 +1,1 @@
+UPDATE public.fin_pagamentos SET gc_baixado = false WHERE gc_baixado = true AND data_liquidacao >= '2026-04-01'; UPDATE public.fin_recebimentos SET gc_baixado = false WHERE gc_baixado = true AND data_liquidacao >= '2026-04-01';
