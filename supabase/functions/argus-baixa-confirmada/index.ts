@@ -134,11 +134,10 @@ async function baixarNoGC(
   dataLiquidacao: string,
   extratos: ExtratoInfo[]
 ): Promise<{ ok: boolean; erro?: string }> {
-  // PUT /pagamentos e /recebimentos do GC NÃO suportam situacao_id
-  // (testado em 2026-04-17: enviar 949476 retorna "Erro ao salvar dados").
-  // Como compensação, adicionamos a marca "Confirmado pelo Argus" no campo
-  // `observacao` (Informações complementares na UI do GC) com detalhes da
-  // sincronização (data, valor, contraparte do extrato).
+  // PUT /pagamentos e /recebimentos do GC: o campo para mudar a situação
+  // é `id_situacao` (NÃO `situacao_id` — este último causa "Erro ao salvar dados").
+  // Setamos id_situacao = 949476 ("Confirmado Argus") para tirar da situação "Atrasado".
+  // Também gravamos observação com detalhes do extrato conciliado.
   const obsArgus = montarObservacaoArgus(extratos, dataLiquidacao);
   const obsOriginal = (payloadRaw.observacao as string | undefined)?.trim() || "";
   const obsFinal = obsOriginal && !obsOriginal.includes("[Argus]")
@@ -155,6 +154,7 @@ async function baixarNoGC(
     conta_bancaria_id: payloadRaw.conta_bancaria_id,
     liquidado: 1,
     data_liquidacao: dataLiquidacao,
+    id_situacao: SITUACAO_CONFIRMADO_ARGUS,
     observacao: obsFinal,
   };
 
