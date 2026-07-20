@@ -199,15 +199,18 @@ export default function PagamentosPage() {
       toast.success(`Importados: ${result.importados} registros`);
       queryClient.invalidateQueries({ queryKey: ["fin-pagamentos"] });
       setShowSyncDialog(false);
-      // Dispara conciliação extrato ↔ GC e baixa automática dos confirmados
-      onStep?.("Conciliando com extrato bancário...");
-      supabase.functions.invoke("reconciliation-engine", { body: {} })
-        .catch((e) => console.error("[pagamentos] reconciliation dispatch:", e));
-      setTimeout(() => {
-        supabase.functions.invoke("argus-baixa-confirmada", { body: { mode: "auto", scope: "pagamentos" } })
-          .catch((e) => console.error("[pagamentos] baixa auto dispatch:", e));
-      }, 30000);
-      toast("Conciliação + baixa GC agendadas", { icon: "🔄" });
+      // Conciliação + baixa GC dos confirmados (rodam em background na edge)
+      onStep?.("Conciliando extrato ↔ GC e baixando no GC...");
+      try {
+        await supabase.functions.invoke("reconciliation-engine", { body: {} });
+      } catch (e) {
+        console.error("[pagamentos] reconciliation dispatch:", e);
+      }
+      supabase.functions.invoke("argus-baixa-confirmada", {
+        body: { mode: "auto", scope: "pagamentos", background: true },
+      }).catch((e) => console.error("[pagamentos] baixa auto dispatch:", e));
+      toast("Conciliação executada + baixa GC agendada em background", { icon: "🔄" });
+
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
     } finally {
