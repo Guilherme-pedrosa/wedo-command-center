@@ -1,0 +1,2 @@
+ALTER TABLE public.fin_fatura_cartao DROP CONSTRAINT IF EXISTS fin_fatura_cartao_cartao_mes_uq;
+ALTER TABLE public.fin_fatura_cartao ADD CONSTRAINT fin_fatura_cartao_cartao_mes_venc_uq UNIQUE (cartao_id, mes_referencia, data_vencimento);
