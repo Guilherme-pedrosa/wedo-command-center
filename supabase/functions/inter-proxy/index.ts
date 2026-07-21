@@ -32,14 +32,24 @@ async function isAuthorized(req: Request): Promise<boolean> {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-  if (!supabaseUrl || !anonKey) return false;
+  if (!supabaseUrl || !anonKey || !serviceRoleKey) return false;
 
   const token = authorization.slice("Bearer ".length).trim();
   const authClient = createClient(supabaseUrl, anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const { data, error } = await authClient.auth.getUser(token);
-  return !error && Boolean(data.user);
+  if (error || !data.user) return false;
+
+  const adminClient = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: roles, error: roleError } = await adminClient
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", data.user.id)
+    .in("role", ["admin", "ceo", "gerente_financeiro"]);
+  return !roleError && Boolean(roles?.length);
 }
 
 function isAllowedInterRequest(path: string, method: string): boolean {
