@@ -421,8 +421,13 @@ export default function FaturaCartaoPage() {
       setNovaFatura(prev => ({
         ...prev, forma_pagamento_ids: [], data_fechamento_inicio: "", data_fechamento_fim: "", data_vencimento: "",
       }));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro ao criar fatura.");
+    } catch (err: any) {
+      const code = err?.code || err?.details?.code;
+      if (code === "23505" || String(err?.message || "").includes("fin_fatura_cartao_cartao_mes_uq")) {
+        toast.error(`Já existe uma fatura para este cartão no mês ${novaFatura.mes_referencia}. Abra a fatura existente ou escolha outro mês.`);
+      } else {
+        toast.error(err instanceof Error ? err.message : "Erro ao criar fatura.");
+      }
     } finally { setSaving(false); }
   };
 
