@@ -58,6 +58,7 @@ function isAllowedInterRequest(path: string, method: string): boolean {
     return method === "GET" || method === "PUT";
   }
   if (path === "/banking/v2/pix") return method === "POST";
+  if (/^\/banking\/v2\/pix\/[0-9a-fA-F-]{36}$/.test(path)) return method === "GET";
   if (
     method === "GET" &&
     /^\/banking\/v2\/extrato\?dataInicio=\d{4}-\d{2}-\d{2}&dataFim=\d{4}-\d{2}-\d{2}$/.test(path)
@@ -351,13 +352,22 @@ serve(async (req) => {
       return jsonResponse({ error: "unauthorized" }, 401);
     }
 
-    const { path, method: rawMethod = "GET", payload } = await req.json();
+    const { path, method: rawMethod = "GET", payload, idempotencyKey } = await req.json();
     const method = String(rawMethod).toUpperCase();
     if (!path || typeof path !== "string") {
       return jsonResponse({ error: "path obrigatório" }, 400);
     }
     if (!isAllowedInterRequest(path, method)) {
       return jsonResponse({ error: "rota ou método não permitido" }, 403);
+    }
+    if (
+      path === "/banking/v2/pix" &&
+      method === "POST" &&
+      !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(
+        String(idempotencyKey ?? ""),
+      )
+    ) {
+      return jsonResponse({ error: "x-id-idempotente inválido" }, 400);
     }
 
     const { cert, key } = await loadCerts();
@@ -400,6 +410,9 @@ serve(async (req) => {
       Accept: "application/json",
     };
     if (numeroConta) reqHeaders["x-conta-corrente"] = numeroConta;
+    if (path === "/banking/v2/pix" && method === "POST") {
+      reqHeaders["x-id-idempotente"] = String(idempotencyKey);
+    }
 
     const { status, body } = await makeHttpsRequest(
       method,
