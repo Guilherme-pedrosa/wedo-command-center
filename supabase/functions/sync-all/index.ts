@@ -561,6 +561,8 @@ async function syncCompras(
   let totalFetched = 0;
   let upserted = 0;
   let errors = 0;
+  let staleRemoved = 0;
+  const seenActiveIds = new Set<string>();
 
   for (const currentSitId of COMPRAS_SITUACAO_IDS) {
     let page = 1;
@@ -1421,27 +1423,40 @@ serve(async (req) => {
     try {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      console.log("[sync-all] Disparando reconciliation-engine pós-sync (async)...");
-      fetch(`${supabaseUrl}/functions/v1/reconciliation-engine`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-        body: JSON.stringify({}),
-      }).catch((e) => console.error(`[sync-all] reconciliation-engine fire-and-forget error: ${(e as Error).message}`));
+      console.log("[sync-all] Disparando reconciliation-engine + baixa GC pós-sync (background)...");
+      const reconBaixaTask = (async () => {
+        try {
+          const reconRes = await fetch(`${supabaseUrl}/functions/v1/reconciliation-engine`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+            body: JSON.stringify({}),
+          });
+          const reconText = await reconRes.text();
+          if (!reconRes.ok) console.error(`[sync-all] reconciliation-engine HTTP ${reconRes.status}: ${reconText.substring(0, 700)}`);
 
-      // Dá uma folga de 30s para o motor criar vínculos antes da varredura de baixa GC.
-      console.log("[sync-all] Agendando argus-baixa-confirmada (auto) em 30s...");
-      setTimeout(() => {
-        fetch(`${supabaseUrl}/functions/v1/argus-baixa-confirmada`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-          body: JSON.stringify({ mode: "auto", scope: "ambos" }),
-        }).catch((e) => console.error(`[sync-all] argus-baixa-confirmada fire-and-forget error: ${(e as Error).message}`));
-      }, 30000);
+          const baixaRes = await fetch(`${supabaseUrl}/functions/v1/argus-baixa-confirmada`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+            body: JSON.stringify({ mode: "auto", scope: "ambos", forceConfirmSituacao: true }),
+          });
+          const baixaText = await baixaRes.text();
+          if (!baixaRes.ok) console.error(`[sync-all] argus-baixa-confirmada HTTP ${baixaRes.status}: ${baixaText.substring(0, 700)}`);
+        } catch (e) {
+          console.error(`[sync-all] reconciliation/baixa background error: ${(e as Error).message}`);
+        }
+      })();
+
+      // Mantém a cadeia viva no runtime depois da resposta do sync-all.
+      // @ts-ignore EdgeRuntime existe no runtime da Supabase
+      if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") {
+        // @ts-ignore
+        EdgeRuntime.waitUntil(reconBaixaTask);
+      }
     } catch (reconErr) {
       console.error(`[sync-all] reconciliation/baixa dispatch error: ${(reconErr as Error).message}`);
     }
-    (results as any).reconciliacao = { status: "dispatched_async" };
-    (results as any).baixa_gc_auto = { status: "scheduled_30s" };
+    (results as any).reconciliacao = { status: "dispatched_background" };
+    (results as any).baixa_gc_auto = { status: "dispatched_background_force_confirm" };
 
     // ── Log final ──
     const totalDuration = Date.now() - startTime;

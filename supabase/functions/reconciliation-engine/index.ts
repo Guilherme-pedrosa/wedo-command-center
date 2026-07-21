@@ -487,12 +487,15 @@ async function vincular(supabase: any, ext: any, match: Candidato, rule: string)
     reconciliation_rule: rule,
   }, { onConflict: "extrato_id,lancamento_id,tabela" });
 
+  // 2.6 — Baixar/confirmar no GC imediatamente. A varredura do sync-all continua como rede de segurança.
+  const baixaResult = await invocarBaixaLinks([{ lancamento_id: match.fin.id, tabela }]);
+
   // 3. Log
   await supabase.from("fin_sync_log").insert({
     tipo: "conciliacao_auto",
     referencia_id: ext.id,
     status: "success",
-    payload: { extrato_id: ext.id, lancamento_id: match.fin.id, rule },
+    payload: { extrato_id: ext.id, lancamento_id: match.fin.id, rule, baixa: baixaResult },
   });
 }
 
@@ -520,11 +523,14 @@ async function vincularRastreabilidade(supabase: any, ext: any, lancamentoId: st
     reconciliation_rule: rule,
   }, { onConflict: "extrato_id,lancamento_id,tabela" });
 
+  // Mesmo em rastreabilidade, força situação "Confirmado" no GC quando houver vínculo conciliado.
+  const baixaResult = await invocarBaixaLinks([{ lancamento_id: lancamentoId, tabela }]);
+
   await supabase.from("fin_sync_log").insert({
     tipo: "conciliacao_rastreabilidade",
     referencia_id: ext.id,
     status: "success",
-    payload: { extrato_id: ext.id, lancamento_id: lancamentoId, rule },
+    payload: { extrato_id: ext.id, lancamento_id: lancamentoId, rule, baixa: baixaResult },
   });
 }
 
@@ -538,9 +544,14 @@ interface ParcelaSoma {
   tabela: "pagamentos" | "recebimentos";
 }
 
-async function invocarBaixaConfirmada(parcelas: ParcelaSoma[]) {
-  const links = parcelas.map((p) => ({
-    lancamento_id: p.id,
+interface BaixaLink {
+  lancamento_id: string;
+  tabela: "pagamentos" | "recebimentos";
+}
+
+async function invocarBaixaLinks(baixaLinks: BaixaLink[]) {
+  const links = baixaLinks.map((p) => ({
+    lancamento_id: p.lancamento_id,
     tabela: p.tabela === "pagamentos" ? "fin_pagamentos" : "fin_recebimentos",
   }));
   if (links.length === 0) return null;
@@ -554,7 +565,7 @@ async function invocarBaixaConfirmada(parcelas: ParcelaSoma[]) {
   const res = await fetch(`${supabaseUrl}/functions/v1/argus-baixa-confirmada`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-    body: JSON.stringify({ mode: "links", links }),
+    body: JSON.stringify({ mode: "links", links, forceConfirmSituacao: true }),
   });
   const text = await res.text();
   let body: any = null;
@@ -564,6 +575,10 @@ async function invocarBaixaConfirmada(parcelas: ParcelaSoma[]) {
     throw new Error(`argus-baixa-confirmada falhou: HTTP ${res.status} ${text.substring(0, 700)}`);
   }
   return body;
+}
+
+async function invocarBaixaConfirmada(parcelas: ParcelaSoma[]) {
+  return invocarBaixaLinks(parcelas.map((p) => ({ lancamento_id: p.id, tabela: p.tabela })));
 }
 
 async function saveSomaParcelas(
