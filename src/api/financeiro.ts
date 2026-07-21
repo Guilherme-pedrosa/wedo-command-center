@@ -211,10 +211,11 @@ async function fetchPaginatedGC<T>(
 async function interRequest<T = unknown>(
   path: string,
   method = "GET",
-  payload?: Record<string, unknown>
+  payload?: Record<string, unknown>,
+  options?: { idempotencyKey?: string }
 ): Promise<T> {
   const { data, error } = await supabase.functions.invoke("inter-proxy", {
-    body: { path, method, payload },
+    body: { path, method, payload, idempotencyKey: options?.idempotencyKey },
   });
   if (error) throw new Error(error.message);
   if (data?.error) throw new Error(data.error);
@@ -2014,35 +2015,41 @@ export async function enviarPagamentoPix(
   if (!agenda) throw new Error("Agendamento não encontrado");
 
   const ag = agenda as any;
+  const valor = Number(ag.valor);
+  if (!Number.isFinite(valor) || valor <= 0) throw new Error("Valor do PIX inválido");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ag.data_vencimento ?? ""))) {
+    throw new Error("Data de pagamento do PIX inválida");
+  }
+  const chave = String(ag.chave_pix_destino ?? "").trim();
+  if (!chave) throw new Error("Chave PIX do destinatário não informada");
+
   const payload = {
-    valor: parseFloat(String(ag.valor)).toFixed(2),
+    valor: Math.round(valor * 100) / 100,
     dataPagamento: ag.data_vencimento,
-    descricao: ag.descricao,
-    destinatario: {
-      tipo: "CHAVE",
-      chave: {
-        tipo: ag.tipo_chave?.toUpperCase() ?? "CNPJ",
-        chave: ag.chave_pix_destino,
-      },
-    },
+    descricao: String(ag.descricao ?? "").slice(0, 140),
+    destinatario: { tipo: "CHAVE", chave },
   };
 
-  const resp = await interRequest<any>("/banking/v2/pix", "POST", payload);
-  const endToEndId = resp.endToEndId ?? resp.codigoTransacao ?? "";
+  const resp = await interRequest<any>("/banking/v2/pix", "POST", payload, {
+    idempotencyKey: agendaId,
+  });
+  const endToEndId = resp.codigoSolicitacao ?? resp.endToEndId ?? resp.codigoTransacao ?? "";
+  if (!endToEndId) throw new Error("Inter não retornou o código da solicitação PIX");
+  const executado = resp.tipoRetorno === "PAGAMENTO";
 
   await supabase
     .from("fin_agenda_pagamentos" as any)
     .update({
       inter_pagamento_id: endToEndId,
-      status: "executado",
-      executado_em: new Date().toISOString(),
+      status: executado ? "executado" : "pendente",
+      executado_em: executado ? new Date().toISOString() : null,
     })
     .eq("id", agendaId);
 
   await supabase.from("fin_sync_log" as any).insert({
     tipo: "inter_pagamento_pix",
     referencia_id: agendaId,
-    status: "success",
+    status: executado ? "success" : "pending_approval",
     payload,
     resposta: resp,
   });
