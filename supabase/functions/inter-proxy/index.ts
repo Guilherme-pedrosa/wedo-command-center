@@ -16,6 +16,47 @@ let cachedCert: string | null = null;
 let cachedKey: string | null = null;
 const tokenCache: Record<string, { token: string; expiry: number }> = {};
 
+function jsonResponse(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+async function isAuthorized(req: Request): Promise<boolean> {
+  const authorization = req.headers.get("authorization") ?? "";
+  if (!authorization.startsWith("Bearer ")) return false;
+
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (serviceRoleKey && authorization === `Bearer ${serviceRoleKey}`) return true;
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  if (!supabaseUrl || !anonKey) return false;
+
+  const token = authorization.slice("Bearer ".length).trim();
+  const authClient = createClient(supabaseUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await authClient.auth.getUser(token);
+  return !error && Boolean(data.user);
+}
+
+function isAllowedInterRequest(path: string, method: string): boolean {
+  if ((path === "/test-certs" || path === "/test-auth") && method === "GET") return true;
+  if (/^\/pix\/v2\/cobv?\/[a-zA-Z0-9]{26,35}$/.test(path)) {
+    return method === "GET" || method === "PUT";
+  }
+  if (path === "/banking/v2/pix") return method === "POST";
+  if (
+    method === "GET" &&
+    /^\/banking\/v2\/extrato\?dataInicio=\d{4}-\d{2}-\d{2}&dataFim=\d{4}-\d{2}-\d{2}$/.test(path)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 // ─── PEM builder ──────────────────────────────────────────────
 function buildPEM(raw: string, type: "CERTIFICATE" | "PRIVATE KEY"): string {
   if (!raw?.trim()) throw new Error(`PEM ${type} vazio`);
@@ -263,7 +304,7 @@ async function getToken(cert: string, key: string, scope: string): Promise<strin
     scope,
   }).toString();
 
-  console.log("[inter-proxy] OAuth via Deno.connectTls (cert/key), client_id:", clientId.slice(0, 8) + "...", "scope:", scope);
+  console.log("[inter-proxy] OAuth via mTLS, scope:", scope);
 
   const { status, body: resBody } = await makeHttpsRequest(
     "POST",
@@ -274,12 +315,12 @@ async function getToken(cert: string, key: string, scope: string): Promise<strin
     key
   );
 
-  console.log("[inter-proxy] OAuth status:", status, "| body:", resBody.slice(0, 300));
+  console.log("[inter-proxy] OAuth status:", status);
 
-  if (status !== 200) throw new Error(`OAuth failed (${status}): ${resBody}`);
+  if (status !== 200) throw new Error(`OAuth failed (${status})`);
 
   const data = JSON.parse(resBody);
-  if (!data.access_token) throw new Error(`OAuth response missing access_token: ${resBody}`);
+  if (!data.access_token) throw new Error("OAuth response missing access_token");
 
   tokenCache[scope] = {
     token: data.access_token,
@@ -296,12 +337,17 @@ serve(async (req) => {
   }
 
   try {
-    const { path, method = "GET", payload } = await req.json();
-    if (!path) {
-      return new Response(
-        JSON.stringify({ error: "path obrigatório" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    if (!(await isAuthorized(req))) {
+      return jsonResponse({ error: "unauthorized" }, 401);
+    }
+
+    const { path, method: rawMethod = "GET", payload } = await req.json();
+    const method = String(rawMethod).toUpperCase();
+    if (!path || typeof path !== "string") {
+      return jsonResponse({ error: "path obrigatório" }, 400);
+    }
+    if (!isAllowedInterRequest(path, method)) {
+      return jsonResponse({ error: "rota ou método não permitido" }, 403);
     }
 
     const { cert, key } = await loadCerts();
@@ -322,10 +368,10 @@ serve(async (req) => {
 
     // ── Diagnóstico: test-auth ───────────────────────────────
     if (path === "/test-auth") {
-      const token = await getToken(cert, key, "extrato.read");
-      return new Response(
-        JSON.stringify({ ok: true, preview: token.slice(0, 20) + "...", method: "Deno.connectTls(cert,key)" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      await getToken(cert, key, "extrato.read");
+      return jsonResponse(
+        { ok: true, scope: "extrato.read", method: "Deno.connectTls(cert,key)" },
+        200,
       );
     }
 
@@ -334,6 +380,9 @@ serve(async (req) => {
     const token = await getToken(cert, key, scope);
     const bodyStr = payload && method !== "GET" ? JSON.stringify(payload) : undefined;
     const numeroConta = (Deno.env.get("INTER_NUMERO_CONTA") ?? "").trim();
+    if (numeroConta && !/^[1-9]\d*$/.test(numeroConta)) {
+      return jsonResponse({ error: "INTER_NUMERO_CONTA inválido" }, 500);
+    }
 
     const reqHeaders: Record<string, string> = {
       Authorization: `Bearer ${token}`,
