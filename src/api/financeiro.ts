@@ -1876,21 +1876,47 @@ export async function gerarCobrancaPix(grupoId: string): Promise<{
   );
 
   const g = grupo as any;
+  const valor = Number(g.valor_total);
+  if (!Number.isFinite(valor) || valor <= 0) {
+    throw new Error("Valor da cobrança PIX inválido");
+  }
+
+  const chavePix = String(configs.inter_chave_pix ?? "").trim();
+  if (!chavePix) throw new Error("Chave PIX do Inter não configurada");
+
+  const { data: cliente, error: clienteError } = await supabase
+    .from("fin_clientes" as any)
+    .select("cpf_cnpj")
+    .eq("gc_id", String(g.cliente_gc_id ?? ""))
+    .maybeSingle();
+  if (clienteError) throw new Error(`Falha ao consultar CPF/CNPJ do cliente: ${clienteError.message}`);
+
+  const documento = String((cliente as any)?.cpf_cnpj ?? "").replace(/\D/g, "");
+  if (documento.length !== 11 && documento.length !== 14) {
+    throw new Error("Cadastre um CPF ou CNPJ válido para gerar a cobrança PIX");
+  }
+
+  const nomeDevedor = String(g.nome_cliente ?? "Cliente").trim().slice(0, 200);
+  const devedor = documento.length === 14
+    ? { nome: nomeDevedor, cnpj: documento }
+    : { nome: nomeDevedor, cpf: documento };
+  const comVencimento = Boolean(g.data_vencimento);
+  if (comVencimento && !/^\d{4}-\d{2}-\d{2}$/.test(String(g.data_vencimento))) {
+    throw new Error("Data de vencimento inválida para cobrança PIX");
+  }
+
   const payload = {
-    calendario: {
-      expiracao: 86400,
-      ...(g.data_vencimento
-        ? { dataDeVencimento: g.data_vencimento, validadeAposVencimento: 3 }
-        : {}),
-    },
-    devedor: { nome: g.nome_cliente ?? "Cliente", cpf: "00000000000" },
-    valor: { original: parseFloat(String(g.valor_total)).toFixed(2) },
-    chave: configs.inter_chave_pix ?? "",
-    solicitacaoPagador: `WeDo - ${g.nome_cliente ?? "Pagamento"}`,
+    calendario: comVencimento
+      ? { dataDeVencimento: g.data_vencimento, validadeAposVencimento: 3 }
+      : { expiracao: 86400 },
+    devedor,
+    valor: { original: valor.toFixed(2) },
+    chave: chavePix,
+    solicitacaoPagador: `WeDo - ${g.nome_cliente ?? "Pagamento"}`.slice(0, 140),
     infoAdicionais: [{ nome: "GrupoId", valor: grupoId }],
   };
 
-  const endpoint = g.data_vencimento ? `/pix/v2/cobv/${txid}` : `/pix/v2/cob/${txid}`;
+  const endpoint = comVencimento ? `/pix/v2/cobv/${txid}` : `/pix/v2/cob/${txid}`;
   const resp = await interRequest<any>(endpoint, "PUT", payload);
 
   await supabase
