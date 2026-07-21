@@ -1,6 +1,6 @@
 // Edge Function: argus-baixa-confirmada
 // Baixa no GC pagamentos/recebimentos já conciliados pelo Argus (vínculos em fin_extrato_lancamentos)
-// usando situacao_id = 949476 (Confirmado Argus).
+// usando id_situacao = 949476 (Confirmado Argus).
 // Regras:
 //   - Só processa vínculos cuja data do extrato seja >= 2026-04-01
 //   - data_liquidacao no GC = data do extrato (yyyy-mm-dd)
@@ -63,6 +63,10 @@ interface BaixaResult {
 }
 
 type BaixaScope = "pagamentos" | "recebimentos" | "ambos";
+
+interface BaixaOptions {
+  forceConfirmSituacao?: boolean;
+}
 
 function normalizeTabela(t: string): "fin_pagamentos" | "fin_recebimentos" | null {
   const clean = (t || "").replace(/^fin_/, "");
@@ -189,7 +193,7 @@ async function baixarNoGC(
   }
 }
 
-async function processarLink(link: LinkInput): Promise<BaixaResult> {
+async function processarLink(link: LinkInput, options: BaixaOptions = {}): Promise<BaixaResult> {
   const tabela = normalizeTabela(link.tabela);
   if (!tabela) {
     return { ...link, ok: false, erro: `Tabela inválida: ${link.tabela}` };
@@ -211,7 +215,9 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
   if (!lanc.gc_id || !lanc.gc_payload_raw) {
     return { ...link, ok: false, erro: "Sem gc_id ou payload" };
   }
-  if (lanc.gc_baixado) {
+  const statusLocal = String(lanc.status || "").toLowerCase();
+  const jaPagoLocal = lanc.liquidado === true || statusLocal === "pago";
+  if (lanc.gc_baixado && jaPagoLocal && !options.forceConfirmSituacao) {
     return { ...link, ok: true, gc_id: lanc.gc_id, erro: "Já baixado (skip)" };
   }
 
@@ -324,7 +330,7 @@ async function processarLink(link: LinkInput): Promise<BaixaResult> {
   return { ...link, ok: true, gc_id: lanc.gc_id };
 }
 
-async function buscarPendentes(dataInicio?: string, dataFim?: string, scope: BaixaScope = "ambos"): Promise<LinkInput[]> {
+async function buscarPendentes(dataInicio?: string, dataFim?: string, scope: BaixaScope = "ambos", options: BaixaOptions = {}): Promise<LinkInput[]> {
   // Busca a partir dos lançamentos confirmados localmente. Antes a varredura partia do extrato,
   // o que deixava títulos pago_sistema=true fora da baixa quando a consulta de extratos não os alcançava.
   const inicio = dataInicio && dataInicio >= CUTOFF_DATE ? dataInicio : CUTOFF_DATE;
@@ -332,68 +338,61 @@ async function buscarPendentes(dataInicio?: string, dataFim?: string, scope: Bai
   const seen = new Set<string>();
 
   async function collect(table: "fin_pagamentos" | "fin_recebimentos", aliases: string[]) {
-    // Pagina em blocos de 1000 para não bater no teto do PostgREST (default ~1000 rows).
-    const rows: any[] = [];
+    // Parte dos vínculos conciliados, não da tabela de lançamentos. A tabela pode ter milhares
+    // de financeiros antigos; paginar por ela fazia a busca parar antes de alcançar todos os
+    // registros realmente reconciliados no extrato.
+    const links: any[] = [];
     const PAGE = 1000;
     let from = 0;
-    // Limite defensivo de 200k linhas (200 páginas).
     for (let p = 0; p < 200; p++) {
       const { data: chunk, error } = await supabase
-        .from(table)
-        .select("id, gc_id, status, gc_baixado, liquidado, pago_sistema")
-        .not("gc_id", "is", null)
-        .or("gc_baixado.is.null,gc_baixado.eq.false")
+        .from("fin_extrato_lancamentos")
+        .select("extrato_id, lancamento_id, tabela")
+        .in("tabela", aliases)
+        .order("lancamento_id", { ascending: true })
+        .order("extrato_id", { ascending: true })
         .range(from, from + PAGE - 1);
       if (error) {
-        console.warn(`[buscarPendentes] Falha ao buscar ${table} (page ${p}):`, error.message);
+        console.warn(`[buscarPendentes] Falha ao buscar vínculos ${table} (page ${p}):`, error.message);
         break;
       }
       if (!chunk || chunk.length === 0) break;
-      rows.push(...chunk);
+      links.push(...chunk);
       if (chunk.length < PAGE) break;
       from += PAGE;
     }
-
-
-    const candidates = ((rows || []) as any[]).filter((row) =>
-      String(row.status || "").toLowerCase() !== "cancelado"
-    );
-    if (candidates.length === 0) return;
-
-    const ids = candidates.map((row) => row.id).filter(Boolean);
-    const links: any[] = [];
-    for (let i = 0; i < ids.length; i += 500) {
-      const { data: batchLinks } = await supabase
-        .from("fin_extrato_lancamentos")
-        .select("extrato_id, lancamento_id, tabela")
-        .in("lancamento_id", ids.slice(i, i + 500))
-        .in("tabela", aliases)
-        .limit(10000);
-      links.push(...((batchLinks || []) as any[]));
-    }
+    console.log(`[buscarPendentes] ${table}: links=${links.length}`);
     if (links.length === 0) return;
 
     const extratoIds = Array.from(new Set(links.map((l) => l.extrato_id).filter(Boolean)));
     const validExtratos = new Set<string>();
-    for (let i = 0; i < extratoIds.length; i += 500) {
+    for (let i = 0; i < extratoIds.length; i += 100) {
       let q = supabase
         .from("fin_extrato_inter")
         .select("id, data_hora")
-        .in("id", extratoIds.slice(i, i + 500))
+        .in("id", extratoIds.slice(i, i + 100))
         .eq("reconciliado", true)
         .gte("data_hora", `${inicio}T00:00:00+00:00`);
       if (dataFim) q = q.lte("data_hora", `${dataFim}T23:59:59+00:00`);
-      const { data: extratos } = await q;
+      const { data: extratos, error: extratosErr } = await q;
+      if (extratosErr) {
+        console.warn(`[buscarPendentes] Falha ao buscar extratos ${table}:`, extratosErr.message);
+        continue;
+      }
       for (const e of (extratos || []) as any[]) validExtratos.add(e.id);
     }
+    console.log(`[buscarPendentes] ${table}: extratosValidos=${validExtratos.size}`);
 
+    let adicionados = 0;
     for (const link of links) {
       if (!validExtratos.has(link.extrato_id)) continue;
       const key = `${table}|${link.lancamento_id}`;
       if (seen.has(key)) continue;
       seen.add(key);
       out.push({ lancamento_id: link.lancamento_id, tabela: table });
+      adicionados++;
     }
+    console.log(`[buscarPendentes] ${table}: adicionados=${adicionados}`);
   }
 
   if (scope === "pagamentos" || scope === "ambos") await collect("fin_pagamentos", ["pagamentos", "fin_pagamentos"]);
@@ -402,7 +401,7 @@ async function buscarPendentes(dataInicio?: string, dataFim?: string, scope: Bai
   return out;
 }
 
-async function runBaixaBatch(alvos: LinkInput[]): Promise<BaixaResult[]> {
+async function runBaixaBatch(alvos: LinkInput[], options: BaixaOptions = {}): Promise<BaixaResult[]> {
   const CONCURRENCY = 5;
   const resultados: BaixaResult[] = [];
   let cursor = 0;
@@ -411,7 +410,7 @@ async function runBaixaBatch(alvos: LinkInput[]): Promise<BaixaResult[]> {
       const i = cursor++;
       if (i >= alvos.length) return;
       try {
-        const r = await processarLink(alvos[i]);
+        const r = await processarLink(alvos[i], options);
         resultados.push(r);
       } catch (e) {
         resultados.push({ ...alvos[i], ok: false, erro: e instanceof Error ? e.message : String(e) });
@@ -430,13 +429,16 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const mode: "auto" | "links" = body.mode === "auto" ? "auto" : "links";
     const background = body.background !== false; // default true
+    const options: BaixaOptions = {
+      forceConfirmSituacao: body.forceConfirmSituacao === true,
+    };
 
     let alvos: LinkInput[] = [];
     if (mode === "auto") {
       const dataInicio = typeof body.dataInicio === "string" ? body.dataInicio : undefined;
       const dataFim = typeof body.dataFim === "string" ? body.dataFim : undefined;
       const scope = normalizeScope(body.scope);
-      alvos = await buscarPendentes(dataInicio, dataFim, scope);
+      alvos = await buscarPendentes(dataInicio, dataFim, scope, options);
     } else if (Array.isArray(body.links)) {
       alvos = body.links
         .filter((l: any) => l?.lancamento_id && l?.tabela)
@@ -458,7 +460,7 @@ Deno.serve(async (req) => {
     if (mode === "auto" && background) {
       const task = (async () => {
         try {
-          const r = await runBaixaBatch(alvos);
+          const r = await runBaixaBatch(alvos, options);
           const ok = r.filter((x) => x.ok).length;
           console.log(`[argus-baixa-confirmada/bg] concluído: ${ok}/${r.length}`);
         } catch (e) {
@@ -476,7 +478,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const resultados = await runBaixaBatch(alvos);
+    const resultados = await runBaixaBatch(alvos, options);
     const sucesso = resultados.filter((r) => r.ok).length;
     const falha = resultados.length - sucesso;
     return new Response(
