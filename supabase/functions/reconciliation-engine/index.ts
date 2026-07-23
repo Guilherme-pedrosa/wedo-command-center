@@ -102,9 +102,10 @@ function dataProxima(a: string, b: string, dias = 3): boolean {
   return diff !== null && diff <= dias * 86400000;
 }
 
-// HARD CAP: nunca casar extrato com lançamento se a diferença for > 60 dias.
-// Evita matches absurdos (ex: extrato Abr/2026 com recebimento Dez/2025).
-const MAX_GAP_DIAS = 60;
+// HARD CAP: nunca casar extrato com lançamento se a diferença for > 5 dias.
+// Regra de negócio: Sync GC só concilia extrato com GC de mesmo valor cuja data
+// esteja no mesmo dia ou até ±5 dias. Fora dessa janela nada é sugerido/auto.
+const MAX_GAP_DIAS = 5;
 function dentroJanelaMaxima(extDate: string, finDate: string): boolean {
   const diffDays = daysBetweenDates(extDate, finDate);
   return diffDays !== null && diffDays <= MAX_GAP_DIAS;
