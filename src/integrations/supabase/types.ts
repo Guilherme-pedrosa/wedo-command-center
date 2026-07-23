@@ -3713,6 +3713,150 @@ export type Database = {
         }
         Relationships: []
       }
+      mcp_audit_log: {
+        Row: {
+          created_at: string
+          duration_ms: number
+          error_code: string | null
+          error_summary: string | null
+          id: string
+          operation_type: string
+          parameters_sanitized: Json
+          request_id: string
+          result_status: string
+          role: string | null
+          source_system: string
+          target_entity: string | null
+          target_id: string | null
+          tool_name: string
+          upstream_status: number | null
+          user_email: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          duration_ms: number
+          error_code?: string | null
+          error_summary?: string | null
+          id?: string
+          operation_type: string
+          parameters_sanitized?: Json
+          request_id: string
+          result_status: string
+          role?: string | null
+          source_system: string
+          target_entity?: string | null
+          target_id?: string | null
+          tool_name: string
+          upstream_status?: number | null
+          user_email?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          duration_ms?: number
+          error_code?: string | null
+          error_summary?: string | null
+          id?: string
+          operation_type?: string
+          parameters_sanitized?: Json
+          request_id?: string
+          result_status?: string
+          role?: string | null
+          source_system?: string
+          target_entity?: string | null
+          target_id?: string | null
+          tool_name?: string
+          upstream_status?: number | null
+          user_email?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      mcp_idempotency: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          id: string
+          idempotency_key: string
+          payload_hash: string
+          response_summary: Json | null
+          status: string
+          tool_name: string
+          upstream_id: string | null
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          payload_hash: string
+          response_summary?: Json | null
+          status: string
+          tool_name: string
+          upstream_id?: string | null
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          payload_hash?: string
+          response_summary?: Json | null
+          status?: string
+          tool_name?: string
+          upstream_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mcp_pending_actions: {
+        Row: {
+          confirmation_token_hash: string
+          created_at: string
+          executed_at: string | null
+          expires_at: string
+          id: string
+          payload: Json
+          payload_hash: string
+          request_id: string
+          result_reference: Json | null
+          status: string
+          tool_name: string
+          user_id: string
+        }
+        Insert: {
+          confirmation_token_hash: string
+          created_at?: string
+          executed_at?: string | null
+          expires_at: string
+          id?: string
+          payload: Json
+          payload_hash: string
+          request_id: string
+          result_reference?: Json | null
+          status?: string
+          tool_name: string
+          user_id: string
+        }
+        Update: {
+          confirmation_token_hash?: string
+          created_at?: string
+          executed_at?: string | null
+          expires_at?: string
+          id?: string
+          payload?: Json
+          payload_hash?: string
+          request_id?: string
+          result_reference?: Json | null
+          status?: string
+          tool_name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       os_index: {
         Row: {
           agrupado: boolean | null
