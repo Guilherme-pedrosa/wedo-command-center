@@ -16,6 +16,7 @@ const corsHeaders = {
 
 const SITUACAO_CONFIRMADO_ARGUS = "949476";
 const CUTOFF_DATE = "2026-04-01"; // ponto de corte: só baixa vínculos a partir desta data
+const GC_API_USER_ID = "1320473"; // usuário API GC — atribui operações automáticas a ele, não ao humano logado
 
 const GC_BASE_URL = "https://api.gestaoclick.com";
 const GC_ACCESS_TOKEN = Deno.env.get("GC_ACCESS_TOKEN")!;
@@ -160,6 +161,7 @@ async function baixarNoGC(
     data_liquidacao: dataLiquidacao,
     id_situacao: SITUACAO_CONFIRMADO_ARGUS,
     observacao: obsFinal,
+    usuario_id: GC_API_USER_ID,
   };
 
   // Campos opcionais
