@@ -161,6 +161,7 @@ async function baixarNoGC(
     data_liquidacao: dataLiquidacao,
     id_situacao: SITUACAO_CONFIRMADO_ARGUS,
     observacao: obsFinal,
+    usuario_id: GC_API_USER_ID,
   };
 
   // Campos opcionais
