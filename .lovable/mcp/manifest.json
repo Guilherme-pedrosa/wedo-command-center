@@ -11,11 +11,1056 @@
   },
   "mcp": {
     "server": {
-      "name": "argus-finance-mcp",
-      "version": "0.1.0",
-      "title": "ARGUS Finance OS"
+      "name": "wedo-operacoes",
+      "version": "0.2.0",
+      "title": "WeDo Operações — GestãoClick e Auvo"
     },
     "tools": [
+      {
+        "name": "buscar_cliente",
+        "title": "Buscar cliente no GestãoClick",
+        "description": "Localiza clientes no GestãoClick por nome, CPF/CNPJ, e-mail ou telefone. Use antes de consultar ou criar registros. Se houver mais de um candidato, peça ao usuário para escolher.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "nome": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 120
+            },
+            "cpf_cnpj": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 24
+            },
+            "email": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "telefone": {
+              "type": "string",
+              "maxLength": 30
+            },
+            "somente_ativos": {
+              "default": true,
+              "type": "boolean"
+            },
+            "limite": {
+              "default": 10,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "detalhar_cliente",
+        "title": "Detalhar cliente no GestãoClick",
+        "description": "Obtém o cadastro completo e atual de um cliente específico no GestãoClick pelo ID.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "cliente_id": {
+              "type": "string",
+              "maxLength": 30,
+              "pattern": "^\\d+$"
+            }
+          },
+          "required": [
+            "cliente_id"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "buscar_ordens_servico",
+        "title": "Buscar ordens de serviço",
+        "description": "Consulta ordens de serviço diretamente no GestãoClick por cliente, código, situação ou período. Não altera registros.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "cliente_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "codigo": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "situacao_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "data_inicio": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "data_fim": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "pagina": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "limite": {
+              "default": 30,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "detalhar_ordem_servico",
+        "title": "Detalhar ordem de serviço",
+        "description": "Busca a versão atual e completa de uma ordem de serviço no GestãoClick pelo ID.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "ordem_servico_id": {
+              "type": "string",
+              "maxLength": 30,
+              "pattern": "^\\d+$"
+            }
+          },
+          "required": [
+            "ordem_servico_id"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "buscar_orcamentos",
+        "title": "Buscar orçamentos",
+        "description": "Consulta orçamentos diretamente no GestãoClick por cliente, código, situação ou tipo.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "cliente_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "codigo": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "situacao_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "tipo": {
+              "type": "string",
+              "enum": [
+                "produto",
+                "servico"
+              ]
+            },
+            "pagina": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "limite": {
+              "default": 30,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "detalhar_orcamento",
+        "title": "Detalhar orçamento",
+        "description": "Obtém o orçamento completo e atual no GestãoClick pelo ID.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "orcamento_id": {
+              "type": "string",
+              "maxLength": 30,
+              "pattern": "^\\d+$"
+            }
+          },
+          "required": [
+            "orcamento_id"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "buscar_produto_servico",
+        "title": "Buscar produto ou serviço",
+        "description": "Pesquisa o catálogo atual do GestãoClick. Use para resolver IDs, preço e disponibilidade antes de montar orçamento ou OS.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "termo": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 120
+            },
+            "tipo": {
+              "default": "ambos",
+              "type": "string",
+              "enum": [
+                "produto",
+                "servico",
+                "ambos"
+              ]
+            },
+            "pagina": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "limite": {
+              "default": 20,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          "required": [
+            "termo"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "consultar_estoque",
+        "title": "Consultar estoque",
+        "description": "Consulta no GestãoClick o estoque atual de um produto específico pelo ID.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "produto_id": {
+              "type": "string",
+              "maxLength": 30,
+              "pattern": "^\\d+$"
+            }
+          },
+          "required": [
+            "produto_id"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "listar_situacoes_orcamento",
+        "title": "Listar situações de orçamento",
+        "description": "Lista os IDs e nomes válidos de situações de orçamento no GestãoClick.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "pagina": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "limite": {
+              "default": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "listar_situacoes_os",
+        "title": "Listar situações de OS",
+        "description": "Lista os IDs e nomes válidos de situações de ordem de serviço no GestãoClick.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "pagina": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "limite": {
+              "default": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "listar_lojas_gc",
+        "title": "Listar lojas do GestãoClick",
+        "description": "Lista lojas válidas para atribuir orçamentos e ordens de serviço.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "pagina": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "limite": {
+              "default": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "buscar_cliente_auvo",
+        "title": "Buscar cliente no Auvo",
+        "description": "Localiza o cadastro operacional de um cliente no Auvo. Use o externalId para relacionar com outro sistema quando disponível.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "nome": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 120
+            },
+            "external_id": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "somente_ativos": {
+              "default": true,
+              "type": "boolean"
+            },
+            "pagina": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "limite": {
+              "default": 20,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "buscar_equipamentos",
+        "title": "Buscar equipamentos no Auvo",
+        "description": "Localiza equipamentos no Auvo por cliente, nome, identificador ou referência externa.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "cliente_auvo_id": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "nome": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "identificador": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "external_id": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "somente_ativos": {
+              "default": true,
+              "type": "boolean"
+            },
+            "pagina": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "limite": {
+              "default": 30,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "detalhar_equipamento",
+        "title": "Detalhar equipamento no Auvo",
+        "description": "Obtém o cadastro completo e atual de um equipamento no Auvo.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "equipamento_auvo_id": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "equipamento_auvo_id"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "consultar_tarefa_auvo",
+        "title": "Consultar tarefa no Auvo",
+        "description": "Consulta uma tarefa específica no Auvo pelo taskID.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "tarefa_auvo_id": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "tarefa_auvo_id"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "listar_tecnicos_auvo",
+        "title": "Listar técnicos do Auvo",
+        "description": "Lista usuários/técnicos do Auvo para selecionar o responsável correto por uma tarefa.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "nome": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "pagina": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "limite": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "listar_tipos_tarefa_auvo",
+        "title": "Listar tipos de tarefa do Auvo",
+        "description": "Lista tipos de tarefa válidos no Auvo para criar um agendamento.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "descricao": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "pagina": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "limite": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "preparar_criacao_tarefa_auvo",
+        "title": "Preparar tarefa no Auvo",
+        "description": "Valida equipamento, cliente, técnico, tipo, data e horário e gera uma prévia. Não cria a tarefa. Depois de mostrar a prévia e obter confirmação explícita do usuário, use confirmar_criacao_tarefa_auvo.",
+        "annotations": {
+          "readOnlyHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "equipamento_auvo_id": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "tecnico_auvo_id": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "tipo_tarefa_auvo_id": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "data": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "hora_inicio": {
+              "type": "string",
+              "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+            },
+            "duracao_minutos": {
+              "default": 120,
+              "type": "integer",
+              "minimum": 15,
+              "maximum": 1440
+            },
+            "orientacao": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 500
+            },
+            "prioridade": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3
+            }
+          },
+          "required": [
+            "equipamento_auvo_id",
+            "tecnico_auvo_id",
+            "tipo_tarefa_auvo_id",
+            "data",
+            "hora_inicio",
+            "orientacao"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "confirmar_criacao_tarefa_auvo",
+        "title": "Confirmar criação de tarefa no Auvo",
+        "description": "Cria exatamente a tarefa previamente preparada. Só use depois de o usuário confirmar explicitamente a prévia na conversa.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "pending_action_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "confirmation_token": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "pending_action_id",
+            "confirmation_token"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "preparar_criacao_orcamento",
+        "title": "Preparar orçamento no GestãoClick",
+        "description": "Valida cliente, situação, produtos, serviços, preços e total e gera uma prévia. Não cria o orçamento. Depois da confirmação explícita do usuário, use confirmar_criacao_orcamento.",
+        "annotations": {
+          "readOnlyHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "tipo": {
+              "type": "string",
+              "enum": [
+                "produto",
+                "servico"
+              ]
+            },
+            "cliente_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "situacao_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "loja_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "usuario_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "vendedor_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "data": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "validade": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "observacoes": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "produtos": {
+              "default": [],
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "maxLength": 30,
+                    "pattern": "^\\d+$"
+                  },
+                  "quantidade": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 100000
+                  },
+                  "valor_unitario": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 30
+                      },
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    ]
+                  },
+                  "detalhes": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "id",
+                  "quantidade",
+                  "valor_unitario"
+                ]
+              }
+            },
+            "servicos": {
+              "default": [],
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "maxLength": 30,
+                    "pattern": "^\\d+$"
+                  },
+                  "quantidade": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 100000
+                  },
+                  "valor_unitario": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 30
+                      },
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    ]
+                  },
+                  "detalhes": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "id",
+                  "quantidade",
+                  "valor_unitario"
+                ]
+              }
+            }
+          },
+          "required": [
+            "tipo",
+            "cliente_id",
+            "situacao_id",
+            "data"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "confirmar_criacao_orcamento",
+        "title": "Confirmar criação de orçamento",
+        "description": "Cria exatamente o orçamento previamente preparado. Só use após confirmação explícita do usuário na conversa.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "pending_action_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "confirmation_token": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "pending_action_id",
+            "confirmation_token"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "preparar_criacao_ordem_servico",
+        "title": "Preparar ordem de serviço no GestãoClick",
+        "description": "Valida os dados e gera a prévia de uma OS no GestãoClick. Não cria a OS. A tarefa Auvo deve ser preparada separadamente quando necessária.",
+        "annotations": {
+          "readOnlyHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "cliente_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "situacao_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "codigo": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "loja_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "usuario_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "vendedor_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "tecnico_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "centro_custo_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "data": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "observacoes": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "observacoes_interna": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "produtos": {
+              "default": [],
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "maxLength": 30,
+                    "pattern": "^\\d+$"
+                  },
+                  "quantidade": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 100000
+                  },
+                  "valor_unitario": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 30
+                      },
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    ]
+                  },
+                  "detalhes": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "id",
+                  "quantidade",
+                  "valor_unitario"
+                ]
+              }
+            },
+            "servicos": {
+              "default": [],
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "maxLength": 30,
+                    "pattern": "^\\d+$"
+                  },
+                  "quantidade": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 100000
+                  },
+                  "valor_unitario": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 30
+                      },
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    ]
+                  },
+                  "detalhes": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "id",
+                  "quantidade",
+                  "valor_unitario"
+                ]
+              }
+            }
+          },
+          "required": [
+            "cliente_id",
+            "situacao_id",
+            "data"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "confirmar_criacao_ordem_servico",
+        "title": "Confirmar criação de ordem de serviço",
+        "description": "Cria exatamente a OS previamente preparada no GestãoClick. Só use após confirmação explícita do usuário.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "pending_action_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "confirmation_token": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "pending_action_id",
+            "confirmation_token"
+          ]
+        },
+        "outputSchema": null
+      },
       {
         "name": "finance_summary",
         "title": "Resumo financeiro",

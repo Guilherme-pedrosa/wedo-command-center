@@ -3,10 +3,14 @@ import { defineTool, type ToolContext } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 
 function client(ctx: ToolContext) {
-  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
+  return createClient(
+    process.env.SUPABASE_URL!,
+    (process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY)!,
+    {
     global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
     auth: { persistSession: false, autoRefreshToken: false },
-  });
+    },
+  );
 }
 
 export default defineTool({
@@ -34,7 +38,10 @@ export default defineTool({
       if (vencimento_ate) q = q.lte("data_vencimento", vencimento_ate);
       const { data, error } = await q;
       if (error) throw new Error(error.message);
-      return (data ?? []).reduce((s, r: any) => s + Number(r.valor ?? 0), 0);
+      return (data ?? []).reduce(
+        (sum, row: { valor?: unknown }) => sum + Number(row.valor ?? 0),
+        0,
+      );
     };
     try {
       const [aReceber, aPagar] = await Promise.all([

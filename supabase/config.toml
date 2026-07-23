@@ -1,5 +1,10 @@
 project_id = "mgiebypxhnmpktljrzjq"
 
+# O SDK MCP valida o bearer OAuth internamente e precisa responder os endpoints
+# públicos de metadata/401. O gateway Supabase não deve interceptar antes dele.
+[functions.mcp]
+verify_jwt = false
+
 [functions.gc-proxy]
 verify_jwt = false
 
