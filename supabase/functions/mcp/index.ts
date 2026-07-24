@@ -3195,7 +3195,7 @@ var projectRef = "mgiebypxhnmpktljrzjq";
 var mcp_default = defineMcp({
   name: "wedo-operacoes",
   title: "WeDo Opera\xE7\xF5es \u2014 Gest\xE3oClick e Auvo",
-  version: "0.5.0",
+  version: "0.5.1",
   instructions: "Ferramentas operacionais da WeDo para Gest\xE3oClick, Auvo e financeiro. Resolva IDs com as ferramentas de busca antes de detalhar ou preparar uma a\xE7\xE3o. Nunca escolha silenciosamente quando houver m\xFAltiplos clientes ou equipamentos. Consultas podem executar diretamente. Cria\xE7\xF5es e edi\xE7\xF5es usam obrigatoriamente duas etapas: primeiro preparar, mostrar a pr\xE9via ao usu\xE1rio e aguardar confirma\xE7\xE3o expl\xEDcita; somente ent\xE3o chamar a ferramenta confirmar com a a\xE7\xE3o pendente recebida. Nunca repita automaticamente uma grava\xE7\xE3o que falhou.",
   auth: auth.oauth.issuer({
     issuer: `https://${projectRef}.supabase.co/auth/v1`,
