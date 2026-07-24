@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { centsToMoney, moneyToCents } from "@/lib/mcp/shared/money";
 import { sanitizeForAudit } from "@/lib/mcp/shared/supabase";
 import { canonicalJson, sha256 } from "@/lib/mcp/shared/pending-actions";
+import {
+  confirmarCriacaoCliente,
+  confirmarEdicaoCliente,
+  prepararCriacaoCliente,
+  prepararEdicaoCliente,
+} from "@/lib/mcp/tools/gc-client-write";
 
 describe("WeDo Operações MCP", () => {
   it("normaliza valores monetários sem erro de ponto flutuante", () => {
@@ -45,5 +51,12 @@ describe("WeDo Operações MCP", () => {
       access_token: "[REDACTED]",
       observacao: "ok",
     });
+  });
+
+  it("expõe criação e edição de clientes somente em fluxo de duas etapas", () => {
+    expect(prepararCriacaoCliente.name).toBe("preparar_criacao_cliente");
+    expect(confirmarCriacaoCliente.name).toBe("confirmar_criacao_cliente");
+    expect(prepararEdicaoCliente.name).toBe("preparar_edicao_cliente");
+    expect(confirmarEdicaoCliente.name).toBe("confirmar_edicao_cliente");
   });
 });

@@ -11,6 +11,10 @@ describe("catálogo MCP publicado", () => {
   it("expõe ferramentas operacionais específicas de GestãoClick e Auvo", () => {
     expect(manifest.mcp.server.name).toBe("wedo-operacoes");
     expect(toolNames).toContain("buscar_cliente");
+    expect(toolNames).toContain("preparar_criacao_cliente");
+    expect(toolNames).toContain("confirmar_criacao_cliente");
+    expect(toolNames).toContain("preparar_edicao_cliente");
+    expect(toolNames).toContain("confirmar_edicao_cliente");
     expect(toolNames).toContain("consultar_estoque");
     expect(toolNames).toContain("buscar_equipamentos");
     expect(toolNames).toContain("consultar_tarefa_auvo");
