@@ -258,10 +258,16 @@ export default function ExtratoBancoPage() {
       if (reconcFilter === "sim" && !e.reconciliado) return false;
       if (reconcFilter === "nao" && e.reconciliado) return false;
       if (reconcFilter === "excecao" && !EXCECAO_RULES.includes(e.reconciliation_rule)) return false;
-      if (searchTerm) {
-        const s = searchTerm.toLowerCase();
-        const fields = [e.nome_contraparte, e.contrapartida, e.descricao, e.cpf_cnpj, e.end_to_end_id, e.chave_pix].filter(Boolean).join(" ").toLowerCase();
-        if (!fields.includes(s)) return false;
+      if (searchTerm.trim()) {
+        const raw = [e.nome_contraparte, e.contrapartida, e.descricao, e.cpf_cnpj, e.end_to_end_id, e.chave_pix]
+          .filter(Boolean).join(" ").toLowerCase();
+        const normalize = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ");
+        const haystack = normalize(raw);
+        const haystackTight = haystack.replace(/\s+/g, "");
+        const tokens = normalize(searchTerm.toLowerCase()).split(/\s+/).filter(Boolean);
+        const queryTight = tokens.join("");
+        const ok = tokens.every(t => haystack.includes(t)) || (queryTight && haystackTight.includes(queryTight));
+        if (!ok) return false;
       }
       return true;
     });
