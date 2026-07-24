@@ -14,7 +14,7 @@ const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unse
 export default defineMcp({
   name: "wedo-operacoes",
   title: "WeDo Operações — GestãoClick e Auvo",
-  version: "0.5.1",
+  version: "0.5.2",
   instructions:
     "Ferramentas operacionais da WeDo para GestãoClick, Auvo e financeiro. Resolva IDs com as ferramentas de busca antes de detalhar ou preparar uma ação. Nunca escolha silenciosamente quando houver múltiplos clientes ou equipamentos. Consultas podem executar diretamente. Criações e edições usam obrigatoriamente duas etapas: primeiro preparar, mostrar a prévia ao usuário e aguardar confirmação explícita; somente então chamar a ferramenta confirmar com a ação pendente recebida. Nunca repita automaticamente uma gravação que falhou.",
   auth: auth.oauth.issuer({

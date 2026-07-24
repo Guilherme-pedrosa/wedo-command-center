@@ -632,6 +632,13 @@ export const buscarTarefasPorEquipamentoAuvo = defineTool({
           com_pendencia: 5,
           iniciadas_ou_encerradas: 6,
         }[input.status];
+        const taskMatchesScope = (task: JsonRecord) => {
+          const taskDate = String(task.taskDate ?? "").slice(0, 10);
+          if (taskDate && (taskDate < startDate || taskDate > endDate)) return false;
+          if (statusFilter !== 4 && Number(task.taskStatus) !== statusFilter) return false;
+          const ids = equipmentIdsFrom(task.equipmentsId ?? task.equipments);
+          return ids.length === 0 || ids.includes(input.equipamento_auvo_id);
+        };
 
         const projectResponse = await auvoRequest<unknown>(
           auvoListPath(
@@ -668,9 +675,27 @@ export const buscarTarefasPorEquipamentoAuvo = defineTool({
         }
 
         const taskRows = new Map<number, JsonRecord>();
+        const directProjectTaskIds = [...projectContexts.keys()].slice(
+          0,
+          Math.max(input.limite * 3, 30),
+        );
+        const directProjectDetails = await Promise.all(
+          directProjectTaskIds.map(async (taskId) => {
+            try {
+              const response = await auvoRequest<unknown>(`/tasks/${taskId}`);
+              return [taskId, auvoResult<JsonRecord>(response)] as const;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        for (const detail of directProjectDetails) {
+          if (detail && taskMatchesScope(detail[1])) taskRows.set(detail[0], detail[1]);
+        }
+
         let pagesRead = 0;
         let totalTasksInScope: number | null = null;
-        if (customerId) {
+        if (customerId && taskRows.size === 0) {
           for (let page = 1; page <= input.max_paginas; page += 1) {
             const response = await auvoRequest<unknown>(
               auvoListPath(
@@ -693,7 +718,9 @@ export const buscarTarefasPorEquipamentoAuvo = defineTool({
               const taskId = numericId(row.taskID ?? row.taskId ?? row.id);
               if (!taskId) continue;
               const ids = equipmentIdsFrom(row.equipmentsId ?? row.equipments);
-              if (ids.includes(input.equipamento_auvo_id)) taskRows.set(taskId, row);
+              if (ids.includes(input.equipamento_auvo_id) && taskMatchesScope(row)) {
+                taskRows.set(taskId, row);
+              }
             }
             if (rows.length < 100 || taskRows.size >= input.limite) break;
           }
@@ -713,7 +740,7 @@ export const buscarTarefasPorEquipamentoAuvo = defineTool({
           }),
         );
         for (const detail of detailResults) {
-          if (detail) taskRows.set(detail[0], detail[1]);
+          if (detail && taskMatchesScope(detail[1])) taskRows.set(detail[0], detail[1]);
         }
 
         const tasks = [...taskRows.entries()]
