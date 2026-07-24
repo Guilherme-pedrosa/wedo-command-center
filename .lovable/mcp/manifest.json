@@ -12,7 +12,7 @@
   "mcp": {
     "server": {
       "name": "wedo-operacoes",
-      "version": "0.5.3",
+      "version": "0.5.4",
       "title": "WeDo Operações — GestãoClick e Auvo"
     },
     "tools": [

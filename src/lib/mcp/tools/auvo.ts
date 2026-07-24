@@ -717,7 +717,11 @@ export const buscarTarefasPorEquipamentoAuvo = defineTool({
         let totalTasksInScope: number | null = null;
         if (customerId && taskRows.size === 0) {
           let cursorEnd = endDate;
-          for (let page = 1; page <= input.max_paginas; page += 1) {
+          const monthWindowLimit =
+            !input.data_inicio && !input.data_fim
+              ? Math.max(input.max_paginas, 12)
+              : input.max_paginas;
+          for (let page = 1; page <= monthWindowLimit; page += 1) {
             const cursorDate = new Date(`${cursorEnd}T00:00:00Z`);
             const monthStart = `${cursorDate.getUTCFullYear()}-${String(
               cursorDate.getUTCMonth() + 1,
