@@ -2329,12 +2329,12 @@ async function auvoRequest(path, method = "GET", body) {
     clearTimeout(timer);
   }
 }
-function auvoListPath(resource, filter, page, pageSize) {
+function auvoListPath(resource, filter, page, pageSize, order = "asc") {
   const query = new URLSearchParams({
     paramFilter: JSON.stringify(filter),
     page: String(page),
     pageSize: String(pageSize),
-    order: "asc"
+    order
   });
   return `/${resource}/?${query.toString()}`;
 }
@@ -2363,6 +2363,151 @@ function resultList(response) {
     return Array.isArray(rows) ? rows : [];
   }
   return [];
+}
+function resultTotal(response) {
+  const result = auvoResult(response);
+  if (!result || typeof result !== "object") return null;
+  const total = result.pagedSearchReturnData?.totalItems;
+  const numeric = Number(total);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+function arrayOfRecords(value) {
+  return Array.isArray(value) ? value.filter((item) => Boolean(item) && typeof item === "object") : [];
+}
+function numericId(value) {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
+}
+function equipmentIdsFrom(value) {
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(
+      value.map(
+        (item) => numericId(
+          item && typeof item === "object" ? item.id ?? item.equipmentId ?? item.equipmentCode : item
+        )
+      ).filter((item) => item !== null)
+    )
+  ];
+}
+function validHttpUrl(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+function normalizedExtension(value, url) {
+  const direct = typeof value === "string" ? value.trim().replace(/^\./, "").toLowerCase() : "";
+  if (direct) return direct;
+  if (!url) return null;
+  try {
+    const match = new URL(url).pathname.match(/\.([a-z0-9]{2,8})$/i);
+    return match?.[1]?.toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
+}
+var IMAGE_EXTENSIONS = /* @__PURE__ */ new Set(["jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif"]);
+function normalizeAttachments(task) {
+  return arrayOfRecords(task.attachments).map((attachment) => {
+    const url = validHttpUrl(
+      attachment.url ?? attachment.uri ?? attachment.href ?? attachment.attachmentUrl
+    );
+    if (!url) return null;
+    const extension = normalizedExtension(attachment.extension, url);
+    return {
+      id: attachment.id ?? null,
+      url,
+      tipo: extension && IMAGE_EXTENSIONS.has(extension) ? "foto" : "arquivo",
+      extensao: extension,
+      subtitulo: attachment.subtitle ?? null,
+      descricao: attachment.description ?? null,
+      tipo_auvo: attachment.attachmentType ?? null
+    };
+  }).filter((item) => item !== null);
+}
+var TASK_STATUS = {
+  1: "aberta",
+  2: "em_deslocamento",
+  3: "check_in",
+  4: "check_out",
+  5: "finalizada",
+  6: "pausada"
+};
+function normalizeAuvoTask(task, context = {}) {
+  const id = numericId(task.taskID ?? task.taskId ?? task.id);
+  const attachments = normalizeAttachments(task);
+  const apiTaskUrl = validHttpUrl(task.taskUrl) ?? validHttpUrl(context.tarefa_url);
+  const fallbackTaskUrl = id ? `https://app.auvo.com.br/relatorioTarefas/DetalheTarefa/${id}` : null;
+  const taskUrl = apiTaskUrl ?? fallbackTaskUrl;
+  return {
+    id,
+    external_id: task.externalId ?? task.externalCode ?? null,
+    cliente: {
+      id: numericId(task.customerId ?? task.customerCode),
+      nome: task.customerDescription ?? task.customerName ?? null
+    },
+    tecnico: {
+      id: numericId(task.idUserTo),
+      nome: task.userToName ?? null
+    },
+    tipo: {
+      id: numericId(task.taskType ?? task.taskTypeCode),
+      nome: task.taskTypeDescription ?? null
+    },
+    data: task.taskDate ?? null,
+    criacao: task.creationDate ?? null,
+    atualizacao: task.dateLastUpdate ?? null,
+    status: TASK_STATUS[Number(task.taskStatus)] ?? task.status ?? null,
+    finalizada: task.finished ?? null,
+    orientacao: task.orientation ?? null,
+    relatorio: task.report ?? null,
+    pendencia: task.pendency ?? null,
+    check_in: task.checkInDate ?? null,
+    check_out: task.checkOutDate ?? null,
+    duracao: task.duration ?? null,
+    duracao_decimal: task.durationDecimal ?? null,
+    equipamentos_ids: equipmentIdsFrom(task.equipmentsId ?? task.equipments),
+    anexos: attachments,
+    fotos: attachments.filter((attachment) => attachment.tipo === "foto"),
+    questionarios: Array.isArray(task.questionnaires) ? task.questionnaires : [],
+    produtos: Array.isArray(task.products) ? task.products : [],
+    servicos: Array.isArray(task.services) ? task.services : [],
+    custos_adicionais: Array.isArray(task.additionalCosts) ? task.additionalCosts : [],
+    ticket: task.ticketId ? { id: task.ticketId, titulo: task.ticketTitle ?? null } : null,
+    links: {
+      tarefa_relatorio: taskUrl,
+      tarefa_relatorio_fonte: apiTaskUrl ? "auvo_api" : fallbackTaskUrl ? "padrao_oficial" : null,
+      relatorio_os: validHttpUrl(context.relatorio_os_url),
+      relatorio_os_detalhado: validHttpUrl(context.relatorio_os_detalhado_url),
+      assinatura: validHttpUrl(task.signatureUrl),
+      pesquisa_satisfacao: validHttpUrl(task.survey)
+    },
+    ordem_servico_auvo: context.ordem_servico_auvo_id ? {
+      id: context.ordem_servico_auvo_id,
+      codigo: context.ordem_servico_auvo_codigo ?? null
+    } : null,
+    vinculo_equipamento: context.vinculo_equipamento ?? null
+  };
+}
+function localDateIso(date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+function defaultTaskPeriod() {
+  const now = /* @__PURE__ */ new Date();
+  const start = new Date(now);
+  start.setUTCFullYear(start.getUTCFullYear() - 5);
+  return { start: localDateIso(start), end: localDateIso(now) };
 }
 function handle5(ctx, options, operation) {
   return runAudited(ctx, options, operation).then(({ data, requestId }) => successResult({ ok: true, request_id: requestId, ...data })).catch((error) => errorResult(error, requestIdFrom(error)));
@@ -2507,7 +2652,7 @@ var detalharEquipamento = defineTool8({
 var consultarTarefaAuvo = defineTool8({
   name: "consultar_tarefa_auvo",
   title: "Consultar tarefa no Auvo",
-  description: "Consulta uma tarefa espec\xEDfica no Auvo pelo taskID.",
+  description: "Consulta uma tarefa espec\xEDfica no Auvo pelo taskID e devolve relat\xF3rio, equipamentos, fotos, anexos, question\xE1rios e links reais.",
   inputSchema: { tarefa_auvo_id: z8.number().int().positive() },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
   handler: async (input, ctx) => handle5(
@@ -2522,7 +2667,170 @@ var consultarTarefaAuvo = defineTool8({
     },
     async () => {
       const response = await auvoRequest(`/tasks/${input.tarefa_auvo_id}`);
-      return { tarefa: auvoResult(response), source: "auvo_live" };
+      return {
+        tarefa: normalizeAuvoTask(auvoResult(response)),
+        source: "auvo_live"
+      };
+    }
+  )
+});
+var buscarTarefasPorEquipamentoAuvo = defineTool8({
+  name: "buscar_tarefas_por_equipamento_auvo",
+  title: "Buscar tarefas e fotos por equipamento no Auvo",
+  description: "Localiza o hist\xF3rico real de tarefas de um equipamento no Auvo. Resolve tarefas vinculadas ao equipamento, fotos/anexos, relat\xF3rio da tarefa e links de relat\xF3rio da OS. Use depois de buscar_equipamentos.",
+  inputSchema: {
+    equipamento_auvo_id: z8.number().int().positive(),
+    data_inicio: z8.string().date().optional(),
+    data_fim: z8.string().date().optional(),
+    status: z8.enum(["abertas", "finalizadas", "todas", "com_pendencia", "iniciadas_ou_encerradas"]).default("todas"),
+    limite: z8.number().int().min(1).max(20).default(10),
+    max_paginas: z8.number().int().min(1).max(20).default(10)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle5(
+    ctx,
+    {
+      toolName: "buscar_tarefas_por_equipamento_auvo",
+      operationType: "read",
+      sourceSystem: "auvo",
+      allowedRoles: READ_ROLES2,
+      parameters: input,
+      targetEntity: "tarefa_equipamento_auvo"
+    },
+    async () => {
+      const equipmentResponse = await auvoRequest(
+        `/equipments/${input.equipamento_auvo_id}`
+      );
+      const equipment = auvoResult(equipmentResponse);
+      const customerId = numericId(
+        equipment.associatedCustomerId ?? equipment.customerId ?? equipment.idCustomer
+      );
+      const defaults = defaultTaskPeriod();
+      const startDate = input.data_inicio ?? defaults.start;
+      const endDate = input.data_fim ?? defaults.end;
+      if (startDate > endDate) {
+        throw new McpToolError(
+          "INVALID_INPUT",
+          "data_inicio deve ser anterior ou igual a data_fim."
+        );
+      }
+      const statusFilter = {
+        abertas: 0,
+        finalizadas: 3,
+        todas: 4,
+        com_pendencia: 5,
+        iniciadas_ou_encerradas: 6
+      }[input.status];
+      const projectResponse = await auvoRequest(
+        auvoListPath(
+          "serviceorders",
+          { EquipmentCode: String(input.equipamento_auvo_id) },
+          1,
+          100,
+          "desc"
+        )
+      ).catch(() => null);
+      const projectContexts = /* @__PURE__ */ new Map();
+      for (const project of projectResponse ? resultList(projectResponse) : []) {
+        const projectEquipmentIds = equipmentIdsFrom(project.equipments);
+        for (const visit of arrayOfRecords(project.visits)) {
+          const taskId = numericId(visit.taskId ?? visit.taskID ?? visit.id);
+          if (!taskId) continue;
+          const visitEquipmentIds = equipmentIdsFrom(
+            visit.equipmentsId ?? visit.equipments
+          );
+          const linkedByTask = visitEquipmentIds.includes(input.equipamento_auvo_id);
+          const linkedByProject = projectEquipmentIds.includes(input.equipamento_auvo_id) || visitEquipmentIds.length === 0;
+          if (!linkedByTask && !linkedByProject) continue;
+          projectContexts.set(taskId, {
+            tarefa_url: visit.taskUrl,
+            relatorio_os_url: project.reportLink,
+            relatorio_os_detalhado_url: project.detailedReportLink,
+            ordem_servico_auvo_id: project.id,
+            ordem_servico_auvo_codigo: project.projectCode,
+            vinculo_equipamento: linkedByTask ? "tarefa" : "projeto"
+          });
+        }
+      }
+      const taskRows = /* @__PURE__ */ new Map();
+      let pagesRead = 0;
+      let totalTasksInScope = null;
+      if (customerId) {
+        for (let page = 1; page <= input.max_paginas; page += 1) {
+          const response = await auvoRequest(
+            auvoListPath(
+              "tasks",
+              {
+                startDate: `${startDate}T00:00:00`,
+                endDate: `${endDate}T23:59:59`,
+                customerId,
+                status: statusFilter
+              },
+              page,
+              100,
+              "desc"
+            )
+          );
+          pagesRead = page;
+          totalTasksInScope ??= resultTotal(response);
+          const rows = resultList(response);
+          for (const row of rows) {
+            const taskId = numericId(row.taskID ?? row.taskId ?? row.id);
+            if (!taskId) continue;
+            const ids = equipmentIdsFrom(row.equipmentsId ?? row.equipments);
+            if (ids.includes(input.equipamento_auvo_id)) taskRows.set(taskId, row);
+          }
+          if (rows.length < 100 || taskRows.size >= input.limite) break;
+        }
+      }
+      const missingDetails = [...projectContexts.keys()].filter((taskId) => !taskRows.has(taskId)).slice(0, input.limite);
+      const detailResults = await Promise.all(
+        missingDetails.map(async (taskId) => {
+          try {
+            const response = await auvoRequest(`/tasks/${taskId}`);
+            return [taskId, auvoResult(response)];
+          } catch {
+            return null;
+          }
+        })
+      );
+      for (const detail of detailResults) {
+        if (detail) taskRows.set(detail[0], detail[1]);
+      }
+      const tasks = [...taskRows.entries()].map(
+        ([taskId, task]) => normalizeAuvoTask(task, projectContexts.get(taskId))
+      ).sort(
+        (left, right) => String(right.data ?? "").localeCompare(String(left.data ?? ""))
+      ).slice(0, input.limite);
+      const taskIds = new Set(tasks.map((task) => task.id).filter(Boolean));
+      const projectsWithoutDetails = [...projectContexts.entries()].filter(([taskId]) => !taskIds.has(taskId)).slice(0, Math.max(0, input.limite - tasks.length)).map(
+        ([taskId, context]) => normalizeAuvoTask({ taskID: taskId }, context)
+      );
+      const combinedTasks = [...tasks, ...projectsWithoutDetails].sort(
+        (left, right) => String(right.data ?? "").localeCompare(String(left.data ?? ""))
+      ).slice(0, input.limite);
+      const taskSearchTruncated = totalTasksInScope !== null && pagesRead * 100 < totalTasksInScope;
+      return {
+        status: combinedTasks.length ? "found" : "not_found",
+        equipamento: {
+          id: input.equipamento_auvo_id,
+          nome: equipment.name ?? null,
+          identificador: equipment.identifier ?? null,
+          descricao: equipment.description ?? null,
+          cliente_auvo_id: customerId
+        },
+        periodo_consultado: {
+          inicio: startDate,
+          fim: endDate,
+          padrao_aplicado: !input.data_inicio && !input.data_fim
+        },
+        tarefas: combinedTasks,
+        quantidade: combinedTasks.length,
+        paginas_tarefas_lidas: pagesRead,
+        busca_parcial: taskSearchTruncated,
+        aviso: taskSearchTruncated ? "H\xE1 mais tarefas do cliente fora das p\xE1ginas lidas. Informe um per\xEDodo menor ou aumente max_paginas para ampliar a busca." : null,
+        source: "auvo_live"
+      };
     }
   )
 });
@@ -2747,6 +3055,7 @@ var auvoTools = [
   buscarEquipamentos,
   detalharEquipamento,
   consultarTarefaAuvo,
+  buscarTarefasPorEquipamentoAuvo,
   listarTecnicosAuvo,
   listarTiposTarefaAuvo,
   prepararCriacaoTarefaAuvo,
@@ -2758,7 +3067,7 @@ var projectRef = "mgiebypxhnmpktljrzjq";
 var mcp_default = defineMcp({
   name: "wedo-operacoes",
   title: "WeDo Opera\xE7\xF5es \u2014 Gest\xE3oClick e Auvo",
-  version: "0.4.0",
+  version: "0.5.0",
   instructions: "Ferramentas operacionais da WeDo para Gest\xE3oClick, Auvo e financeiro. Resolva IDs com as ferramentas de busca antes de detalhar ou preparar uma a\xE7\xE3o. Nunca escolha silenciosamente quando houver m\xFAltiplos clientes ou equipamentos. Consultas podem executar diretamente. Cria\xE7\xF5es e edi\xE7\xF5es usam obrigatoriamente duas etapas: primeiro preparar, mostrar a pr\xE9via ao usu\xE1rio e aguardar confirma\xE7\xE3o expl\xEDcita; somente ent\xE3o chamar a ferramenta confirmar com a a\xE7\xE3o pendente recebida. Nunca repita automaticamente uma grava\xE7\xE3o que falhou.",
   auth: auth.oauth.issuer({
     issuer: `https://${projectRef}.supabase.co/auth/v1`,

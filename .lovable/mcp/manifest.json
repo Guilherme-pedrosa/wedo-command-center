@@ -12,7 +12,7 @@
   "mcp": {
     "server": {
       "name": "wedo-operacoes",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "title": "WeDo Operações — GestãoClick e Auvo"
     },
     "tools": [
@@ -1322,7 +1322,7 @@
       {
         "name": "consultar_tarefa_auvo",
         "title": "Consultar tarefa no Auvo",
-        "description": "Consulta uma tarefa específica no Auvo pelo taskID.",
+        "description": "Consulta uma tarefa específica no Auvo pelo taskID e devolve relatório, equipamentos, fotos, anexos, questionários e links reais.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -1340,6 +1340,64 @@
           },
           "required": [
             "tarefa_auvo_id"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "buscar_tarefas_por_equipamento_auvo",
+        "title": "Buscar tarefas e fotos por equipamento no Auvo",
+        "description": "Localiza o histórico real de tarefas de um equipamento no Auvo. Resolve tarefas vinculadas ao equipamento, fotos/anexos, relatório da tarefa e links de relatório da OS. Use depois de buscar_equipamentos.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "equipamento_auvo_id": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "data_inicio": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "data_fim": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "status": {
+              "default": "todas",
+              "type": "string",
+              "enum": [
+                "abertas",
+                "finalizadas",
+                "todas",
+                "com_pendencia",
+                "iniciadas_ou_encerradas"
+              ]
+            },
+            "limite": {
+              "default": 10,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "max_paginas": {
+              "default": 10,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            }
+          },
+          "required": [
+            "equipamento_auvo_id"
           ]
         },
         "outputSchema": null

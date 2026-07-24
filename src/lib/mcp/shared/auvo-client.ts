@@ -104,12 +104,13 @@ export function auvoListPath(
   filter: Record<string, unknown>,
   page: number,
   pageSize: number,
+  order: "asc" | "desc" = "asc",
 ): string {
   const query = new URLSearchParams({
     paramFilter: JSON.stringify(filter),
     page: String(page),
     pageSize: String(pageSize),
-    order: "asc",
+    order,
   });
   return `/${resource}/?${query.toString()}`;
 }

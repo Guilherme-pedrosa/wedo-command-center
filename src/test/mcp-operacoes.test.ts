@@ -12,6 +12,11 @@ import {
   confirmarCriacaoVenda,
   prepararCriacaoVenda,
 } from "@/lib/mcp/tools/gc-sale-write";
+import {
+  buscarTarefasPorEquipamentoAuvo,
+  consultarTarefaAuvo,
+  normalizeAuvoTask,
+} from "@/lib/mcp/tools/auvo";
 
 describe("WeDo Operações MCP", () => {
   it("normaliza valores monetários sem erro de ponto flutuante", () => {
@@ -67,5 +72,42 @@ describe("WeDo Operações MCP", () => {
   it("expõe venda de produto e serviço somente em fluxo de duas etapas", () => {
     expect(prepararCriacaoVenda.name).toBe("preparar_criacao_venda");
     expect(confirmarCriacaoVenda.name).toBe("confirmar_criacao_venda");
+  });
+
+  it("expõe consulta de tarefa e histórico por equipamento no Auvo", () => {
+    expect(consultarTarefaAuvo.name).toBe("consultar_tarefa_auvo");
+    expect(buscarTarefasPorEquipamentoAuvo.name).toBe(
+      "buscar_tarefas_por_equipamento_auvo",
+    );
+  });
+
+  it("normaliza fotos e links reais de uma tarefa Auvo", () => {
+    const task = normalizeAuvoTask({
+      taskID: 123,
+      taskDate: "2026-07-24T10:00:00",
+      equipmentsId: [456],
+      taskStatus: 5,
+      report: "Equipamento revisado.",
+      attachments: [
+        {
+          id: "foto-1",
+          url: "https://arquivos.auvo.com.br/fogao.jpg",
+          attachmentType: 1,
+          extension: "jpg",
+        },
+      ],
+    });
+
+    expect(task.equipamentos_ids).toEqual([456]);
+    expect(task.status).toBe("finalizada");
+    expect(task.fotos).toEqual([
+      expect.objectContaining({
+        url: "https://arquivos.auvo.com.br/fogao.jpg",
+        tipo: "foto",
+      }),
+    ]);
+    expect(task.links.tarefa_relatorio).toBe(
+      "https://app.auvo.com.br/relatorioTarefas/DetalheTarefa/123",
+    );
   });
 });
