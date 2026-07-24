@@ -13,6 +13,7 @@ import {
   prepararCriacaoVenda,
 } from "@/lib/mcp/tools/gc-sale-write";
 import {
+  buildAuvoResourceLinks,
   buscarTarefasPorEquipamentoAuvo,
   consultarTarefaAuvo,
   normalizeAuvoTask,
@@ -109,5 +110,33 @@ describe("WeDo Operações MCP", () => {
     expect(task.links.tarefa_relatorio).toBe(
       "https://app.auvo.com.br/relatorioTarefas/DetalheTarefa/123",
     );
+  });
+
+  it("expõe fotos e relatórios Auvo como recursos MCP clicáveis", () => {
+    const resources = buildAuvoResourceLinks({
+      links: {
+        tarefa_relatorio:
+          "https://app.auvo.com.br/relatorioTarefas/DetalheTarefa/123",
+      },
+      questionarios: [
+        {
+          resposta:
+            "https://auvo-producao.s3.amazonaws.com/anexos_tarefas/fogao.jpg",
+        },
+      ],
+      url_nao_confiavel: "https://example.com/nao-expor",
+    });
+
+    expect(resources).toEqual([
+      expect.objectContaining({
+        type: "resource_link",
+        uri: "https://app.auvo.com.br/relatorioTarefas/DetalheTarefa/123",
+      }),
+      expect.objectContaining({
+        type: "resource_link",
+        uri: "https://auvo-producao.s3.amazonaws.com/anexos_tarefas/fogao.jpg",
+        mimeType: "image/jpeg",
+      }),
+    ]);
   });
 });

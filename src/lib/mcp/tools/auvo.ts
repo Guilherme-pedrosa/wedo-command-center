@@ -1,7 +1,7 @@
 import { defineTool, type ToolContext } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { auvoListPath, auvoRequest, auvoResult } from "../shared/auvo-client";
-import { errorResult, McpToolError, successResult } from "../shared/errors";
+import { errorResult, McpToolError } from "../shared/errors";
 import {
   claimAction,
   completeAction,
@@ -98,6 +98,177 @@ function normalizedExtension(value: unknown, url: string | null): string | null 
 }
 
 const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif"]);
+const EMBEDDABLE_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif"]);
+const MAX_EMBEDDED_IMAGES = 10;
+const MAX_EMBEDDED_IMAGE_BYTES = 2_000_000;
+
+type AuvoResourceLinkContent = {
+  type: "resource_link";
+  uri: string;
+  name: string;
+  description: string;
+  mimeType?: string;
+  annotations: {
+    audience: ["user", "assistant"];
+    priority: number;
+  };
+};
+
+type AuvoImageContent = {
+  type: "image";
+  data: string;
+  mimeType: string;
+  annotations: {
+    audience: ["user", "assistant"];
+    priority: number;
+  };
+};
+
+function trustedAuvoResourceUrl(value: unknown): string | null {
+  const url = validHttpUrl(value);
+  if (!url) return null;
+  const hostname = new URL(url).hostname.toLowerCase();
+  if (
+    hostname === "auvo-producao.s3.amazonaws.com" ||
+    hostname === "arquivos.auvo.com.br" ||
+    hostname === "app.auvo.com.br" ||
+    hostname.endsWith(".auvo.com.br")
+  ) {
+    return url;
+  }
+  return null;
+}
+
+function mimeTypeFromUrl(url: string): string | undefined {
+  const extension = normalizedExtension(undefined, url);
+  return {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    webp: "image/webp",
+    gif: "image/gif",
+    bmp: "image/bmp",
+    heic: "image/heic",
+    heif: "image/heif",
+  }[extension ?? ""];
+}
+
+function resourceName(path: string[], index: number, url: string): string {
+  const joined = path.join(".").toLowerCase();
+  if (mimeTypeFromUrl(url)) {
+    if (joined.includes("assinatura")) return `Assinatura Auvo ${index + 1}`;
+    return `Foto Auvo ${index + 1}`;
+  }
+  if (joined.includes("pesquisa_satisfacao") || joined.includes("survey")) {
+    return "Pesquisa de satisfação Auvo";
+  }
+  if (joined.includes("relatorio_os_detalhado")) return "Relatório detalhado da OS Auvo";
+  if (joined.includes("relatorio_os")) return "Relatório da OS Auvo";
+  if (joined.includes("tarefa_relatorio") || joined.includes("taskurl")) {
+    return "Relatório da tarefa Auvo";
+  }
+  return `Link Auvo ${index + 1}`;
+}
+
+function collectTrustedAuvoUrls(
+  value: unknown,
+  path: string[] = [],
+  collected: Array<{ url: string; path: string[] }> = [],
+): Array<{ url: string; path: string[] }> {
+  if (typeof value === "string") {
+    const url = trustedAuvoResourceUrl(value);
+    if (url) collected.push({ url, path });
+    return collected;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) =>
+      collectTrustedAuvoUrls(item, [...path, String(index)], collected),
+    );
+    return collected;
+  }
+  if (value && typeof value === "object") {
+    Object.entries(value as JsonRecord).forEach(([key, item]) =>
+      collectTrustedAuvoUrls(item, [...path, key], collected),
+    );
+  }
+  return collected;
+}
+
+export function buildAuvoResourceLinks(data: unknown): AuvoResourceLinkContent[] {
+  const unique = new Map<string, string[]>();
+  for (const item of collectTrustedAuvoUrls(data)) {
+    if (!unique.has(item.url)) unique.set(item.url, item.path);
+  }
+  return [...unique.entries()].map(([url, path], index) => ({
+    type: "resource_link",
+    uri: url,
+    name: resourceName(path, index, url),
+    description: "Recurso retornado diretamente pela API do Auvo.",
+    ...(mimeTypeFromUrl(url) ? { mimeType: mimeTypeFromUrl(url) } : {}),
+    annotations: {
+      audience: ["user", "assistant"],
+      priority: 0.9,
+    },
+  }));
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+async function embedAuvoImage(resource: AuvoResourceLinkContent): Promise<AuvoImageContent | null> {
+  const extension = normalizedExtension(undefined, resource.uri);
+  if (!extension || !EMBEDDABLE_IMAGE_EXTENSIONS.has(extension)) return null;
+  try {
+    const response = await fetch(resource.uri, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return null;
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > MAX_EMBEDDED_IMAGE_BYTES) {
+      return null;
+    }
+    const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim();
+    if (!mimeType?.startsWith("image/")) return null;
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > MAX_EMBEDDED_IMAGE_BYTES) return null;
+    return {
+      type: "image",
+      data: bytesToBase64(bytes),
+      mimeType,
+      annotations: {
+        audience: ["user", "assistant"],
+        priority: 0.9,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function auvoSuccessResult(data: Record<string, unknown>) {
+  const resources = buildAuvoResourceLinks(data);
+  const images = (
+    await Promise.all(
+      resources
+        .filter((resource) => resource.mimeType?.startsWith("image/"))
+        .slice(0, MAX_EMBEDDED_IMAGES)
+        .map(embedAuvoImage),
+    )
+  ).filter((image): image is AuvoImageContent => image !== null);
+  return {
+    content: [
+      { type: "text" as const, text: JSON.stringify(data) },
+      ...resources,
+      ...images,
+    ],
+    structuredContent: data,
+  };
+}
 
 function normalizeAttachments(task: JsonRecord) {
   return arrayOfRecords(task.attachments)
@@ -225,7 +396,9 @@ function handle<T extends object>(
   operation: Parameters<typeof runAudited<T>>[2],
 ) {
   return runAudited(ctx, options, operation)
-    .then(({ data, requestId }) => successResult({ ok: true, request_id: requestId, ...data }))
+    .then(({ data, requestId }) =>
+      auvoSuccessResult({ ok: true, request_id: requestId, ...data }),
+    )
     .catch((error) => errorResult(error, requestIdFrom(error)));
 }
 
