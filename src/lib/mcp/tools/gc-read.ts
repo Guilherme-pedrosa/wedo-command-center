@@ -282,6 +282,83 @@ export const detalharOrcamento = defineTool({
     ),
 });
 
+export const buscarVendas = defineTool({
+  name: "buscar_vendas",
+  title: "Buscar vendas",
+  description:
+    "Lista vendas atuais do GestãoClick por cliente, código, situação, tipo e período. Use tipo produto ou servico conforme a natureza principal da venda.",
+  inputSchema: {
+    cliente_id: z.string().trim().regex(/^\d+$/).max(30).optional(),
+    codigo: z.string().trim().max(40).optional(),
+    situacao_id: z.string().trim().regex(/^\d+$/).max(30).optional(),
+    tipo: z.enum(["produto", "servico", "vendas_balcao"]).optional(),
+    loja_id: z.string().trim().regex(/^\d+$/).max(30).optional(),
+    data_inicio: z.string().date().optional(),
+    data_fim: z.string().date().optional(),
+    pagina: z.number().int().min(1).max(1000).default(1),
+    limite: z.number().int().min(1).max(50).default(20),
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) =>
+    handle(
+      ctx,
+      {
+        toolName: "buscar_vendas",
+        operationType: "read",
+        sourceSystem: "gestaoclick",
+        allowedRoles: READ_ROLES,
+        parameters: input,
+        targetEntity: "venda",
+      },
+      async () => {
+        const response = await gcRequest<unknown>(
+          `/api/vendas${queryString({
+            cliente_id: input.cliente_id,
+            codigo: input.codigo,
+            situacao_id: input.situacao_id,
+            tipo: input.tipo,
+            loja_id: input.loja_id,
+            data_inicio: input.data_inicio,
+            data_fim: input.data_fim,
+            pagina: input.pagina,
+            limite: input.limite,
+          })}`,
+        );
+        const rows = listFromGc(response);
+        return { rows, count: rows.length, pagina: input.pagina, source: "gestaoclick_live" };
+      },
+    ),
+});
+
+export const detalharVenda = defineTool({
+  name: "detalhar_venda",
+  title: "Detalhar venda",
+  description:
+    "Obtém a venda completa e atual no GestãoClick, incluindo produtos, serviços e pagamentos retornados pela API.",
+  inputSchema: {
+    venda_id: z.string().trim().regex(/^\d+$/).max(30),
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) =>
+    handle(
+      ctx,
+      {
+        toolName: "detalhar_venda",
+        operationType: "read",
+        sourceSystem: "gestaoclick",
+        allowedRoles: READ_ROLES,
+        parameters: input,
+        targetEntity: "venda",
+      },
+      async () => {
+        const response = await gcRequest<unknown>(`/api/vendas/${input.venda_id}`);
+        const row = gcData<JsonRecord>(response);
+        if (!row?.id) throw new McpToolError("NOT_FOUND", "Venda não encontrada.");
+        return { venda: row, source: "gestaoclick_live" };
+      },
+    ),
+});
+
 export const buscarProdutoServico = defineTool({
   name: "buscar_produto_servico",
   title: "Buscar produto ou serviço",
@@ -460,6 +537,14 @@ export const listarSituacoesOs = configTool(
   "situacao_os",
 );
 
+export const listarSituacoesVenda = configTool(
+  "listar_situacoes_venda",
+  "Listar situações de venda",
+  "Lista os IDs e nomes válidos de situações de venda no GestãoClick.",
+  "/api/situacoes_vendas",
+  "situacao_venda",
+);
+
 export const listarLojasGc = configTool(
   "listar_lojas_gc",
   "Listar lojas do GestãoClick",
@@ -475,9 +560,12 @@ export const gcReadTools = [
   detalharOrdemServico,
   buscarOrcamentos,
   detalharOrcamento,
+  buscarVendas,
+  detalharVenda,
   buscarProdutoServico,
   consultarEstoque,
   listarSituacoesOrcamento,
   listarSituacoesOs,
+  listarSituacoesVenda,
   listarLojasGc,
 ];

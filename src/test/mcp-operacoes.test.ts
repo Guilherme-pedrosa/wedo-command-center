@@ -8,6 +8,10 @@ import {
   prepararCriacaoCliente,
   prepararEdicaoCliente,
 } from "@/lib/mcp/tools/gc-client-write";
+import {
+  confirmarCriacaoVenda,
+  prepararCriacaoVenda,
+} from "@/lib/mcp/tools/gc-sale-write";
 
 describe("WeDo Operações MCP", () => {
   it("normaliza valores monetários sem erro de ponto flutuante", () => {
@@ -58,5 +62,10 @@ describe("WeDo Operações MCP", () => {
     expect(confirmarCriacaoCliente.name).toBe("confirmar_criacao_cliente");
     expect(prepararEdicaoCliente.name).toBe("preparar_edicao_cliente");
     expect(confirmarEdicaoCliente.name).toBe("confirmar_edicao_cliente");
+  });
+
+  it("expõe venda de produto e serviço somente em fluxo de duas etapas", () => {
+    expect(prepararCriacaoVenda.name).toBe("preparar_criacao_venda");
+    expect(confirmarCriacaoVenda.name).toBe("confirmar_criacao_venda");
   });
 });

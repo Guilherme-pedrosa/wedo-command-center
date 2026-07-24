@@ -4,6 +4,7 @@ import { serviceClient, type AuthenticatedActor } from "./supabase";
 export type PendingActionKind =
   | "criar_cliente_gc"
   | "editar_cliente_gc"
+  | "criar_venda_gc"
   | "criar_orcamento_gc"
   | "criar_ordem_servico_gc"
   | "criar_tarefa_auvo";

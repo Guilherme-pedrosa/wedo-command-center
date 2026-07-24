@@ -12,7 +12,7 @@
   "mcp": {
     "server": {
       "name": "wedo-operacoes",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "title": "WeDo Operações — GestãoClick e Auvo"
     },
     "tools": [
@@ -236,6 +236,97 @@
         "outputSchema": null
       },
       {
+        "name": "buscar_vendas",
+        "title": "Buscar vendas",
+        "description": "Lista vendas atuais do GestãoClick por cliente, código, situação, tipo e período. Use tipo produto ou servico conforme a natureza principal da venda.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "cliente_id": {
+              "type": "string",
+              "maxLength": 30,
+              "pattern": "^\\d+$"
+            },
+            "codigo": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "situacao_id": {
+              "type": "string",
+              "maxLength": 30,
+              "pattern": "^\\d+$"
+            },
+            "tipo": {
+              "type": "string",
+              "enum": [
+                "produto",
+                "servico",
+                "vendas_balcao"
+              ]
+            },
+            "loja_id": {
+              "type": "string",
+              "maxLength": 30,
+              "pattern": "^\\d+$"
+            },
+            "data_inicio": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "data_fim": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "pagina": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "limite": {
+              "default": 20,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "detalhar_venda",
+        "title": "Detalhar venda",
+        "description": "Obtém a venda completa e atual no GestãoClick, incluindo produtos, serviços e pagamentos retornados pela API.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "venda_id": {
+              "type": "string",
+              "maxLength": 30,
+              "pattern": "^\\d+$"
+            }
+          },
+          "required": [
+            "venda_id"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
         "name": "buscar_produto_servico",
         "title": "Buscar produto ou serviço",
         "description": "Pesquisa o catálogo atual do GestãoClick. Use para resolver IDs, preço e disponibilidade antes de montar orçamento ou OS.",
@@ -339,6 +430,35 @@
         "name": "listar_situacoes_os",
         "title": "Listar situações de OS",
         "description": "Lista os IDs e nomes válidos de situações de ordem de serviço no GestãoClick.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "pagina": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "limite": {
+              "default": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "listar_situacoes_venda",
+        "title": "Listar situações de venda",
+        "description": "Lista os IDs e nomes válidos de situações de venda no GestãoClick.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -817,6 +937,243 @@
         "name": "confirmar_edicao_cliente",
         "title": "Confirmar edição de cliente no GestãoClick",
         "description": "Aplica exatamente as alterações previamente preparadas. Recusa a gravação se os mesmos campos tiverem mudado depois da prévia.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "pending_action_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "confirmation_token": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "pending_action_id",
+            "confirmation_token"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "preparar_criacao_venda",
+        "title": "Preparar venda no GestãoClick",
+        "description": "Prepara venda de produto, venda de serviço ou venda mista no GestãoClick. Valida cliente, situação, itens, preços e pagamento, mas não grava. Depois da confirmação explícita, use confirmar_criacao_venda.",
+        "annotations": {
+          "readOnlyHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "tipo": {
+              "type": "string",
+              "enum": [
+                "produto",
+                "servico"
+              ]
+            },
+            "cliente_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "situacao_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "codigo": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "data": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "previsao_entrega": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "loja_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "vendedor_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "centro_custo_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "transportadora_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "observacoes": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "observacoes_interna": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "valor_frete": {
+              "default": "0",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 30
+                },
+                {
+                  "type": "number",
+                  "minimum": 0
+                }
+              ]
+            },
+            "condicao_pagamento": {
+              "default": "a_vista",
+              "type": "string",
+              "enum": [
+                "a_vista",
+                "parcelado"
+              ]
+            },
+            "forma_pagamento_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "numero_parcelas": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120
+            },
+            "intervalo_dias": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3650
+            },
+            "data_primeira_parcela": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "plano_contas_id": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "produtos": {
+              "default": [],
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "maxLength": 30,
+                    "pattern": "^\\d+$"
+                  },
+                  "quantidade": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 100000
+                  },
+                  "valor_unitario": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 30
+                      },
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    ]
+                  },
+                  "detalhes": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "id",
+                  "quantidade",
+                  "valor_unitario"
+                ]
+              }
+            },
+            "servicos": {
+              "default": [],
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "maxLength": 30,
+                    "pattern": "^\\d+$"
+                  },
+                  "quantidade": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 100000
+                  },
+                  "valor_unitario": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 30
+                      },
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    ]
+                  },
+                  "detalhes": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "id",
+                  "quantidade",
+                  "valor_unitario"
+                ]
+              }
+            }
+          },
+          "required": [
+            "tipo",
+            "cliente_id",
+            "situacao_id",
+            "data"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "confirmar_criacao_venda",
+        "title": "Confirmar criação de venda",
+        "description": "Cria exatamente a venda previamente preparada no GestãoClick. Só use após confirmação explícita do usuário.",
         "annotations": {
           "readOnlyHint": false,
           "destructiveHint": false,
