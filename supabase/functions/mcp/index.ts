@@ -2,7 +2,2386 @@
 // To take ownership, delete this banner line; the plugin then leaves the file alone.
 // supabase function: mcp
 // Bundled from src/lib/mcp/index.ts by @lovable.dev/mcp-js.
+// src/lib/mcp/index.ts
+import { auth, defineMcp } from "npm:@lovable.dev/mcp-js@0.20.0";
+
+// src/lib/mcp/tools/list-open-receivables.ts
+import { createClient } from "npm:@supabase/supabase-js@^2.98.0";
+import { defineTool } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z } from "npm:zod@^4.4.3";
+function client(ctx) {
+  return createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY,
+    {
+      global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
+      auth: { persistSession: false, autoRefreshToken: false }
+    }
+  );
+}
+var list_open_receivables_default = defineTool({
+  name: "list_open_receivables",
+  title: "Listar recebimentos em aberto",
+  description: "Lista recebimentos financeiros em aberto (n\xE3o liquidados), opcionalmente filtrando por cliente ou per\xEDodo de vencimento.",
+  inputSchema: {
+    cliente: z.string().optional().describe("Filtro parcial pelo nome do cliente."),
+    vencimento_ate: z.string().optional().describe("Data de vencimento m\xE1xima (YYYY-MM-DD)."),
+    limit: z.number().int().min(1).max(200).default(50)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ cliente, vencimento_ate, limit }, ctx) => {
+    if (!ctx.isAuthenticated())
+      return { content: [{ type: "text", text: "N\xE3o autenticado" }], isError: true };
+    let q = client(ctx).from("fin_recebimentos").select(
+      "id, gc_codigo, descricao, nome_cliente, valor, data_vencimento, data_emissao, status, os_codigo, nf_numero"
+    ).eq("liquidado", false).neq("status", "cancelado").order("data_vencimento", { ascending: true }).limit(limit);
+    if (cliente) q = q.ilike("nome_cliente", `%${cliente}%`);
+    if (vencimento_ate) q = q.lte("data_vencimento", vencimento_ate);
+    const { data, error } = await q;
+    if (error)
+      return { content: [{ type: "text", text: error.message }], isError: true };
+    return {
+      content: [{ type: "text", text: JSON.stringify(data) }],
+      structuredContent: { rows: data ?? [], count: data?.length ?? 0 }
+    };
+  }
+});
+
+// src/lib/mcp/tools/list-open-payables.ts
+import { createClient as createClient2 } from "npm:@supabase/supabase-js@^2.98.0";
+import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z2 } from "npm:zod@^4.4.3";
+function client2(ctx) {
+  return createClient2(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY,
+    {
+      global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
+      auth: { persistSession: false, autoRefreshToken: false }
+    }
+  );
+}
+var list_open_payables_default = defineTool2({
+  name: "list_open_payables",
+  title: "Listar pagamentos em aberto",
+  description: "Lista contas a pagar em aberto (n\xE3o liquidadas), opcionalmente filtrando por fornecedor ou per\xEDodo de vencimento.",
+  inputSchema: {
+    fornecedor: z2.string().optional().describe("Filtro parcial pelo nome do fornecedor."),
+    vencimento_ate: z2.string().optional().describe("Data de vencimento m\xE1xima (YYYY-MM-DD)."),
+    limit: z2.number().int().min(1).max(200).default(50)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ fornecedor, vencimento_ate, limit }, ctx) => {
+    if (!ctx.isAuthenticated())
+      return { content: [{ type: "text", text: "N\xE3o autenticado" }], isError: true };
+    let q = client2(ctx).from("fin_pagamentos").select(
+      "id, gc_codigo, descricao, nome_fornecedor, valor, data_vencimento, data_emissao, status, os_codigo, nf_numero"
+    ).eq("liquidado", false).neq("status", "cancelado").order("data_vencimento", { ascending: true }).limit(limit);
+    if (fornecedor) q = q.ilike("nome_fornecedor", `%${fornecedor}%`);
+    if (vencimento_ate) q = q.lte("data_vencimento", vencimento_ate);
+    const { data, error } = await q;
+    if (error)
+      return { content: [{ type: "text", text: error.message }], isError: true };
+    return {
+      content: [{ type: "text", text: JSON.stringify(data) }],
+      structuredContent: { rows: data ?? [], count: data?.length ?? 0 }
+    };
+  }
+});
+
+// src/lib/mcp/tools/finance-summary.ts
+import { createClient as createClient3 } from "npm:@supabase/supabase-js@^2.98.0";
+import { defineTool as defineTool3 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z3 } from "npm:zod@^4.4.3";
+function client3(ctx) {
+  return createClient3(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY,
+    {
+      global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
+      auth: { persistSession: false, autoRefreshToken: false }
+    }
+  );
+}
+var finance_summary_default = defineTool3({
+  name: "finance_summary",
+  title: "Resumo financeiro",
+  description: "Retorna totais em aberto de recebimentos e pagamentos e o saldo previsto (a receber - a pagar).",
+  inputSchema: {
+    vencimento_ate: z3.string().optional().describe("Considera apenas itens com data de vencimento at\xE9 esta data (YYYY-MM-DD).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ vencimento_ate }, ctx) => {
+    if (!ctx.isAuthenticated())
+      return { content: [{ type: "text", text: "N\xE3o autenticado" }], isError: true };
+    const sb = client3(ctx);
+    const sumTable = async (table) => {
+      let q = sb.from(table).select("valor").eq("liquidado", false).neq("status", "cancelado");
+      if (vencimento_ate) q = q.lte("data_vencimento", vencimento_ate);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      return (data ?? []).reduce(
+        (sum, row) => sum + Number(row.valor ?? 0),
+        0
+      );
+    };
+    try {
+      const [aReceber, aPagar] = await Promise.all([
+        sumTable("fin_recebimentos"),
+        sumTable("fin_pagamentos")
+      ]);
+      const saldo = aReceber - aPagar;
+      const structured = { a_receber: aReceber, a_pagar: aPagar, saldo_previsto: saldo };
+      return {
+        content: [{ type: "text", text: JSON.stringify(structured) }],
+        structuredContent: structured
+      };
+    } catch (e) {
+      return {
+        content: [{ type: "text", text: e.message }],
+        isError: true
+      };
+    }
+  }
+});
+
+// src/lib/mcp/tools/gc-read.ts
+import { defineTool as defineTool4 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z4 } from "npm:zod@^4.4.3";
+
+// src/lib/mcp/shared/errors.ts
+var McpToolError = class extends Error {
+  constructor(code, message, retryable = false, details) {
+    super(message);
+    this.code = code;
+    this.retryable = retryable;
+    this.details = details;
+    this.name = "McpToolError";
+  }
+  code;
+  retryable;
+  details;
+};
+function asMcpError(error) {
+  if (error instanceof McpToolError) return error;
+  const message = error instanceof Error ? error.message : "Erro interno inesperado.";
+  return new McpToolError("INTERNAL_ERROR", message, false);
+}
+function successResult(data) {
+  return {
+    content: [{ type: "text", text: JSON.stringify(data) }],
+    structuredContent: data
+  };
+}
+function errorResult(error, requestId) {
+  const safe = asMcpError(error);
+  const body = {
+    ok: false,
+    error: {
+      code: safe.code,
+      message: safe.message,
+      retryable: safe.retryable,
+      request_id: requestId,
+      ...safe.details ? { details: safe.details } : {}
+    }
+  };
+  return {
+    content: [{ type: "text", text: JSON.stringify(body) }],
+    structuredContent: body,
+    isError: true
+  };
+}
+
+// src/lib/mcp/shared/gc-client.ts
+var GC_BASE_URL = "https://api.gestaoclick.com";
+var lastGcCallAt = 0;
+var gcQueue = Promise.resolve();
+function env(name) {
+  const value = process.env[name];
+  if (!value) throw new McpToolError("INTERNAL_ERROR", `Secret ${name} n\xE3o configurado.`);
+  return value;
+}
+async function throttle() {
+  const waitMs = Math.max(0, 360 - (Date.now() - lastGcCallAt));
+  if (waitMs) await new Promise((resolve) => setTimeout(resolve, waitMs));
+  lastGcCallAt = Date.now();
+}
+function gcError(status, body) {
+  if (status === 401 || status === 403) {
+    return new McpToolError("GC_UNAUTHORIZED", "Credenciais do Gest\xE3oClick inv\xE1lidas.", false);
+  }
+  if (status === 429) {
+    return new McpToolError(
+      "GC_RATE_LIMITED",
+      "Limite tempor\xE1rio do Gest\xE3oClick atingido.",
+      true
+    );
+  }
+  if (status >= 400 && status < 500) {
+    return new McpToolError(
+      "GC_VALIDATION_ERROR",
+      `O Gest\xE3oClick rejeitou os dados (HTTP ${status}).`,
+      false,
+      { resposta: body.slice(0, 300) }
+    );
+  }
+  return new McpToolError("GC_UNAVAILABLE", "Gest\xE3oClick temporariamente indispon\xEDvel.", true);
+}
+async function perform(path, method, body) {
+  if (!path.startsWith("/") || path.includes("://")) {
+    throw new McpToolError("INVALID_INPUT", "Rota Gest\xE3oClick inv\xE1lida.");
+  }
+  await throttle();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15e3);
+  try {
+    const response = await fetch(`${GC_BASE_URL}${path}`, {
+      method,
+      headers: {
+        "access-token": env("GC_ACCESS_TOKEN"),
+        "secret-access-token": process.env.GC_SECRET_TOKEN ?? env("GC_SECRET_ACCESS_TOKEN"),
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: body === void 0 ? void 0 : JSON.stringify(body),
+      signal: controller.signal
+    });
+    const text = await response.text();
+    if (!response.ok) throw gcError(response.status, text);
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new McpToolError("GC_UNAVAILABLE", "Resposta inv\xE1lida do Gest\xE3oClick.", true);
+    }
+  } catch (error) {
+    if (error instanceof McpToolError) throw error;
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new McpToolError("UPSTREAM_TIMEOUT", "O Gest\xE3oClick excedeu 15 segundos.", true);
+    }
+    throw new McpToolError("GC_UNAVAILABLE", "Falha de conex\xE3o com o Gest\xE3oClick.", true);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function gcRequest(path, method = "GET", body) {
+  const scheduled = gcQueue.then(() => perform(path, method, body));
+  gcQueue = scheduled.then(
+    () => void 0,
+    () => void 0
+  );
+  return scheduled;
+}
+function gcData(response) {
+  if (response && typeof response === "object" && "data" in response) {
+    return response.data;
+  }
+  return response;
+}
+function queryString(values) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value === void 0 || value === null || value === "") continue;
+    query.set(key, String(value));
+  }
+  const text = query.toString();
+  return text ? `?${text}` : "";
+}
+
+// src/lib/mcp/shared/supabase.ts
+import { createClient as createClient4 } from "npm:@supabase/supabase-js@^2.98.0";
+function requiredEnv(name) {
+  const value = process.env[name];
+  if (!value) {
+    throw new McpToolError("INTERNAL_ERROR", `Vari\xE1vel segura ${name} n\xE3o configurada.`);
+  }
+  return value;
+}
+function userClient(token) {
+  const publicKey = process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY;
+  if (!publicKey) {
+    throw new McpToolError(
+      "INTERNAL_ERROR",
+      "SUPABASE_PUBLISHABLE_KEY/SUPABASE_ANON_KEY n\xE3o configurada."
+    );
+  }
+  return createClient4(requiredEnv("SUPABASE_URL"), publicKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+}
+function serviceClient() {
+  return createClient4(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+}
+async function verifiedUser(token) {
+  const { data, error } = await userClient(token).auth.getUser(token);
+  if (error || !data.user) {
+    throw new McpToolError("AUTH_REQUIRED", "Sess\xE3o inv\xE1lida ou expirada.");
+  }
+  return data.user;
+}
+async function requireActor(ctx, allowedRoles) {
+  if (!ctx.isAuthenticated()) {
+    throw new McpToolError("AUTH_REQUIRED", "Fa\xE7a login no aplicativo WeDo Opera\xE7\xF5es.");
+  }
+  const token = ctx.getToken();
+  if (!token) throw new McpToolError("AUTH_REQUIRED", "Token de acesso ausente.");
+  const user = await verifiedUser(token);
+  const { data, error } = await userClient(token).from("user_roles").select("role").eq("user_id", user.id);
+  if (error) {
+    throw new McpToolError("SUPABASE_ERROR", "N\xE3o foi poss\xEDvel validar as permiss\xF5es do usu\xE1rio.");
+  }
+  const roles = (data ?? []).map((row) => row.role);
+  if (allowedRoles?.length && !roles.some((role) => allowedRoles.includes(role))) {
+    throw new McpToolError(
+      "PERMISSION_DENIED",
+      `Esta opera\xE7\xE3o exige um dos perfis: ${allowedRoles.join(", ")}.`
+    );
+  }
+  return { id: user.id, email: user.email ?? null, roles, token };
+}
+var sensitiveKey = /token|secret|password|senha|authorization|cpf|cnpj|bank|banco|certificate|certificado/i;
+function sanitizeForAudit(value, depth = 0) {
+  if (depth > 4) return "[limite]";
+  if (value === null || value === void 0) return value;
+  if (typeof value === "string") return value.length > 180 ? `${value.slice(0, 180)}\u2026` : value;
+  if (typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.slice(0, 20).map((item) => sanitizeForAudit(item, depth + 1));
+  return Object.fromEntries(
+    Object.entries(value).slice(0, 40).map(([key, item]) => [
+      key,
+      sensitiveKey.test(key) ? "[REDACTED]" : sanitizeForAudit(item, depth + 1)
+    ])
+  );
+}
+async function writeAudit(entry) {
+  try {
+    await serviceClient().from("mcp_audit_log").insert({
+      request_id: entry.requestId,
+      user_id: entry.actor?.id ?? null,
+      user_email: entry.actor?.email ?? null,
+      role: entry.actor?.roles.join(",") ?? null,
+      tool_name: entry.toolName,
+      operation_type: entry.operationType,
+      source_system: entry.sourceSystem,
+      target_entity: entry.targetEntity ?? null,
+      target_id: entry.targetId ?? null,
+      parameters_sanitized: sanitizeForAudit(entry.parameters ?? {}),
+      result_status: entry.status,
+      upstream_status: entry.upstreamStatus ?? null,
+      duration_ms: entry.durationMs,
+      error_code: entry.errorCode ?? null,
+      error_summary: entry.errorSummary?.slice(0, 300) ?? null
+    });
+  } catch {
+  }
+}
+async function runAudited(ctx, options, operation) {
+  const requestId = crypto.randomUUID();
+  const startedAt = Date.now();
+  let actor;
+  try {
+    actor = await requireActor(ctx, options.allowedRoles);
+    const data = await operation(actor, requestId);
+    await writeAudit({
+      requestId,
+      actor,
+      toolName: options.toolName,
+      operationType: options.operationType,
+      sourceSystem: options.sourceSystem,
+      parameters: options.parameters,
+      status: "success",
+      durationMs: Date.now() - startedAt,
+      targetEntity: options.targetEntity
+    });
+    return { data, requestId };
+  } catch (error) {
+    const code = error instanceof McpToolError ? error.code : "INTERNAL_ERROR";
+    await writeAudit({
+      requestId,
+      actor,
+      toolName: options.toolName,
+      operationType: options.operationType,
+      sourceSystem: options.sourceSystem,
+      parameters: options.parameters,
+      status: "error",
+      durationMs: Date.now() - startedAt,
+      targetEntity: options.targetEntity,
+      errorCode: code,
+      errorSummary: error instanceof Error ? error.message : "Erro interno"
+    });
+    throw Object.assign(error instanceof Error ? error : new Error("Erro interno"), { requestId });
+  }
+}
+function requestIdFrom(error) {
+  return typeof error === "object" && error !== null && "requestId" in error ? String(error.requestId ?? "") : void 0;
+}
+
+// src/lib/mcp/tools/gc-read.ts
+var READ_ROLES = [
+  "admin",
+  "ceo",
+  "gerente_comercial",
+  "gerente_financeiro",
+  "vendedor",
+  "user"
+];
+function maskDocument(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.length <= 5) return "***";
+  return `${digits.slice(0, 2)}***${digits.slice(-3)}`;
+}
+function listFromGc(response) {
+  const data = gcData(response);
+  return Array.isArray(data) ? data : [];
+}
+function handle(ctx, options, operation) {
+  return runAudited(ctx, options, operation).then(({ data, requestId }) => successResult({ ok: true, request_id: requestId, ...data })).catch((error) => errorResult(error, requestIdFrom(error)));
+}
+var buscarCliente = defineTool4({
+  name: "buscar_cliente",
+  title: "Buscar cliente no Gest\xE3oClick",
+  description: "Localiza clientes no Gest\xE3oClick por nome, CPF/CNPJ, e-mail ou telefone. Use antes de consultar ou criar registros. Se houver mais de um candidato, pe\xE7a ao usu\xE1rio para escolher.",
+  inputSchema: {
+    nome: z4.string().trim().min(2).max(120).optional(),
+    cpf_cnpj: z4.string().trim().min(5).max(24).optional(),
+    email: z4.string().trim().max(160).optional(),
+    telefone: z4.string().trim().max(30).optional(),
+    somente_ativos: z4.boolean().default(true),
+    limite: z4.number().int().min(1).max(20).default(10)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle(
+    ctx,
+    {
+      toolName: "buscar_cliente",
+      operationType: "read",
+      sourceSystem: "gestaoclick",
+      allowedRoles: READ_ROLES,
+      parameters: input,
+      targetEntity: "cliente"
+    },
+    async () => {
+      if (!input.nome && !input.cpf_cnpj && !input.email && !input.telefone) {
+        throw new McpToolError(
+          "INVALID_INPUT",
+          "Informe nome, CPF/CNPJ, e-mail ou telefone para buscar o cliente."
+        );
+      }
+      const response = await gcRequest(
+        `/clientes${queryString({
+          nome: input.nome,
+          cpf_cnpj: input.cpf_cnpj,
+          email: input.email,
+          telefone: input.telefone,
+          situacao: input.somente_ativos ? 1 : void 0,
+          limite: input.limite
+        })}`
+      );
+      const rows = listFromGc(response).slice(0, input.limite).map((row) => ({
+        id: String(row.id),
+        nome: row.nome,
+        razao_social: row.razao_social ?? null,
+        documento_mascarado: maskDocument(row.cnpj ?? row.cpf),
+        cidade: row.enderecos?.[0]?.endereco?.nome_cidade ?? null,
+        estado: row.enderecos?.[0]?.endereco?.estado ?? null,
+        ativo: String(row.ativo) !== "0"
+      }));
+      return {
+        status: rows.length > 1 ? "needs_disambiguation" : rows.length ? "found" : "not_found",
+        candidates: rows,
+        count: rows.length
+      };
+    }
+  )
+});
+var detalharCliente = defineTool4({
+  name: "detalhar_cliente",
+  title: "Detalhar cliente no Gest\xE3oClick",
+  description: "Obt\xE9m o cadastro completo e atual de um cliente espec\xEDfico no Gest\xE3oClick pelo ID.",
+  inputSchema: {
+    cliente_id: z4.string().trim().regex(/^\d+$/).max(30)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle(
+    ctx,
+    {
+      toolName: "detalhar_cliente",
+      operationType: "read",
+      sourceSystem: "gestaoclick",
+      allowedRoles: READ_ROLES,
+      parameters: input,
+      targetEntity: "cliente"
+    },
+    async () => {
+      const response = await gcRequest(`/clientes/${input.cliente_id}`);
+      const row = gcData(response);
+      if (!row?.id) throw new McpToolError("NOT_FOUND", "Cliente n\xE3o encontrado.");
+      return { cliente: row, source: "gestaoclick_live" };
+    }
+  )
+});
+var buscarOrdensServico = defineTool4({
+  name: "buscar_ordens_servico",
+  title: "Buscar ordens de servi\xE7o",
+  description: "Consulta ordens de servi\xE7o diretamente no Gest\xE3oClick por cliente, c\xF3digo, situa\xE7\xE3o ou per\xEDodo. N\xE3o altera registros.",
+  inputSchema: {
+    cliente_id: z4.string().trim().regex(/^\d+$/).optional(),
+    codigo: z4.string().trim().max(40).optional(),
+    situacao_id: z4.string().trim().regex(/^\d+$/).optional(),
+    data_inicio: z4.string().date().optional(),
+    data_fim: z4.string().date().optional(),
+    pagina: z4.number().int().min(1).max(1e3).default(1),
+    limite: z4.number().int().min(1).max(100).default(30)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle(
+    ctx,
+    {
+      toolName: "buscar_ordens_servico",
+      operationType: "read",
+      sourceSystem: "gestaoclick",
+      allowedRoles: READ_ROLES,
+      parameters: input,
+      targetEntity: "ordem_servico"
+    },
+    async () => {
+      const response = await gcRequest(
+        `/api/ordens_servicos${queryString({
+          cliente_id: input.cliente_id,
+          codigo: input.codigo,
+          situacao_id: input.situacao_id,
+          data_inicio: input.data_inicio,
+          data_fim: input.data_fim,
+          pagina: input.pagina,
+          limite: input.limite
+        })}`
+      );
+      const rows = listFromGc(response);
+      return {
+        rows,
+        count: rows.length,
+        pagina: input.pagina,
+        source: "gestaoclick_live"
+      };
+    }
+  )
+});
+var detalharOrdemServico = defineTool4({
+  name: "detalhar_ordem_servico",
+  title: "Detalhar ordem de servi\xE7o",
+  description: "Busca a vers\xE3o atual e completa de uma ordem de servi\xE7o no Gest\xE3oClick pelo ID.",
+  inputSchema: {
+    ordem_servico_id: z4.string().trim().regex(/^\d+$/).max(30)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle(
+    ctx,
+    {
+      toolName: "detalhar_ordem_servico",
+      operationType: "read",
+      sourceSystem: "gestaoclick",
+      allowedRoles: READ_ROLES,
+      parameters: input,
+      targetEntity: "ordem_servico"
+    },
+    async () => {
+      const response = await gcRequest(
+        `/api/ordens_servicos/${input.ordem_servico_id}`
+      );
+      const row = gcData(response);
+      if (!row?.id) throw new McpToolError("NOT_FOUND", "Ordem de servi\xE7o n\xE3o encontrada.");
+      return { ordem_servico: row, source: "gestaoclick_live" };
+    }
+  )
+});
+var buscarOrcamentos = defineTool4({
+  name: "buscar_orcamentos",
+  title: "Buscar or\xE7amentos",
+  description: "Consulta or\xE7amentos diretamente no Gest\xE3oClick por cliente, c\xF3digo, situa\xE7\xE3o ou tipo.",
+  inputSchema: {
+    cliente_id: z4.string().trim().regex(/^\d+$/).optional(),
+    codigo: z4.string().trim().max(40).optional(),
+    situacao_id: z4.string().trim().regex(/^\d+$/).optional(),
+    tipo: z4.enum(["produto", "servico"]).optional(),
+    pagina: z4.number().int().min(1).max(1e3).default(1),
+    limite: z4.number().int().min(1).max(100).default(30)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle(
+    ctx,
+    {
+      toolName: "buscar_orcamentos",
+      operationType: "read",
+      sourceSystem: "gestaoclick",
+      allowedRoles: READ_ROLES,
+      parameters: input,
+      targetEntity: "orcamento"
+    },
+    async () => {
+      const response = await gcRequest(
+        `/api/orcamentos${queryString({
+          cliente_id: input.cliente_id,
+          codigo: input.codigo,
+          situacao_id: input.situacao_id,
+          tipo: input.tipo,
+          pagina: input.pagina,
+          limite: input.limite
+        })}`
+      );
+      const rows = listFromGc(response);
+      return { rows, count: rows.length, pagina: input.pagina, source: "gestaoclick_live" };
+    }
+  )
+});
+var detalharOrcamento = defineTool4({
+  name: "detalhar_orcamento",
+  title: "Detalhar or\xE7amento",
+  description: "Obt\xE9m o or\xE7amento completo e atual no Gest\xE3oClick pelo ID.",
+  inputSchema: {
+    orcamento_id: z4.string().trim().regex(/^\d+$/).max(30)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle(
+    ctx,
+    {
+      toolName: "detalhar_orcamento",
+      operationType: "read",
+      sourceSystem: "gestaoclick",
+      allowedRoles: READ_ROLES,
+      parameters: input,
+      targetEntity: "orcamento"
+    },
+    async () => {
+      const response = await gcRequest(`/api/orcamentos/${input.orcamento_id}`);
+      const row = gcData(response);
+      if (!row?.id) throw new McpToolError("NOT_FOUND", "Or\xE7amento n\xE3o encontrado.");
+      return { orcamento: row, source: "gestaoclick_live" };
+    }
+  )
+});
+var buscarProdutoServico = defineTool4({
+  name: "buscar_produto_servico",
+  title: "Buscar produto ou servi\xE7o",
+  description: "Pesquisa o cat\xE1logo atual do Gest\xE3oClick. Use para resolver IDs, pre\xE7o e disponibilidade antes de montar or\xE7amento ou OS.",
+  inputSchema: {
+    termo: z4.string().trim().min(2).max(120),
+    tipo: z4.enum(["produto", "servico", "ambos"]).default("ambos"),
+    pagina: z4.number().int().min(1).max(1e3).default(1),
+    limite: z4.number().int().min(1).max(50).default(20)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle(
+    ctx,
+    {
+      toolName: "buscar_produto_servico",
+      operationType: "read",
+      sourceSystem: "gestaoclick",
+      allowedRoles: READ_ROLES,
+      parameters: input,
+      targetEntity: "catalogo"
+    },
+    async () => {
+      const calls = [];
+      if (input.tipo !== "servico") {
+        calls.push(
+          gcRequest(
+            `/produtos${queryString({
+              nome: input.termo,
+              pagina: input.pagina,
+              limite: input.limite
+            })}`
+          ).then(async (response) => {
+            let rows2 = listFromGc(response);
+            if (!rows2.length) {
+              const byCode = await gcRequest(
+                `/produtos${queryString({
+                  codigo_interno: input.termo,
+                  pagina: input.pagina,
+                  limite: input.limite
+                })}`
+              );
+              rows2 = listFromGc(byCode);
+            }
+            return { tipo: "produto", rows: rows2 };
+          })
+        );
+      }
+      if (input.tipo !== "produto") {
+        calls.push(
+          gcRequest(
+            `/servicos${queryString({
+              nome: input.termo,
+              pagina: input.pagina,
+              limite: input.limite
+            })}`
+          ).then(async (response) => {
+            let rows2 = listFromGc(response);
+            if (!rows2.length) {
+              const byCode = await gcRequest(
+                `/servicos${queryString({
+                  codigo: input.termo,
+                  pagina: input.pagina,
+                  limite: input.limite
+                })}`
+              );
+              rows2 = listFromGc(byCode);
+            }
+            return { tipo: "servico", rows: rows2 };
+          })
+        );
+      }
+      const groups = await Promise.all(calls);
+      const rows = groups.flatMap(
+        (group) => group.rows.map((row) => ({ tipo: group.tipo, ...row }))
+      );
+      return { rows, count: rows.length, source: "gestaoclick_live" };
+    }
+  )
+});
+var consultarEstoque = defineTool4({
+  name: "consultar_estoque",
+  title: "Consultar estoque",
+  description: "Consulta no Gest\xE3oClick o estoque atual de um produto espec\xEDfico pelo ID.",
+  inputSchema: {
+    produto_id: z4.string().trim().regex(/^\d+$/).max(30)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle(
+    ctx,
+    {
+      toolName: "consultar_estoque",
+      operationType: "read",
+      sourceSystem: "gestaoclick",
+      allowedRoles: READ_ROLES,
+      parameters: input,
+      targetEntity: "produto"
+    },
+    async () => {
+      const response = await gcRequest(`/api/produtos/${input.produto_id}`);
+      const row = gcData(response);
+      if (!row?.id) throw new McpToolError("NOT_FOUND", "Produto n\xE3o encontrado.");
+      return {
+        produto: {
+          id: String(row.id),
+          nome: row.nome,
+          codigo_interno: row.codigo_interno ?? null,
+          estoque: row.estoque ?? null,
+          movimenta_estoque: row.movimenta_estoque ?? null,
+          valor_custo: row.valor_custo ?? null,
+          valor_venda: row.valor_venda ?? null,
+          valores: row.valores ?? [],
+          ativo: row.ativo
+        },
+        source: "gestaoclick_live"
+      };
+    }
+  )
+});
+function configTool(name, title, description, path, entity) {
+  return defineTool4({
+    name,
+    title,
+    description,
+    inputSchema: {
+      pagina: z4.number().int().min(1).max(100).default(1),
+      limite: z4.number().int().min(1).max(100).default(100)
+    },
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    handler: async (input, ctx) => handle(
+      ctx,
+      {
+        toolName: name,
+        operationType: "read",
+        sourceSystem: "gestaoclick",
+        allowedRoles: READ_ROLES,
+        parameters: input,
+        targetEntity: entity
+      },
+      async () => {
+        const response = await gcRequest(
+          `${path}${queryString({ pagina: input.pagina, limite: input.limite })}`
+        );
+        const rows = listFromGc(response);
+        return { rows, count: rows.length, source: "gestaoclick_live" };
+      }
+    )
+  });
+}
+var listarSituacoesOrcamento = configTool(
+  "listar_situacoes_orcamento",
+  "Listar situa\xE7\xF5es de or\xE7amento",
+  "Lista os IDs e nomes v\xE1lidos de situa\xE7\xF5es de or\xE7amento no Gest\xE3oClick.",
+  "/api/situacoes_orcamentos",
+  "situacao_orcamento"
+);
+var listarSituacoesOs = configTool(
+  "listar_situacoes_os",
+  "Listar situa\xE7\xF5es de OS",
+  "Lista os IDs e nomes v\xE1lidos de situa\xE7\xF5es de ordem de servi\xE7o no Gest\xE3oClick.",
+  "/api/situacoes_ordens_servicos",
+  "situacao_os"
+);
+var listarLojasGc = configTool(
+  "listar_lojas_gc",
+  "Listar lojas do Gest\xE3oClick",
+  "Lista lojas v\xE1lidas para atribuir or\xE7amentos e ordens de servi\xE7o.",
+  "/api/lojas",
+  "loja"
+);
+var gcReadTools = [
+  buscarCliente,
+  detalharCliente,
+  buscarOrdensServico,
+  detalharOrdemServico,
+  buscarOrcamentos,
+  detalharOrcamento,
+  buscarProdutoServico,
+  consultarEstoque,
+  listarSituacoesOrcamento,
+  listarSituacoesOs,
+  listarLojasGc
+];
+
+// src/lib/mcp/tools/gc-client-write.ts
+import { defineTool as defineTool5 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z5 } from "npm:zod@^4.4.3";
+
+// src/lib/mcp/shared/pending-actions.ts
+function bytesToHex(bytes) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+async function sha256(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return bytesToHex(new Uint8Array(digest));
+}
+function canonicalJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const object = value;
+  return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(object[key])}`).join(",")}}`;
+}
+function randomToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return bytesToHex(bytes);
+}
+async function prepareAction(options) {
+  const id = crypto.randomUUID();
+  const token = randomToken();
+  const expiresAt = new Date(Date.now() + 10 * 6e4).toISOString();
+  const payloadCanonical = canonicalJson(options.payload);
+  const { error } = await serviceClient().from("mcp_pending_actions").insert({
+    id,
+    user_id: options.actor.id,
+    tool_name: options.action,
+    payload: options.payload,
+    payload_hash: await sha256(payloadCanonical),
+    confirmation_token_hash: await sha256(token),
+    status: "pending",
+    expires_at: expiresAt,
+    request_id: options.requestId
+  });
+  if (error) {
+    throw new McpToolError("SUPABASE_ERROR", "N\xE3o foi poss\xEDvel preparar a confirma\xE7\xE3o.");
+  }
+  return {
+    pending_action_id: id,
+    confirmation_token: token,
+    expires_at: expiresAt,
+    action: options.action,
+    preview: options.preview,
+    confirmation_required: true
+  };
+}
+async function claimAction(options) {
+  const sb = serviceClient();
+  const { data: current, error: readError } = await sb.from("mcp_pending_actions").select("id,user_id,tool_name,payload,payload_hash,confirmation_token_hash,status,expires_at").eq("id", options.actionId).maybeSingle();
+  if (readError) throw new McpToolError("SUPABASE_ERROR", "Falha ao validar a confirma\xE7\xE3o.");
+  if (!current || current.user_id !== options.actor.id || current.tool_name !== options.expectedAction) {
+    throw new McpToolError("CONFIRMATION_INVALID", "Confirma\xE7\xE3o inv\xE1lida para este usu\xE1rio.");
+  }
+  if (current.status !== "pending") {
+    throw new McpToolError("IDEMPOTENCY_CONFLICT", "Esta a\xE7\xE3o j\xE1 foi confirmada ou encerrada.");
+  }
+  if (new Date(current.expires_at).getTime() <= Date.now()) {
+    await sb.from("mcp_pending_actions").update({ status: "expired" }).eq("id", current.id);
+    throw new McpToolError("CONFIRMATION_EXPIRED", "A pr\xE9via expirou. Prepare a a\xE7\xE3o novamente.");
+  }
+  if (await sha256(options.confirmationToken) !== current.confirmation_token_hash) {
+    throw new McpToolError("CONFIRMATION_INVALID", "Token de confirma\xE7\xE3o inv\xE1lido.");
+  }
+  if (await sha256(canonicalJson(current.payload)) !== current.payload_hash) {
+    throw new McpToolError("CONFIRMATION_INVALID", "O conte\xFAdo preparado foi alterado.");
+  }
+  const { data: claimed, error: claimError } = await sb.from("mcp_pending_actions").update({ status: "executing" }).eq("id", current.id).eq("status", "pending").select("payload,payload_hash").maybeSingle();
+  if (claimError) throw new McpToolError("SUPABASE_ERROR", "Falha ao reservar a a\xE7\xE3o.");
+  if (!claimed) {
+    throw new McpToolError("IDEMPOTENCY_CONFLICT", "A a\xE7\xE3o j\xE1 est\xE1 sendo executada.");
+  }
+  return { payload: claimed.payload, payloadHash: claimed.payload_hash };
+}
+async function completeAction(actionId, resultReference) {
+  const sb = serviceClient();
+  await sb.from("mcp_pending_actions").update({
+    status: "completed",
+    executed_at: (/* @__PURE__ */ new Date()).toISOString(),
+    result_reference: resultReference
+  }).eq("id", actionId);
+  await sb.from("mcp_idempotency").upsert(
+    {
+      user_id: resultReference.user_id,
+      tool_name: resultReference.tool_name,
+      idempotency_key: actionId,
+      payload_hash: resultReference.payload_hash,
+      status: "completed",
+      upstream_id: resultReference.upstream_id ?? null,
+      response_summary: resultReference,
+      completed_at: (/* @__PURE__ */ new Date()).toISOString()
+    },
+    { onConflict: "user_id,tool_name,idempotency_key" }
+  );
+}
+async function failAction(actionId, error) {
+  await serviceClient().from("mcp_pending_actions").update({
+    status: "failed",
+    executed_at: (/* @__PURE__ */ new Date()).toISOString(),
+    result_reference: {
+      error: error instanceof Error ? error.message.slice(0, 300) : "Erro interno"
+    }
+  }).eq("id", actionId);
+}
+
+// src/lib/mcp/tools/gc-client-write.ts
+var COMMERCIAL_WRITE_ROLES = [
+  "admin",
+  "ceo",
+  "gerente_comercial",
+  "vendedor"
+];
+var idSchema = z5.string().trim().regex(/^\d+$/).max(30);
+var optionalText = (max) => z5.string().trim().max(max).optional();
+var emailSchema = z5.union([z5.literal(""), z5.string().trim().email().max(160)]).optional();
+var dateSchema = z5.union([z5.literal(""), z5.string().date()]).optional();
+var stateSchema = z5.union([z5.literal(""), z5.string().trim().regex(/^[A-Za-z]{2}$/)]).optional();
+var contactSchema = z5.object({
+  nome: z5.string().trim().min(2).max(120),
+  contato: z5.string().trim().min(3).max(160),
+  cargo: optionalText(100),
+  observacao: optionalText(500)
+});
+var addressSchema = z5.object({
+  cep: optionalText(12),
+  logradouro: optionalText(160),
+  numero: optionalText(30),
+  complemento: optionalText(100),
+  bairro: optionalText(100),
+  cidade_id: idSchema.optional(),
+  nome_cidade: optionalText(120),
+  estado: stateSchema
+});
+var clientOptionalShape = {
+  razao_social: optionalText(160),
+  cnpj: optionalText(24),
+  inscricao_estadual: optionalText(40),
+  inscricao_municipal: optionalText(40),
+  cpf: optionalText(20),
+  rg: optionalText(30),
+  data_nascimento: dateSchema,
+  telefone: optionalText(30),
+  celular: optionalText(30),
+  fax: optionalText(30),
+  email: emailSchema,
+  ativo: z5.boolean().optional(),
+  usuario_id: idSchema.optional(),
+  loja_id: idSchema.optional(),
+  contatos: z5.array(contactSchema).max(20).optional(),
+  enderecos: z5.array(addressSchema).max(10).optional()
+};
+var WRITABLE_FIELDS = [
+  "tipo_pessoa",
+  "nome",
+  "razao_social",
+  "cnpj",
+  "inscricao_estadual",
+  "inscricao_municipal",
+  "cpf",
+  "rg",
+  "data_nascimento",
+  "telefone",
+  "celular",
+  "fax",
+  "email",
+  "ativo",
+  "usuario_id",
+  "loja_id",
+  "contatos",
+  "enderecos"
+];
+function handle2(ctx, options, operation) {
+  return runAudited(ctx, options, operation).then(({ data, requestId }) => successResult({ ok: true, request_id: requestId, ...data })).catch((error) => errorResult(error, requestIdFrom(error)));
+}
+function listFromGc2(response) {
+  const data = gcData(response);
+  return Array.isArray(data) ? data : [];
+}
+function normalizeDocument(value) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+function maskDocument2(value) {
+  const digits = normalizeDocument(value);
+  if (!digits) return null;
+  if (digits.length <= 5) return "***";
+  return `${digits.slice(0, 2)}***${digits.slice(-3)}`;
+}
+function normalizeClientPatch(input) {
+  const patch = {};
+  for (const field of WRITABLE_FIELDS) {
+    if (input[field] !== void 0) patch[field] = input[field];
+  }
+  if (input.ativo !== void 0) patch.ativo = input.ativo ? "1" : "0";
+  if (input.contatos !== void 0) {
+    patch.contatos = input.contatos.map((contato) => ({ contato }));
+  }
+  if (input.enderecos !== void 0) {
+    patch.enderecos = input.enderecos.map((endereco) => ({
+      endereco: {
+        ...endereco,
+        ...endereco.estado ? { estado: String(endereco.estado).toUpperCase() } : {}
+      }
+    }));
+  }
+  return patch;
+}
+function validatePersonDocument(payload) {
+  const type = String(payload.tipo_pessoa ?? "");
+  if (type === "PF" && normalizeDocument(payload.cnpj)) {
+    throw new McpToolError(
+      "INVALID_INPUT",
+      "Cliente pessoa f\xEDsica n\xE3o pode receber CNPJ. Informe CPF ou deixe o documento vazio."
+    );
+  }
+  if (type === "PJ" && normalizeDocument(payload.cpf)) {
+    throw new McpToolError(
+      "INVALID_INPUT",
+      "Cliente pessoa jur\xEDdica n\xE3o pode receber CPF. Informe CNPJ ou deixe o documento vazio."
+    );
+  }
+}
+function documentFor(payload) {
+  return normalizeDocument(payload.cnpj) || normalizeDocument(payload.cpf);
+}
+async function ensureDocumentIsUnique(payload, excludeClientId) {
+  const document = documentFor(payload);
+  if (!document) return;
+  const response = await gcRequest(
+    `/clientes${queryString({ cpf_cnpj: document, limite: 20 })}`
+  );
+  const duplicates = listFromGc2(response).filter(
+    (row) => String(row.id) !== excludeClientId && (normalizeDocument(row.cnpj) === document || normalizeDocument(row.cpf) === document)
+  );
+  if (duplicates.length) {
+    throw new McpToolError(
+      "MULTIPLE_MATCHES",
+      "J\xE1 existe outro cliente no Gest\xE3oClick com este CPF/CNPJ. Use a edi\xE7\xE3o do cadastro existente.",
+      false,
+      {
+        clientes: duplicates.slice(0, 5).map((row) => ({
+          id: String(row.id),
+          nome: row.nome,
+          documento_mascarado: maskDocument2(row.cnpj ?? row.cpf)
+        }))
+      }
+    );
+  }
+}
+function currentWritableClient(row) {
+  return Object.fromEntries(
+    WRITABLE_FIELDS.flatMap(
+      (field) => row[field] === void 0 ? [] : [[field, row[field]]]
+    )
+  );
+}
+function comparable(value) {
+  return canonicalJson(value === void 0 ? null : value);
+}
+function previewValue(field, value) {
+  if (field === "cpf" || field === "cnpj") return maskDocument2(value);
+  if (field === "contatos" || field === "enderecos") {
+    return { quantidade: Array.isArray(value) ? value.length : 0 };
+  }
+  return value ?? null;
+}
+function creationPreview(payload) {
+  return {
+    tipo_pessoa: payload.tipo_pessoa,
+    nome: payload.nome,
+    razao_social: payload.razao_social || null,
+    documento_mascarado: maskDocument2(payload.cnpj || payload.cpf),
+    email: payload.email || null,
+    telefone: payload.telefone || payload.celular || null,
+    ativo: String(payload.ativo ?? "1") !== "0",
+    loja_id: payload.loja_id ?? "matriz/padr\xE3o da credencial",
+    usuario_id: payload.usuario_id ?? "usu\xE1rio master/padr\xE3o da credencial",
+    contatos: Array.isArray(payload.contatos) ? payload.contatos.length : 0,
+    enderecos: Array.isArray(payload.enderecos) ? payload.enderecos.length : 0
+  };
+}
+function changedFieldsPreview(current, patch) {
+  return Object.fromEntries(
+    Object.entries(patch).filter(([field, value]) => comparable(current[field]) !== comparable(value)).map(([field, value]) => [
+      field,
+      {
+        antes: previewValue(field, current[field]),
+        depois: previewValue(field, value)
+      }
+    ])
+  );
+}
+var prepararCriacaoCliente = defineTool5({
+  name: "preparar_criacao_cliente",
+  title: "Preparar cria\xE7\xE3o de cliente no Gest\xE3oClick",
+  description: "Valida os dados, verifica CPF/CNPJ duplicado e gera uma pr\xE9via. N\xE3o cria o cliente. Ap\xF3s a confirma\xE7\xE3o expl\xEDcita do usu\xE1rio, use confirmar_criacao_cliente.",
+  inputSchema: {
+    tipo_pessoa: z5.enum(["PF", "PJ", "ES"]),
+    nome: z5.string().trim().min(2).max(160),
+    ...clientOptionalShape
+  },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true
+  },
+  handler: async (input, ctx) => handle2(
+    ctx,
+    {
+      toolName: "preparar_criacao_cliente",
+      operationType: "prepare",
+      sourceSystem: "gestaoclick",
+      allowedRoles: COMMERCIAL_WRITE_ROLES,
+      parameters: input,
+      targetEntity: "cliente"
+    },
+    async (actor, requestId) => {
+      const payload = normalizeClientPatch(input);
+      if (payload.ativo === void 0) payload.ativo = "1";
+      validatePersonDocument(payload);
+      await ensureDocumentIsUnique(payload);
+      return prepareAction({
+        actor,
+        action: "criar_cliente_gc",
+        payload,
+        requestId,
+        preview: creationPreview(payload)
+      });
+    }
+  )
+});
+var confirmarCriacaoCliente = defineTool5({
+  name: "confirmar_criacao_cliente",
+  title: "Confirmar cria\xE7\xE3o de cliente no Gest\xE3oClick",
+  description: "Cria exatamente o cliente previamente preparado. S\xF3 use ap\xF3s confirma\xE7\xE3o expl\xEDcita do usu\xE1rio na conversa.",
+  inputSchema: {
+    pending_action_id: z5.string().uuid(),
+    confirmation_token: z5.string().length(64)
+  },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true
+  },
+  handler: async (input, ctx) => handle2(
+    ctx,
+    {
+      toolName: "confirmar_criacao_cliente",
+      operationType: "write",
+      sourceSystem: "gestaoclick",
+      allowedRoles: COMMERCIAL_WRITE_ROLES,
+      parameters: { pending_action_id: input.pending_action_id },
+      targetEntity: "cliente"
+    },
+    async (actor) => {
+      const claimed = await claimAction({
+        actor,
+        actionId: input.pending_action_id,
+        confirmationToken: input.confirmation_token,
+        expectedAction: "criar_cliente_gc"
+      });
+      try {
+        const payload = claimed.payload;
+        validatePersonDocument(payload);
+        await ensureDocumentIsUnique(payload);
+        const response = await gcRequest("/clientes", "POST", payload);
+        const created = gcData(response);
+        if (!created?.id) {
+          throw new McpToolError(
+            "GC_UNAVAILABLE",
+            "O Gest\xE3oClick respondeu sem o ID do cliente. N\xE3o tente novamente automaticamente."
+          );
+        }
+        await completeAction(input.pending_action_id, {
+          user_id: actor.id,
+          tool_name: "criar_cliente_gc",
+          payload_hash: claimed.payloadHash,
+          upstream_id: String(created.id)
+        });
+        return {
+          created: true,
+          cliente_id: String(created.id),
+          nome: created.nome ?? payload.nome,
+          source: "gestaoclick_live"
+        };
+      } catch (error) {
+        await failAction(input.pending_action_id, error);
+        throw error;
+      }
+    }
+  )
+});
+var prepararEdicaoCliente = defineTool5({
+  name: "preparar_edicao_cliente",
+  title: "Preparar edi\xE7\xE3o de cliente no Gest\xE3oClick",
+  description: "Busca o cadastro atual, valida as altera\xE7\xF5es e gera uma pr\xE9via antes/depois. N\xE3o altera o cliente. Ap\xF3s confirma\xE7\xE3o expl\xEDcita, use confirmar_edicao_cliente.",
+  inputSchema: {
+    cliente_id: idSchema,
+    tipo_pessoa: z5.enum(["PF", "PJ", "ES"]).optional(),
+    nome: z5.string().trim().min(2).max(160).optional(),
+    ...clientOptionalShape
+  },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true
+  },
+  handler: async (input, ctx) => handle2(
+    ctx,
+    {
+      toolName: "preparar_edicao_cliente",
+      operationType: "prepare",
+      sourceSystem: "gestaoclick",
+      allowedRoles: COMMERCIAL_WRITE_ROLES,
+      parameters: input,
+      targetEntity: "cliente"
+    },
+    async (actor, requestId) => {
+      const current = gcData(
+        await gcRequest(`/clientes/${input.cliente_id}`)
+      );
+      if (!current?.id) throw new McpToolError("NOT_FOUND", "Cliente n\xE3o encontrado.");
+      const patch = normalizeClientPatch(input);
+      delete patch.cliente_id;
+      if (!Object.keys(patch).length) {
+        throw new McpToolError("INVALID_INPUT", "Informe ao menos um campo para alterar.");
+      }
+      const changes = changedFieldsPreview(current, patch);
+      if (!Object.keys(changes).length) {
+        throw new McpToolError(
+          "INVALID_INPUT",
+          "Os valores informados j\xE1 s\xE3o iguais aos dados atuais do cliente."
+        );
+      }
+      const merged = { ...currentWritableClient(current), ...patch };
+      validatePersonDocument(merged);
+      await ensureDocumentIsUnique(merged, input.cliente_id);
+      const base = Object.fromEntries(
+        Object.keys(patch).map((field) => [field, current[field] ?? null])
+      );
+      return prepareAction({
+        actor,
+        action: "editar_cliente_gc",
+        payload: { cliente_id: input.cliente_id, patch, base },
+        requestId,
+        preview: {
+          cliente: { id: input.cliente_id, nome: current.nome },
+          alteracoes: changes
+        }
+      });
+    }
+  )
+});
+var confirmarEdicaoCliente = defineTool5({
+  name: "confirmar_edicao_cliente",
+  title: "Confirmar edi\xE7\xE3o de cliente no Gest\xE3oClick",
+  description: "Aplica exatamente as altera\xE7\xF5es previamente preparadas. Recusa a grava\xE7\xE3o se os mesmos campos tiverem mudado depois da pr\xE9via.",
+  inputSchema: {
+    pending_action_id: z5.string().uuid(),
+    confirmation_token: z5.string().length(64)
+  },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true
+  },
+  handler: async (input, ctx) => handle2(
+    ctx,
+    {
+      toolName: "confirmar_edicao_cliente",
+      operationType: "write",
+      sourceSystem: "gestaoclick",
+      allowedRoles: COMMERCIAL_WRITE_ROLES,
+      parameters: { pending_action_id: input.pending_action_id },
+      targetEntity: "cliente"
+    },
+    async (actor) => {
+      const claimed = await claimAction({
+        actor,
+        actionId: input.pending_action_id,
+        confirmationToken: input.confirmation_token,
+        expectedAction: "editar_cliente_gc"
+      });
+      try {
+        const prepared = claimed.payload;
+        const current = gcData(
+          await gcRequest(`/clientes/${prepared.cliente_id}`)
+        );
+        if (!current?.id) throw new McpToolError("NOT_FOUND", "Cliente n\xE3o encontrado.");
+        const staleFields = Object.keys(prepared.base).filter(
+          (field) => comparable(current[field]) !== comparable(prepared.base[field])
+        );
+        if (staleFields.length) {
+          throw new McpToolError(
+            "IDEMPOTENCY_CONFLICT",
+            "O cliente mudou depois da pr\xE9via. Prepare a edi\xE7\xE3o novamente para n\xE3o sobrescrever dados recentes.",
+            false,
+            { campos_alterados: staleFields }
+          );
+        }
+        const updatePayload = {
+          ...currentWritableClient(current),
+          ...prepared.patch
+        };
+        if (!updatePayload.tipo_pessoa || !updatePayload.nome) {
+          throw new McpToolError(
+            "GC_VALIDATION_ERROR",
+            "O cadastro atual n\xE3o cont\xE9m tipo de pessoa e nome v\xE1lidos."
+          );
+        }
+        validatePersonDocument(updatePayload);
+        await ensureDocumentIsUnique(updatePayload, prepared.cliente_id);
+        const response = await gcRequest(
+          `/clientes/${prepared.cliente_id}`,
+          "PUT",
+          updatePayload
+        );
+        const updated = gcData(response);
+        if (!updated?.id) {
+          throw new McpToolError(
+            "GC_UNAVAILABLE",
+            "O Gest\xE3oClick respondeu sem confirmar o cliente atualizado. N\xE3o tente novamente automaticamente."
+          );
+        }
+        await completeAction(input.pending_action_id, {
+          user_id: actor.id,
+          tool_name: "editar_cliente_gc",
+          payload_hash: claimed.payloadHash,
+          upstream_id: String(updated.id)
+        });
+        return {
+          updated: true,
+          cliente_id: String(updated.id),
+          nome: updated.nome ?? updatePayload.nome,
+          campos_alterados: Object.keys(prepared.patch),
+          source: "gestaoclick_live"
+        };
+      } catch (error) {
+        await failAction(input.pending_action_id, error);
+        throw error;
+      }
+    }
+  )
+});
+var gcClientWriteTools = [
+  prepararCriacaoCliente,
+  confirmarCriacaoCliente,
+  prepararEdicaoCliente,
+  confirmarEdicaoCliente
+];
+
+// src/lib/mcp/tools/gc-write.ts
+import { defineTool as defineTool6 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z6 } from "npm:zod@^4.4.3";
+
+// src/lib/mcp/shared/money.ts
+function moneyToCents(value) {
+  const raw = String(value).trim();
+  const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw;
+  if (!/^-?\d+(\.\d{1,4})?$/.test(normalized)) {
+    throw new McpToolError("INVALID_INPUT", `Valor monet\xE1rio inv\xE1lido: ${raw}`);
+  }
+  const cents = Math.round(Number(normalized) * 100);
+  if (!Number.isSafeInteger(cents)) {
+    throw new McpToolError("INVALID_INPUT", `Valor monet\xE1rio fora do limite: ${raw}`);
+  }
+  return cents;
+}
+function centsToMoney(cents) {
+  if (!Number.isSafeInteger(cents)) {
+    throw new McpToolError("INVALID_INPUT", "Valor em centavos inv\xE1lido.");
+  }
+  const sign = cents < 0 ? "-" : "";
+  const absolute = Math.abs(cents);
+  return `${sign}${Math.floor(absolute / 100)}.${String(absolute % 100).padStart(2, "0")}`;
+}
+
+// src/lib/mcp/tools/gc-write.ts
+var COMMERCIAL_WRITE_ROLES2 = [
+  "admin",
+  "ceo",
+  "gerente_comercial",
+  "vendedor"
+];
+var OS_WRITE_ROLES = ["admin", "ceo"];
+var itemSchema = z6.object({
+  id: z6.string().trim().regex(/^\d+$/).max(30),
+  quantidade: z6.number().positive().max(1e5),
+  valor_unitario: z6.union([z6.string().trim().min(1).max(30), z6.number().nonnegative()]),
+  detalhes: z6.string().trim().max(500).optional()
+});
+function handle3(ctx, options, operation) {
+  return runAudited(ctx, options, operation).then(({ data, requestId }) => successResult({ ok: true, request_id: requestId, ...data })).catch((error) => errorResult(error, requestIdFrom(error)));
+}
+function buildLines(items, kind) {
+  return items.map((item) => {
+    const unitCents = moneyToCents(item.valor_unitario);
+    if (unitCents < 0) throw new McpToolError("INVALID_INPUT", "Valor unit\xE1rio n\xE3o pode ser negativo.");
+    const totalCents2 = Math.round(item.quantidade * unitCents);
+    const row = {
+      [`${kind}_id`]: item.id,
+      quantidade: String(item.quantidade),
+      valor_venda: centsToMoney(unitCents),
+      valor_total: centsToMoney(totalCents2),
+      detalhes: item.detalhes ?? "",
+      tipo_desconto: "R$",
+      desconto_valor: "0.00",
+      desconto_porcentagem: "0.00"
+    };
+    return { [kind]: row };
+  });
+}
+function totalCents(items) {
+  return items.reduce(
+    (sum, item) => sum + Math.round(item.quantidade * moneyToCents(item.valor_unitario)),
+    0
+  );
+}
+async function resolvePreview(options) {
+  const client4 = gcData(
+    await gcRequest(`/clientes/${options.clienteId}`)
+  );
+  if (!client4?.id) throw new McpToolError("NOT_FOUND", "Cliente n\xE3o encontrado no Gest\xE3oClick.");
+  const situationResponse = await gcRequest(
+    options.situationKind === "orcamento" ? "/api/situacoes_orcamentos?limite=100" : "/api/situacoes_ordens_servicos?limite=100"
+  );
+  const situationData = gcData(situationResponse);
+  const situations = Array.isArray(situationData) ? situationData : [];
+  const situation = situations.find(
+    (row) => row !== null && typeof row === "object" && String(row.id) === options.situacaoId
+  );
+  if (!situation) {
+    throw new McpToolError(
+      "INVALID_INPUT",
+      `Situa\xE7\xE3o ${options.situacaoId} n\xE3o \xE9 v\xE1lida para ${options.situationKind === "orcamento" ? "or\xE7amento" : "ordem de servi\xE7o"}.`
+    );
+  }
+  const products = [];
+  for (const item of options.produtos) {
+    const product = gcData(
+      await gcRequest(`/api/produtos/${item.id}`)
+    );
+    if (!product?.id) throw new McpToolError("NOT_FOUND", `Produto ${item.id} n\xE3o encontrado.`);
+    if (String(product.ativo) === "0" || product.ativo === false) {
+      throw new McpToolError("INVALID_INPUT", `Produto ${product.nome ?? item.id} est\xE1 inativo.`);
+    }
+    products.push({
+      id: item.id,
+      nome: product.nome,
+      quantidade: item.quantidade,
+      valor_unitario: centsToMoney(moneyToCents(item.valor_unitario)),
+      estoque_atual: product.estoque ?? null
+    });
+  }
+  const services = [];
+  for (const item of options.servicos) {
+    const service = gcData(await gcRequest(`/servicos/${item.id}`));
+    if (!service?.id) throw new McpToolError("NOT_FOUND", `Servi\xE7o ${item.id} n\xE3o encontrado.`);
+    if (String(service.ativo) === "0" || service.ativo === false) {
+      throw new McpToolError("INVALID_INPUT", `Servi\xE7o ${service.nome ?? item.id} est\xE1 inativo.`);
+    }
+    services.push({
+      id: item.id,
+      nome: service.nome,
+      quantidade: item.quantidade,
+      valor_unitario: centsToMoney(moneyToCents(item.valor_unitario))
+    });
+  }
+  return {
+    cliente: { id: String(client4.id), nome: client4.nome },
+    situacao: {
+      id: options.situacaoId,
+      nome: situation?.nome ?? situation?.descricao ?? "ID informado"
+    },
+    produtos: products,
+    servicos: services
+  };
+}
+var prepararCriacaoOrcamento = defineTool6({
+  name: "preparar_criacao_orcamento",
+  title: "Preparar or\xE7amento no Gest\xE3oClick",
+  description: "Valida cliente, situa\xE7\xE3o, produtos, servi\xE7os, pre\xE7os e total e gera uma pr\xE9via. N\xE3o cria o or\xE7amento. Depois da confirma\xE7\xE3o expl\xEDcita do usu\xE1rio, use confirmar_criacao_orcamento.",
+  inputSchema: {
+    tipo: z6.enum(["produto", "servico"]),
+    cliente_id: z6.string().trim().regex(/^\d+$/),
+    situacao_id: z6.string().trim().regex(/^\d+$/),
+    loja_id: z6.string().trim().regex(/^\d+$/).optional(),
+    usuario_id: z6.string().trim().regex(/^\d+$/).optional(),
+    vendedor_id: z6.string().trim().regex(/^\d+$/).optional(),
+    data: z6.string().date(),
+    validade: z6.string().trim().max(60).optional(),
+    observacoes: z6.string().trim().max(2e3).optional(),
+    produtos: z6.array(itemSchema).max(100).default([]),
+    servicos: z6.array(itemSchema).max(100).default([])
+  },
+  annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle3(
+    ctx,
+    {
+      toolName: "preparar_criacao_orcamento",
+      operationType: "prepare",
+      sourceSystem: "gestaoclick",
+      allowedRoles: COMMERCIAL_WRITE_ROLES2,
+      parameters: input,
+      targetEntity: "orcamento"
+    },
+    async (actor, requestId) => {
+      const produtos = input.produtos;
+      const servicos = input.servicos;
+      if (!produtos.length && !servicos.length) {
+        throw new McpToolError("INVALID_INPUT", "Inclua ao menos um produto ou servi\xE7o.");
+      }
+      const previewResolved = await resolvePreview({
+        clienteId: input.cliente_id,
+        situacaoId: input.situacao_id,
+        situationKind: "orcamento",
+        produtos,
+        servicos
+      });
+      const amountCents = totalCents([...produtos, ...servicos]);
+      const payload = {
+        tipo: input.tipo,
+        cliente_id: input.cliente_id,
+        situacao_id: input.situacao_id,
+        data: input.data,
+        valor_total: centsToMoney(amountCents),
+        valor_frete: "0.00",
+        desconto_valor: "0.00",
+        desconto_porcentagem: "0.00",
+        condicao_pagamento: "a_vista",
+        produtos: buildLines(produtos, "produto"),
+        servicos: buildLines(servicos, "servico"),
+        ...input.loja_id ? { loja_id: input.loja_id } : {},
+        ...input.usuario_id ? { usuario_id: input.usuario_id } : {},
+        ...input.vendedor_id ? { vendedor_id: input.vendedor_id } : {},
+        ...input.validade ? { validade: input.validade } : {},
+        ...input.observacoes ? { observacoes: input.observacoes } : {}
+      };
+      return prepareAction({
+        actor,
+        action: "criar_orcamento_gc",
+        payload,
+        requestId,
+        preview: {
+          tipo: input.tipo,
+          ...previewResolved,
+          data: input.data,
+          validade: input.validade ?? null,
+          loja_id: input.loja_id ?? "matriz/padr\xE3o da credencial",
+          total: centsToMoney(amountCents),
+          condicao_pagamento: "a_vista"
+        }
+      });
+    }
+  )
+});
+var confirmarCriacaoOrcamento = defineTool6({
+  name: "confirmar_criacao_orcamento",
+  title: "Confirmar cria\xE7\xE3o de or\xE7amento",
+  description: "Cria exatamente o or\xE7amento previamente preparado. S\xF3 use ap\xF3s confirma\xE7\xE3o expl\xEDcita do usu\xE1rio na conversa.",
+  inputSchema: {
+    pending_action_id: z6.string().uuid(),
+    confirmation_token: z6.string().length(64)
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle3(
+    ctx,
+    {
+      toolName: "confirmar_criacao_orcamento",
+      operationType: "write",
+      sourceSystem: "gestaoclick",
+      allowedRoles: COMMERCIAL_WRITE_ROLES2,
+      parameters: { pending_action_id: input.pending_action_id },
+      targetEntity: "orcamento"
+    },
+    async (actor) => {
+      const claimed = await claimAction({
+        actor,
+        actionId: input.pending_action_id,
+        confirmationToken: input.confirmation_token,
+        expectedAction: "criar_orcamento_gc"
+      });
+      try {
+        const payload = claimed.payload;
+        await resolvePreview({
+          clienteId: String(payload.cliente_id),
+          situacaoId: String(payload.situacao_id),
+          situationKind: "orcamento",
+          produtos: (payload.produtos ?? []).map((wrapper) => ({
+            id: String(wrapper.produto.produto_id),
+            quantidade: Number(wrapper.produto.quantidade),
+            valor_unitario: wrapper.produto.valor_venda
+          })),
+          servicos: (payload.servicos ?? []).map((wrapper) => ({
+            id: String(wrapper.servico.servico_id),
+            quantidade: Number(wrapper.servico.quantidade),
+            valor_unitario: wrapper.servico.valor_venda
+          }))
+        });
+        const response = await gcRequest("/orcamentos", "POST", payload);
+        const created = gcData(response);
+        if (!created?.id) {
+          throw new McpToolError(
+            "GC_UNAVAILABLE",
+            "O Gest\xE3oClick respondeu sem o ID do or\xE7amento. N\xE3o tente novamente automaticamente."
+          );
+        }
+        await completeAction(input.pending_action_id, {
+          user_id: actor.id,
+          tool_name: "criar_orcamento_gc",
+          payload_hash: claimed.payloadHash,
+          upstream_id: String(created.id),
+          codigo: created.codigo ?? null
+        });
+        return {
+          created: true,
+          orcamento_id: String(created.id),
+          codigo: created.codigo ?? null,
+          url: `https://app.gestaoclick.com/orcamentos/visualizar/${created.id}`,
+          source: "gestaoclick_live"
+        };
+      } catch (error) {
+        await failAction(input.pending_action_id, error);
+        throw error;
+      }
+    }
+  )
+});
+var prepararCriacaoOrdemServico = defineTool6({
+  name: "preparar_criacao_ordem_servico",
+  title: "Preparar ordem de servi\xE7o no Gest\xE3oClick",
+  description: "Valida os dados e gera a pr\xE9via de uma OS no Gest\xE3oClick. N\xE3o cria a OS. A tarefa Auvo deve ser preparada separadamente quando necess\xE1ria.",
+  inputSchema: {
+    cliente_id: z6.string().trim().regex(/^\d+$/),
+    situacao_id: z6.string().trim().regex(/^\d+$/),
+    codigo: z6.string().trim().max(40).optional(),
+    loja_id: z6.string().trim().regex(/^\d+$/).optional(),
+    usuario_id: z6.string().trim().regex(/^\d+$/).optional(),
+    vendedor_id: z6.string().trim().regex(/^\d+$/).optional(),
+    tecnico_id: z6.string().trim().regex(/^\d+$/).optional(),
+    centro_custo_id: z6.string().trim().regex(/^\d+$/).optional(),
+    data: z6.string().date(),
+    observacoes: z6.string().trim().max(2e3).optional(),
+    observacoes_interna: z6.string().trim().max(2e3).optional(),
+    produtos: z6.array(itemSchema).max(100).default([]),
+    servicos: z6.array(itemSchema).max(100).default([])
+  },
+  annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle3(
+    ctx,
+    {
+      toolName: "preparar_criacao_ordem_servico",
+      operationType: "prepare",
+      sourceSystem: "gestaoclick",
+      allowedRoles: OS_WRITE_ROLES,
+      parameters: input,
+      targetEntity: "ordem_servico"
+    },
+    async (actor, requestId) => {
+      const produtos = input.produtos;
+      const servicos = input.servicos;
+      if (!produtos.length && !servicos.length) {
+        throw new McpToolError("INVALID_INPUT", "Inclua ao menos um produto ou servi\xE7o.");
+      }
+      const previewResolved = await resolvePreview({
+        clienteId: input.cliente_id,
+        situacaoId: input.situacao_id,
+        situationKind: "os",
+        produtos,
+        servicos
+      });
+      const amountCents = totalCents([...produtos, ...servicos]);
+      const payload = {
+        cliente_id: input.cliente_id,
+        situacao_id: input.situacao_id,
+        data: input.data,
+        valor_total: centsToMoney(amountCents),
+        valor_frete: "0.00",
+        condicao_pagamento: "a_vista",
+        produtos: buildLines(produtos, "produto"),
+        servicos: buildLines(servicos, "servico"),
+        ...input.codigo ? { codigo: input.codigo } : {},
+        ...input.loja_id ? { loja_id: input.loja_id } : {},
+        ...input.usuario_id ? { usuario_id: input.usuario_id } : {},
+        ...input.vendedor_id ? { vendedor_id: input.vendedor_id } : {},
+        ...input.tecnico_id ? { tecnico_id: input.tecnico_id } : {},
+        ...input.centro_custo_id ? { centro_custo_id: input.centro_custo_id } : {},
+        ...input.observacoes ? { observacoes: input.observacoes } : {},
+        ...input.observacoes_interna ? { observacoes_interna: input.observacoes_interna } : {}
+      };
+      return prepareAction({
+        actor,
+        action: "criar_ordem_servico_gc",
+        payload,
+        requestId,
+        preview: {
+          ...previewResolved,
+          codigo: input.codigo ?? "gerado pelo Gest\xE3oClick",
+          data: input.data,
+          loja_id: input.loja_id ?? "matriz/padr\xE3o da credencial",
+          tecnico_id: input.tecnico_id ?? null,
+          total: centsToMoney(amountCents),
+          condicao_pagamento: "a_vista"
+        }
+      });
+    }
+  )
+});
+var confirmarCriacaoOrdemServico = defineTool6({
+  name: "confirmar_criacao_ordem_servico",
+  title: "Confirmar cria\xE7\xE3o de ordem de servi\xE7o",
+  description: "Cria exatamente a OS previamente preparada no Gest\xE3oClick. S\xF3 use ap\xF3s confirma\xE7\xE3o expl\xEDcita do usu\xE1rio.",
+  inputSchema: {
+    pending_action_id: z6.string().uuid(),
+    confirmation_token: z6.string().length(64)
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle3(
+    ctx,
+    {
+      toolName: "confirmar_criacao_ordem_servico",
+      operationType: "write",
+      sourceSystem: "gestaoclick",
+      allowedRoles: OS_WRITE_ROLES,
+      parameters: { pending_action_id: input.pending_action_id },
+      targetEntity: "ordem_servico"
+    },
+    async (actor) => {
+      const claimed = await claimAction({
+        actor,
+        actionId: input.pending_action_id,
+        confirmationToken: input.confirmation_token,
+        expectedAction: "criar_ordem_servico_gc"
+      });
+      try {
+        const payload = claimed.payload;
+        await resolvePreview({
+          clienteId: String(payload.cliente_id),
+          situacaoId: String(payload.situacao_id),
+          situationKind: "os",
+          produtos: (payload.produtos ?? []).map((wrapper) => ({
+            id: String(wrapper.produto.produto_id),
+            quantidade: Number(wrapper.produto.quantidade),
+            valor_unitario: wrapper.produto.valor_venda
+          })),
+          servicos: (payload.servicos ?? []).map((wrapper) => ({
+            id: String(wrapper.servico.servico_id),
+            quantidade: Number(wrapper.servico.quantidade),
+            valor_unitario: wrapper.servico.valor_venda
+          }))
+        });
+        const response = await gcRequest(
+          "/api/ordens_servicos",
+          "POST",
+          payload
+        );
+        const created = gcData(response);
+        if (!created?.id) {
+          throw new McpToolError(
+            "GC_UNAVAILABLE",
+            "O Gest\xE3oClick respondeu sem o ID da OS. N\xE3o tente novamente automaticamente."
+          );
+        }
+        await completeAction(input.pending_action_id, {
+          user_id: actor.id,
+          tool_name: "criar_ordem_servico_gc",
+          payload_hash: claimed.payloadHash,
+          upstream_id: String(created.id),
+          codigo: created.codigo ?? null
+        });
+        return {
+          created: true,
+          ordem_servico_id: String(created.id),
+          codigo: created.codigo ?? null,
+          source: "gestaoclick_live"
+        };
+      } catch (error) {
+        await failAction(input.pending_action_id, error);
+        throw error;
+      }
+    }
+  )
+});
+var gcWriteTools = [
+  prepararCriacaoOrcamento,
+  confirmarCriacaoOrcamento,
+  prepararCriacaoOrdemServico,
+  confirmarCriacaoOrdemServico
+];
+
+// src/lib/mcp/tools/auvo.ts
+import { defineTool as defineTool7 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z7 } from "npm:zod@^4.4.3";
+
+// src/lib/mcp/shared/auvo-client.ts
+var AUVO_BASE_URL = "https://api.auvo.com.br/v2";
+var cachedToken = null;
+function credentials() {
+  const apiKey = process.env.AUVO_API_KEY ?? process.env.AUVO_APP_KEY;
+  const apiToken = process.env.AUVO_USER_TOKEN ?? process.env.AUVO_API_TOKEN ?? process.env.AUVO_TOKEN;
+  if (!apiKey || !apiToken) {
+    throw new McpToolError("INTERNAL_ERROR", "Credenciais do Auvo n\xE3o configuradas.");
+  }
+  return { apiKey, apiToken };
+}
+async function login() {
+  if (cachedToken && cachedToken.expiresAt > Date.now()) return cachedToken.value;
+  const { apiKey, apiToken } = credentials();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15e3);
+  try {
+    const url = `${AUVO_BASE_URL}/login/?apiKey=${encodeURIComponent(apiKey)}&apiToken=${encodeURIComponent(apiToken)}`;
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal
+    });
+    const json = await response.json().catch(() => ({}));
+    const token = json?.result?.accessToken;
+    if (!response.ok || !token) {
+      throw new McpToolError("AUVO_UNAUTHORIZED", "Falha ao autenticar no Auvo.");
+    }
+    cachedToken = { value: token, expiresAt: Date.now() + 45 * 6e4 };
+    return token;
+  } catch (error) {
+    if (error instanceof McpToolError) throw error;
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new McpToolError("UPSTREAM_TIMEOUT", "O Auvo excedeu 15 segundos.", true);
+    }
+    throw new McpToolError("AUVO_UNAVAILABLE", "Falha de conex\xE3o com o Auvo.", true);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function auvoError(status, body) {
+  if (status === 401 || status === 403) {
+    cachedToken = null;
+    return new McpToolError("AUVO_UNAUTHORIZED", "Sess\xE3o do Auvo inv\xE1lida.", false);
+  }
+  if (status === 429) {
+    return new McpToolError("AUVO_RATE_LIMITED", "Limite tempor\xE1rio do Auvo atingido.", true);
+  }
+  if (status === 404) return new McpToolError("NOT_FOUND", "Registro n\xE3o encontrado no Auvo.");
+  if (status >= 400 && status < 500) {
+    return new McpToolError("INVALID_INPUT", `O Auvo rejeitou os dados (HTTP ${status}).`, false, {
+      resposta: body.slice(0, 300)
+    });
+  }
+  return new McpToolError("AUVO_UNAVAILABLE", "Auvo temporariamente indispon\xEDvel.", true);
+}
+async function auvoRequest(path, method = "GET", body) {
+  if (!path.startsWith("/") || path.includes("://")) {
+    throw new McpToolError("INVALID_INPUT", "Rota Auvo inv\xE1lida.");
+  }
+  const token = await login();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15e3);
+  try {
+    const response = await fetch(`${AUVO_BASE_URL}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: body === void 0 ? void 0 : JSON.stringify(body),
+      signal: controller.signal
+    });
+    const text = await response.text();
+    if (!response.ok) throw auvoError(response.status, text);
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new McpToolError("AUVO_UNAVAILABLE", "Resposta inv\xE1lida do Auvo.", true);
+    }
+  } catch (error) {
+    if (error instanceof McpToolError) throw error;
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new McpToolError("UPSTREAM_TIMEOUT", "O Auvo excedeu 15 segundos.", true);
+    }
+    throw new McpToolError("AUVO_UNAVAILABLE", "Falha de conex\xE3o com o Auvo.", true);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function auvoListPath(resource, filter, page, pageSize) {
+  const query = new URLSearchParams({
+    paramFilter: JSON.stringify(filter),
+    page: String(page),
+    pageSize: String(pageSize),
+    order: "asc"
+  });
+  return `/${resource}/?${query.toString()}`;
+}
+function auvoResult(response) {
+  if (response && typeof response === "object" && "result" in response) {
+    return response.result;
+  }
+  return response;
+}
+
+// src/lib/mcp/tools/auvo.ts
+var READ_ROLES2 = [
+  "admin",
+  "ceo",
+  "gerente_comercial",
+  "gerente_financeiro",
+  "vendedor",
+  "user"
+];
+var WRITE_ROLES = ["admin", "ceo"];
+function resultList(response) {
+  const result = auvoResult(response);
+  if (Array.isArray(result)) return result;
+  if (result && typeof result === "object" && "entityList" in result) {
+    const rows = result.entityList;
+    return Array.isArray(rows) ? rows : [];
+  }
+  return [];
+}
+function handle4(ctx, options, operation) {
+  return runAudited(ctx, options, operation).then(({ data, requestId }) => successResult({ ok: true, request_id: requestId, ...data })).catch((error) => errorResult(error, requestIdFrom(error)));
+}
+var buscarClienteAuvo = defineTool7({
+  name: "buscar_cliente_auvo",
+  title: "Buscar cliente no Auvo",
+  description: "Localiza o cadastro operacional de um cliente no Auvo. Use o externalId para relacionar com outro sistema quando dispon\xEDvel.",
+  inputSchema: {
+    nome: z7.string().trim().min(2).max(120).optional(),
+    external_id: z7.string().trim().max(80).optional(),
+    somente_ativos: z7.boolean().default(true),
+    pagina: z7.number().int().min(1).max(1e3).default(1),
+    limite: z7.number().int().min(1).max(100).default(20)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle4(
+    ctx,
+    {
+      toolName: "buscar_cliente_auvo",
+      operationType: "read",
+      sourceSystem: "auvo",
+      allowedRoles: READ_ROLES2,
+      parameters: input,
+      targetEntity: "cliente_auvo"
+    },
+    async () => {
+      if (!input.nome && !input.external_id) {
+        throw new McpToolError("INVALID_INPUT", "Informe nome ou external_id.");
+      }
+      const response = await auvoRequest(
+        auvoListPath(
+          "customers",
+          {
+            description: input.nome,
+            externalId: input.external_id,
+            active: input.somente_ativos ? true : void 0
+          },
+          input.pagina,
+          input.limite
+        )
+      );
+      const rows = resultList(response).map((row) => ({
+        id: row.id,
+        external_id: row.externalId ?? null,
+        nome: row.description,
+        cidade_endereco: row.address ?? null,
+        ativo: row.active
+      }));
+      return {
+        status: rows.length > 1 ? "needs_disambiguation" : rows.length ? "found" : "not_found",
+        candidates: rows,
+        count: rows.length
+      };
+    }
+  )
+});
+var buscarEquipamentos = defineTool7({
+  name: "buscar_equipamentos",
+  title: "Buscar equipamentos no Auvo",
+  description: "Localiza equipamentos no Auvo por cliente, nome, identificador ou refer\xEAncia externa.",
+  inputSchema: {
+    cliente_auvo_id: z7.number().int().positive().optional(),
+    nome: z7.string().trim().max(120).optional(),
+    identificador: z7.string().trim().max(120).optional(),
+    external_id: z7.string().trim().max(120).optional(),
+    somente_ativos: z7.boolean().default(true),
+    pagina: z7.number().int().min(1).max(1e3).default(1),
+    limite: z7.number().int().min(1).max(100).default(30)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle4(
+    ctx,
+    {
+      toolName: "buscar_equipamentos",
+      operationType: "read",
+      sourceSystem: "auvo",
+      allowedRoles: READ_ROLES2,
+      parameters: input,
+      targetEntity: "equipamento"
+    },
+    async () => {
+      if (!input.cliente_auvo_id && !input.nome && !input.identificador && !input.external_id) {
+        throw new McpToolError(
+          "INVALID_INPUT",
+          "Informe cliente, nome, identificador ou external_id do equipamento."
+        );
+      }
+      const response = await auvoRequest(
+        auvoListPath(
+          "equipments",
+          {
+            associatedCustomerId: input.cliente_auvo_id,
+            name: input.nome,
+            identifier: input.identificador,
+            externalId: input.external_id,
+            active: input.somente_ativos ? true : void 0
+          },
+          input.pagina,
+          input.limite
+        )
+      );
+      const rows = resultList(response).map((row) => ({
+        id: row.id,
+        external_id: row.externalId ?? null,
+        cliente_auvo_id: row.associatedCustomerId ?? null,
+        nome: row.name,
+        identificador: row.identifier ?? null,
+        descricao: row.description ?? null,
+        ativo: row.active
+      }));
+      return {
+        status: rows.length > 1 ? "needs_disambiguation" : rows.length ? "found" : "not_found",
+        candidates: rows,
+        count: rows.length
+      };
+    }
+  )
+});
+var detalharEquipamento = defineTool7({
+  name: "detalhar_equipamento",
+  title: "Detalhar equipamento no Auvo",
+  description: "Obt\xE9m o cadastro completo e atual de um equipamento no Auvo.",
+  inputSchema: { equipamento_auvo_id: z7.number().int().positive() },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle4(
+    ctx,
+    {
+      toolName: "detalhar_equipamento",
+      operationType: "read",
+      sourceSystem: "auvo",
+      allowedRoles: READ_ROLES2,
+      parameters: input,
+      targetEntity: "equipamento"
+    },
+    async () => {
+      const response = await auvoRequest(`/equipments/${input.equipamento_auvo_id}`);
+      return { equipamento: auvoResult(response), source: "auvo_live" };
+    }
+  )
+});
+var consultarTarefaAuvo = defineTool7({
+  name: "consultar_tarefa_auvo",
+  title: "Consultar tarefa no Auvo",
+  description: "Consulta uma tarefa espec\xEDfica no Auvo pelo taskID.",
+  inputSchema: { tarefa_auvo_id: z7.number().int().positive() },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle4(
+    ctx,
+    {
+      toolName: "consultar_tarefa_auvo",
+      operationType: "read",
+      sourceSystem: "auvo",
+      allowedRoles: READ_ROLES2,
+      parameters: input,
+      targetEntity: "tarefa_auvo"
+    },
+    async () => {
+      const response = await auvoRequest(`/tasks/${input.tarefa_auvo_id}`);
+      return { tarefa: auvoResult(response), source: "auvo_live" };
+    }
+  )
+});
+var listarTecnicosAuvo = defineTool7({
+  name: "listar_tecnicos_auvo",
+  title: "Listar t\xE9cnicos do Auvo",
+  description: "Lista usu\xE1rios/t\xE9cnicos do Auvo para selecionar o respons\xE1vel correto por uma tarefa.",
+  inputSchema: {
+    nome: z7.string().trim().max(120).optional(),
+    pagina: z7.number().int().min(1).max(100).default(1),
+    limite: z7.number().int().min(1).max(100).default(50)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle4(
+    ctx,
+    {
+      toolName: "listar_tecnicos_auvo",
+      operationType: "read",
+      sourceSystem: "auvo",
+      allowedRoles: READ_ROLES2,
+      parameters: input,
+      targetEntity: "usuario_auvo"
+    },
+    async () => {
+      const response = await auvoRequest(
+        auvoListPath("users", { name: input.nome }, input.pagina, input.limite)
+      );
+      const rows = resultList(response).map((row) => ({
+        id: row.userId,
+        external_id: row.externalId ?? null,
+        nome: row.name,
+        cargo: row.jobPosition ?? null,
+        tipo: row.userType?.description ?? null,
+        indisponivel_para_tarefas: row.unavailableForTasks ?? false,
+        horario_inicio: row.startWorkHour ?? null,
+        horario_fim: row.endWorkHour ?? null
+      }));
+      return { rows, count: rows.length, source: "auvo_live" };
+    }
+  )
+});
+var listarTiposTarefaAuvo = defineTool7({
+  name: "listar_tipos_tarefa_auvo",
+  title: "Listar tipos de tarefa do Auvo",
+  description: "Lista tipos de tarefa v\xE1lidos no Auvo para criar um agendamento.",
+  inputSchema: {
+    descricao: z7.string().trim().max(120).optional(),
+    pagina: z7.number().int().min(1).max(100).default(1),
+    limite: z7.number().int().min(1).max(100).default(50)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle4(
+    ctx,
+    {
+      toolName: "listar_tipos_tarefa_auvo",
+      operationType: "read",
+      sourceSystem: "auvo",
+      allowedRoles: READ_ROLES2,
+      parameters: input,
+      targetEntity: "tipo_tarefa_auvo"
+    },
+    async () => {
+      const response = await auvoRequest(
+        auvoListPath("taskTypes", { description: input.descricao }, input.pagina, input.limite)
+      );
+      const rows = resultList(response).map((row) => ({
+        id: row.id,
+        descricao: row.description,
+        ativo: row.active,
+        duracao_padrao: row.standartTime ?? null,
+        questionario_padrao_id: row.standartQuestionnaireId ?? null
+      }));
+      return { rows, count: rows.length, source: "auvo_live" };
+    }
+  )
+});
+function addMinutes(dateISO, startTime, minutes) {
+  const [year, month, day] = dateISO.split("-").map(Number);
+  const [hour, minute] = startTime.split(":").map(Number);
+  const value = new Date(Date.UTC(year, month - 1, day, hour, minute + minutes, 0));
+  const pad = (item) => String(item).padStart(2, "0");
+  return `${value.getUTCFullYear()}-${pad(value.getUTCMonth() + 1)}-${pad(value.getUTCDate())}T${pad(value.getUTCHours())}:${pad(value.getUTCMinutes())}:00`;
+}
+var prepararCriacaoTarefaAuvo = defineTool7({
+  name: "preparar_criacao_tarefa_auvo",
+  title: "Preparar tarefa no Auvo",
+  description: "Valida equipamento, cliente, t\xE9cnico, tipo, data e hor\xE1rio e gera uma pr\xE9via. N\xE3o cria a tarefa. Depois de mostrar a pr\xE9via e obter confirma\xE7\xE3o expl\xEDcita do usu\xE1rio, use confirmar_criacao_tarefa_auvo.",
+  inputSchema: {
+    equipamento_auvo_id: z7.number().int().positive(),
+    tecnico_auvo_id: z7.number().int().positive(),
+    tipo_tarefa_auvo_id: z7.number().int().positive(),
+    data: z7.string().date(),
+    hora_inicio: z7.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+    duracao_minutos: z7.number().int().min(15).max(1440).default(120),
+    orientacao: z7.string().trim().min(3).max(500),
+    prioridade: z7.number().int().min(1).max(3).default(1)
+  },
+  annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle4(
+    ctx,
+    {
+      toolName: "preparar_criacao_tarefa_auvo",
+      operationType: "prepare",
+      sourceSystem: "auvo",
+      allowedRoles: WRITE_ROLES,
+      parameters: input,
+      targetEntity: "tarefa_auvo"
+    },
+    async (actor, requestId) => {
+      const [equipmentResponse, technicianResponse, typeResponse] = await Promise.all([
+        auvoRequest(`/equipments/${input.equipamento_auvo_id}`),
+        auvoRequest(`/users/${input.tecnico_auvo_id}`),
+        auvoRequest(`/taskTypes/${input.tipo_tarefa_auvo_id}`)
+      ]);
+      const equipment = auvoResult(equipmentResponse);
+      const technician = auvoResult(technicianResponse);
+      const taskType = auvoResult(typeResponse);
+      const customerId = Number(
+        equipment?.associatedCustomerId ?? equipment?.customerId ?? equipment?.idCustomer ?? 0
+      );
+      if (!customerId) {
+        throw new McpToolError(
+          "INVALID_INPUT",
+          "O equipamento n\xE3o est\xE1 vinculado a um cliente no Auvo."
+        );
+      }
+      const customerResponse = await auvoRequest(`/customers/${customerId}`);
+      const customer = auvoResult(customerResponse);
+      const taskDate = `${input.data}T${input.hora_inicio}:00`;
+      const taskEndDate = addMinutes(input.data, input.hora_inicio, input.duracao_minutos);
+      const payload = {
+        idUserFrom: input.tecnico_auvo_id,
+        idUserTo: input.tecnico_auvo_id,
+        customerId,
+        taskType: input.tipo_tarefa_auvo_id,
+        taskDate,
+        taskEndDate,
+        priority: input.prioridade,
+        orientation: input.orientacao,
+        equipmentsId: [input.equipamento_auvo_id],
+        address: customer?.address || equipment?.address || "Endere\xE7o n\xE3o informado",
+        latitude: Number(customer?.latitude ?? equipment?.latitude ?? 0),
+        longitude: Number(customer?.longitude ?? equipment?.longitude ?? 0),
+        sendSatisfactionSurvey: false
+      };
+      return prepareAction({
+        actor,
+        action: "criar_tarefa_auvo",
+        payload,
+        requestId,
+        preview: {
+          cliente: customer?.description ?? customerId,
+          equipamento: equipment?.name ?? input.equipamento_auvo_id,
+          tecnico: technician?.name ?? input.tecnico_auvo_id,
+          tipo_tarefa: taskType?.description ?? input.tipo_tarefa_auvo_id,
+          inicio: taskDate,
+          fim: taskEndDate,
+          prioridade: input.prioridade,
+          orientacao: input.orientacao
+        }
+      });
+    }
+  )
+});
+var confirmarCriacaoTarefaAuvo = defineTool7({
+  name: "confirmar_criacao_tarefa_auvo",
+  title: "Confirmar cria\xE7\xE3o de tarefa no Auvo",
+  description: "Cria exatamente a tarefa previamente preparada. S\xF3 use depois de o usu\xE1rio confirmar explicitamente a pr\xE9via na conversa.",
+  inputSchema: {
+    pending_action_id: z7.string().uuid(),
+    confirmation_token: z7.string().length(64)
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  handler: async (input, ctx) => handle4(
+    ctx,
+    {
+      toolName: "confirmar_criacao_tarefa_auvo",
+      operationType: "write",
+      sourceSystem: "auvo",
+      allowedRoles: WRITE_ROLES,
+      parameters: { pending_action_id: input.pending_action_id },
+      targetEntity: "tarefa_auvo"
+    },
+    async (actor) => {
+      const claimed = await claimAction({
+        actor,
+        actionId: input.pending_action_id,
+        confirmationToken: input.confirmation_token,
+        expectedAction: "criar_tarefa_auvo"
+      });
+      try {
+        const response = await auvoRequest("/tasks", "PUT", claimed.payload);
+        const result = auvoResult(response);
+        const taskId = result?.taskID ?? result?.taskId ?? result?.id ?? result?.entity?.taskID ?? result?.entity?.id ?? null;
+        if (!taskId) {
+          throw new McpToolError(
+            "AUVO_UNAVAILABLE",
+            "O Auvo respondeu sem o ID da tarefa. N\xE3o tente novamente automaticamente."
+          );
+        }
+        await completeAction(input.pending_action_id, {
+          user_id: actor.id,
+          tool_name: "criar_tarefa_auvo",
+          payload_hash: claimed.payloadHash,
+          upstream_id: String(taskId),
+          task_id: String(taskId)
+        });
+        return {
+          created: true,
+          tarefa_auvo_id: String(taskId),
+          source: "auvo_live"
+        };
+      } catch (error) {
+        await failAction(input.pending_action_id, error);
+        throw error;
+      }
+    }
+  )
+});
+var auvoTools = [
+  buscarClienteAuvo,
+  buscarEquipamentos,
+  detalharEquipamento,
+  consultarTarefaAuvo,
+  listarTecnicosAuvo,
+  listarTiposTarefaAuvo,
+  prepararCriacaoTarefaAuvo,
+  confirmarCriacaoTarefaAuvo
+];
+
+// src/lib/mcp/index.ts
+var projectRef = "mgiebypxhnmpktljrzjq";
+var mcp_default = defineMcp({
+  name: "wedo-operacoes",
+  title: "WeDo Opera\xE7\xF5es \u2014 Gest\xE3oClick e Auvo",
+  version: "0.3.0",
+  instructions: "Ferramentas operacionais da WeDo para Gest\xE3oClick, Auvo e financeiro. Resolva IDs com as ferramentas de busca antes de detalhar ou preparar uma a\xE7\xE3o. Nunca escolha silenciosamente quando houver m\xFAltiplos clientes ou equipamentos. Consultas podem executar diretamente. Cria\xE7\xF5es e edi\xE7\xF5es usam obrigatoriamente duas etapas: primeiro preparar, mostrar a pr\xE9via ao usu\xE1rio e aguardar confirma\xE7\xE3o expl\xEDcita; somente ent\xE3o chamar a ferramenta confirmar com a a\xE7\xE3o pendente recebida. Nunca repita automaticamente uma grava\xE7\xE3o que falhou.",
+  auth: auth.oauth.issuer({
+    issuer: `https://${projectRef}.supabase.co/auth/v1`,
+    acceptedAudiences: "authenticated"
+  }),
+  tools: [
+    ...gcReadTools,
+    ...gcClientWriteTools,
+    ...auvoTools,
+    ...gcWriteTools,
+    finance_summary_default,
+    list_open_receivables_default,
+    list_open_payables_default
+  ]
+});
+
 // lovable-mcp-supabase-entry.ts
-import mcp from "npm:C:\\Users\\guilh\\Documents\\Codex\\2026-07-24\\car\\work\\wedo-command-center\\src\\lib\\mcp\\index.ts";
 import { createSupabaseHandler } from "npm:@lovable.dev/mcp-js@0.20.0/stacks/supabase";
-Deno.serve(createSupabaseHandler(mcp, { functionName: "mcp" }));
+Deno.serve(createSupabaseHandler(mcp_default, { functionName: "mcp" }));
