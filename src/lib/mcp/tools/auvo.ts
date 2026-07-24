@@ -253,6 +253,12 @@ async function embedAuvoImage(resource: AuvoResourceLinkContent): Promise<AuvoIm
 
 async function auvoSuccessResult(data: Record<string, unknown>) {
   const resources = buildAuvoResourceLinks(data);
+  const clickableResources = resources.flatMap((resource) => {
+    const link = `- ${resource.name}: [${resource.uri}](${resource.uri})`;
+    return resource.mimeType?.startsWith("image/")
+      ? [link, `![${resource.name}](${resource.uri})`]
+      : [link];
+  });
   const images = (
     await Promise.all(
       resources
@@ -263,7 +269,16 @@ async function auvoSuccessResult(data: Record<string, unknown>) {
   ).filter((image): image is AuvoImageContent => image !== null);
   return {
     content: [
-      { type: "text" as const, text: JSON.stringify(data) },
+      {
+        type: "text" as const,
+        text: [
+          "RECURSOS AUVO — mantenha estes links em Markdown na resposta final:",
+          ...clickableResources,
+          "",
+          "DADOS ESTRUTURADOS:",
+          JSON.stringify(data),
+        ].join("\n"),
+      },
       ...resources,
       ...images,
     ],

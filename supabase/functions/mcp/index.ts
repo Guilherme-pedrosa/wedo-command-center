@@ -2527,12 +2527,25 @@ async function embedAuvoImage(resource) {
 }
 async function auvoSuccessResult(data) {
   const resources = buildAuvoResourceLinks(data);
+  const clickableResources = resources.flatMap((resource) => {
+    const link = `- ${resource.name}: [${resource.uri}](${resource.uri})`;
+    return resource.mimeType?.startsWith("image/") ? [link, `![${resource.name}](${resource.uri})`] : [link];
+  });
   const images = (await Promise.all(
     resources.filter((resource) => resource.mimeType?.startsWith("image/")).slice(0, MAX_EMBEDDED_IMAGES).map(embedAuvoImage)
   )).filter((image) => image !== null);
   return {
     content: [
-      { type: "text", text: JSON.stringify(data) },
+      {
+        type: "text",
+        text: [
+          "RECURSOS AUVO \u2014 mantenha estes links em Markdown na resposta final:",
+          ...clickableResources,
+          "",
+          "DADOS ESTRUTURADOS:",
+          JSON.stringify(data)
+        ].join("\n")
+      },
       ...resources,
       ...images
     ],
@@ -3257,7 +3270,7 @@ var projectRef = "mgiebypxhnmpktljrzjq";
 var mcp_default = defineMcp({
   name: "wedo-operacoes",
   title: "WeDo Opera\xE7\xF5es \u2014 Gest\xE3oClick e Auvo",
-  version: "0.5.5",
+  version: "0.5.6",
   instructions: "Ferramentas operacionais da WeDo para Gest\xE3oClick, Auvo e financeiro. Resolva IDs com as ferramentas de busca antes de detalhar ou preparar uma a\xE7\xE3o. Nunca escolha silenciosamente quando houver m\xFAltiplos clientes ou equipamentos. Consultas podem executar diretamente. Cria\xE7\xF5es e edi\xE7\xF5es usam obrigatoriamente duas etapas: primeiro preparar, mostrar a pr\xE9via ao usu\xE1rio e aguardar confirma\xE7\xE3o expl\xEDcita; somente ent\xE3o chamar a ferramenta confirmar com a a\xE7\xE3o pendente recebida. Nunca repita automaticamente uma grava\xE7\xE3o que falhou.",
   auth: auth.oauth.issuer({
     issuer: `https://${projectRef}.supabase.co/auth/v1`,
