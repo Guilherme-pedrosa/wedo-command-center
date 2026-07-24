@@ -390,6 +390,23 @@ function defaultTaskPeriod(): { start: string; end: string } {
   return { start: localDateIso(start), end: localDateIso(now) };
 }
 
+async function withSoftTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function handle<T extends object>(
   ctx: ToolContext,
   options: Parameters<typeof runAudited<T>>[1],
@@ -640,15 +657,18 @@ export const buscarTarefasPorEquipamentoAuvo = defineTool({
           return ids.length === 0 || ids.includes(input.equipamento_auvo_id);
         };
 
-        const projectResponse = await auvoRequest<unknown>(
-          auvoListPath(
-            "serviceorders",
-            { EquipmentCode: String(input.equipamento_auvo_id) },
-            1,
-            100,
-            "desc",
-          ),
-        ).catch(() => null);
+        const projectResponse = await withSoftTimeout(
+          auvoRequest<unknown>(
+            auvoListPath(
+              "serviceorders",
+              { EquipmentCode: String(input.equipamento_auvo_id) },
+              1,
+              100,
+              "desc",
+            ),
+          ).catch(() => null),
+          4_000,
+        );
         const projectContexts = new Map<number, ProjectTaskContext>();
         for (const project of projectResponse ? resultList(projectResponse) : []) {
           const projectEquipmentIds = equipmentIdsFrom(project.equipments);
@@ -677,7 +697,7 @@ export const buscarTarefasPorEquipamentoAuvo = defineTool({
         const taskRows = new Map<number, JsonRecord>();
         const directProjectTaskIds = [...projectContexts.keys()].slice(
           0,
-          Math.max(input.limite * 3, 30),
+          Math.max(input.limite * 2, 5),
         );
         const directProjectDetails = await Promise.all(
           directProjectTaskIds.map(async (taskId) => {
@@ -696,23 +716,38 @@ export const buscarTarefasPorEquipamentoAuvo = defineTool({
         let pagesRead = 0;
         let totalTasksInScope: number | null = null;
         if (customerId && taskRows.size === 0) {
+          let cursorEnd = endDate;
           for (let page = 1; page <= input.max_paginas; page += 1) {
-            const response = await auvoRequest<unknown>(
-              auvoListPath(
-                "tasks",
-                {
-                  startDate: `${startDate}T00:00:00`,
-                  endDate: `${endDate}T23:59:59`,
-                  customerId,
-                  status: statusFilter,
-                },
-                page,
-                100,
-                "desc",
-              ),
+            const cursorDate = new Date(`${cursorEnd}T00:00:00Z`);
+            const monthStart = `${cursorDate.getUTCFullYear()}-${String(
+              cursorDate.getUTCMonth() + 1,
+            ).padStart(2, "0")}-01`;
+            const windowStart = monthStart < startDate ? startDate : monthStart;
+            const response = await withSoftTimeout(
+              auvoRequest<unknown>(
+                auvoListPath(
+                  "tasks",
+                  {
+                    startDate: `${windowStart}T00:00:00`,
+                    endDate: `${cursorEnd}T23:59:59`,
+                    customerId,
+                    status: statusFilter,
+                  },
+                  1,
+                  100,
+                  "desc",
+                ),
+              ).catch(() => null),
+              8_000,
             );
             pagesRead = page;
-            totalTasksInScope ??= resultTotal(response);
+            if (!response) {
+              if (windowStart === startDate) break;
+              cursorDate.setUTCDate(0);
+              cursorEnd = cursorDate.toISOString().slice(0, 10);
+              continue;
+            }
+            totalTasksInScope = (totalTasksInScope ?? 0) + (resultTotal(response) ?? 0);
             const rows = resultList(response);
             for (const row of rows) {
               const taskId = numericId(row.taskID ?? row.taskId ?? row.id);
@@ -722,7 +757,9 @@ export const buscarTarefasPorEquipamentoAuvo = defineTool({
                 taskRows.set(taskId, row);
               }
             }
-            if (rows.length < 100 || taskRows.size >= input.limite) break;
+            if (taskRows.size >= input.limite || windowStart === startDate) break;
+            cursorDate.setUTCDate(0);
+            cursorEnd = cursorDate.toISOString().slice(0, 10);
           }
         }
 
