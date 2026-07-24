@@ -183,24 +183,54 @@ export default function ExtratoBancoPage() {
     },
   });
 
+  // IDs de lançamentos já vinculados a algum extrato — exclui da lista de candidatos
+  const { data: linkedIds } = useQuery({
+    queryKey: ["conc-linked-ids"],
+    queryFn: async () => {
+      const rec = new Set<string>();
+      const pag = new Set<string>();
+      const pageSize = 1000;
+      for (let from = 0; ; from += pageSize) {
+        const { data, error } = await supabase
+          .from("fin_extrato_lancamentos")
+          .select("lancamento_id, tabela")
+          .range(from, from + pageSize - 1);
+        if (error || !data?.length) break;
+        for (const l of data) {
+          const t = String(l.tabela || "");
+          const id = String(l.lancamento_id || "");
+          if (!id) continue;
+          if (t.includes("recebimento")) rec.add(id);
+          else if (t.includes("pagamento")) pag.add(id);
+        }
+        if (data.length < pageSize) break;
+      }
+      return { rec, pag };
+    },
+  });
+
   // Recebimentos for manual linking
   const { data: recebimentosNL } = useQuery({
-    queryKey: ["conc-recebimentos"],
+    queryKey: ["conc-recebimentos", linkedIds ? linkedIds.rec.size : 0],
+    enabled: !!linkedIds,
     queryFn: async () => {
       const { data } = await supabase.from("fin_recebimentos")
         .select("id, descricao, valor, nome_cliente, data_vencimento, status, os_codigo, gc_codigo, gc_id, nf_numero, nfe_numero, liquidado, pago_sistema")
-        .not("status", "eq", "cancelado").order("data_vencimento", { ascending: false }).limit(1000);
-      return data || [];
+        .not("status", "eq", "cancelado").order("data_vencimento", { ascending: false }).limit(2000);
+      const linked = linkedIds?.rec ?? new Set<string>();
+      return (data || []).filter((r: any) => !linked.has(String(r.id)));
     },
   });
 
   const { data: pagamentosNL } = useQuery({
-    queryKey: ["conc-pagamentos"],
+    queryKey: ["conc-pagamentos", linkedIds ? linkedIds.pag.size : 0],
+    enabled: !!linkedIds,
     queryFn: async () => {
       const { data } = await supabase.from("fin_pagamentos")
         .select("id, descricao, valor, nome_fornecedor, data_vencimento, status, os_codigo, gc_codigo, gc_id, nf_numero, nfe_chave, liquidado, pago_sistema")
-        .not("status", "eq", "cancelado").order("data_vencimento", { ascending: false }).limit(1000);
-      return data || [];
+        .not("status", "eq", "cancelado").order("data_vencimento", { ascending: false }).limit(2000);
+      const linked = linkedIds?.pag ?? new Set<string>();
+      return (data || []).filter((p: any) => !linked.has(String(p.id)));
     },
   });
 
