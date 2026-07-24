@@ -232,7 +232,8 @@ async function embedAuvoImage(resource: AuvoResourceLinkContent): Promise<AuvoIm
     if (Number.isFinite(contentLength) && contentLength > MAX_EMBEDDED_IMAGE_BYTES) {
       return null;
     }
-    const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim();
+    const rawMimeType = response.headers.get("content-type")?.split(";")[0]?.trim();
+    const mimeType = rawMimeType === "image/jpg" ? "image/jpeg" : rawMimeType;
     if (!mimeType?.startsWith("image/")) return null;
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.byteLength > MAX_EMBEDDED_IMAGE_BYTES) return null;
