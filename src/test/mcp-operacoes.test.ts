@@ -13,6 +13,10 @@ import {
   prepararCriacaoVenda,
 } from "@/lib/mcp/tools/gc-sale-write";
 import {
+  confirmarCriacaoProdutoServico,
+  prepararCriacaoProdutoServico,
+} from "@/lib/mcp/tools/gc-catalog-write";
+import {
   buildAuvoResourceLinks,
   buscarTarefasPorEquipamentoAuvo,
   consultarTarefaAuvo,
@@ -109,6 +113,15 @@ describe("WeDo Operações MCP", () => {
     ]);
     expect(task.links.tarefa_relatorio).toBe(
       "https://app.auvo.com.br/relatorioTarefas/DetalheTarefa/123",
+    );
+  });
+
+  it("expõe cadastro de produto e serviço somente em fluxo de duas etapas", () => {
+    expect(prepararCriacaoProdutoServico.name).toBe(
+      "preparar_criacao_produto_servico",
+    );
+    expect(confirmarCriacaoProdutoServico.name).toBe(
+      "confirmar_criacao_produto_servico",
     );
   });
 

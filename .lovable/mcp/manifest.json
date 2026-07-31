@@ -12,7 +12,7 @@
   "mcp": {
     "server": {
       "name": "wedo-operacoes",
-      "version": "0.5.6",
+      "version": "0.5.7",
       "title": "WeDo Operações — GestãoClick e Auvo"
     },
     "tools": [
@@ -510,6 +510,212 @@
               "maximum": 100
             }
           }
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "preparar_criacao_produto_servico",
+        "title": "Preparar criação de produto ou serviço no GestãoClick",
+        "description": "Valida o cadastro, bloqueia código ou nome duplicado e gera uma prévia. Não cria o item. Produto exige nome, código interno e custo; serviço exige nome e código. Após confirmação explícita, use confirmar_criacao_produto_servico.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "tipo": {
+              "type": "string",
+              "enum": [
+                "produto",
+                "servico"
+              ]
+            },
+            "nome": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 160
+            },
+            "codigo": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "valor_custo": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "valor_venda": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "codigo_barra": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "descricao": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "observacoes": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "ativo": {
+              "default": true,
+              "type": "boolean"
+            },
+            "estoque": {
+              "type": "number",
+              "minimum": 0
+            },
+            "grupo_id": {
+              "type": "string",
+              "maxLength": 30,
+              "pattern": "^\\d+$"
+            },
+            "nome_grupo": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "ncm": {
+              "type": "string",
+              "maxLength": 20
+            },
+            "cest": {
+              "type": "string",
+              "maxLength": 20
+            },
+            "largura": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "altura": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "comprimento": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "peso_liquido": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "peso_bruto": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "fornecedor_ids": {
+              "maxItems": 50,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 30,
+                "pattern": "^\\d+$"
+              }
+            },
+            "permitir_nome_duplicado": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "tipo",
+            "nome",
+            "codigo"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "confirmar_criacao_produto_servico",
+        "title": "Confirmar criação de produto ou serviço no GestãoClick",
+        "description": "Cria exatamente o produto ou serviço previamente preparado. Só use depois da confirmação explícita do usuário na conversa.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "pending_action_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "confirmation_token": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "pending_action_id",
+            "confirmation_token"
+          ]
         },
         "outputSchema": null
       },

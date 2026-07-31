@@ -15,6 +15,8 @@ describe("catálogo MCP publicado", () => {
     expect(toolNames).toContain("confirmar_criacao_cliente");
     expect(toolNames).toContain("preparar_edicao_cliente");
     expect(toolNames).toContain("confirmar_edicao_cliente");
+    expect(toolNames).toContain("preparar_criacao_produto_servico");
+    expect(toolNames).toContain("confirmar_criacao_produto_servico");
     expect(toolNames).toContain("buscar_vendas");
     expect(toolNames).toContain("detalhar_venda");
     expect(toolNames).toContain("listar_situacoes_venda");
