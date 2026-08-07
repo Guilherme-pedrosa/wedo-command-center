@@ -1134,9 +1134,12 @@ export async function syncByMonthChunks(
         },
       }
     );
-    if (recError) {
-      totals.conciliacao = { ok: false, conciliados: 0, revisar: 0, error: recError.message };
-      console.warn("[syncByMonthChunks] reconciliation-engine falhou:", recError.message);
+    if (recError || recData?.success === false) {
+      const recMessage = recError?.message
+        ?? recData?.error
+        ?? `${Number(recData?.stats?.errors ?? 0)} vínculo(s) falharam durante a conciliação`;
+      totals.conciliacao = { ok: false, conciliados: 0, revisar: 0, error: recMessage };
+      console.warn("[syncByMonthChunks] reconciliation-engine falhou:", recMessage);
     } else {
       const conciliados = Number(
         recData?.stats?.auto ?? recData?.conciliados ?? recData?.matched ?? recData?.reconciled ?? 0
@@ -1150,6 +1153,10 @@ export async function syncByMonthChunks(
     totals.conciliacao = { ok: false, conciliados: 0, revisar: 0, error: message };
     console.warn("[syncByMonthChunks] não conseguiu rodar conciliação:", e);
   }
+
+  // Never confirm titles in GestãoClick after a partial reconciliation run.
+  // Failed links must remain visible and retryable first.
+  if (!totals.conciliacao?.ok) return totals;
 
   try {
     onStep?.("Confirmando conciliados no GC...");

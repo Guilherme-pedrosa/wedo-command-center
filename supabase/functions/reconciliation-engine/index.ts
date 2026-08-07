@@ -480,13 +480,29 @@ async function vincular(supabase: any, ext: any, match: Candidato, rule: string)
   }
 
   // 2.5 — Registrar em fin_extrato_lancamentos (valor_alocado = valor do extrato)
-  await supabase.from("fin_extrato_lancamentos").upsert({
+  const { error: linkErr } = await supabase.from("fin_extrato_lancamentos").upsert({
     extrato_id: ext.id,
     lancamento_id: match.fin.id,
     tabela,
     valor_alocado: Math.abs(Number(ext.valor)),
     reconciliation_rule: rule,
   }, { onConflict: "extrato_id,lancamento_id,tabela" });
+
+  if (linkErr) {
+    await Promise.all([
+      supabase.from("fin_extrato_inter").update({
+        reconciliado: false,
+        lancamento_id: null,
+        reconciliado_em: null,
+        reconciliation_rule: null,
+      }).eq("id", ext.id),
+      supabase.from(table).update({
+        pago_sistema: false,
+        pago_sistema_em: null,
+      }).eq("id", match.fin.id),
+    ]);
+    throw new Error(`Erro ao registrar vínculo: ${linkErr.message}`);
+  }
 
   // 3. Log
   await supabase.from("fin_sync_log").insert({
@@ -513,13 +529,23 @@ async function vincularRastreabilidade(supabase: any, ext: any, lancamentoId: st
   if (error) throw new Error(`Erro rastreabilidade: ${error.message}`);
 
   // Registrar em fin_extrato_lancamentos
-  await supabase.from("fin_extrato_lancamentos").upsert({
+  const { error: linkErr } = await supabase.from("fin_extrato_lancamentos").upsert({
     extrato_id: ext.id,
     lancamento_id: lancamentoId,
     tabela,
     valor_alocado: Math.abs(Number(ext.valor)),
     reconciliation_rule: rule,
   }, { onConflict: "extrato_id,lancamento_id,tabela" });
+
+  if (linkErr) {
+    await supabase.from("fin_extrato_inter").update({
+      reconciliado: false,
+      lancamento_id: null,
+      reconciliado_em: null,
+      reconciliation_rule: null,
+    }).eq("id", ext.id);
+    throw new Error(`Erro ao registrar vínculo de rastreabilidade: ${linkErr.message}`);
+  }
 
   await supabase.from("fin_sync_log").insert({
     tipo: "conciliacao_rastreabilidade",
@@ -898,6 +924,19 @@ serve(async (req) => {
     const stats = { auto: 0, review: 0, unmatched: 0, errors: 0 };
     const reviewItems: any[] = [];
     const unmatchedItems: any[] = [];
+    const errorItems: Array<Record<string, unknown>> = [];
+    const recordError = (stage: string, ext: any, error: unknown, lancamentoId?: string) => {
+      if (errorItems.length >= 50) return;
+      errorItems.push({
+        stage,
+        extrato_id: ext?.id ?? null,
+        lancamento_id: lancamentoId ?? null,
+        valor: ext?.valor ?? null,
+        tipo: ext?.tipo ?? null,
+        data_hora: ext?.data_hora ?? null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    };
 
     for (const ext of (extratos ?? [])) {
       const isDebito = ext.tipo === "DEBITO";
@@ -931,6 +970,7 @@ serve(async (req) => {
           stats.auto++;
         } catch (e) {
           console.error(`Erro vincular ext ${ext.id}:`, (e as Error).message);
+          recordError("regra_auto", ext, e, candidato.fin.id);
           stats.errors++;
         }
       } else if (candidato && !auto) {
@@ -1001,7 +1041,11 @@ serve(async (req) => {
                 usedIds.add(withDoc[0].fin.id);
                 stats.auto++;
                 continue;
-              } catch { stats.errors++; continue; }
+              } catch (e) {
+                recordError("colisao_documento", ext, e, withDoc[0].fin.id);
+                stats.errors++;
+                continue;
+              }
             }
           }
 
@@ -1018,7 +1062,11 @@ serve(async (req) => {
                 usedIds.add(withNome[0].fin.id);
                 stats.auto++;
                 continue;
-              } catch { stats.errors++; continue; }
+              } catch (e) {
+                recordError("colisao_nome", ext, e, withNome[0].fin.id);
+                stats.errors++;
+                continue;
+              }
             }
           }
 
@@ -1075,6 +1123,7 @@ serve(async (req) => {
               stats.auto++;
             } catch (e) {
               console.error(`Erro vincular valor único:`, (e as Error).message);
+              recordError("valor_unico", ext, e, candidatoUnico.fin.id);
               stats.errors++;
             }
             handledByPendentes = true;
@@ -1123,6 +1172,7 @@ serve(async (req) => {
               stats.auto++;
             } catch (e) {
               console.error("Erro soma parcelas:", (e as Error).message);
+              recordError("soma_parcelas", ext, e, somaResult.parcelas.map((p) => p.id).join(","));
               stats.errors++;
               unmatchedItems.push({
                 extrato_id: ext.id, descricao_extrato: ext.descricao ?? "—",
@@ -1356,8 +1406,30 @@ Use R$. Tom de auditor sênior, direto.`;
       }
     }
 
+    const reconciliationStatus = stats.errors > 0 ? "partial" : "success";
+    await supabase.from("fin_sync_log").insert({
+      tipo: "reconciliation_engine",
+      status: reconciliationStatus,
+      payload: {
+        date_from: dateFrom,
+        date_to: dateTo,
+        requested_ids: extratoIds.length,
+        limit,
+      },
+      resposta: { stats, error_details: errorItems },
+      erro: stats.errors > 0 ? `${stats.errors} vínculo(s) falharam` : null,
+    });
+
     return new Response(
-      JSON.stringify({ success: true, stats, review: reviewItems, unmatched: unmatchedItems, analise_ia: analiseIA || null }),
+      JSON.stringify({
+        success: stats.errors === 0,
+        partial: stats.errors > 0,
+        stats,
+        error_details: errorItems,
+        review: reviewItems,
+        unmatched: unmatchedItems,
+        analise_ia: analiseIA || null,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: any) {
