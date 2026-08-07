@@ -260,7 +260,7 @@ export default function ConciliacaoPage() {
         syncRecebimentosGC(undefined, filtros),
         syncPagamentosGC(undefined, filtros),
       ]);
-      toast.success(`GC sincronizado: ${r.count} receb., ${p.count} pagam.`);
+      toast.success(`GC sincronizado: ${r.importados} receb., ${p.importados} pagam.`);
       invalidateAll();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao sincronizar GC");
