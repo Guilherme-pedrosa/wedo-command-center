@@ -29,6 +29,13 @@ describe("integridade da conciliação financeira", () => {
     expect(engine).not.toContain(".limit(3000)");
   });
 
+  it("mantém a busca de soma de parcelas dentro do limite de CPU", () => {
+    const engine = readFileSync(resolve(root, "supabase/functions/reconciliation-engine/index.ts"), "utf8");
+    expect(engine).toContain("searchSubsetMitm");
+    expect(engine).toContain("2 x 2^12");
+    expect(engine).not.toContain("nodeLimit = 200_000");
+  });
+
   it("continua automaticamente uma importação parcial do Inter", () => {
     const api = readFileSync(resolve(root, "src/api/financeiro.ts"), "utf8");
     expect(api).toContain("while (cursor <= dataFim && runs < 24)");

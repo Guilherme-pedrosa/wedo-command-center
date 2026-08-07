@@ -596,9 +596,13 @@ function tentarSomaParcelas(
     buildAttemptPool(candidatos, sortByValor, 60),
   ];
 
+  const attemptedPoolSignatures = new Set<string>();
   for (let i = 0; i < attemptPools.length; i++) {
     const attempt = attemptPools[i];
     if (attempt.length < 2) continue;
+    const signature = attempt.map((item: any) => item.id).join(",");
+    if (attemptedPoolSignatures.has(signature)) continue;
+    attemptedPoolSignatures.add(signature);
     console.log(`[SOMA_PARCELAS] attempt ${i}: ${attempt.length} cand, target=${extValor.toFixed(2)}, total=${attempt.reduce((s,x)=>s+Number(x.valor),0).toFixed(2)}`);
     const result = findSubsetSum(attempt, extValor, 0.01);
     if (result) {
@@ -626,40 +630,72 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
   const targetCents = Math.round(target * 100);
   const toleranceCents = Math.max(1, Math.round(tolerance * 100));
 
-  function searchSubset(
-    vals: number[],
+  // Meet-in-the-middle limitado a 24 candidatos. A implementação anterior fazia
+  // até milhões de chamadas recursivas por extrato e estourava o limite de CPU da
+  // Edge Function em períodos reais. Aqui o custo fica previsível (2 x 2^12).
+  function searchSubsetMitm(
+    candidateIndexes: number[],
     targetCentsLocal: number,
     maxSize: number,
-    nodeLimit = 200_000,
+    minSize = 1,
   ): number[] | null {
-    const nn = vals.length;
-    if (nn === 0) return null;
-    const suffixSum = new Array(nn + 1).fill(0);
-    for (let i = nn - 1; i >= 0; i--) suffixSum[i] = suffixSum[i + 1] + vals[i];
-    let nodes = 0;
-    let aborted = false;
+    const indexes = [...new Set(candidateIndexes)].slice(0, 24);
+    if (indexes.length === 0 || targetCentsLocal <= 0) return null;
 
-    function search(idx: number, remaining: number, selected: number[]): number[] | null {
-      if (aborted) return null;
-      if (++nodes > nodeLimit) { aborted = true; return null; }
-      if (Math.abs(remaining) <= toleranceCents && selected.length >= 1) return selected;
-      if (idx >= nn || selected.length >= maxSize || remaining < -toleranceCents) return null;
-      if (remaining > suffixSum[idx] + toleranceCents) return null;
+    const split = Math.ceil(indexes.length / 2);
+    const left = indexes.slice(0, split);
+    const right = indexes.slice(split);
 
-      const withItem = search(idx + 1, remaining - vals[idx], [...selected, idx]);
-      if (withItem) return withItem;
-      return search(idx + 1, remaining, selected);
+    const enumerate = (source: number[]) => {
+      const result: Array<{ sum: number; picked: number[] }> = [];
+      const totalMasks = 1 << source.length;
+      for (let mask = 0; mask < totalMasks; mask++) {
+        const picked: number[] = [];
+        let sum = 0;
+        for (let bit = 0; bit < source.length; bit++) {
+          if ((mask & (1 << bit)) === 0) continue;
+          picked.push(source[bit]);
+          sum += values[source[bit]];
+          if (picked.length > maxSize || sum > targetCentsLocal + toleranceCents) break;
+        }
+        if (picked.length <= maxSize && sum <= targetCentsLocal + toleranceCents) {
+          result.push({ sum, picked });
+        }
+      }
+      return result;
+    };
+
+    const leftBySum = new Map<number, Map<number, number[]>>();
+    for (const entry of enumerate(left)) {
+      let bySize = leftBySum.get(entry.sum);
+      if (!bySize) {
+        bySize = new Map<number, number[]>();
+        leftBySum.set(entry.sum, bySize);
+      }
+      if (!bySize.has(entry.picked.length)) bySize.set(entry.picked.length, entry.picked);
     }
 
-    return search(0, targetCentsLocal, []);
+    for (const rightEntry of enumerate(right)) {
+      const maxLeftSize = maxSize - rightEntry.picked.length;
+      if (maxLeftSize < 0) continue;
+      for (let delta = -toleranceCents; delta <= toleranceCents; delta++) {
+        const bySize = leftBySum.get(targetCentsLocal - rightEntry.sum + delta);
+        if (!bySize) continue;
+        for (const [leftSize, leftPicked] of bySize.entries()) {
+          const totalSize = leftSize + rightEntry.picked.length;
+          if (leftSize <= maxLeftSize && totalSize >= minSize && totalSize <= maxSize) {
+            return [...leftPicked, ...rightEntry.picked];
+          }
+        }
+      }
+    }
+    return null;
   }
 
-  // 1) Busca direta: subset pequeno (até 8 itens) que SOMA ao alvo, usando os 24 maiores.
-  const directPool = values.slice(0, Math.min(n, 24));
-  const direct = searchSubset(directPool, targetCents, Math.min(directPool.length, 8));
-  if (direct && direct.length >= 2) {
-    return direct.map((i) => sorted[i]);
-  }
+  // 1) Busca direta de até 8 parcelas entre os 24 candidatos mais relevantes.
+  const directIndexes = Array.from({ length: Math.min(n, 24) }, (_, i) => i);
+  const direct = searchSubsetMitm(directIndexes, targetCents, Math.min(directIndexes.length, 8), 2);
+  if (direct) return direct.map((i) => sorted[i]);
 
   // 2) Busca por COMPLEMENTO iterativa: para fatura consolidada (cliente paga muitas
   //    parcelas num crédito só), encontra o pool mínimo cuja soma ≥ alvo e procura o
@@ -680,7 +716,14 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
         return sorted.slice(0, k); // soma exata
       }
       if (excess > toleranceCents) {
-        const toRemove = searchSubset(subset, excess, Math.min(k, 6));
+        // Para faturas muito grandes, prioriza valores próximos do excesso e os
+        // menores valores do prefixo. Assim preservamos a busca por complemento
+        // sem voltar à explosão combinatória da recursão anterior.
+        const closest = Array.from({ length: k }, (_, i) => i)
+          .sort((a, b) => Math.abs(values[a] - excess) - Math.abs(values[b] - excess));
+        const smallest = Array.from({ length: k }, (_, i) => i).slice(-12);
+        const removalPool = [...new Set([...closest.slice(0, 12), ...smallest])].slice(0, 24);
+        const toRemove = searchSubsetMitm(removalPool, excess, Math.min(removalPool.length, 6), 1);
         if (toRemove) {
           const removeSet = new Set(toRemove);
           const kept = sorted.slice(0, k).filter((_, i) => !removeSet.has(i));
