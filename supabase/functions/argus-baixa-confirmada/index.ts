@@ -181,6 +181,22 @@ async function baixarNoGC(
   if (payloadAtual.fornecedor_id) payload.fornecedor_id = payloadAtual.fornecedor_id;
   if (payloadAtual.entidade) payload.entidade = payloadAtual.entidade;
 
+  // Parcelas geradas por compras podem carregar rateio e ajustes obrigatórios.
+  // O GC rejeita a baixa com "Erro ao salvar dados" quando esses vínculos somem do PUT.
+  const camposFinanceirosOpcionais = [
+    "centro_custo_id",
+    "juros",
+    "multa",
+    "desconto",
+    "taxa",
+    "rateios",
+    "atributos",
+  ] as const;
+  for (const campo of camposFinanceirosOpcionais) {
+    const valor = payloadAtual[campo];
+    if (valor !== undefined && valor !== null && valor !== "") payload[campo] = valor;
+  }
+
   try {
     const res = await fetch(`${GC_BASE_URL}/api/${endpoint}/${gcId}`, {
       method: "PUT",

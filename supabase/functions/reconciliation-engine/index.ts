@@ -243,7 +243,7 @@ function aplicarRegras(
   const extNome  = ext.nome_contraparte ?? ext.contrapartida ?? "";
 
   // HARD CAP global: descarta qualquer candidato cujo lançamento esteja a mais
-  // de MAX_GAP_DIAS (60) da data do extrato. Evita matches absurdos entre meses
+  // de MAX_GAP_DIAS (5) da data do extrato. Evita matches absurdos entre períodos
   // muito distantes (ex.: extrato de Abril vinculando lançamento de Dezembro).
   const candidatos = extDate
     ? candidatosRaw.filter(c => {
@@ -710,7 +710,7 @@ function tentarSomaParcelas(
     .filter(({ docOk, nomeOk, finDate }) => {
       if (!docOk && !nomeOk) return false;
       if (!finDate || !extDate) return false; // sem data, fora — hard cap exige data
-      if (!dentroJanelaMaxima(extDate, finDate)) return false; // HARD CAP 60d
+      if (!dentroJanelaMaxima(extDate, finDate)) return false; // HARD CAP 5d
       return dataProxima(extDate, finDate, janelaDias);
     });
 
@@ -1208,7 +1208,7 @@ serve(async (req) => {
                   const nomeOk = extNomeApprox ? nomeForteMatch(extNomeApprox, finNome) : false;
                   if (!docOk && !nomeOk) return null;
                   if (!finDate || !extDateApprox) return null; // hard cap exige datas
-                  if (!dentroJanelaMaxima(extDateApprox, finDate)) return null; // HARD CAP 60d
+                  if (!dentroJanelaMaxima(extDateApprox, finDate)) return null; // HARD CAP 5d
                   if (!dataProxima(extDateApprox, finDate, janelaNn)) return null;
                   if (finValor <= 0) return null;
                   return { fin, finValor, finNome, finDate, finDoc, docOk, nomeOk, nScore, status: fin.status };
@@ -1291,7 +1291,7 @@ serve(async (req) => {
                   const nomeMatch = Boolean(extNomeApprox && finNome && nomeForteMatch(extNomeApprox, finNome));
                   if (!docMatch && !nomeMatch) return null;
                   if (extDateApprox) {
-                    if (!finDate || !dentroJanelaMaxima(extDateApprox, finDate)) return null;
+                    if (!finDate || !dentroJanelaMaxima(extDateApprox, finDate)) return null; // HARD CAP 5d
                   }
 
                   let score = 0;
