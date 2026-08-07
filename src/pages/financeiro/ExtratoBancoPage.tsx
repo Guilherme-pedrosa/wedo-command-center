@@ -183,6 +183,17 @@ export default function ExtratoBancoPage() {
     },
   });
 
+  // O status de baixa depende do conjunto de extratos já conciliados, não apenas do
+  // período. Sem essa assinatura, a consulta podia ficar em cache com {} quando era
+  // executada antes da conciliação e a tela continuava exibindo "GC?" após a baixa.
+  const reconciledExtratoSignature = useMemo(() => (
+    (extrato || [])
+      .filter((e: any) => e.reconciliado)
+      .map((e: any) => `${e.id}:${e.reconciliado_em || ""}`)
+      .sort()
+      .join("|")
+  ), [extrato]);
+
   // IDs de lançamentos já vinculados a algum extrato — exclui da lista de candidatos
   const { data: linkedIds } = useQuery({
     queryKey: ["conc-linked-ids"],
@@ -235,16 +246,17 @@ export default function ExtratoBancoPage() {
   });
 
   // GC baixa status por extrato — agrega info dos lançamentos vinculados
-  const { data: gcBaixaMap } = useQuery({
-    queryKey: ["extrato-gc-baixa", queryDateFrom, queryDateTo],
+  const { data: gcBaixaMap, isFetching: gcBaixaLoading, isError: gcBaixaError } = useQuery({
+    queryKey: ["extrato-gc-baixa", queryDateFrom, queryDateTo, reconciledExtratoSignature],
     queryFn: async () => {
       const extratoIds = (extrato || []).filter((e: any) => e.reconciliado).map((e: any) => e.id);
-      if (!extratoIds.length) return {} as Record<string, "all" | "partial" | "none">;
+      if (!extratoIds.length) return {};
 
-      const { data: links } = await supabase
+      const { data: links, error: linksError } = await supabase
         .from("fin_extrato_lancamentos")
         .select("extrato_id, lancamento_id, tabela")
         .in("extrato_id", extratoIds);
+      if (linksError) throw linksError;
 
       if (!links?.length) return {};
 
@@ -256,22 +268,27 @@ export default function ExtratoBancoPage() {
         .map((l: any) => l.lancamento_id);
 
       const [recRes, pagRes] = await Promise.all([
-        recIds.length ? supabase.from("fin_recebimentos").select("id, gc_baixado, gc_baixado_em").in("id", recIds) : Promise.resolve({ data: [] as any[] }),
-        pagIds.length ? supabase.from("fin_pagamentos").select("id, gc_baixado, gc_baixado_em").in("id", pagIds) : Promise.resolve({ data: [] as any[] }),
+        recIds.length ? supabase.from("fin_recebimentos").select("id, gc_baixado, gc_baixado_em").in("id", recIds) : Promise.resolve({ data: [] as any[], error: null }),
+        pagIds.length ? supabase.from("fin_pagamentos").select("id, gc_baixado, gc_baixado_em").in("id", pagIds) : Promise.resolve({ data: [] as any[], error: null }),
       ]);
+      if (recRes.error) throw recRes.error;
+      if (pagRes.error) throw pagRes.error;
 
       const baixaById: Record<string, { baixado: boolean; em: string | null }> = {};
       for (const r of (recRes.data || [])) baixaById[`r:${r.id}`] = { baixado: !!r.gc_baixado, em: r.gc_baixado_em };
       for (const p of (pagRes.data || [])) baixaById[`p:${p.id}`] = { baixado: !!p.gc_baixado, em: p.gc_baixado_em };
 
-      const result: Record<string, { status: "all" | "partial" | "none"; em: string | null }> = {};
+      const result: Record<string, { status: "all" | "partial" | "none" | "unknown"; em: string | null }> = {};
       for (const eid of extratoIds) {
         const linkedHere = links.filter((l: any) => l.extrato_id === eid);
         if (!linkedHere.length) continue;
         const flags = linkedHere
           .map((l: any) => baixaById[`${l.tabela === "recebimentos" || l.tabela === "fin_recebimentos" ? "r" : "p"}:${l.lancamento_id}`])
           .filter(Boolean);
-        if (!flags.length) continue;
+        if (flags.length !== linkedHere.length) {
+          result[eid] = { status: "unknown", em: null };
+          continue;
+        }
         const baixados = flags.filter(f => f.baixado);
         const ems = baixados.map(f => f.em).filter(Boolean).sort();
         const status: "all" | "partial" | "none" = baixados.length === flags.length ? "all" : baixados.length === 0 ? "none" : "partial";
@@ -1132,7 +1149,15 @@ export default function ExtratoBancoPage() {
                             <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/30">
                               {ruleLabels[e.reconciliation_rule] || e.reconciliation_rule || "OK"}
                             </Badge>
-                            {gcBaixaMap?.[e.id] ? (
+                            {gcBaixaLoading ? (
+                              <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/30" title="Atualizando o status de baixa no GestãoClick">
+                                ↻ Atualizando GC
+                              </Badge>
+                            ) : gcBaixaError ? (
+                              <Badge variant="outline" className="text-[9px] bg-destructive/10 text-destructive border-destructive/30" title="Não foi possível consultar o status de baixa no GestãoClick">
+                                ⚠ Erro status GC
+                              </Badge>
+                            ) : gcBaixaMap?.[e.id] ? (
                               <Badge
                                 variant="outline"
                                 className={cn(
@@ -1140,24 +1165,29 @@ export default function ExtratoBancoPage() {
                                   gcBaixaMap[e.id].status === "all" && "bg-emerald-500/15 text-emerald-500 border-emerald-500/40",
                                   gcBaixaMap[e.id].status === "partial" && "bg-amber-500/15 text-amber-600 border-amber-500/40",
                                   gcBaixaMap[e.id].status === "none" && "bg-muted text-muted-foreground border-border",
+                                  gcBaixaMap[e.id].status === "unknown" && "bg-destructive/10 text-destructive border-destructive/30",
                                 )}
                                 title={
                                   gcBaixaMap[e.id].status === "all"
                                     ? `Baixado no GestãoClick${gcBaixaMap[e.id].em ? ` em ${formatDateTime(gcBaixaMap[e.id].em)}` : ""}`
                                     : gcBaixaMap[e.id].status === "partial"
                                     ? "Baixa parcial no GestãoClick"
-                                    : "Ainda não baixado no GestãoClick"
+                                    : gcBaixaMap[e.id].status === "none"
+                                    ? "Ainda não baixado no GestãoClick"
+                                    : "O vínculo existe, mas o financeiro correspondente não foi encontrado"
                                 }
                               >
                                 {gcBaixaMap[e.id].status === "all"
                                   ? "✓ Baixado GC"
                                   : gcBaixaMap[e.id].status === "partial"
                                   ? "½ GC parcial"
-                                  : "⏳ Pend. GC"}
+                                  : gcBaixaMap[e.id].status === "none"
+                                  ? "⏳ Pend. GC"
+                                  : "⚠ GC sem dados"}
                               </Badge>
                             ) : (
-                              <Badge variant="outline" className="text-[9px] bg-muted text-muted-foreground border-border" title="Sem informação de baixa GC">
-                                ⏳ GC?
+                              <Badge variant="outline" className="text-[9px] bg-muted text-muted-foreground border-border" title="Este extrato não possui vínculo financeiro que permita consultar a baixa no GC">
+                                — Sem vínculo GC
                               </Badge>
                             )}
                           </>

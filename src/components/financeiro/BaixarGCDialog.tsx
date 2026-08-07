@@ -55,7 +55,7 @@ export function BaixarGCDialog({ open, onOpenChange, onDone }: Props) {
       const r = data as BaixaResponse;
       setResult(r);
       if (r.processados === 0) {
-        toast("Nenhum lançamento conciliado pendente de baixa neste período.", { icon: "ℹ️" });
+        toast("Nenhuma baixa pendente foi encontrada neste período. Atualizando os indicadores da tela.", { icon: "ℹ️" });
       } else if (r.falha === 0) {
         toast.success(`${r.sucesso} lançamento(s) baixado(s) no GC!`);
       } else {
