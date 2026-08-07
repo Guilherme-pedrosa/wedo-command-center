@@ -180,15 +180,26 @@ serve(async (req) => {
     let endpointUsado = "";
     let endpointRich  = false;
 
+    // Hard deadline: o gateway aborta em 150s. Paramos antes e devolvemos
+    // resultado parcial em vez de estourar com IDLE_TIMEOUT.
+    const DEADLINE_MS = 115_000;
+    const expirou = () => Date.now() - startMs > DEADLINE_MS;
+    let truncado = false;
+    let chunksProcessados = 0;
+
     for (let ci = 0; ci < chunks.length; ci++) {
-      const chunk = chunks[ci];
-      // Rate-limit protection between chunks — increased to 6s
-      if (ci > 0) {
-        console.log(`[inter-extrato] Aguardando 6s entre chunks...`);
-        await sleep(6000);
+      if (expirou()) {
+        truncado = true;
+        console.warn(`[inter-extrato] Deadline atingido antes do chunk ${ci + 1}/${chunks.length}`);
+        break;
       }
+      const chunk = chunks[ci];
+      // Rate-limit protection between chunks
+      if (ci > 0) await sleep(1500);
 
       console.log(`[inter-extrato] Chunk ${ci + 1}/${chunks.length}: ${chunk.start} → ${chunk.end}`);
+      chunksProcessados++;
+
 
       // ── Try paginated fetch first (v2/completo supports pagination) ──
       let transacoes: any[] | null = null;
