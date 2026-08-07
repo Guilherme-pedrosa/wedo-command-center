@@ -176,15 +176,6 @@ async function baixarNoGC(
     usuario_id: GC_API_USER_ID,
   };
 
-  // Campos opcionais
-  if (payloadAtual.cliente_id) payload.cliente_id = payloadAtual.cliente_id;
-  if (payloadAtual.fornecedor_id) payload.fornecedor_id = payloadAtual.fornecedor_id;
-  if (payloadAtual.entidade) payload.entidade = payloadAtual.entidade;
-  if (payloadAtual.centro_custo_id) payload.centro_custo_id = payloadAtual.centro_custo_id;
-  if (payloadAtual.juros) payload.juros = payloadAtual.juros;
-  if (payloadAtual.desconto) payload.desconto = payloadAtual.desconto;
-  if (Array.isArray(payloadAtual.rateios) && payloadAtual.rateios.length > 0) payload.rateios = payloadAtual.rateios;
-
   try {
     const res = await fetch(`${GC_BASE_URL}/api/${endpoint}/${gcId}`, {
       method: "PUT",
