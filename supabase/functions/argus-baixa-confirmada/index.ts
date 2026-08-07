@@ -141,7 +141,7 @@ async function baixarNoGC(
 ): Promise<{ ok: boolean; erro?: string }> {
   // No financeiro do GC, a situação "Confirmado" é derivada de liquidado="1".
   // Não envie id_situacao: esse campo é rejeitado pelo PUT de pagamentos/recebimentos.
-  // Também gravamos observação com detalhes do extrato conciliado.
+  // O endpoint financeiro não aceita o campo observacao; a rastreabilidade fica no banco.
   // Recarrega o financeiro antes do PUT. O payload salvo localmente é um snapshot e pode
   // estar defasado; o GC rejeita a gravação quando campos obrigatórios ou vínculos mudaram.
   let payloadAtual = payloadRaw;
@@ -173,7 +173,6 @@ async function baixarNoGC(
     conta_bancaria_id: payloadAtual.conta_bancaria_id,
     liquidado: "1",
     data_liquidacao: dataLiquidacao,
-    observacao: obsFinal,
     usuario_id: GC_API_USER_ID,
   };
 
