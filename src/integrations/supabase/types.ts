@@ -4327,6 +4327,18 @@ export type Database = {
       }
     }
     Functions: {
+      fin_reconcile_extrato_atomic: {
+        Args: {
+          p_extrato_id: string
+          p_links: Json
+          p_reconciliation_rule?: string
+        }
+        Returns: Json
+      }
+      fin_undo_reconcile_extrato_atomic: {
+        Args: { p_extrato_id: string }
+        Returns: Json
+      }
       fn_dashboard_stats: { Args: never; Returns: Json }
       has_role: {
         Args: {

@@ -19,6 +19,7 @@ import {
 } from "recharts";
 import { format, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { isGcSettled } from "@/lib/financial-reconciliation";
 
 // Generate month options: from Dec 2025 to current month, ascending + "Todos"
 function getMonthOptions() {
@@ -173,7 +174,7 @@ export default function FinDashboardPage() {
   const recebidoMes = recebimentosMes.filter((r: any) => r.liquidado && (isTodos || r.data_liquidacao?.startsWith(mesSelecionado))).reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
   const pagoMes = pagamentosMes.filter((p: any) => p.liquidado && (isTodos || p.data_liquidacao?.startsWith(mesSelecionado))).reduce((s: number, p: any) => s + Number(p.valor || 0), 0);
   const saldoLiquido = totalAReceber - totalAPagar;
-  const baixasPendentesGC = recebimentosMes.filter((r: any) => r.pago_sistema && !r.gc_baixado).length;
+  const baixasPendentesGC = recebimentosMes.filter((r: any) => r.pago_sistema && !isGcSettled(r)).length;
 
   // Chart data - 6 months centered around selected month
   const chartData = useMemo(() => Array.from({ length: 6 }, (_, i) => {

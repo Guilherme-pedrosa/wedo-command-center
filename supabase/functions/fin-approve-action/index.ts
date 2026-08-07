@@ -107,17 +107,26 @@ Deno.serve(async (req) => {
           break;
         }
         case "vincular_extrato": {
-          // Reconcile extrato entry
-          const { error } = await supabase
+          const extratoId = payload.extrato_id as string;
+          const lancamentoId = payload.lancamento_id as string;
+          const { data: extrato, error: extratoError } = await supabase
             .from("fin_extrato_inter")
-            .update({
-              reconciliado: true,
-              reconciliado_em: new Date().toISOString(),
-              lancamento_id: payload.lancamento_id as string,
-              reconciliation_rule: "argus-aprovado",
-            })
-            .eq("id", payload.extrato_id);
+            .select("tipo,valor")
+            .eq("id", extratoId)
+            .single();
+          if (extratoError || !extrato) throw extratoError ?? new Error("Extrato não encontrado");
+          const tabela = extrato.tipo === "DEBITO" ? "pagamentos" : "recebimentos";
+          const { data, error } = await supabase.rpc("fin_reconcile_extrato_atomic", {
+            p_extrato_id: extratoId,
+            p_links: [{
+              lancamento_id: lancamentoId,
+              tabela,
+              valor_alocado: Math.abs(Number(extrato.valor)),
+            }],
+            p_reconciliation_rule: "ARGUS_APROVADO",
+          });
           if (error) throw error;
+          if (!data?.success) throw new Error("Conciliação não confirmada");
           resultado.executado = true;
           break;
         }

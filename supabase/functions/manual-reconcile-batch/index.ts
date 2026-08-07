@@ -160,6 +160,55 @@ serve(async (req) => {
           error: `Soma (R$ ${somaLancamentos.toFixed(2)}) ≠ extrato (R$ ${extValor.toFixed(2)}). Diferença: R$ ${Math.abs(diff).toFixed(2)}. Se há taxa de adiantamento, informe o percentual.`,
         }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+
+      const links = lancamentos.map((l: any) => ({
+        lancamento_id: l.id,
+        tabela,
+        valor_alocado: Math.abs(Number(l.valor)),
+      }));
+      const { data: atomicResult, error: atomicError } = await supabase.rpc(
+        "fin_reconcile_extrato_atomic",
+        {
+          p_extrato_id: extrato_id,
+          p_links: links,
+          p_reconciliation_rule: "MANUAL_SOMA",
+        },
+      );
+      if (atomicError) throw new Error(`Conciliação atômica rejeitada: ${atomicError.message}`);
+      if (!atomicResult?.success) throw new Error("Conciliação atômica não confirmada");
+
+      const baixaResponse = await fetch(`${Deno.env.get("SUPABASE_URL")!}/functions/v1/argus-baixa-confirmada`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
+        },
+        body: JSON.stringify({
+          mode: "links",
+          links: lancamentos.map((l: any) => ({ lancamento_id: l.id, tabela })),
+          forceConfirmSituacao: true,
+          background: false,
+        }),
+      });
+      const baixaText = await baixaResponse.text();
+      let baixa: any = null;
+      try { baixa = JSON.parse(baixaText); } catch { baixa = { raw: baixaText }; }
+      if (!baixaResponse.ok || baixa?.ok === false || Number(baixa?.falha ?? 0) > 0) {
+        const detalhe = baixa?.resultados?.find((item: any) => !item.ok)?.erro;
+        throw new Error(detalhe || baixa?.error || `Baixa no GC não confirmada: HTTP ${baixaResponse.status}`);
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        conciliados: lancamentos.length,
+        soma: somaLancamentos,
+        valor_extrato: extValor,
+        diferenca: Math.abs(diff),
+        baixa_gc: baixa,
+        juros: null,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const now = new Date().toISOString();

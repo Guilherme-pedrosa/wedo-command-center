@@ -447,112 +447,35 @@ function aplicarRegras(
 // ═══════════════════════════════════════════════════════════
 
 async function vincular(supabase: any, ext: any, match: Candidato, rule: string) {
-  const table = match.tipo === "pagar" ? "fin_pagamentos" : "fin_recebimentos";
   const tabela = match.tipo === "pagar" ? "pagamentos" : "recebimentos";
-  const now = new Date().toISOString();
-
-  // 1. Marcar extrato como reconciliado
-  const { error: extErr } = await supabase.from("fin_extrato_inter").update({
-    reconciliado: true,
-    lancamento_id: match.fin.id,
-    reconciliado_em: now,
-    reconciliation_rule: rule,
-  }).eq("id", ext.id);
-
-  if (extErr) throw new Error(`Erro ao atualizar extrato: ${extErr.message}`);
-
-  // 2. Marcar como conciliado pelo sistema. O status financeiro só muda para
-  // pago depois que argus-baixa-confirmada consultar o GC e confirmar a baixa.
-  const { error: finErr } = await supabase.from(table).update({
-    pago_sistema: true,
-    pago_sistema_em: now,
-  }).eq("id", match.fin.id);
-
-  if (finErr) {
-    // Rollback extrato
-    await supabase.from("fin_extrato_inter").update({
-      reconciliado: false,
-      lancamento_id: null,
-      reconciliado_em: null,
-      reconciliation_rule: null,
-    }).eq("id", ext.id);
-    throw new Error(`Erro ao atualizar lançamento: ${finErr.message}`);
-  }
-
-  // 2.5 — Registrar em fin_extrato_lancamentos (valor_alocado = valor do extrato)
-  const { error: linkErr } = await supabase.from("fin_extrato_lancamentos").upsert({
-    extrato_id: ext.id,
-    lancamento_id: match.fin.id,
-    tabela,
-    valor_alocado: Math.abs(Number(ext.valor)),
-    reconciliation_rule: rule,
-  }, { onConflict: "extrato_id,lancamento_id,tabela" });
-
-  if (linkErr) {
-    await Promise.all([
-      supabase.from("fin_extrato_inter").update({
-        reconciliado: false,
-        lancamento_id: null,
-        reconciliado_em: null,
-        reconciliation_rule: null,
-      }).eq("id", ext.id),
-      supabase.from(table).update({
-        pago_sistema: false,
-        pago_sistema_em: null,
-      }).eq("id", match.fin.id),
-    ]);
-    throw new Error(`Erro ao registrar vínculo: ${linkErr.message}`);
-  }
-
-  // 3. Log
-  await supabase.from("fin_sync_log").insert({
-    tipo: "conciliacao_auto",
-    referencia_id: ext.id,
-    status: "success",
-    payload: { extrato_id: ext.id, lancamento_id: match.fin.id, rule, baixa_gc: "pending_sweep" },
+  const { data, error } = await supabase.rpc("fin_reconcile_extrato_atomic", {
+    p_extrato_id: ext.id,
+    p_links: [{
+      lancamento_id: match.fin.id,
+      tabela,
+      valor_alocado: Math.abs(Number(ext.valor)),
+    }],
+    p_reconciliation_rule: rule,
   });
+  if (error) throw new Error(`Conciliação atômica rejeitada: ${error.message}`);
+  if (!data?.success) throw new Error("Conciliação atômica não confirmada");
 }
 
 // Vincula extrato a lançamento JÁ PAGO — apenas rastreabilidade, sem alterar o lançamento
 async function vincularRastreabilidade(supabase: any, ext: any, lancamentoId: string, rule: string) {
-  const now = new Date().toISOString();
   const isDebito = ext.tipo === "DEBITO";
   const tabela = isDebito ? "pagamentos" : "recebimentos";
-
-  const { error } = await supabase.from("fin_extrato_inter").update({
-    reconciliado: true,
-    lancamento_id: lancamentoId,
-    reconciliado_em: now,
-    reconciliation_rule: rule,
-  }).eq("id", ext.id);
-
-  if (error) throw new Error(`Erro rastreabilidade: ${error.message}`);
-
-  // Registrar em fin_extrato_lancamentos
-  const { error: linkErr } = await supabase.from("fin_extrato_lancamentos").upsert({
-    extrato_id: ext.id,
-    lancamento_id: lancamentoId,
-    tabela,
-    valor_alocado: Math.abs(Number(ext.valor)),
-    reconciliation_rule: rule,
-  }, { onConflict: "extrato_id,lancamento_id,tabela" });
-
-  if (linkErr) {
-    await supabase.from("fin_extrato_inter").update({
-      reconciliado: false,
-      lancamento_id: null,
-      reconciliado_em: null,
-      reconciliation_rule: null,
-    }).eq("id", ext.id);
-    throw new Error(`Erro ao registrar vínculo de rastreabilidade: ${linkErr.message}`);
-  }
-
-  await supabase.from("fin_sync_log").insert({
-    tipo: "conciliacao_rastreabilidade",
-    referencia_id: ext.id,
-    status: "success",
-    payload: { extrato_id: ext.id, lancamento_id: lancamentoId, rule, baixa_gc: "pending_sweep" },
+  const { data, error } = await supabase.rpc("fin_reconcile_extrato_atomic", {
+    p_extrato_id: ext.id,
+    p_links: [{
+      lancamento_id: lancamentoId,
+      tabela,
+      valor_alocado: Math.abs(Number(ext.valor)),
+    }],
+    p_reconciliation_rule: rule,
   });
+  if (error) throw new Error(`Rastreabilidade atômica rejeitada: ${error.message}`);
+  if (!data?.success) throw new Error("Rastreabilidade atômica não confirmada");
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -584,74 +507,18 @@ async function saveSomaParcelas(
     throw new Error(`SOMA_PARCELAS rejeitada: soma R$${somaTotal.toFixed(2)} ≠ extrato R$${extValor.toFixed(2)}`);
   }
 
-  const now = new Date().toISOString();
-  const maior = parcelas.reduce((a, b) => (a.valor > b.valor ? a : b));
-
-  // 1. Marcar extrato como reconciliado (representante = maior parcela)
-  const { error: extErr } = await supabase.from("fin_extrato_inter").update({
-    reconciliado: true,
-    reconciliado_em: now,
-    reconciliation_rule: rule,
-    lancamento_id: maior.id,
-  }).eq("id", extratoId);
-  if (extErr) throw new Error(`Erro atualizar extrato: ${extErr.message}`);
-
-  // 2. Inserir todas as parcelas na tabela N:N
-  const rows = parcelas.map(p => ({
-    extrato_id: extratoId,
+  const links = parcelas.map(p => ({
     lancamento_id: p.id,
     tabela: p.tabela,
     valor_alocado: p.valor,
-    reconciliation_rule: rule,
   }));
-  const { error: linkErr } = await supabase.from("fin_extrato_lancamentos")
-    .upsert(rows, { onConflict: "extrato_id,lancamento_id,tabela" });
-  if (linkErr) {
-    // Rollback extrato
-    await supabase.from("fin_extrato_inter").update({
-      reconciliado: false, reconciliado_em: null, reconciliation_rule: null, lancamento_id: null,
-    }).eq("id", extratoId);
-    throw new Error(`Erro inserir links: ${linkErr.message}`);
-  }
-
-  // 3. Verificar que os links foram criados
-  const { data: created } = await supabase.from("fin_extrato_lancamentos")
-    .select("id").eq("extrato_id", extratoId);
-  if (!created || created.length !== parcelas.length) {
-    // Rollback
-    await supabase.from("fin_extrato_inter").update({
-      reconciliado: false, reconciliado_em: null, reconciliation_rule: null, lancamento_id: null,
-    }).eq("id", extratoId);
-    await supabase.from("fin_extrato_lancamentos").delete().eq("extrato_id", extratoId);
-    throw new Error(`SOMA_PARCELAS: esperava ${parcelas.length} links, criou ${created?.length ?? 0}`);
-  }
-
-  // 3.1. Marcar as parcelas como pagas pelo sistema para o fluxo de baixa no GC/Argus.
-  // Sem isso, o extrato ficava conciliado, mas os recebimentos continuavam abertos.
-  const recebimentoIds = parcelas.filter((p) => p.tabela === "recebimentos").map((p) => p.id);
-  const pagamentoIds = parcelas.filter((p) => p.tabela === "pagamentos").map((p) => p.id);
-  if (recebimentoIds.length > 0) {
-    const { error } = await supabase.from("fin_recebimentos").update({
-      pago_sistema: true,
-      pago_sistema_em: now,
-    }).in("id", recebimentoIds);
-    if (error) throw new Error(`SOMA_PARCELAS: erro marcar recebimentos pagos: ${error.message}`);
-  }
-  if (pagamentoIds.length > 0) {
-    const { error } = await supabase.from("fin_pagamentos").update({
-      pago_sistema: true,
-      pago_sistema_em: now,
-    }).in("id", pagamentoIds);
-    if (error) throw new Error(`SOMA_PARCELAS: erro marcar pagamentos pagos: ${error.message}`);
-  }
-
-  // 4. Log
-  await supabase.from("fin_sync_log").insert({
-    tipo: "conciliacao_soma_parcelas",
-    referencia_id: extratoId,
-    status: "success",
-    payload: { extrato_id: extratoId, parcelas: parcelas.map(p => ({ id: p.id, valor: p.valor })), rule, baixa_gc: "pending_sweep" },
+  const { data, error } = await supabase.rpc("fin_reconcile_extrato_atomic", {
+    p_extrato_id: extratoId,
+    p_links: links,
+    p_reconciliation_rule: rule,
   });
+  if (error) throw new Error(`SOMA_PARCELAS atômica rejeitada: ${error.message}`);
+  if (!data?.success) throw new Error("SOMA_PARCELAS atômica não confirmada");
 }
 
 // Tenta encontrar N parcelas do mesmo fornecedor/cliente que somem ao valor do extrato
@@ -826,6 +693,19 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
   return null;
 }
 
+async function fetchEverySupabaseRow(
+  fetchPage: (from: number, to: number) => Promise<{ data: any[] | null; error: any }>,
+  pageSize = 1000,
+): Promise<any[]> {
+  const rows: any[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await fetchPage(from, from + pageSize - 1);
+    if (error) throw new Error(error.message ?? String(error));
+    rows.push(...(data ?? []));
+    if (!data || data.length < pageSize) return rows;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
 // HANDLER PRINCIPAL
 // ═══════════════════════════════════════════════════════════
@@ -880,25 +760,32 @@ serve(async (req) => {
     // 2. Lançamentos candidatos: TODOS exceto cancelados (status no GC é irrelevante,
     //    o que importa é se já foi vinculado ao extrato — checado via alreadyLinked)
     const cutoff180 = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-    const [{ data: pagamentos }, { data: recebimentos }, { data: fornecedores }, { data: clientes }] = await Promise.all([
-      supabase.from("fin_pagamentos").select(finSelectPag)
+    const [pagamentos, recebimentos, fornecedores, clientes] = await Promise.all([
+      fetchEverySupabaseRow((from, to) => supabase.from("fin_pagamentos").select(finSelectPag)
         .not("status", "in", '("cancelado")')
         .gte("data_vencimento", cutoff180)
         .order("data_vencimento", { ascending: false })
-        .limit(3000),
-      supabase.from("fin_recebimentos").select(finSelectRec)
+        .order("id", { ascending: true })
+        .range(from, to)),
+      fetchEverySupabaseRow((from, to) => supabase.from("fin_recebimentos").select(finSelectRec)
         .not("status", "in", '("cancelado")')
         .gte("data_vencimento", cutoff180)
         .order("data_vencimento", { ascending: false })
-        .limit(3000),
-      supabase.from("fin_fornecedores").select("gc_id, cpf_cnpj, chave_pix, nome"),
-      supabase.from("fin_clientes").select("gc_id, cpf_cnpj, nome"),
+        .order("id", { ascending: true })
+        .range(from, to)),
+      fetchEverySupabaseRow((from, to) => supabase.from("fin_fornecedores")
+        .select("gc_id, cpf_cnpj, chave_pix, nome").order("gc_id").range(from, to)),
+      fetchEverySupabaseRow((from, to) => supabase.from("fin_clientes")
+        .select("gc_id, cpf_cnpj, nome").order("gc_id").range(from, to)),
     ]);
 
     // IDs já vinculados — from N:N table AND from legacy 1:1 lancamento_id on fin_extrato_inter
-    const [{ data: linkedLancs }, { data: linkedExtrato }] = await Promise.all([
-      supabase.from("fin_extrato_lancamentos").select("lancamento_id"),
-      supabase.from("fin_extrato_inter").select("lancamento_id").eq("reconciliado", true).not("lancamento_id", "is", null),
+    const [linkedLancs, linkedExtrato] = await Promise.all([
+      fetchEverySupabaseRow((from, to) => supabase.from("fin_extrato_lancamentos")
+        .select("lancamento_id").order("id").range(from, to)),
+      fetchEverySupabaseRow((from, to) => supabase.from("fin_extrato_inter")
+        .select("lancamento_id").eq("reconciliado", true).not("lancamento_id", "is", null)
+        .order("id").range(from, to)),
     ]);
 
     const alreadyLinked = new Set([

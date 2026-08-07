@@ -14,6 +14,9 @@ verify_jwt = false
 [functions.reconciliation-engine]
 verify_jwt = false
 
+[functions.financial-reconciliation-pipeline]
+verify_jwt = false
+
 [functions.ai-reconciliation]
 verify_jwt = false
 

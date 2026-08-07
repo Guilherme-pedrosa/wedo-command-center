@@ -20,6 +20,7 @@ import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { syncByMonthChunks, type SyncDateFilter } from "@/api/financeiro";
 import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
 import { cn } from "@/lib/utils";
+import { isGcSettled } from "@/lib/financial-reconciliation";
 import {
   CreditCard, Search, RefreshCw, Plus, Loader2, Zap, CalendarIcon,
   Eye, CheckCircle, XCircle, ChevronLeft, ChevronRight, FileText, Camera, ExternalLink, Link2, X,
@@ -166,7 +167,7 @@ export default function PagamentosPage() {
       if (formaFilter !== "todos" && p.forma_pagamento_id !== formaFilter) return false;
       if (dateFrom && p.data_vencimento && p.data_vencimento < dateFrom) return false;
       if (dateTo && p.data_vencimento && p.data_vencimento > dateTo) return false;
-      if (pendenteBaixaGC && !(p.pago_sistema && !p.gc_baixado)) return false;
+      if (pendenteBaixaGC && !(p.pago_sistema && !isGcSettled(p))) return false;
       if (semGrupo && p.grupo_id) return false;
       if (search) {
         const s = search.toLowerCase();
@@ -314,8 +315,8 @@ export default function PagamentosPage() {
   };
 
   const baixaGCBadge = (p: any) => {
-    if (p.gc_baixado) return <span className="text-emerald-500 text-[10px]">✅ Baixado</span>;
-    if (p.pago_sistema && !p.gc_baixado)
+    if (isGcSettled(p)) return <span className="text-emerald-500 text-[10px]">✅ Baixado</span>;
+    if (p.pago_sistema && !isGcSettled(p))
       return <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/30 text-[10px] animate-pulse">⚡</Badge>;
     return <span className="text-muted-foreground text-[10px]">—</span>;
   };
@@ -518,7 +519,7 @@ export default function PagamentosPage() {
             <Button size="sm" onClick={() => { setGroupName(`Pagamentos — ${format(new Date(), "dd/MM/yyyy")}`); setShowCreateGroup(true); }}>
               <Plus className="h-3.5 w-3.5 mr-1.5" />Criar Grupo
             </Button>
-            {selectedItems.some((p: any) => p.pago_sistema && !p.gc_baixado) && (
+            {selectedItems.some((p: any) => p.pago_sistema && !isGcSettled(p)) && (
               <Button size="sm" variant="destructive" onClick={() => setShowBaixa(true)}>
                 <Zap className="h-3.5 w-3.5 mr-1.5" />Baixar GC
               </Button>
@@ -764,7 +765,7 @@ export default function PagamentosPage() {
 
                 <div className="rounded-lg border border-border p-4 space-y-2">
                   <h4 className="text-sm font-semibold text-foreground">Baixa GestãoClick</h4>
-                  {detailItem.gc_baixado ? (
+                  {isGcSettled(detailItem) ? (
                     <div className="flex items-center gap-2 text-emerald-500 text-sm">
                       <CheckCircle className="h-4 w-4" />
                       Baixado em {detailItem.gc_baixado_em ? formatDateTime(detailItem.gc_baixado_em) : "—"}

@@ -24,6 +24,7 @@ import { BaixarGCDialog } from "@/components/financeiro/BaixarGCDialog";
 import { format, subDays, subMonths, startOfMonth, endOfMonth, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { isGcSettled, reconcileExtratoAtomic, undoExtratoReconciliationAtomic } from "@/lib/financial-reconciliation";
 import toast from "react-hot-toast";
 
 const GC_BASE = "https://gestaoclick.com";
@@ -186,7 +187,7 @@ export default function ExtratoBancoPage() {
           .range(offset, offset + PAGE_SIZE - 1);
         if (error) throw error;
         if (!data || data.length < PAGE_SIZE) { allData = [...allData, ...(data || [])]; hasMore = false; }
-        else { allData = [...allData, ...data]; offset += PAGE_SIZE; if (allData.length >= 3000) hasMore = false; }
+        else { allData = [...allData, ...data]; offset += PAGE_SIZE; }
       }
       return allData;
     },
@@ -234,11 +235,19 @@ export default function ExtratoBancoPage() {
     queryKey: ["conc-recebimentos", linkedIds ? linkedIds.rec.size : 0],
     enabled: !!linkedIds,
     queryFn: async () => {
-      const { data } = await supabase.from("fin_recebimentos")
-        .select("id, descricao, valor, nome_cliente, data_vencimento, status, os_codigo, gc_codigo, gc_id, nf_numero, nfe_numero, liquidado, pago_sistema")
-        .not("status", "eq", "cancelado").order("data_vencimento", { ascending: false }).limit(2000);
+      const rows: any[] = [];
+      const pageSize = 500;
+      for (let from = 0; ; from += pageSize) {
+        const { data, error } = await supabase.from("fin_recebimentos")
+          .select("id, descricao, valor, nome_cliente, data_vencimento, status, os_codigo, gc_codigo, gc_id, nf_numero, nfe_numero, liquidado, pago_sistema")
+          .not("status", "eq", "cancelado").order("data_vencimento", { ascending: false })
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        rows.push(...(data || []));
+        if (!data || data.length < pageSize) break;
+      }
       const linked = linkedIds?.rec ?? new Set<string>();
-      return (data || []).filter((r: any) => !linked.has(String(r.id)));
+      return rows.filter((r: any) => !linked.has(String(r.id)));
     },
   });
 
@@ -246,11 +255,19 @@ export default function ExtratoBancoPage() {
     queryKey: ["conc-pagamentos", linkedIds ? linkedIds.pag.size : 0],
     enabled: !!linkedIds,
     queryFn: async () => {
-      const { data } = await supabase.from("fin_pagamentos")
-        .select("id, descricao, valor, nome_fornecedor, data_vencimento, status, os_codigo, gc_codigo, gc_id, nf_numero, nfe_chave, liquidado, pago_sistema")
-        .not("status", "eq", "cancelado").order("data_vencimento", { ascending: false }).limit(2000);
+      const rows: any[] = [];
+      const pageSize = 500;
+      for (let from = 0; ; from += pageSize) {
+        const { data, error } = await supabase.from("fin_pagamentos")
+          .select("id, descricao, valor, nome_fornecedor, data_vencimento, status, os_codigo, gc_codigo, gc_id, nf_numero, nfe_chave, liquidado, pago_sistema")
+          .not("status", "eq", "cancelado").order("data_vencimento", { ascending: false })
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        rows.push(...(data || []));
+        if (!data || data.length < pageSize) break;
+      }
       const linked = linkedIds?.pag ?? new Set<string>();
-      return (data || []).filter((p: any) => !linked.has(String(p.id)));
+      return rows.filter((p: any) => !linked.has(String(p.id)));
     },
   });
 
@@ -293,16 +310,16 @@ export default function ExtratoBancoPage() {
       const [recResponses, pagResponses] = await Promise.all([
         Promise.all(splitIntoBatches(recIds).map(ids => supabase
           .from("fin_recebimentos")
-          .select("id, gc_baixado, gc_baixado_em")
+          .select("id, gc_baixado, gc_baixado_em, liquidado, status, data_liquidacao")
           .in("id", ids))),
         Promise.all(splitIntoBatches(pagIds).map(ids => supabase
           .from("fin_pagamentos")
-          .select("id, gc_baixado, gc_baixado_em")
+          .select("id, gc_baixado, gc_baixado_em, liquidado, status, data_liquidacao")
           .in("id", ids))),
       ]);
 
-      const recebimentosBaixa: Array<{ id: string; gc_baixado: boolean | null; gc_baixado_em: string | null }> = [];
-      const pagamentosBaixa: Array<{ id: string; gc_baixado: boolean | null; gc_baixado_em: string | null }> = [];
+      const recebimentosBaixa: Array<{ id: string; gc_baixado: boolean | null; gc_baixado_em: string | null; liquidado: boolean | null; status: string | null; data_liquidacao: string | null }> = [];
+      const pagamentosBaixa: Array<{ id: string; gc_baixado: boolean | null; gc_baixado_em: string | null; liquidado: boolean | null; status: string | null; data_liquidacao: string | null }> = [];
       for (const response of recResponses) {
         if (response.error) throw response.error;
         recebimentosBaixa.push(...(response.data || []).map(row => ({ ...row, id: String(row.id) })));
@@ -313,8 +330,8 @@ export default function ExtratoBancoPage() {
       }
 
       const baixaById: Record<string, { baixado: boolean; em: string | null }> = {};
-      for (const r of recebimentosBaixa) baixaById[`r:${r.id}`] = { baixado: !!r.gc_baixado, em: r.gc_baixado_em };
-      for (const p of pagamentosBaixa) baixaById[`p:${p.id}`] = { baixado: !!p.gc_baixado, em: p.gc_baixado_em };
+      for (const r of recebimentosBaixa) baixaById[`r:${r.id}`] = { baixado: isGcSettled(r), em: r.gc_baixado_em || r.data_liquidacao };
+      for (const p of pagamentosBaixa) baixaById[`p:${p.id}`] = { baixado: isGcSettled(p), em: p.gc_baixado_em || p.data_liquidacao };
 
       const linksByExtrato = new Map<string, typeof links>();
       for (const link of links) {
@@ -381,8 +398,8 @@ export default function ExtratoBancoPage() {
   const handleFetch = async () => {
     setFetching(true);
     try {
-      const txs = await buscarExtratoInter(format(dateFrom, "yyyy-MM-dd"), format(dateTo, "yyyy-MM-dd"));
-      toast.success(`${txs.length} transações processadas`);
+      const result = await buscarExtratoInter(format(dateFrom, "yyyy-MM-dd"), format(dateTo, "yyyy-MM-dd"));
+      toast.success(`${result.total} transações processadas${result.runs > 1 ? ` em ${result.runs} etapas` : ""}`);
       invalidateAll();
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao buscar extrato"); }
     finally { setFetching(false); }
@@ -536,19 +553,12 @@ export default function ExtratoBancoPage() {
     if (!selectedExtrato || !selectedLanc) return;
     setLinking(true);
     try {
-      const now = new Date().toISOString();
-      const table = selectedLanc._tipo === "receber" ? "fin_recebimentos" : "fin_pagamentos";
       const tabela = selectedLanc._tipo === "receber" ? "recebimentos" : "pagamentos";
-      // Guarda: nunca vincular financeiro cancelado
-      const { data: chk } = await supabase.from(table).select("status").eq("id", selectedLanc.id).maybeSingle();
-      if (chk?.status === "cancelado") {
-        toast.error("Este financeiro está cancelado no GC e não pode ser vinculado.");
-        setLinking(false);
-        return;
-      }
-      await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: selectedLanc.id, reconciliado_em: now, reconciliation_rule: "MANUAL" }).eq("id", selectedExtrato.id);
-      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now }).eq("id", selectedLanc.id);
-      await supabase.from("fin_extrato_lancamentos").upsert({ extrato_id: selectedExtrato.id, lancamento_id: selectedLanc.id, tabela, valor_alocado: Number(selectedLanc.valor), reconciliation_rule: "MANUAL" }, { onConflict: "extrato_id,lancamento_id,tabela" });
+      await reconcileExtratoAtomic(selectedExtrato.id, [{
+        lancamento_id: selectedLanc.id,
+        tabela,
+        valor_alocado: Math.abs(Number(selectedExtrato.valor)),
+      }], "MANUAL");
       await baixarLinksGCConfirmados([{ lancamento_id: selectedLanc.id, tabela }]);
       toast.success("Vinculado e confirmado no GC!");
       setShowConfirm(false); setSelectedExtrato(null); setSelectedLanc(null); setExpandedId(null);
@@ -608,19 +618,14 @@ export default function ExtratoBancoPage() {
   const handleAiVincular = async (candidato: any, extratoId: string) => {
     setAiVinculando(extratoId + candidato.lancamento_id);
     try {
-      const now = new Date().toISOString();
-      const table = candidato.lancamento_tipo === "recebimento" ? "fin_recebimentos" : "fin_pagamentos";
       const tabela = candidato.lancamento_tipo === "recebimento" ? "recebimentos" : "pagamentos";
-      // Guarda: nunca vincular financeiro cancelado
-      const { data: chk } = await supabase.from(table).select("status").eq("id", candidato.lancamento_id).maybeSingle();
-      if (chk?.status === "cancelado") {
-        toast.error("Este financeiro está cancelado no GC e não pode ser vinculado.");
-        setAiVinculando(null);
-        return;
-      }
-      await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: candidato.lancamento_id, reconciliado_em: now, reconciliation_rule: "AI_GPT5" }).eq("id", extratoId);
-      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now }).eq("id", candidato.lancamento_id);
-      await supabase.from("fin_extrato_lancamentos").upsert({ extrato_id: extratoId, lancamento_id: candidato.lancamento_id, tabela, valor_alocado: candidato.valor_lancamento, reconciliation_rule: "AI_GPT5" }, { onConflict: "extrato_id,lancamento_id,tabela" });
+      const targetExtrato = (extrato || []).find((item: any) => item.id === extratoId);
+      if (!targetExtrato) throw new Error("Extrato não encontrado na tela; atualize e tente novamente");
+      await reconcileExtratoAtomic(extratoId, [{
+        lancamento_id: candidato.lancamento_id,
+        tabela,
+        valor_alocado: Math.abs(Number(targetExtrato.valor)),
+      }], "AI_GPT5");
       await baixarLinksGCConfirmados([{ lancamento_id: candidato.lancamento_id, tabela }]);
       setAiVinculados(prev => new Set([...prev, extratoId]));
       toast.success("Vinculado via ARGUS!");
@@ -634,19 +639,14 @@ export default function ExtratoBancoPage() {
     const key = extratoId + sug.lancamento_id;
     setSugVinculando(key);
     try {
-      const now = new Date().toISOString();
-      const table = sug.lancamento_tipo === "recebimento" ? "fin_recebimentos" : "fin_pagamentos";
       const tabela = sug.lancamento_tipo === "recebimento" ? "recebimentos" : "pagamentos";
-      // Guarda: nunca vincular financeiro cancelado
-      const { data: chk } = await supabase.from(table).select("status").eq("id", sug.lancamento_id).maybeSingle();
-      if (chk?.status === "cancelado") {
-        toast.error("Este financeiro está cancelado no GC e não pode ser vinculado.");
-        setSugVinculando(null);
-        return;
-      }
-      await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: sug.lancamento_id, reconciliado_em: now, reconciliation_rule: "SUGESTAO_ACEITA" }).eq("id", extratoId);
-      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now }).eq("id", sug.lancamento_id);
-      await supabase.from("fin_extrato_lancamentos").upsert({ extrato_id: extratoId, lancamento_id: sug.lancamento_id, tabela, valor_alocado: sug.valor, reconciliation_rule: "SUGESTAO_ACEITA" }, { onConflict: "extrato_id,lancamento_id,tabela" });
+      const targetExtrato = (extrato || []).find((item: any) => item.id === extratoId);
+      if (!targetExtrato) throw new Error("Extrato não encontrado na tela; atualize e tente novamente");
+      await reconcileExtratoAtomic(extratoId, [{
+        lancamento_id: sug.lancamento_id,
+        tabela,
+        valor_alocado: Math.abs(Number(targetExtrato.valor)),
+      }], "SUGESTAO_ACEITA");
       await baixarLinksGCConfirmados([{ lancamento_id: sug.lancamento_id, tabela }]);
       setSugVinculados(prev => new Set([...prev, extratoId]));
       toast.success("Sugestão aceita e vinculada!");
@@ -695,16 +695,7 @@ export default function ExtratoBancoPage() {
     if (!confirm("Tem certeza que deseja desfazer esta conciliação? O extrato voltará para 'não conciliado'.")) return;
     setDesfazendo(true);
     try {
-      await supabase.from("fin_extrato_lancamentos").delete().eq("extrato_id", item.id);
-      for (const lanc of detailLancs) {
-        if (lanc._tabela === "fin_pagamentos") {
-          await supabase.from("fin_pagamentos").update({ pago_sistema: false, pago_sistema_em: null, status: "pendente" }).eq("id", lanc.id);
-        } else if (lanc._tabela === "fin_recebimentos") {
-          await supabase.from("fin_recebimentos").update({ pago_sistema: false, pago_sistema_em: null, status: "pendente" }).eq("id", lanc.id);
-        }
-      }
-      await supabase.from("fin_extrato_inter").update({ reconciliado: false, reconciliado_em: null, reconciliation_rule: null, lancamento_id: null }).eq("id", item.id);
-      await supabase.from("fin_sync_log").insert({ tipo: "conciliacao_desfeita", referencia_id: item.id, status: "success", payload: { extrato_id: item.id, lancamentos: detailLancs.map((l: any) => l.id) } });
+      await undoExtratoReconciliationAtomic(item.id);
       toast.success("Conciliação desfeita com sucesso");
       setDetailItem(null); setDetailLancs([]);
       invalidateAll();
@@ -794,8 +785,8 @@ export default function ExtratoBancoPage() {
                       setMesExtrato("custom");
                       setFetching(true);
                       try {
-                        const txs = await buscarExtratoInter(format(from, "yyyy-MM-dd"), format(now, "yyyy-MM-dd"));
-                        toast.success(`${txs.length} transações processadas (${d} dias)`);
+                        const result = await buscarExtratoInter(format(from, "yyyy-MM-dd"), format(now, "yyyy-MM-dd"));
+                        toast.success(`${result.total} transações processadas (${d} dias${result.runs > 1 ? `, ${result.runs} etapas` : ""})`);
                         invalidateAll();
                       } catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao buscar extrato"); }
                       finally { setFetching(false); }
@@ -1540,7 +1531,7 @@ export default function ExtratoBancoPage() {
                             {lanc.status || (lanc.liquidado ? "pago" : "pendente")}
                           </Badge>
                         } />
-                        <DetailRow label="Baixado GC" value={lanc.gc_baixado ? "✅ Sim" : "❌ Não"} />
+                        <DetailRow label="Baixado GC" value={isGcSettled(lanc) ? "✅ Sim" : "❌ Não"} />
                         {lanc.os_codigo && <DetailRow label="OS" value={lanc.os_codigo} />}
                       </div>
                     ))}

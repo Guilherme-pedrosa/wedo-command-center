@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { ptBR } from "date-fns/locale";
 import toast from "react-hot-toast";
 import { baixarLinksGCConfirmados, buscarExtratoInter, executarBaixaGCConciliados, syncByMonthChunks } from "@/api/financeiro";
+import { reconcileExtratoAtomic } from "@/lib/financial-reconciliation";
 
 const GC_BASE = "https://gestaoclick.com";
 
@@ -239,8 +240,8 @@ export default function ConciliacaoPage() {
     try {
       const from = format(dateFrom, "yyyy-MM-dd");
       const to = format(dateTo, "yyyy-MM-dd");
-      const txs = await buscarExtratoInter(from, to);
-      toast.success(`${txs.length} transações do Inter processadas`);
+      const result = await buscarExtratoInter(from, to);
+      toast.success(`${result.total} transações do Inter processadas${result.runs > 1 ? ` em ${result.runs} etapas` : ""}`);
       invalidateAll();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao buscar extrato Inter");
@@ -276,18 +277,13 @@ export default function ConciliacaoPage() {
     if (!selectedExtrato || !selectedLanc) return;
     setLinking(true);
     try {
-      await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: selectedLanc.id, reconciliado_em: new Date().toISOString(), reconciliation_rule: "MANUAL" }).eq("id", selectedExtrato.id);
-      const table = selectedLanc._tipo === "receber" ? "fin_recebimentos" : "fin_pagamentos";
       const tabela = selectedLanc._tipo === "receber" ? "recebimentos" : "pagamentos";
-      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: new Date().toISOString() }).eq("id", selectedLanc.id);
-      await supabase.from("fin_extrato_lancamentos").upsert({
-        extrato_id: selectedExtrato.id,
+      await reconcileExtratoAtomic(selectedExtrato.id, [{
         lancamento_id: selectedLanc.id,
         tabela,
         valor_alocado: Math.abs(Number(selectedExtrato.valor)),
-        reconciliation_rule: "MANUAL",
-      }, { onConflict: "extrato_id,lancamento_id,tabela" });
-      await baixarLinksGCConfirmados([{ lancamento_id: selectedLanc.id, tabela: table }]);
+      }], "MANUAL");
+      await baixarLinksGCConfirmados([{ lancamento_id: selectedLanc.id, tabela }]);
       toast.success("Vinculado e confirmado no GC");
       setSelectedExtrato(null); setSelectedLanc(null); setShowConfirm(false);
       invalidateAll();
@@ -408,6 +404,20 @@ export default function ConciliacaoPage() {
         onVincular={async (extratoId, lancamentoId, tipo) => {
           const now = new Date().toISOString();
           const rule = "AI_GEMINI_PRO";
+
+          if (tipo === "recebimento" || tipo === "pagamento") {
+            const targetExtrato = (extratoNR || []).find((item: any) => item.id === extratoId);
+            if (!targetExtrato) throw new Error("Extrato não encontrado na tela; atualize e tente novamente");
+            const tabela = tipo === "recebimento" ? "recebimentos" : "pagamentos";
+            await reconcileExtratoAtomic(extratoId, [{
+              lancamento_id: lancamentoId,
+              tabela,
+              valor_alocado: Math.abs(Number(targetExtrato.valor)),
+            }], rule);
+            await baixarLinksGCConfirmados([{ lancamento_id: lancamentoId, tabela }]);
+            invalidateAll();
+            return;
+          }
 
           // 1) Marca extrato como reconciliado
           const { error: e1 } = await supabase.from("fin_extrato_inter").update({

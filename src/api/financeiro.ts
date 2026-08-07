@@ -2067,30 +2067,60 @@ export async function verificarCobrancaPix(txid: string): Promise<{
 
 // ─── Inter: Extrato ─────────────────────────────────────────────────
 
+export interface InterExtratoImportResult {
+  total: number;
+  inserted: number;
+  skipped: number;
+  chunks: number;
+  runs: number;
+}
+
 export async function buscarExtratoInter(
   dataInicio: string,
   dataFim: string
-): Promise<any[]> {
-  const { data, error } = await supabase.functions.invoke("inter-extrato", {
-    body: { dataInicio, dataFim },
-  });
+): Promise<InterExtratoImportResult> {
+  let cursor = dataInicio;
+  let total = 0;
+  let inserted = 0;
+  let skipped = 0;
+  let chunks = 0;
+  let runs = 0;
 
-  if (error) {
-    const msg = error.message ?? "";
-    if (msg.includes("non-2xx") || msg.includes("429")) {
-      throw new Error("API do Inter com limite de taxa. Aguarde alguns minutos e tente novamente.");
+  while (cursor <= dataFim && runs < 24) {
+    const { data, error } = await supabase.functions.invoke("inter-extrato", {
+      body: { dataInicio: cursor, dataFim },
+    });
+
+    if (error) {
+      const msg = error.message ?? "";
+      if (msg.includes("non-2xx") || msg.includes("429")) {
+        throw new Error("API do Inter com limite de taxa. Aguarde alguns minutos e tente novamente.");
+      }
+      throw new Error(msg || "Erro ao buscar extrato");
     }
-    throw new Error(msg || "Erro ao buscar extrato");
+
+    const result = data as any;
+    if (!result?.success) throw new Error(result?.error ?? "Erro ao buscar extrato");
+
+    const current = result?.extrato ?? {};
+    total += Number(current.total ?? 0);
+    inserted += Number(current.inserted ?? 0);
+    skipped += Number(current.skipped ?? 0);
+    chunks += Number(current.chunks_processados ?? current.chunks ?? 0);
+    runs += 1;
+
+    if (!current.truncado) {
+      return { total, inserted, skipped, chunks, runs };
+    }
+
+    const nextCursor = String(current?.proximo_periodo?.dataInicio ?? "");
+    if (!nextCursor || nextCursor <= cursor || nextCursor > dataFim) {
+      throw new Error(`Importação parcial do Inter sem continuação válida após ${cursor}. Tente novamente a partir dessa data.`);
+    }
+    cursor = nextCursor;
   }
 
-  const result = data as any;
-  if (!result?.success) throw new Error(result?.error ?? "Erro ao buscar extrato");
-
-  const inserted = result?.extrato?.inserted ?? 0;
-  const total = result?.extrato?.total ?? 0;
-  const chunks = result?.extrato?.chunks ?? 1;
-  // Return array with meaningful length for toast
-  return new Array(total).fill({ inserted, chunks });
+  throw new Error(`Importação do Inter não terminou após ${runs} etapas. Continue a partir de ${cursor}.`);
 }
 
 // ─── Inter: Enviar Pagamento PIX ────────────────────────────────────

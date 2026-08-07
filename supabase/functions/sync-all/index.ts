@@ -1411,79 +1411,31 @@ serve(async (req) => {
       console.error(`[sync-all] pagamentos error: ${(err as Error).message}`);
     }
 
-    // ── Pipeline financeiro determinístico: extrato → conciliação → uma fila de baixa ──
+    // O pipeline financeiro roda em outra invocação para não somar o tempo da
+    // importação do Inter aos 6 módulos pesados deste sincronismo.
     try {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      console.log("[sync-all] Importando extrato Inter antes da conciliação...");
-      const interRes = await fetch(`${supabaseUrl}/functions/v1/inter-extrato`, {
+      const pipelineRes = await fetch(`${supabaseUrl}/functions/v1/financial-reconciliation-pipeline`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-        body: JSON.stringify({ dataInicio, dataFim }),
+        body: JSON.stringify({ dataInicio, dataFim, source: "sync-all" }),
       });
-      const interText = await interRes.text();
-      let interBody: any = null;
-      try { interBody = JSON.parse(interText); } catch { interBody = { raw: interText }; }
-      if (!interRes.ok || interBody?.success === false) {
-        throw new Error(`inter-extrato HTTP ${interRes.status}: ${interBody?.error ?? interText.substring(0, 500)}`);
+      const pipelineText = await pipelineRes.text();
+      let pipelineBody: any = null;
+      try { pipelineBody = JSON.parse(pipelineText); } catch { pipelineBody = { raw: pipelineText }; }
+      if (!pipelineRes.ok || pipelineBody?.success === false) {
+        throw new Error(`financial-reconciliation-pipeline HTTP ${pipelineRes.status}: ${pipelineBody?.error ?? pipelineText.substring(0, 500)}`);
       }
-      results.extrato_inter = {
-        status: "ok",
-        total: Number(interBody?.extrato?.total ?? 0),
-        inserted: Number(interBody?.extrato?.inserted ?? 0),
-      };
-
-      console.log("[sync-all] Executando reconciliation-engine após atualizar o extrato...");
-      const reconRes = await fetch(`${supabaseUrl}/functions/v1/reconciliation-engine`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-        body: JSON.stringify({
-          dateFrom: `${dataInicio}T00:00:00-03:00`,
-          dateTo: `${dataFim}T23:59:59-03:00`,
-          limit: 2000,
-        }),
-      });
-      const reconText = await reconRes.text();
-      let reconBody: any = null;
-      try { reconBody = JSON.parse(reconText); } catch { reconBody = { raw: reconText }; }
-      if (!reconRes.ok || reconBody?.success === false) {
-        throw new Error(`reconciliation-engine HTTP ${reconRes.status}: ${reconBody?.error ?? reconText.substring(0, 500)}`);
-      }
-      results.reconciliacao = { status: "ok", stats: reconBody?.stats ?? null };
-
-      const baixaRes = await fetch(`${supabaseUrl}/functions/v1/argus-baixa-confirmada`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-        body: JSON.stringify({
-          mode: "auto",
-          scope: "ambos",
-          dataInicio,
-          dataFim,
-          forceConfirmSituacao: true,
-          background: true,
-          parent_run_id: syncRunId,
-        }),
-      });
-      const baixaText = await baixaRes.text();
-      let baixaBody: any = null;
-      try { baixaBody = JSON.parse(baixaText); } catch { baixaBody = { raw: baixaText }; }
-      if (!baixaRes.ok || baixaBody?.ok === false) {
-        throw new Error(`argus-baixa-confirmada HTTP ${baixaRes.status}: ${baixaBody?.error ?? baixaText.substring(0, 500)}`);
-      }
-      results.baixa_gc_auto = {
-        status: baixaBody?.status === "running" ? "running" : "ok",
-        job_id: baixaBody?.job_id ?? null,
-        total: Number(baixaBody?.total ?? baixaBody?.processados ?? 0),
-        processados: Number(baixaBody?.processados ?? 0),
-        sucesso: Number(baixaBody?.sucesso ?? 0),
-        falha: Number(baixaBody?.falha ?? 0),
+      results.pipeline_financeiro = {
+        status: "dispatched",
+        job_id: pipelineBody?.job_id ?? null,
+        skipped: pipelineBody?.skipped === true,
       };
     } catch (reconErr) {
       const message = (reconErr as Error).message;
       console.error(`[sync-all] pipeline financeiro error: ${message}`);
-      if (!results.extrato_inter) results.extrato_inter = { status: "error", error: message };
-      else if (!results.reconciliacao) results.reconciliacao = { status: "error", error: message };
-      else results.baixa_gc_auto = { status: "error", error: message };
+      results.pipeline_financeiro = { status: "error", error: message };
     }
 
     // ── Log final ──

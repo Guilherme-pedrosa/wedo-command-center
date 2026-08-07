@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { subMonths, startOfMonth, endOfMonth, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import toast from "react-hot-toast";
+import { isGcSettled, undoExtratoReconciliationAtomic } from "@/lib/financial-reconciliation";
 
 const GC_BASE = "https://gestaoclick.com";
 const gcRecebimentoLink = (gcId: string) => `${GC_BASE}/movimentacoes_financeiras/visualizar_recebimento/${gcId}`;
@@ -207,9 +208,10 @@ export default function ConciliacaoHistoricoPage() {
   const handleVincularManual = async () => {
     if (!vinculandoItem) return;
     const updatePayload: Record<string, any> = {
-      reconciliado: true,
-      reconciliation_rule: "MANUAL_VINCULO",
-      reconciliado_em: new Date().toISOString(),
+      reconciliado: false,
+      reconciliation_rule: "SEM_PAR_GC",
+      reconciliado_em: null,
+      lancamento_id: null,
     };
     if (vinculoForm.descricao) updatePayload.descricao = vinculoForm.descricao;
 
@@ -219,7 +221,7 @@ export default function ConciliacaoHistoricoPage() {
       .eq("id", vinculandoItem.id);
 
     if (!error) {
-      toast.success("Vínculo registrado com sucesso");
+      toast.success("Lançamento classificado como sem par no GC");
       setShowVincularDialog(false);
       setVinculandoItem(null);
       queryClient.invalidateQueries({ queryKey: ["conciliacao-financeiro-nao-conciliado"] });
@@ -235,41 +237,7 @@ export default function ConciliacaoHistoricoPage() {
     if (!confirm("Tem certeza que deseja desfazer esta conciliação? O extrato voltará para 'não conciliado'.")) return;
     setDesfazendo(true);
     try {
-      // 1. Remover links N:N
-      await supabase.from("fin_extrato_lancamentos").delete().eq("extrato_id", item.id);
-
-      // 2. Reverter status dos lançamentos vinculados
-      for (const lanc of detailLancamentos) {
-        if (lanc._tabela === "fin_pagamentos") {
-          await supabase.from("fin_pagamentos").update({
-            pago_sistema: false,
-            pago_sistema_em: null,
-            status: "pendente",
-          }).eq("id", lanc.id);
-        } else if (lanc._tabela === "fin_recebimentos") {
-          await supabase.from("fin_recebimentos").update({
-            pago_sistema: false,
-            pago_sistema_em: null,
-            status: "pendente",
-          }).eq("id", lanc.id);
-        }
-      }
-
-      // 3. Reverter extrato
-      await supabase.from("fin_extrato_inter").update({
-        reconciliado: false,
-        reconciliado_em: null,
-        reconciliation_rule: null,
-        lancamento_id: null,
-      }).eq("id", item.id);
-
-      // 4. Log
-      await supabase.from("fin_sync_log").insert({
-        tipo: "conciliacao_desfeita",
-        referencia_id: item.id,
-        status: "success",
-        payload: { extrato_id: item.id, lancamentos: detailLancamentos.map((l: any) => l.id) },
-      });
+      await undoExtratoReconciliationAtomic(item.id);
 
       toast.success("Conciliação desfeita com sucesso");
       setDetail(null);
@@ -658,7 +626,7 @@ export default function ConciliacaoHistoricoPage() {
                       }}
                     >
                       <Link className="h-3 w-3" />
-                      Vincular
+                      Sem par GC
                     </Button>
                     <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openDetail(item)}>
                       <Eye className="h-3.5 w-3.5" />
@@ -785,7 +753,7 @@ export default function ConciliacaoHistoricoPage() {
                             {lanc.status || (lanc.liquidado ? "pago" : "pendente")}
                           </Badge>
                         } />
-                        <DetailRow label="Baixado GC" value={lanc.gc_baixado ? "✅ Sim" : "❌ Não"} />
+                  <DetailRow label="Baixado GC" value={isGcSettled(lanc) ? "✅ Sim" : "❌ Não"} />
                         {lanc.os_codigo && <DetailRow label="OS" value={lanc.os_codigo} />}
                       </div>
                     ))}
@@ -813,13 +781,13 @@ export default function ConciliacaoHistoricoPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Manual Linking Dialog */}
+      {/* Manual exception dialog */}
       <Dialog open={showVincularDialog} onOpenChange={(v) => { if (!v) { setShowVincularDialog(false); setVinculandoItem(null); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Vincular Lançamento Manualmente</DialogTitle>
+            <DialogTitle>Classificar como sem par no GC</DialogTitle>
             <DialogDescription>
-              Informe a referência financeira correta para este lançamento do extrato bancário.
+              Esta ação não cria uma conciliação financeira. Ela registra que o extrato não possui um título correspondente no GC.
             </DialogDescription>
           </DialogHeader>
           {vinculandoItem && (
@@ -841,36 +809,12 @@ export default function ConciliacaoHistoricoPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Código OS</Label>
-                    <Input
-                      value={vinculoForm.os_codigo}
-                      onChange={(e) => setVinculoForm(f => ({ ...f, os_codigo: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Código GC</Label>
-                    <Input
-                      value={vinculoForm.gc_codigo}
-                      onChange={(e) => setVinculoForm(f => ({ ...f, gc_codigo: e.target.value }))}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Número NF-e</Label>
-                  <Input
-                    value={vinculoForm.nfe_numero}
-                    onChange={(e) => setVinculoForm(f => ({ ...f, nfe_numero: e.target.value }))}
-                  />
-                </div>
               </div>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowVincularDialog(false)}>Cancelar</Button>
-            <Button onClick={handleVincularManual}>Confirmar Vínculo</Button>
+            <Button onClick={handleVincularManual}>Confirmar sem par GC</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
