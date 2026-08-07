@@ -77,6 +77,7 @@ interface BaixaResult {
   ok: boolean;
   erro?: string;
   gc_id?: string;
+  retryable?: boolean;
 }
 
 type BaixaScope = "pagamentos" | "recebimentos" | "ambos";
@@ -91,7 +92,7 @@ interface JobProgress {
   processados: number;
   sucesso: number;
   falha: number;
-  erros: Array<{ lancamento_id: string; tabela: string; gc_id?: string; erro: string }>;
+  erros: Array<{ lancamento_id: string; tabela: string; gc_id?: string; erro: string; retryable?: boolean }>;
   parentRunId?: string;
 }
 
@@ -134,6 +135,31 @@ async function buscarRegistroGC(
   } catch (error) {
     return { ok: false, erro: error instanceof Error ? error.message : String(error) };
   }
+}
+
+async function diagnosticarPagamentoOrfao(
+  payloadAtual: Record<string, unknown>,
+): Promise<string | null> {
+  const descricao = String(payloadAtual.descricao ?? "");
+  const compraMatch = descricao.match(/compra\s+de\s+n(?:[º°o.]*)\s*(\d+)/i);
+  if (!compraMatch) return null;
+
+  const compraCodigo = compraMatch[1];
+  try {
+    const res = await gcFetch(
+      `${GC_BASE_URL}/api/compras?codigo=${encodeURIComponent(compraCodigo)}`,
+      { headers: gcHeaders },
+    );
+    if (!res.ok) return null;
+    const body = await res.json().catch(() => null) as any;
+    const compras = Array.isArray(body?.data) ? body.data : [];
+    if (compras.length === 0) {
+      return `Pagamento órfão no GestãoClick: a compra nº ${compraCodigo} não existe mais; a API do GC impede a baixa deste título`;
+    }
+  } catch (error) {
+    console.warn("[diagnosticarPagamentoOrfao] Falha no diagnóstico:", error);
+  }
+  return null;
 }
 
 // Converte ISO UTC para data (yyyy-mm-dd) no fuso de Brasília (UTC-3).
@@ -194,7 +220,7 @@ async function baixarNoGC(
   payloadRaw: Record<string, unknown>,
   dataLiquidacao: string,
   extratos: ExtratoInfo[]
-): Promise<{ ok: boolean; erro?: string; dataLiquidacaoConfirmada?: string; jaLiquidado?: boolean }> {
+): Promise<{ ok: boolean; erro?: string; dataLiquidacaoConfirmada?: string; jaLiquidado?: boolean; retryable?: boolean }> {
   // No financeiro do GC, a situação "Confirmado" é derivada de liquidado="1".
   // Não envie id_situacao: esse campo é rejeitado pelo PUT de pagamentos/recebimentos.
   // O endpoint financeiro não aceita o campo observacao; a rastreabilidade fica no banco.
@@ -274,7 +300,16 @@ async function baixarNoGC(
     const embeddedMsg = body?.data?.mensagem || body?.message;
 
     if (res.status >= 400 || (embeddedCode && Number(embeddedCode) >= 400) || embeddedStatus === "error") {
-      return { ok: false, erro: embeddedMsg || `HTTP ${res.status}: ${text.substring(0, 200)}` };
+      let erro = embeddedMsg || `HTTP ${res.status}: ${text.substring(0, 200)}`;
+      let retryable = true;
+      if (endpoint === "pagamentos" && /erro ao salvar dados/i.test(erro)) {
+        const diagnostico = await diagnosticarPagamentoOrfao(payloadAtual);
+        if (diagnostico) {
+          erro = diagnostico;
+          retryable = false;
+        }
+      }
+      return { ok: false, erro, retryable };
     }
 
     // O GC pode responder HTTP 200 mesmo sem persistir a baixa. Reconsulta e só
@@ -415,11 +450,17 @@ async function processarLink(link: LinkInput, options: BaixaOptions = {}): Promi
     await supabase.from("fin_sync_log").insert({
       tipo: "argus_baixa_confirmada",
       referencia_id: lanc.gc_id,
-      status: "error",
+      status: result.retryable === false ? "blocked" : "error",
       erro: result.erro,
-      payload: { tabela, lancamento_id: link.lancamento_id, data_liquidacao: dataLiq },
+      payload: {
+        tabela,
+        lancamento_id: link.lancamento_id,
+        data_liquidacao: dataLiq,
+        retryable: result.retryable !== false,
+        error_class: result.retryable === false ? "external_data_integrity" : "gc_write_error",
+      },
     });
-    return { ...link, ok: false, erro: result.erro, gc_id: lanc.gc_id };
+    return { ...link, ok: false, erro: result.erro, gc_id: lanc.gc_id, retryable: result.retryable !== false };
   }
 
   const dataLiquidacaoConfirmada = result.dataLiquidacaoConfirmada ?? dataLiq;
@@ -464,6 +505,16 @@ async function processarLink(link: LinkInput, options: BaixaOptions = {}): Promi
   return { ...link, ok: true, gc_id: lanc.gc_id };
 }
 
+function brDateStartUtc(date: string): string {
+  return `${date}T03:00:00+00:00`;
+}
+
+function brDateEndExclusiveUtc(date: string): string {
+  const day = new Date(`${date}T00:00:00.000Z`);
+  day.setUTCDate(day.getUTCDate() + 1);
+  return `${day.toISOString().substring(0, 10)}T03:00:00+00:00`;
+}
+
 async function buscarPendentes(dataInicio?: string, dataFim?: string, scope: BaixaScope = "ambos", options: BaixaOptions = {}): Promise<LinkInput[]> {
   // Busca a partir dos lançamentos confirmados localmente. Antes a varredura partia do extrato,
   // o que deixava títulos pago_sistema=true fora da baixa quando a consulta de extratos não os alcançava.
@@ -506,8 +557,8 @@ async function buscarPendentes(dataInicio?: string, dataFim?: string, scope: Bai
         .select("id, data_hora")
         .in("id", extratoIds.slice(i, i + 100))
         .eq("reconciliado", true)
-        .gte("data_hora", `${inicio}T00:00:00+00:00`);
-      if (dataFim) q = q.lte("data_hora", `${dataFim}T23:59:59+00:00`);
+        .gte("data_hora", brDateStartUtc(inicio));
+      if (dataFim) q = q.lt("data_hora", brDateEndExclusiveUtc(dataFim));
       const { data: extratos, error: extratosErr } = await q;
       if (extratosErr) {
         console.warn(`[buscarPendentes] Falha ao buscar extratos ${table}:`, extratosErr.message);
@@ -768,6 +819,7 @@ Deno.serve(async (req) => {
               tabela: x.tabela,
               gc_id: x.gc_id,
               erro: x.erro ?? "Falha sem detalhe",
+              retryable: x.retryable,
             })),
           ].slice(-50);
           console.log(`[argus-baixa-confirmada/bg] lote concluído: ${ok}/${r.length}; restantes=${restantes.length}`);
