@@ -260,7 +260,10 @@ export default function ConciliacaoPage() {
       if (result.baixaGC && !result.baixaGC.ok) {
         toast.error(`GC sincronizado, mas ${result.baixaGC.falha} baixa(s) não foram confirmadas.`);
       } else {
-        toast.success(`GC sincronizado: ${result.importados} financeiros, ${result.conciliacao?.conciliados ?? 0} conciliados e ${result.baixaGC?.sucesso ?? 0} confirmados.`);
+        const confirmacao = result.baixaGC?.processados
+          ? `${result.baixaGC.processados} confirmações enviadas ao GC`
+          : `${result.baixaGC?.sucesso ?? 0} confirmados`;
+        toast.success(`GC sincronizado: ${result.importados} financeiros, ${result.conciliacao?.conciliados ?? 0} conciliados e ${confirmacao}.`);
       }
       invalidateAll();
     } catch (err) {

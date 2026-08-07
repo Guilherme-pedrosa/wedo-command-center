@@ -524,13 +524,35 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Modo auto com muitos alvos: roda em background pra não estourar 150s idle timeout
-    if (mode === "auto" && background) {
+    // Processa em lotes encadeados para cada execução ficar abaixo do timeout do runtime.
+    // O próximo lote recebe IDs explícitos, portanto não repete falhas do lote anterior.
+    if (background) {
+      const BATCH_SIZE = 50;
+      const lote = alvos.slice(0, BATCH_SIZE);
+      const restantes = alvos.slice(BATCH_SIZE);
       const task = (async () => {
         try {
-          const r = await runBaixaBatch(alvos, options);
+          const r = await runBaixaBatch(lote, options);
           const ok = r.filter((x) => x.ok).length;
-          console.log(`[argus-baixa-confirmada/bg] concluído: ${ok}/${r.length}`);
+          console.log(`[argus-baixa-confirmada/bg] lote concluído: ${ok}/${r.length}; restantes=${restantes.length}`);
+          if (restantes.length > 0) {
+            const nextResponse = await fetch(`${SUPABASE_URL}/functions/v1/argus-baixa-confirmada`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+              },
+              body: JSON.stringify({
+                mode: "links",
+                links: restantes,
+                forceConfirmSituacao: options.forceConfirmSituacao === true,
+                background: true,
+              }),
+            });
+            if (!nextResponse.ok) {
+              console.error(`[argus-baixa-confirmada/bg] falha ao encadear lote: HTTP ${nextResponse.status}`);
+            }
+          }
         } catch (e) {
           console.error("[argus-baixa-confirmada/bg] erro:", e);
         }
@@ -541,7 +563,7 @@ Deno.serve(async (req) => {
         EdgeRuntime.waitUntil(task);
       }
       return new Response(
-        JSON.stringify({ ok: true, dispatched: alvos.length, background: true }),
+        JSON.stringify({ ok: true, dispatched: alvos.length, lote: lote.length, background: true }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

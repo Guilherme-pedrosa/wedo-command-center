@@ -1050,7 +1050,7 @@ export async function syncByMonthChunks(
         dataInicio: filtros.dataInicio,
         dataFim: filtros.dataFim,
         forceConfirmSituacao: true,
-        background: false,
+        background: true,
       },
     });
 
@@ -1066,7 +1066,7 @@ export async function syncByMonthChunks(
       totals.erros += 1;
       console.warn("[syncByMonthChunks] argus-baixa-confirmada falhou:", error.message);
     } else {
-      const processados = Number(data?.processados ?? 0);
+      const processados = Number(data?.processados ?? data?.dispatched ?? 0);
       const sucesso = Number(data?.sucesso ?? 0);
       const falha = Number(data?.falha ?? 0);
       const errorMessage = data?.error ? String(data.error) : undefined;
