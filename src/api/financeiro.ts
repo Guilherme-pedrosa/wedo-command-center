@@ -1016,16 +1016,22 @@ export async function syncByMonthChunks(
     onStep?.("Conciliando extratos com lançamentos...");
     const { data: recData, error: recError } = await supabase.functions.invoke(
       "reconciliation-engine",
-      { body: {} }
+      {
+        body: {
+          dateFrom: `${filtros.dataInicio}T00:00:00-03:00`,
+          dateTo: `${filtros.dataFim}T23:59:59-03:00`,
+          limit: 2000,
+        },
+      }
     );
     if (recError) {
       totals.conciliacao = { ok: false, conciliados: 0, revisar: 0, error: recError.message };
       console.warn("[syncByMonthChunks] reconciliation-engine falhou:", recError.message);
     } else {
       const conciliados = Number(
-        recData?.conciliados ?? recData?.matched ?? recData?.reconciled ?? 0
+        recData?.stats?.auto ?? recData?.conciliados ?? recData?.matched ?? recData?.reconciled ?? 0
       );
-      const revisar = Number(recData?.revisar ?? recData?.review ?? recData?.pending ?? 0);
+      const revisar = Number(recData?.stats?.review ?? recData?.revisar ?? recData?.review?.length ?? recData?.pending ?? 0);
       totals.conciliacao = { ok: true, conciliados, revisar };
       console.log("[syncByMonthChunks] reconciliation-engine:", recData);
     }
@@ -1038,7 +1044,14 @@ export async function syncByMonthChunks(
   try {
     onStep?.("Baixando conciliados no GC...");
     const { data, error } = await supabase.functions.invoke("argus-baixa-confirmada", {
-      body: { mode: "auto", scope },
+      body: {
+        mode: "auto",
+        scope,
+        dataInicio: filtros.dataInicio,
+        dataFim: filtros.dataFim,
+        forceConfirmSituacao: true,
+        background: false,
+      },
     });
 
 
