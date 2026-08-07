@@ -150,7 +150,8 @@ async function baixarNoGC(
     const getRes = await fetch(`${GC_BASE_URL}/api/${endpoint}/${gcId}`, { headers: gcHeaders });
     if (getRes.ok) {
       const getBody = await getRes.json();
-      const fresh = getBody?.data ?? getBody;
+      // O GC responde tanto { data: registro } quanto { data: { data: registro } }.
+      const fresh = getBody?.data?.data ?? getBody?.data ?? getBody;
       if (fresh && typeof fresh === "object" && !Array.isArray(fresh)) payloadAtual = fresh;
     }
   } catch (error) {
