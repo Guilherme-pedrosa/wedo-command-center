@@ -534,13 +534,28 @@ serve(async (req) => {
     }
 
     const duracao = Date.now() - startMs;
+    const extrato = {
+      total: totalTx,
+      inserted: totalInserted,
+      skipped: totalSkipped,
+      errors: totalErrors,
+      duracao_ms: duracao,
+      endpoint: endpointUsado,
+      chunks: chunks.length,
+      chunks_processados: chunksProcessados,
+      truncado,
+      ...(truncado
+        ? { proximo_periodo: { dataInicio: chunks[chunksProcessados]?.start ?? dataFim, dataFim } }
+        : {}),
+    };
+
     try {
       await supabase.from("fin_sync_log").insert({
         tipo: "inter_extrato_sync",
-        status: totalErrors > 0 ? "partial" : "success",
+        status: totalErrors > 0 || truncado ? "partial" : "success",
         duracao_ms: duracao,
-        payload: { dataInicio, dataFim, chunks: chunks.length, endpoint: endpointUsado, rich: endpointRich },
-        resposta: { total: totalTx, inserted: totalInserted, skipped: totalSkipped, errors: totalErrors, error_samples: errorSamples },
+        payload: { dataInicio, dataFim, chunks: chunks.length, endpoint: endpointUsado, rich: endpointRich, truncado },
+        resposta: { ...extrato, error_samples: errorSamples },
       });
     } catch { /* não bloquear */ }
 
@@ -549,7 +564,7 @@ serve(async (req) => {
         JSON.stringify({
           success: false,
           error: `Falha ao importar ${totalErrors} transação(ões) do Banco Inter`,
-          extrato: { total: totalTx, inserted: totalInserted, skipped: totalSkipped, errors: totalErrors, duracao_ms: duracao, endpoint: endpointUsado, chunks: chunks.length },
+          extrato,
           error_samples: errorSamples,
         }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -559,13 +574,17 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        extrato: { total: totalTx, inserted: totalInserted, skipped: totalSkipped, errors: totalErrors, duracao_ms: duracao, endpoint: endpointUsado, chunks: chunks.length },
+        ...(truncado
+          ? { aviso: "Período longo interrompido antes do limite de tempo. Rode novamente a partir de proximo_periodo." }
+          : {}),
+        extrato,
         // The orchestrator runs reconciliation after refreshing GC titles.
         // Running it here used stale data and caused a duplicate pass.
         reconciliacao: { skipped: true, reason: "executada pelo orquestrador após sincronizar títulos GC" },
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
+
 
   } catch (err) {
     const msg = (err as Error).message;
