@@ -896,6 +896,7 @@ serve(async (req) => {
   }
 
   const startTime = Date.now();
+  const syncRunId = crypto.randomUUID();
   const results: Record<string, any> = {};
 
   try {
@@ -941,7 +942,7 @@ serve(async (req) => {
         .from("fin_sync_log")
         .select("created_at")
         .eq("tipo", "sync-all")
-        .eq("status", "success")
+        .in("status", ["success", "running"])
         .order("created_at", { ascending: false })
         .limit(1)
         .single();
@@ -1410,75 +1411,95 @@ serve(async (req) => {
       console.error(`[sync-all] pagamentos error: ${(err as Error).message}`);
     }
 
-    // ── Disparar reconciliation-engine + argus-baixa-confirmada (fire-and-forget) ──
-    // Fluxo:
-    //   1. reconciliation-engine: casa extratos Inter ↔ fin_pagamentos/recebimentos por nome+data+valor
-    //      (regras 0-6, exige identidade forte — CNPJ/PIX/nome ≥80% — em janelas ±7/±30d, valor exato).
-    //      Insere vínculos em fin_extrato_lancamentos.
-    //   2. Trigger fn_trigger_argus_baixa_confirmada dispara baixa no GC para cada link novo.
-    //   3. argus-baixa-confirmada modo "auto": rede de segurança que varre TODOS os vínculos
-    //      já existentes em fin_extrato_lancamentos cujo lançamento GC ainda não foi baixado
-    //      (gc_baixado false/null) e baixa de uma vez. Garante consistência mesmo se o
-    //      trigger pg_net tiver falhado em algum INSERT anterior.
+    // ── Pipeline financeiro determinístico: extrato → conciliação → uma fila de baixa ──
     try {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      console.log("[sync-all] Disparando reconciliation-engine + baixa GC pós-sync (background)...");
-      const reconBaixaTask = (async () => {
-        try {
-          const reconRes = await fetch(`${supabaseUrl}/functions/v1/reconciliation-engine`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-            body: JSON.stringify({
-              dateFrom: `${dataInicio}T00:00:00-03:00`,
-              dateTo: `${dataFim}T23:59:59-03:00`,
-              limit: 2000,
-            }),
-          });
-          const reconText = await reconRes.text();
-          if (!reconRes.ok) console.error(`[sync-all] reconciliation-engine HTTP ${reconRes.status}: ${reconText.substring(0, 700)}`);
-
-          const baixaRes = await fetch(`${supabaseUrl}/functions/v1/argus-baixa-confirmada`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-            body: JSON.stringify({
-              mode: "auto",
-              scope: "ambos",
-              dataInicio,
-              dataFim,
-              forceConfirmSituacao: true,
-            }),
-          });
-          const baixaText = await baixaRes.text();
-          if (!baixaRes.ok) console.error(`[sync-all] argus-baixa-confirmada HTTP ${baixaRes.status}: ${baixaText.substring(0, 700)}`);
-        } catch (e) {
-          console.error(`[sync-all] reconciliation/baixa background error: ${(e as Error).message}`);
-        }
-      })();
-
-      // Mantém a cadeia viva no runtime depois da resposta do sync-all.
-      // @ts-ignore EdgeRuntime existe no runtime da Supabase
-      if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") {
-        // @ts-ignore
-        EdgeRuntime.waitUntil(reconBaixaTask);
+      console.log("[sync-all] Importando extrato Inter antes da conciliação...");
+      const interRes = await fetch(`${supabaseUrl}/functions/v1/inter-extrato`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify({ dataInicio, dataFim }),
+      });
+      const interText = await interRes.text();
+      let interBody: any = null;
+      try { interBody = JSON.parse(interText); } catch { interBody = { raw: interText }; }
+      if (!interRes.ok || interBody?.success === false) {
+        throw new Error(`inter-extrato HTTP ${interRes.status}: ${interBody?.error ?? interText.substring(0, 500)}`);
       }
+      results.extrato_inter = {
+        status: "ok",
+        total: Number(interBody?.extrato?.total ?? 0),
+        inserted: Number(interBody?.extrato?.inserted ?? 0),
+      };
+
+      console.log("[sync-all] Executando reconciliation-engine após atualizar o extrato...");
+      const reconRes = await fetch(`${supabaseUrl}/functions/v1/reconciliation-engine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify({
+          dateFrom: `${dataInicio}T00:00:00-03:00`,
+          dateTo: `${dataFim}T23:59:59-03:00`,
+          limit: 2000,
+        }),
+      });
+      const reconText = await reconRes.text();
+      let reconBody: any = null;
+      try { reconBody = JSON.parse(reconText); } catch { reconBody = { raw: reconText }; }
+      if (!reconRes.ok || reconBody?.success === false) {
+        throw new Error(`reconciliation-engine HTTP ${reconRes.status}: ${reconBody?.error ?? reconText.substring(0, 500)}`);
+      }
+      results.reconciliacao = { status: "ok", stats: reconBody?.stats ?? null };
+
+      const baixaRes = await fetch(`${supabaseUrl}/functions/v1/argus-baixa-confirmada`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify({
+          mode: "auto",
+          scope: "ambos",
+          dataInicio,
+          dataFim,
+          forceConfirmSituacao: true,
+          background: true,
+          parent_run_id: syncRunId,
+        }),
+      });
+      const baixaText = await baixaRes.text();
+      let baixaBody: any = null;
+      try { baixaBody = JSON.parse(baixaText); } catch { baixaBody = { raw: baixaText }; }
+      if (!baixaRes.ok || baixaBody?.ok === false) {
+        throw new Error(`argus-baixa-confirmada HTTP ${baixaRes.status}: ${baixaBody?.error ?? baixaText.substring(0, 500)}`);
+      }
+      results.baixa_gc_auto = {
+        status: baixaBody?.status === "running" ? "running" : "ok",
+        job_id: baixaBody?.job_id ?? null,
+        total: Number(baixaBody?.total ?? baixaBody?.processados ?? 0),
+        processados: Number(baixaBody?.processados ?? 0),
+        sucesso: Number(baixaBody?.sucesso ?? 0),
+        falha: Number(baixaBody?.falha ?? 0),
+      };
     } catch (reconErr) {
-      console.error(`[sync-all] reconciliation/baixa dispatch error: ${(reconErr as Error).message}`);
+      const message = (reconErr as Error).message;
+      console.error(`[sync-all] pipeline financeiro error: ${message}`);
+      if (!results.extrato_inter) results.extrato_inter = { status: "error", error: message };
+      else if (!results.reconciliacao) results.reconciliacao = { status: "error", error: message };
+      else results.baixa_gc_auto = { status: "error", error: message };
     }
-    (results as any).reconciliacao = { status: "dispatched_background" };
-    (results as any).baixa_gc_auto = { status: "dispatched_background_force_confirm" };
 
     // ── Log final ──
     const totalDuration = Date.now() - startTime;
     const issueEntries = Object.entries(results).filter(([, result]: any) => result?.status === "error" || result?.status === "partial");
     const hasIssues = issueEntries.length > 0;
+    const hasPending = Object.values(results).some((result: any) => result?.status === "running");
     const issueSummary = issueEntries
       .map(([moduleName, result]: any) => `${moduleName}: ${result?.error ?? result?.error_messages?.[0] ?? result?.status}`)
       .join(" | ");
 
+    const syncStatus = hasIssues ? "partial" : hasPending ? "running" : "success";
     await supabase.from("fin_sync_log").insert({
+      id: syncRunId,
       tipo: "sync-all",
-      status: hasIssues ? "partial" : "success",
+      status: syncStatus,
       erro: hasIssues ? issueSummary : null,
       resposta: results,
       payload: results,
@@ -1487,7 +1508,7 @@ serve(async (req) => {
 
     console.log(`[sync-all] ✅ Complete in ${totalDuration}ms — 6 modules + reconciliação`);
 
-    return new Response(JSON.stringify({ success: true, results, duration_ms: totalDuration }), {
+    return new Response(JSON.stringify({ success: !hasIssues, status: syncStatus, run_id: syncRunId, results, duration_ms: totalDuration }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

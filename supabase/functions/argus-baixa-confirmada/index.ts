@@ -1,6 +1,6 @@
 // Edge Function: argus-baixa-confirmada
 // Baixa no GC pagamentos/recebimentos já conciliados pelo Argus (vínculos em fin_extrato_lancamentos)
-// usando id_situacao = 949476 (Confirmado Argus).
+// e confirma a baixa no GestãoClick antes de alterar o estado local.
 // Regras:
 //   - Só processa vínculos cuja data do extrato seja >= 2026-04-01
 //   - data_liquidacao no GC = data do extrato (yyyy-mm-dd)
@@ -14,7 +14,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const SITUACAO_CONFIRMADO_ARGUS = "949476";
 const CUTOFF_DATE = "2026-04-01"; // ponto de corte: só baixa vínculos a partir desta data
 const GC_API_USER_ID = "1320473"; // usuário API GC — atribui operações automáticas a ele, não ao humano logado
 
@@ -86,6 +85,16 @@ interface BaixaOptions {
   forceConfirmSituacao?: boolean;
 }
 
+interface JobProgress {
+  jobId: string;
+  total: number;
+  processados: number;
+  sucesso: number;
+  falha: number;
+  erros: Array<{ lancamento_id: string; tabela: string; gc_id?: string; erro: string }>;
+  parentRunId?: string;
+}
+
 function normalizeTabela(t: string): "fin_pagamentos" | "fin_recebimentos" | null {
   const clean = (t || "").replace(/^fin_/, "");
   if (clean === "pagamentos") return "fin_pagamentos";
@@ -95,6 +104,36 @@ function normalizeTabela(t: string): "fin_pagamentos" | "fin_recebimentos" | nul
 
 function normalizeScope(value: unknown): BaixaScope {
   return value === "pagamentos" || value === "recebimentos" || value === "ambos" ? value : "ambos";
+}
+
+function unwrapGcRecord(body: any, endpoint: "recebimentos" | "pagamentos"): Record<string, unknown> | null {
+  const entityKey = endpoint === "pagamentos" ? "Pagamento" : "Recebimento";
+  const candidates = [body?.data?.data, body?.data, body];
+
+  for (const candidate of candidates) {
+    const first = Array.isArray(candidate) ? candidate[0] : candidate;
+    const record = first?.[entityKey] ?? first?.[entityKey.toLowerCase()] ?? first;
+    if (record && typeof record === "object" && !Array.isArray(record)) return record;
+  }
+  return null;
+}
+
+async function buscarRegistroGC(
+  endpoint: "recebimentos" | "pagamentos",
+  gcId: string,
+): Promise<{ ok: boolean; registro?: Record<string, unknown>; erro?: string }> {
+  try {
+    const res = await gcFetch(`${GC_BASE_URL}/api/${endpoint}/${gcId}`, { headers: gcHeaders });
+    const text = await res.text();
+    let body: any = null;
+    try { body = JSON.parse(text); } catch { /* resposta não JSON */ }
+    if (!res.ok) return { ok: false, erro: `GET HTTP ${res.status}: ${text.substring(0, 200)}` };
+    const registro = unwrapGcRecord(body, endpoint);
+    if (!registro) return { ok: false, erro: "GET do GC não retornou um financeiro válido" };
+    return { ok: true, registro };
+  } catch (error) {
+    return { ok: false, erro: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 // Converte ISO UTC para data (yyyy-mm-dd) no fuso de Brasília (UTC-3).
@@ -155,30 +194,31 @@ async function baixarNoGC(
   payloadRaw: Record<string, unknown>,
   dataLiquidacao: string,
   extratos: ExtratoInfo[]
-): Promise<{ ok: boolean; erro?: string }> {
+): Promise<{ ok: boolean; erro?: string; dataLiquidacaoConfirmada?: string; jaLiquidado?: boolean }> {
   // No financeiro do GC, a situação "Confirmado" é derivada de liquidado="1".
   // Não envie id_situacao: esse campo é rejeitado pelo PUT de pagamentos/recebimentos.
   // O endpoint financeiro não aceita o campo observacao; a rastreabilidade fica no banco.
   // Recarrega o financeiro antes do PUT. O payload salvo localmente é um snapshot e pode
   // estar defasado; o GC rejeita a gravação quando campos obrigatórios ou vínculos mudaram.
-  let payloadAtual = payloadRaw;
-  try {
-    const getRes = await gcFetch(`${GC_BASE_URL}/api/${endpoint}/${gcId}`, { headers: gcHeaders });
-    if (getRes.ok) {
-      const getBody = await getRes.json();
-      // O GC responde tanto { data: registro } quanto { data: { data: registro } }.
-      const fresh = getBody?.data?.data ?? getBody?.data ?? getBody;
-      if (fresh && typeof fresh === "object" && !Array.isArray(fresh)) payloadAtual = fresh;
-    }
-  } catch (error) {
-    console.warn(`[baixarNoGC] GET ${endpoint}/${gcId} falhou; usando snapshot local:`, error);
+  const freshResult = await buscarRegistroGC(endpoint, gcId);
+  if (!freshResult.ok || !freshResult.registro) {
+    return { ok: false, erro: `Não foi possível validar o financeiro no GC: ${freshResult.erro ?? "resposta inválida"}` };
+  }
+  const payloadAtual = freshResult.registro ?? payloadRaw;
+  const liquidadoAntes = [
+    payloadAtual.liquidado,
+    payloadAtual.status,
+    payloadAtual.situacao,
+    payloadAtual.nome_situacao,
+  ].some(isLiquidadoGC);
+  if (liquidadoAntes) {
+    const dataConfirmada = String(payloadAtual.data_liquidacao ?? "").substring(0, 10) || dataLiquidacao;
+    return { ok: true, dataLiquidacaoConfirmada: dataConfirmada, jaLiquidado: true };
   }
 
-  const obsArgus = montarObservacaoArgus(extratos, dataLiquidacao);
-  const obsOriginal = (payloadAtual.observacao as string | undefined)?.trim() || "";
-  const obsFinal = obsOriginal && !obsOriginal.includes("[Argus]")
-    ? `${obsOriginal}\n\n${obsArgus}`
-    : obsArgus;
+  // Mantém a montagem do contexto para os logs locais. O endpoint financeiro do GC
+  // não aceita observação no PUT.
+  montarObservacaoArgus(extratos, dataLiquidacao);
 
   const payload: Record<string, unknown> = {
     descricao: payloadAtual.descricao ?? "",
@@ -205,13 +245,18 @@ async function baixarNoGC(
     "juros",
     "multa",
     "desconto",
-    "taxa",
+    "taxa_banco",
+    "taxa_operadora",
+    "funcionario_id",
+    "transportadora_id",
     "rateios",
     "atributos",
   ] as const;
   for (const campo of camposFinanceirosOpcionais) {
     const valor = payloadAtual[campo];
-    if (valor !== undefined && valor !== null && valor !== "") payload[campo] = valor;
+    if (valor === undefined || valor === null || valor === "") continue;
+    if (Array.isArray(valor) && valor.length === 0) continue;
+    payload[campo] = valor;
   }
 
   try {
@@ -228,10 +273,35 @@ async function baixarNoGC(
     const embeddedStatus = body?.status;
     const embeddedMsg = body?.data?.mensagem || body?.message;
 
-    if (res.status >= 400 || (embeddedCode && embeddedCode >= 400) || embeddedStatus === "error") {
+    if (res.status >= 400 || (embeddedCode && Number(embeddedCode) >= 400) || embeddedStatus === "error") {
       return { ok: false, erro: embeddedMsg || `HTTP ${res.status}: ${text.substring(0, 200)}` };
     }
-    return { ok: true };
+
+    // O GC pode responder HTTP 200 mesmo sem persistir a baixa. Reconsulta e só
+    // confirma o sucesso quando o próprio GC devolver o título liquidado.
+    const confirmacao = await buscarRegistroGC(endpoint, gcId);
+    if (!confirmacao.ok || !confirmacao.registro) {
+      return { ok: false, erro: `PUT aceito, mas a confirmação no GC falhou: ${confirmacao.erro ?? "resposta inválida"}` };
+    }
+    const registroConfirmado = confirmacao.registro;
+    const liquidadoDepois = [
+      registroConfirmado.liquidado,
+      registroConfirmado.status,
+      registroConfirmado.situacao,
+      registroConfirmado.nome_situacao,
+    ].some(isLiquidadoGC);
+    if (!liquidadoDepois) {
+      return { ok: false, erro: "O GC respondeu ao PUT, mas o título continuou em aberto" };
+    }
+
+    const dataConfirmada = String(registroConfirmado.data_liquidacao ?? "").substring(0, 10);
+    if (dataConfirmada && dataConfirmada !== dataLiquidacao) {
+      return {
+        ok: false,
+        erro: `GC liquidou com data ${dataConfirmada}, diferente do extrato ${dataLiquidacao}`,
+      };
+    }
+    return { ok: true, dataLiquidacaoConfirmada: dataConfirmada || dataLiquidacao };
   } catch (err) {
     return { ok: false, erro: err instanceof Error ? err.message : String(err) };
   }
@@ -352,23 +422,43 @@ async function processarLink(link: LinkInput, options: BaixaOptions = {}): Promi
     return { ...link, ok: false, erro: result.erro, gc_id: lanc.gc_id };
   }
 
-  // Atualizar tabela local
-  await supabase
+  const dataLiquidacaoConfirmada = result.dataLiquidacaoConfirmada ?? dataLiq;
+
+  // Atualizar o banco local somente depois da confirmação do próprio GC.
+  const { error: updateError } = await supabase
     .from(tabela)
     .update({
       liquidado: true,
       gc_baixado: true,
       gc_baixado_em: new Date().toISOString(),
-      data_liquidacao: dataLiq,
+      data_liquidacao: dataLiquidacaoConfirmada,
       status: "pago",
     })
     .eq("id", link.lancamento_id);
+
+  if (updateError) {
+    const erro = `GC confirmou a baixa, mas o banco local não atualizou: ${updateError.message}`;
+    await supabase.from("fin_sync_log").insert({
+      tipo: "argus_baixa_confirmada",
+      referencia_id: lanc.gc_id,
+      status: "error",
+      erro,
+      payload: { tabela, lancamento_id: link.lancamento_id, data_liquidacao: dataLiquidacaoConfirmada },
+    });
+    return { ...link, ok: false, erro, gc_id: lanc.gc_id };
+  }
 
   await supabase.from("fin_sync_log").insert({
     tipo: "argus_baixa_confirmada",
     referencia_id: lanc.gc_id,
     status: "success",
-    payload: { tabela, lancamento_id: link.lancamento_id, data_liquidacao: dataLiq },
+    payload: {
+      tabela,
+      lancamento_id: link.lancamento_id,
+      data_liquidacao: dataLiquidacaoConfirmada,
+      ja_liquidado_gc: result.jaLiquidado === true,
+      confirmado_por_get: true,
+    },
   });
 
   return { ...link, ok: true, gc_id: lanc.gc_id };
@@ -490,16 +580,123 @@ async function runBaixaBatch(alvos: LinkInput[], options: BaixaOptions = {}): Pr
   return resultados;
 }
 
+function progressPayload(progress: JobProgress) {
+  return {
+    job_id: progress.jobId,
+    total: progress.total,
+    processados: progress.processados,
+    sucesso: progress.sucesso,
+    falha: progress.falha,
+    erros: progress.erros.slice(-50),
+    parent_run_id: progress.parentRunId ?? null,
+  };
+}
+
+async function atualizarParentRun(progress: JobProgress, status: "success" | "partial" | "error", erro?: string) {
+  if (!progress.parentRunId) return;
+  const { data: parent } = await supabase
+    .from("fin_sync_log")
+    .select("status, resposta, payload")
+    .eq("id", progress.parentRunId)
+    .maybeSingle();
+  if (!parent) return;
+
+  const baixaFinal = { ...progressPayload(progress), status };
+  const resposta = { ...(parent.resposta ?? {}), baixa_gc_auto: baixaFinal };
+  const payload = { ...(parent.payload ?? {}), baixa_gc_auto: baixaFinal };
+  const parentStatus = parent.status === "partial" || parent.status === "error"
+    ? parent.status
+    : status;
+  await supabase.from("fin_sync_log").update({
+    status: parentStatus,
+    erro: parentStatus === "success" ? null : (erro ?? `${progress.falha} baixa(s) não confirmada(s) no GC`),
+    resposta,
+    payload,
+  }).eq("id", progress.parentRunId);
+}
+
+async function atualizarJob(
+  progress: JobProgress,
+  status: "running" | "success" | "partial" | "error",
+  erro?: string,
+) {
+  const snapshot = progressPayload(progress);
+  await supabase.from("fin_sync_log").update({
+    status,
+    erro: erro ?? null,
+    payload: snapshot,
+    resposta: snapshot,
+  }).eq("id", progress.jobId);
+
+  if (status !== "running") await atualizarParentRun(progress, status, erro);
+}
+
+async function criarOuReusarJob(
+  total: number,
+  parentRunId?: string,
+): Promise<{ progress: JobProgress; reused: boolean }> {
+  // Barreira contra múltiplos cliques/rotinas concorrentes. O fluxo antigo chegou a
+  // baixar os mesmos títulos milhares de vezes em paralelo.
+  const activeSince = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const { data: active } = await supabase
+    .from("fin_sync_log")
+    .select("id, payload, resposta")
+    .eq("tipo", "argus_baixa_job")
+    .eq("status", "running")
+    .gte("created_at", activeSince)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (active?.id) {
+    const saved = active.resposta ?? active.payload ?? {};
+    return {
+      reused: true,
+      progress: {
+        jobId: active.id,
+        total: Number(saved.total ?? total),
+        processados: Number(saved.processados ?? 0),
+        sucesso: Number(saved.sucesso ?? 0),
+        falha: Number(saved.falha ?? 0),
+        erros: Array.isArray(saved.erros) ? saved.erros.slice(-50) : [],
+        parentRunId: typeof saved.parent_run_id === "string" ? saved.parent_run_id : parentRunId,
+      },
+    };
+  }
+
+  const progress: JobProgress = {
+    jobId: crypto.randomUUID(),
+    total,
+    processados: 0,
+    sucesso: 0,
+    falha: 0,
+    erros: [],
+    parentRunId,
+  };
+  const snapshot = progressPayload(progress);
+  const { error } = await supabase.from("fin_sync_log").insert({
+    id: progress.jobId,
+    tipo: "argus_baixa_job",
+    referencia_id: parentRunId ?? null,
+    status: "running",
+    payload: snapshot,
+    resposta: snapshot,
+  });
+  if (error) throw new Error(`Não foi possível iniciar o acompanhamento da baixa: ${error.message}`);
+  return { progress, reused: false };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
     const body = await req.json().catch(() => ({}));
     const mode: "auto" | "links" = body.mode === "auto" ? "auto" : "links";
-    const background = body.background !== false; // default true
+    const background = body.background === true;
     const options: BaixaOptions = {
       forceConfirmSituacao: body.forceConfirmSituacao === true,
     };
+    const parentRunId = typeof body.parent_run_id === "string" ? body.parent_run_id : undefined;
 
     let alvos: LinkInput[] = [];
     if (mode === "auto") {
@@ -527,15 +724,55 @@ Deno.serve(async (req) => {
     // Processa em lotes encadeados para cada execução ficar abaixo do timeout do runtime.
     // O próximo lote recebe IDs explícitos, portanto não repete falhas do lote anterior.
     if (background) {
-      const BATCH_SIZE = 50;
+      const BATCH_SIZE = 25;
       const lote = alvos.slice(0, BATCH_SIZE);
       const restantes = alvos.slice(BATCH_SIZE);
+      let progress: JobProgress;
+      let reused = false;
+
+      if (typeof body.job_id === "string") {
+        progress = {
+          jobId: body.job_id,
+          total: Number(body.job_total ?? alvos.length),
+          processados: Number(body.job_processados ?? 0),
+          sucesso: Number(body.job_sucesso ?? 0),
+          falha: Number(body.job_falha ?? 0),
+          erros: Array.isArray(body.job_erros) ? body.job_erros.slice(-50) : [],
+          parentRunId,
+        };
+      } else {
+        const claimed = await criarOuReusarJob(alvos.length, parentRunId);
+        progress = claimed.progress;
+        reused = claimed.reused;
+      }
+
+      if (reused) {
+        return new Response(
+          JSON.stringify({ ok: true, status: "running", reused: true, ...progressPayload(progress) }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
       const task = (async () => {
         try {
           const r = await runBaixaBatch(lote, options);
           const ok = r.filter((x) => x.ok).length;
+          const falhaLote = r.length - ok;
+          progress.processados += r.length;
+          progress.sucesso += ok;
+          progress.falha += falhaLote;
+          progress.erros = [
+            ...progress.erros,
+            ...r.filter((x) => !x.ok).map((x) => ({
+              lancamento_id: x.lancamento_id,
+              tabela: x.tabela,
+              gc_id: x.gc_id,
+              erro: x.erro ?? "Falha sem detalhe",
+            })),
+          ].slice(-50);
           console.log(`[argus-baixa-confirmada/bg] lote concluído: ${ok}/${r.length}; restantes=${restantes.length}`);
           if (restantes.length > 0) {
+            await atualizarJob(progress, "running");
             const nextResponse = await fetch(`${SUPABASE_URL}/functions/v1/argus-baixa-confirmada`, {
               method: "POST",
               headers: {
@@ -547,14 +784,28 @@ Deno.serve(async (req) => {
                 links: restantes,
                 forceConfirmSituacao: options.forceConfirmSituacao === true,
                 background: true,
+                job_id: progress.jobId,
+                job_total: progress.total,
+                job_processados: progress.processados,
+                job_sucesso: progress.sucesso,
+                job_falha: progress.falha,
+                job_erros: progress.erros,
+                parent_run_id: progress.parentRunId,
               }),
             });
             if (!nextResponse.ok) {
-              console.error(`[argus-baixa-confirmada/bg] falha ao encadear lote: HTTP ${nextResponse.status}`);
+              const nextText = await nextResponse.text();
+              const erro = `Falha ao encadear lote: HTTP ${nextResponse.status} ${nextText.substring(0, 300)}`;
+              console.error(`[argus-baixa-confirmada/bg] ${erro}`);
+              await atualizarJob(progress, "error", erro);
             }
+          } else {
+            const finalStatus = progress.falha === 0 ? "success" : "partial";
+            await atualizarJob(progress, finalStatus, progress.falha > 0 ? `${progress.falha} baixa(s) não confirmada(s) no GC` : undefined);
           }
         } catch (e) {
           console.error("[argus-baixa-confirmada/bg] erro:", e);
+          await atualizarJob(progress, "error", e instanceof Error ? e.message : String(e));
         }
       })();
       // @ts-ignore EdgeRuntime existe no runtime da Supabase
@@ -563,7 +814,13 @@ Deno.serve(async (req) => {
         EdgeRuntime.waitUntil(task);
       }
       return new Response(
-        JSON.stringify({ ok: true, dispatched: alvos.length, lote: lote.length, background: true }),
+        JSON.stringify({
+          ok: true,
+          status: "running",
+          background: true,
+          lote: lote.length,
+          ...progressPayload(progress),
+        }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -572,7 +829,7 @@ Deno.serve(async (req) => {
     const sucesso = resultados.filter((r) => r.ok).length;
     const falha = resultados.length - sucesso;
     return new Response(
-      JSON.stringify({ ok: true, processados: resultados.length, sucesso, falha, resultados }),
+      JSON.stringify({ ok: falha === 0, status: falha === 0 ? "success" : "partial", processados: resultados.length, sucesso, falha, resultados }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {

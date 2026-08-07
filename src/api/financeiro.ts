@@ -857,12 +857,18 @@ export interface SyncFinanceiroResult {
   importados: number;
   atualizados: number;
   erros: number;
+  extrato?: {
+    ok: boolean;
+    processados: number;
+    error?: string;
+  };
   baixaGC?: {
     ok: boolean;
     processados: number;
     sucesso: number;
     falha: number;
     error?: string;
+    jobId?: string;
   };
   conciliacao?: {
     ok: boolean;
@@ -870,6 +876,95 @@ export interface SyncFinanceiroResult {
     revisar: number;
     error?: string;
   };
+}
+
+const ARGUS_BAIXA_CUTOFF = "2026-04-01";
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function executarBaixaGCConciliados(
+  filtros: { dataInicio?: string; dataFim?: string },
+  scope: SyncScope = "ambos",
+  onStep?: (etapa: string) => void,
+): Promise<NonNullable<SyncFinanceiroResult["baixaGC"]>> {
+  const { data, error } = await supabase.functions.invoke("argus-baixa-confirmada", {
+    body: {
+      mode: "auto",
+      scope,
+      dataInicio: filtros.dataInicio,
+      dataFim: filtros.dataFim,
+      forceConfirmSituacao: true,
+      background: true,
+    },
+  });
+
+  if (error) throw new Error(error.message);
+  if (data?.ok === false && data?.status !== "partial") {
+    throw new Error(String(data?.error ?? "A baixa automática no GC não foi iniciada"));
+  }
+
+  const jobId = typeof data?.job_id === "string" ? data.job_id : undefined;
+  if (!jobId) {
+    const falha = Number(data?.falha ?? 0);
+    return {
+      ok: data?.ok !== false && falha === 0,
+      processados: Number(data?.processados ?? 0),
+      sucesso: Number(data?.sucesso ?? 0),
+      falha,
+      error: data?.error ? String(data.error) : undefined,
+    };
+  }
+
+  const deadline = Date.now() + 10 * 60_000;
+  while (Date.now() < deadline) {
+    const { data: job, error: jobError } = await supabase
+      .from("fin_sync_log" as any)
+      .select("status, erro, resposta, payload")
+      .eq("id", jobId)
+      .maybeSingle() as any;
+    if (jobError) throw new Error(`Erro ao acompanhar a baixa no GC: ${jobError.message}`);
+
+    const snapshot = job?.resposta ?? job?.payload ?? {};
+    const processados = Number(snapshot.processados ?? 0);
+    const total = Number(snapshot.total ?? data?.total ?? 0);
+    onStep?.(`Confirmando baixas no GC... ${processados}/${total}`);
+
+    if (job && job.status !== "running") {
+      const sucesso = Number(snapshot.sucesso ?? 0);
+      const falha = Number(snapshot.falha ?? 0);
+      return {
+        ok: job.status === "success" && falha === 0,
+        processados,
+        sucesso,
+        falha,
+        error: job.erro ? String(job.erro) : undefined,
+        jobId,
+      };
+    }
+    await wait(1_500);
+  }
+
+  throw new Error(`A baixa no GC continua em processamento (execução ${jobId}). Consulte novamente em alguns minutos.`);
+}
+
+export async function baixarLinksGCConfirmados(
+  links: Array<{ lancamento_id: string; tabela: "fin_pagamentos" | "fin_recebimentos" | "pagamentos" | "recebimentos" }>,
+) {
+  if (links.length === 0) return { ok: true, processados: 0, sucesso: 0, falha: 0 };
+  const { data, error } = await supabase.functions.invoke("argus-baixa-confirmada", {
+    body: {
+      mode: "links",
+      links,
+      forceConfirmSituacao: true,
+      background: false,
+    },
+  });
+  if (error) throw new Error(error.message);
+  if (data?.ok === false || Number(data?.falha ?? 0) > 0) {
+    const detail = data?.resultados?.find((item: any) => !item.ok)?.erro;
+    throw new Error(String(detail ?? data?.error ?? "A baixa não foi confirmada no GC"));
+  }
+  return data;
 }
 
 async function resetExtratosByLancamentos(
@@ -956,6 +1051,8 @@ export async function syncByMonthChunks(
 ): Promise<SyncFinanceiroResult> {
   const start = new Date((filtros.dataInicio || fnsFormat(new Date(), "yyyy-MM-dd")) + "T00:00:00");
   const end = new Date((filtros.dataFim || fnsFormat(new Date(), "yyyy-MM-dd")) + "T23:59:59");
+  const normalizedDataInicio = fnsFormat(start, "yyyy-MM-dd");
+  const normalizedDataFim = fnsFormat(end, "yyyy-MM-dd");
 
   // Build monthly chunks
   const chunks: { from: string; to: string; label: string }[] = [];
@@ -971,6 +1068,19 @@ export async function syncByMonthChunks(
   }
 
   const totals: SyncFinanceiroResult = { importados: 0, atualizados: 0, erros: 0 };
+
+  // O extrato precisa existir antes da importação dos títulos e da conciliação.
+  // O cutoff evita buscar períodos que o Argus deliberadamente não baixa no GC.
+  const extratoInicio = normalizedDataInicio < ARGUS_BAIXA_CUTOFF ? ARGUS_BAIXA_CUTOFF : normalizedDataInicio;
+  try {
+    onStep?.("Importando extrato do Banco Inter...");
+    const extrato = await buscarExtratoInter(extratoInicio, normalizedDataFim);
+    totals.extrato = { ok: true, processados: extrato.length };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    totals.extrato = { ok: false, processados: 0, error: message };
+    throw new Error(`Não foi possível atualizar o extrato do Inter. A conciliação foi interrompida: ${message}`);
+  }
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
@@ -1018,8 +1128,8 @@ export async function syncByMonthChunks(
       "reconciliation-engine",
       {
         body: {
-          dateFrom: `${filtros.dataInicio}T00:00:00-03:00`,
-          dateTo: `${filtros.dataFim}T23:59:59-03:00`,
+          dateFrom: `${normalizedDataInicio}T00:00:00-03:00`,
+          dateTo: `${normalizedDataFim}T23:59:59-03:00`,
           limit: 2000,
         },
       }
@@ -1042,50 +1152,12 @@ export async function syncByMonthChunks(
   }
 
   try {
-    onStep?.("Baixando conciliados no GC...");
-    const { data, error } = await supabase.functions.invoke("argus-baixa-confirmada", {
-      body: {
-        mode: "auto",
-        scope,
-        dataInicio: filtros.dataInicio,
-        dataFim: filtros.dataFim,
-        forceConfirmSituacao: true,
-        background: true,
-      },
-    });
-
-
-    if (error) {
-      totals.baixaGC = {
-        ok: false,
-        processados: 0,
-        sucesso: 0,
-        falha: 0,
-        error: error.message,
-      };
-      totals.erros += 1;
-      console.warn("[syncByMonthChunks] argus-baixa-confirmada falhou:", error.message);
-    } else {
-      const processados = Number(data?.processados ?? data?.dispatched ?? 0);
-      const sucesso = Number(data?.sucesso ?? 0);
-      const falha = Number(data?.falha ?? 0);
-      const errorMessage = data?.error ? String(data.error) : undefined;
-
-      totals.baixaGC = {
-        ok: !errorMessage && falha === 0,
-        processados,
-        sucesso,
-        falha,
-        error: errorMessage,
-      };
-
-      if (falha > 0 || errorMessage) {
-        totals.erros += falha > 0 ? falha : 1;
-        console.warn("[syncByMonthChunks] argus-baixa-confirmada retornou falhas:", data);
-      } else {
-        console.log("[syncByMonthChunks] argus-baixa-confirmada:", data);
-      }
-    }
+    onStep?.("Confirmando conciliados no GC...");
+    totals.baixaGC = await executarBaixaGCConciliados({
+      dataInicio: normalizedDataInicio,
+      dataFim: normalizedDataFim,
+    }, scope, onStep);
+    if (!totals.baixaGC.ok) totals.erros += Math.max(1, totals.baixaGC.falha);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     totals.baixaGC = {

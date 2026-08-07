@@ -196,20 +196,13 @@ export default function PagamentosPage() {
     setSyncing(true);
     try {
       const result = await syncByMonthChunks(filtros, onProgress, onStep, "pagamentos");
-      toast.success(`Importados: ${result.importados} registros`);
+      if (result.baixaGC?.ok) {
+        toast.success(`Sincronização concluída: ${result.importados} importados, ${result.conciliacao?.conciliados ?? 0} conciliados e ${result.baixaGC.sucesso} baixas confirmadas no GC.`);
+      } else {
+        toast.error(`Sincronização concluída com ${result.baixaGC?.falha ?? result.erros} pendência(s).`);
+      }
       queryClient.invalidateQueries({ queryKey: ["fin-pagamentos"] });
       setShowSyncDialog(false);
-      // Conciliação + baixa GC dos confirmados (rodam em background na edge)
-      onStep?.("Conciliando extrato ↔ GC e baixando no GC...");
-      try {
-        await supabase.functions.invoke("reconciliation-engine", { body: {} });
-      } catch (e) {
-        console.error("[pagamentos] reconciliation dispatch:", e);
-      }
-      supabase.functions.invoke("argus-baixa-confirmada", {
-        body: { mode: "auto", scope: "pagamentos", background: true },
-      }).catch((e) => console.error("[pagamentos] baixa auto dispatch:", e));
-      toast("Conciliação executada + baixa GC agendada em background", { icon: "🔄" });
 
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");

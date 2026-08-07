@@ -13,7 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { EmptyState } from "@/components/EmptyState";
 import { formatCurrency, formatDateTime, formatDate } from "@/lib/format";
-import { buscarExtratoInter, extrairNomeDaDescricao, syncFinanceiroFullSweep } from "@/api/financeiro";
+import { baixarLinksGCConfirmados, buscarExtratoInter, executarBaixaGCConciliados, extrairNomeDaDescricao, syncFinanceiroFullSweep } from "@/api/financeiro";
 import {
   Building2, RefreshCw, Loader2, CalendarIcon, Download, CloudDownload,
   Wand2, Brain, ArrowLeftRight, CheckCircle, ChevronDown, ChevronUp,
@@ -348,9 +348,19 @@ export default function ExtratoBancoPage() {
   const handleAutoReconcile = async () => {
     setAutoRunning(true);
     try {
-      const { data, error } = await supabase.functions.invoke("reconciliation-engine", { body: {} });
+      const { data, error } = await supabase.functions.invoke("reconciliation-engine", {
+        body: {
+          dateFrom: `${format(dateFrom, "yyyy-MM-dd")}T00:00:00-03:00`,
+          dateTo: `${format(dateTo, "yyyy-MM-dd")}T23:59:59-03:00`,
+          limit: 2000,
+        },
+      });
       if (error) throw new Error(error.message);
       if (!data?.success) throw new Error(data?.error ?? "Erro");
+      const baixa = await executarBaixaGCConciliados({
+        dataInicio: format(dateFrom, "yyyy-MM-dd"),
+        dataFim: format(dateTo, "yyyy-MM-dd"),
+      });
       
       // Store suggestions for user review
       const review = data.review || [];
@@ -360,7 +370,11 @@ export default function ExtratoBancoPage() {
       setSugVinculados(new Set());
       if (review.length > 0 || unmatchedWithSug.length > 0) setAutoSugOpen(true);
       
-      toast.success(`Conciliação: ${data.stats.auto} auto, ${review.length} revisão, ${unmatchedWithSug.length} sugestões`);
+      if (!baixa.ok) {
+        toast.error(`Conciliação criada, mas ${baixa.falha} baixa(s) não foram confirmadas no GC.`);
+      } else {
+        toast.success(`Conciliação: ${data.stats.auto} auto, ${baixa.sucesso} baixas confirmadas no GC, ${review.length} revisão`);
+      }
       invalidateAll();
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro na conciliação"); }
     finally { setAutoRunning(false); }
@@ -471,9 +485,10 @@ export default function ExtratoBancoPage() {
         return;
       }
       await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: selectedLanc.id, reconciliado_em: now, reconciliation_rule: "MANUAL" }).eq("id", selectedExtrato.id);
-      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", selectedLanc.id);
+      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now }).eq("id", selectedLanc.id);
       await supabase.from("fin_extrato_lancamentos").upsert({ extrato_id: selectedExtrato.id, lancamento_id: selectedLanc.id, tabela, valor_alocado: Number(selectedLanc.valor), reconciliation_rule: "MANUAL" }, { onConflict: "extrato_id,lancamento_id,tabela" });
-      toast.success("Vinculado!");
+      await baixarLinksGCConfirmados([{ lancamento_id: selectedLanc.id, tabela }]);
+      toast.success("Vinculado e confirmado no GC!");
       setShowConfirm(false); setSelectedExtrato(null); setSelectedLanc(null); setExpandedId(null);
       invalidateAll();
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
@@ -542,8 +557,9 @@ export default function ExtratoBancoPage() {
         return;
       }
       await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: candidato.lancamento_id, reconciliado_em: now, reconciliation_rule: "AI_GPT5" }).eq("id", extratoId);
-      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", candidato.lancamento_id);
+      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now }).eq("id", candidato.lancamento_id);
       await supabase.from("fin_extrato_lancamentos").upsert({ extrato_id: extratoId, lancamento_id: candidato.lancamento_id, tabela, valor_alocado: candidato.valor_lancamento, reconciliation_rule: "AI_GPT5" }, { onConflict: "extrato_id,lancamento_id,tabela" });
+      await baixarLinksGCConfirmados([{ lancamento_id: candidato.lancamento_id, tabela }]);
       setAiVinculados(prev => new Set([...prev, extratoId]));
       toast.success("Vinculado via ARGUS!");
       invalidateAll();
@@ -567,8 +583,9 @@ export default function ExtratoBancoPage() {
         return;
       }
       await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: sug.lancamento_id, reconciliado_em: now, reconciliation_rule: "SUGESTAO_ACEITA" }).eq("id", extratoId);
-      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", sug.lancamento_id);
+      await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: now }).eq("id", sug.lancamento_id);
       await supabase.from("fin_extrato_lancamentos").upsert({ extrato_id: extratoId, lancamento_id: sug.lancamento_id, tabela, valor_alocado: sug.valor, reconciliation_rule: "SUGESTAO_ACEITA" }, { onConflict: "extrato_id,lancamento_id,tabela" });
+      await baixarLinksGCConfirmados([{ lancamento_id: sug.lancamento_id, tabela }]);
       setSugVinculados(prev => new Set([...prev, extratoId]));
       toast.success("Sugestão aceita e vinculada!");
       invalidateAll();

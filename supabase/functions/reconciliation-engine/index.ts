@@ -443,7 +443,7 @@ function aplicarRegras(
 }
 
 // ═══════════════════════════════════════════════════════════
-// VINCULAR (auto-baixa atômica com rollback)
+// VINCULAR (a baixa no GC é executada uma única vez ao fim do lote)
 // ═══════════════════════════════════════════════════════════
 
 async function vincular(supabase: any, ext: any, match: Candidato, rule: string) {
@@ -461,11 +461,11 @@ async function vincular(supabase: any, ext: any, match: Candidato, rule: string)
 
   if (extErr) throw new Error(`Erro ao atualizar extrato: ${extErr.message}`);
 
-  // 2. Marcar lançamento como pago pelo sistema (NÃO faz baixa no GC)
+  // 2. Marcar como conciliado pelo sistema. O status financeiro só muda para
+  // pago depois que argus-baixa-confirmada consultar o GC e confirmar a baixa.
   const { error: finErr } = await supabase.from(table).update({
     pago_sistema: true,
     pago_sistema_em: now,
-    status: "pago",
   }).eq("id", match.fin.id);
 
   if (finErr) {
@@ -488,15 +488,12 @@ async function vincular(supabase: any, ext: any, match: Candidato, rule: string)
     reconciliation_rule: rule,
   }, { onConflict: "extrato_id,lancamento_id,tabela" });
 
-  // 2.6 — Baixar/confirmar no GC imediatamente. A varredura do sync-all continua como rede de segurança.
-  const baixaResult = await invocarBaixaLinks([{ lancamento_id: match.fin.id, tabela }]);
-
   // 3. Log
   await supabase.from("fin_sync_log").insert({
     tipo: "conciliacao_auto",
     referencia_id: ext.id,
     status: "success",
-    payload: { extrato_id: ext.id, lancamento_id: match.fin.id, rule, baixa: baixaResult },
+    payload: { extrato_id: ext.id, lancamento_id: match.fin.id, rule, baixa_gc: "pending_sweep" },
   });
 }
 
@@ -524,14 +521,11 @@ async function vincularRastreabilidade(supabase: any, ext: any, lancamentoId: st
     reconciliation_rule: rule,
   }, { onConflict: "extrato_id,lancamento_id,tabela" });
 
-  // Mesmo em rastreabilidade, força situação "Confirmado" no GC quando houver vínculo conciliado.
-  const baixaResult = await invocarBaixaLinks([{ lancamento_id: lancamentoId, tabela }]);
-
   await supabase.from("fin_sync_log").insert({
     tipo: "conciliacao_rastreabilidade",
     referencia_id: ext.id,
     status: "success",
-    payload: { extrato_id: ext.id, lancamento_id: lancamentoId, rule, baixa: baixaResult },
+    payload: { extrato_id: ext.id, lancamento_id: lancamentoId, rule, baixa_gc: "pending_sweep" },
   });
 }
 
@@ -543,43 +537,6 @@ interface ParcelaSoma {
   id: string;
   valor: number;
   tabela: "pagamentos" | "recebimentos";
-}
-
-interface BaixaLink {
-  lancamento_id: string;
-  tabela: "pagamentos" | "recebimentos";
-}
-
-async function invocarBaixaLinks(baixaLinks: BaixaLink[]) {
-  const links = baixaLinks.map((p) => ({
-    lancamento_id: p.lancamento_id,
-    tabela: p.tabela === "pagamentos" ? "fin_pagamentos" : "fin_recebimentos",
-  }));
-  if (links.length === 0) return null;
-
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!supabaseUrl || !serviceKey) {
-    throw new Error("argus-baixa-confirmada: env SUPABASE_URL/SERVICE_ROLE ausente");
-  }
-
-  const res = await fetch(`${supabaseUrl}/functions/v1/argus-baixa-confirmada`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-    body: JSON.stringify({ mode: "links", links, forceConfirmSituacao: true }),
-  });
-  const text = await res.text();
-  let body: any = null;
-  try { body = JSON.parse(text); } catch { body = { raw: text }; }
-
-  if (!res.ok || body?.ok === false || Number(body?.falha ?? 0) > 0) {
-    throw new Error(`argus-baixa-confirmada falhou: HTTP ${res.status} ${text.substring(0, 700)}`);
-  }
-  return body;
-}
-
-async function invocarBaixaConfirmada(parcelas: ParcelaSoma[]) {
-  return invocarBaixaLinks(parcelas.map((p) => ({ lancamento_id: p.id, tabela: p.tabela })));
 }
 
 async function saveSomaParcelas(
@@ -651,7 +608,6 @@ async function saveSomaParcelas(
     const { error } = await supabase.from("fin_recebimentos").update({
       pago_sistema: true,
       pago_sistema_em: now,
-      status: "pago",
     }).in("id", recebimentoIds);
     if (error) throw new Error(`SOMA_PARCELAS: erro marcar recebimentos pagos: ${error.message}`);
   }
@@ -659,20 +615,16 @@ async function saveSomaParcelas(
     const { error } = await supabase.from("fin_pagamentos").update({
       pago_sistema: true,
       pago_sistema_em: now,
-      status: "pago",
     }).in("id", pagamentoIds);
     if (error) throw new Error(`SOMA_PARCELAS: erro marcar pagamentos pagos: ${error.message}`);
   }
-
-  // 3.2. Baixar no GC imediatamente; não depende de trigger de banco.
-  const baixaResult = await invocarBaixaConfirmada(parcelas);
 
   // 4. Log
   await supabase.from("fin_sync_log").insert({
     tipo: "conciliacao_soma_parcelas",
     referencia_id: extratoId,
     status: "success",
-    payload: { extrato_id: extratoId, parcelas: parcelas.map(p => ({ id: p.id, valor: p.valor })), rule, baixa: baixaResult },
+    payload: { extrato_id: extratoId, parcelas: parcelas.map(p => ({ id: p.id, valor: p.valor })), rule, baixa_gc: "pending_sweep" },
   });
 }
 

@@ -16,7 +16,7 @@ import { format, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay } fro
 import { cn } from "@/lib/utils";
 import { ptBR } from "date-fns/locale";
 import toast from "react-hot-toast";
-import { buscarExtratoInter, syncByMonthChunks } from "@/api/financeiro";
+import { baixarLinksGCConfirmados, buscarExtratoInter, executarBaixaGCConciliados, syncByMonthChunks } from "@/api/financeiro";
 
 const GC_BASE = "https://gestaoclick.com";
 
@@ -278,8 +278,17 @@ export default function ConciliacaoPage() {
     try {
       await supabase.from("fin_extrato_inter").update({ reconciliado: true, lancamento_id: selectedLanc.id, reconciliado_em: new Date().toISOString(), reconciliation_rule: "MANUAL" }).eq("id", selectedExtrato.id);
       const table = selectedLanc._tipo === "receber" ? "fin_recebimentos" : "fin_pagamentos";
+      const tabela = selectedLanc._tipo === "receber" ? "recebimentos" : "pagamentos";
       await supabase.from(table).update({ pago_sistema: true, pago_sistema_em: new Date().toISOString() }).eq("id", selectedLanc.id);
-      toast.success("Vinculado com sucesso");
+      await supabase.from("fin_extrato_lancamentos").upsert({
+        extrato_id: selectedExtrato.id,
+        lancamento_id: selectedLanc.id,
+        tabela,
+        valor_alocado: Math.abs(Number(selectedExtrato.valor)),
+        reconciliation_rule: "MANUAL",
+      }, { onConflict: "extrato_id,lancamento_id,tabela" });
+      await baixarLinksGCConfirmados([{ lancamento_id: selectedLanc.id, tabela: table }]);
+      toast.success("Vinculado e confirmado no GC");
       setSelectedExtrato(null); setSelectedLanc(null); setShowConfirm(false);
       invalidateAll();
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
@@ -303,8 +312,16 @@ export default function ConciliacaoPage() {
       });
       if (error) throw new Error(error.message);
       if (!data?.success) throw new Error(data?.error ?? "Erro desconhecido");
+      const baixa = await executarBaixaGCConciliados({
+        dataInicio: format(dateFrom, "yyyy-MM-dd"),
+        dataFim: format(dateTo, "yyyy-MM-dd"),
+      });
       setAutoResult(data);
-      toast.success(`Conciliação: ${data.stats.auto} auto-baixas, ${data.stats.review} para revisão`);
+      if (!baixa.ok) {
+        toast.error(`Conciliação criada, mas ${baixa.falha} baixa(s) não foram confirmadas no GC.`);
+      } else {
+        toast.success(`Conciliação: ${data.stats.auto} vínculos, ${baixa.sucesso} baixas confirmadas, ${data.stats.review} para revisão`);
+      }
       invalidateAll();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro na conciliação automática");
@@ -401,10 +418,10 @@ export default function ConciliacaoPage() {
           // 2) Atualiza o lançamento conforme tipo
           let tabela = "recebimentos";
           if (tipo === "recebimento") {
-            await supabase.from("fin_recebimentos").update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", lancamentoId);
+            await supabase.from("fin_recebimentos").update({ pago_sistema: true, pago_sistema_em: now }).eq("id", lancamentoId);
             tabela = "recebimentos";
           } else if (tipo === "pagamento") {
-            await supabase.from("fin_pagamentos").update({ pago_sistema: true, pago_sistema_em: now, status: "pago" }).eq("id", lancamentoId);
+            await supabase.from("fin_pagamentos").update({ pago_sistema: true, pago_sistema_em: now }).eq("id", lancamentoId);
             tabela = "pagamentos";
           } else if (tipo === "grupo_receber") {
             await supabase.from("fin_grupos_receber").update({ status: "pago", data_pagamento: now }).eq("id", lancamentoId);
@@ -427,6 +444,10 @@ export default function ConciliacaoPage() {
             extrato_id: extratoId, lancamento_id: lancamentoId, tabela,
             valor_alocado: 0, reconciliation_rule: rule,
           }, { onConflict: "extrato_id,lancamento_id,tabela" });
+
+          if (tabela === "recebimentos" || tabela === "pagamentos") {
+            await baixarLinksGCConfirmados([{ lancamento_id: lancamentoId, tabela }]);
+          }
 
           invalidateAll();
         }}

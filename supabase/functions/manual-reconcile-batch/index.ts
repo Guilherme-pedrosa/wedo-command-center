@@ -195,13 +195,33 @@ serve(async (req) => {
       throw new Error(`Erro inserir links: ${linkErr.message}`);
     }
 
-    // 7. Mark each lancamento as pago
+    // 7. Marca como conciliado. O status só vira pago depois da confirmação do GC.
     for (const l of lancamentos) {
       await supabase.from(table).update({
         pago_sistema: true,
         pago_sistema_em: now,
-        status: "pago",
       }).eq("id", l.id);
+    }
+
+    const baixaResponse = await fetch(`${Deno.env.get("SUPABASE_URL")!}/functions/v1/argus-baixa-confirmada`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
+      },
+      body: JSON.stringify({
+        mode: "links",
+        links: lancamentos.map((l: any) => ({ lancamento_id: l.id, tabela })),
+        forceConfirmSituacao: true,
+        background: false,
+      }),
+    });
+    const baixaText = await baixaResponse.text();
+    let baixa: any = null;
+    try { baixa = JSON.parse(baixaText); } catch { baixa = { raw: baixaText }; }
+    if (!baixaResponse.ok || baixa?.ok === false || Number(baixa?.falha ?? 0) > 0) {
+      const detalhe = baixa?.resultados?.find((item: any) => !item.ok)?.erro;
+      throw new Error(detalhe || baixa?.error || `Baixa no GC não confirmada: HTTP ${baixaResponse.status}`);
     }
 
     // 8. If there's a fee, create a juros entry in fin_pagamentos
@@ -265,6 +285,7 @@ serve(async (req) => {
       soma: somaLancamentos,
       valor_extrato: extValor,
       diferenca: Math.abs(diff),
+      baixa_gc: baixa,
       juros: valorJuros > 0.01 ? { id: jurosId, valor: valorJuros, taxa: taxa_adiantamento_pct } : null,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
