@@ -39,6 +39,15 @@ const extractCompraNumero = (descricao?: string): string | null => {
 };
 
 const EXCECAO_RULES = ["SEM_PAR_GC", "TRANSFERENCIA_INTERNA", "PIX_DEVOLVIDO_MANUAL"];
+const GC_STATUS_BATCH_SIZE = 100;
+
+const splitIntoBatches = <T,>(items: T[], size = GC_STATUS_BATCH_SIZE): T[][] => {
+  const batches: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    batches.push(items.slice(index, index + size));
+  }
+  return batches;
+};
 
 const ruleLabels: Record<string, string> = {
   SEM_PAR_GC: "Sem Par GC", TRANSFERENCIA_INTERNA: "Transf. Interna", PIX_DEVOLVIDO_MANUAL: "PIX Devolvido",
@@ -249,38 +258,74 @@ export default function ExtratoBancoPage() {
   const { data: gcBaixaMap, isFetching: gcBaixaLoading, isError: gcBaixaError } = useQuery({
     queryKey: ["extrato-gc-baixa", queryDateFrom, queryDateTo, reconciledExtratoSignature],
     queryFn: async () => {
-      const extratoIds = (extrato || []).filter((e: any) => e.reconciliado).map((e: any) => e.id);
+      const extratoIds = Array.from(new Set(
+        (extrato || []).filter((e: any) => e.reconciliado).map((e: any) => String(e.id)),
+      ));
       if (!extratoIds.length) return {};
 
-      const { data: links, error: linksError } = await supabase
-        .from("fin_extrato_lancamentos")
-        .select("extrato_id, lancamento_id, tabela")
-        .in("extrato_id", extratoIds);
-      if (linksError) throw linksError;
+      // PostgREST serializa `.in()` na URL. Em períodos grandes, uma única lista
+      // excede o limite do gateway e fazia o indicador mostrar "Erro status GC".
+      const linkResponses = await Promise.all(
+        splitIntoBatches(extratoIds).map(ids => supabase
+          .from("fin_extrato_lancamentos")
+          .select("extrato_id, lancamento_id, tabela")
+          .in("extrato_id", ids)),
+      );
+      const links: Array<{ extrato_id: string; lancamento_id: string; tabela: string }> = [];
+      for (const response of linkResponses) {
+        if (response.error) throw response.error;
+        links.push(...(response.data || []).map(link => ({
+          extrato_id: String(link.extrato_id),
+          lancamento_id: String(link.lancamento_id),
+          tabela: link.tabela,
+        })));
+      }
 
-      if (!links?.length) return {};
+      if (!links.length) return {};
 
-      const recIds = links
+      const recIds = Array.from(new Set(links
         .filter((l: any) => l.tabela === "recebimentos" || l.tabela === "fin_recebimentos")
-        .map((l: any) => l.lancamento_id);
-      const pagIds = links
+        .map((l: any) => String(l.lancamento_id))));
+      const pagIds = Array.from(new Set(links
         .filter((l: any) => l.tabela === "pagamentos" || l.tabela === "fin_pagamentos")
-        .map((l: any) => l.lancamento_id);
+        .map((l: any) => String(l.lancamento_id))));
 
-      const [recRes, pagRes] = await Promise.all([
-        recIds.length ? supabase.from("fin_recebimentos").select("id, gc_baixado, gc_baixado_em").in("id", recIds) : Promise.resolve({ data: [] as any[], error: null }),
-        pagIds.length ? supabase.from("fin_pagamentos").select("id, gc_baixado, gc_baixado_em").in("id", pagIds) : Promise.resolve({ data: [] as any[], error: null }),
+      const [recResponses, pagResponses] = await Promise.all([
+        Promise.all(splitIntoBatches(recIds).map(ids => supabase
+          .from("fin_recebimentos")
+          .select("id, gc_baixado, gc_baixado_em")
+          .in("id", ids))),
+        Promise.all(splitIntoBatches(pagIds).map(ids => supabase
+          .from("fin_pagamentos")
+          .select("id, gc_baixado, gc_baixado_em")
+          .in("id", ids))),
       ]);
-      if (recRes.error) throw recRes.error;
-      if (pagRes.error) throw pagRes.error;
+
+      const recebimentosBaixa: Array<{ id: string; gc_baixado: boolean | null; gc_baixado_em: string | null }> = [];
+      const pagamentosBaixa: Array<{ id: string; gc_baixado: boolean | null; gc_baixado_em: string | null }> = [];
+      for (const response of recResponses) {
+        if (response.error) throw response.error;
+        recebimentosBaixa.push(...(response.data || []).map(row => ({ ...row, id: String(row.id) })));
+      }
+      for (const response of pagResponses) {
+        if (response.error) throw response.error;
+        pagamentosBaixa.push(...(response.data || []).map(row => ({ ...row, id: String(row.id) })));
+      }
 
       const baixaById: Record<string, { baixado: boolean; em: string | null }> = {};
-      for (const r of (recRes.data || [])) baixaById[`r:${r.id}`] = { baixado: !!r.gc_baixado, em: r.gc_baixado_em };
-      for (const p of (pagRes.data || [])) baixaById[`p:${p.id}`] = { baixado: !!p.gc_baixado, em: p.gc_baixado_em };
+      for (const r of recebimentosBaixa) baixaById[`r:${r.id}`] = { baixado: !!r.gc_baixado, em: r.gc_baixado_em };
+      for (const p of pagamentosBaixa) baixaById[`p:${p.id}`] = { baixado: !!p.gc_baixado, em: p.gc_baixado_em };
+
+      const linksByExtrato = new Map<string, typeof links>();
+      for (const link of links) {
+        const current = linksByExtrato.get(link.extrato_id) || [];
+        current.push(link);
+        linksByExtrato.set(link.extrato_id, current);
+      }
 
       const result: Record<string, { status: "all" | "partial" | "none" | "unknown"; em: string | null }> = {};
       for (const eid of extratoIds) {
-        const linkedHere = links.filter((l: any) => l.extrato_id === eid);
+        const linkedHere = linksByExtrato.get(eid) || [];
         if (!linkedHere.length) continue;
         const flags = linkedHere
           .map((l: any) => baixaById[`${l.tabela === "recebimentos" || l.tabela === "fin_recebimentos" ? "r" : "p"}:${l.lancamento_id}`])
