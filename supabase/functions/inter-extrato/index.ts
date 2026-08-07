@@ -243,16 +243,17 @@ serve(async (req) => {
             // Paginated fetch — collect all pages
             let allTx: any[] = [];
             let pagina = 0;
-            const tamanhoPagina = 50;
+            const tamanhoPagina = 500;
             let hasMore = true;
 
             while (hasMore) {
+              if (expirou()) { truncado = true; hasMore = false; break; }
               const paginatedPath = `${ep.path}&pagina=${pagina}&tamanhoPagina=${tamanhoPagina}`;
               const res = await fetchWithRetry(proxyUrl, {
                 method: "POST",
                 headers: proxyHeaders,
                 body: JSON.stringify({ path: paginatedPath, method: "GET" }),
-              }, 3, `${ep.label} p${pagina}`);
+              }, 2, `${ep.label} p${pagina}`);
 
               if (res.status === 404 || res.status === 403 || res.status === 401) {
                 console.warn(`[inter-extrato] ${ep.label} → HTTP ${res.status}, próximo endpoint...`);
@@ -281,9 +282,10 @@ serve(async (req) => {
                 hasMore = false;
               } else {
                 pagina++;
-                await sleep(2000); // 2s between pages
+                await sleep(300);
               }
             }
+
 
             if (allTx.length > 0) {
               transacoes = allTx;
