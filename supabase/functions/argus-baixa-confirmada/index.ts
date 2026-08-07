@@ -139,38 +139,47 @@ async function baixarNoGC(
   dataLiquidacao: string,
   extratos: ExtratoInfo[]
 ): Promise<{ ok: boolean; erro?: string }> {
-  // PUT /pagamentos e /recebimentos do GC: o campo para mudar a situação
-  // é `id_situacao` (NÃO `situacao_id` — este último causa "Erro ao salvar dados").
-  // Setamos id_situacao = 949476 ("Confirmado Argus") para tirar da situação "Atrasado".
-  // Também gravamos observação com detalhes do extrato conciliado.
+  // No financeiro do GC, a situação "Confirmado" é derivada de liquidado="1".
+  // Não envie id_situacao: esse campo é rejeitado pelo PUT de pagamentos/recebimentos.
+  // O endpoint financeiro não aceita o campo observacao; a rastreabilidade fica no banco.
+  // Recarrega o financeiro antes do PUT. O payload salvo localmente é um snapshot e pode
+  // estar defasado; o GC rejeita a gravação quando campos obrigatórios ou vínculos mudaram.
+  let payloadAtual = payloadRaw;
+  try {
+    const getRes = await fetch(`${GC_BASE_URL}/api/${endpoint}/${gcId}`, { headers: gcHeaders });
+    if (getRes.ok) {
+      const getBody = await getRes.json();
+      // O GC responde tanto { data: registro } quanto { data: { data: registro } }.
+      const fresh = getBody?.data?.data ?? getBody?.data ?? getBody;
+      if (fresh && typeof fresh === "object" && !Array.isArray(fresh)) payloadAtual = fresh;
+    }
+  } catch (error) {
+    console.warn(`[baixarNoGC] GET ${endpoint}/${gcId} falhou; usando snapshot local:`, error);
+  }
+
   const obsArgus = montarObservacaoArgus(extratos, dataLiquidacao);
-  const obsOriginal = (payloadRaw.observacao as string | undefined)?.trim() || "";
+  const obsOriginal = (payloadAtual.observacao as string | undefined)?.trim() || "";
   const obsFinal = obsOriginal && !obsOriginal.includes("[Argus]")
     ? `${obsOriginal}\n\n${obsArgus}`
     : obsArgus;
 
   const payload: Record<string, unknown> = {
-    descricao: payloadRaw.descricao ?? "",
-    data_vencimento: payloadRaw.data_vencimento,
-    valor: payloadRaw.valor ?? payloadRaw.valor_total,
-    data_competencia: payloadRaw.data_competencia ?? payloadRaw.data_vencimento,
-    plano_contas_id: payloadRaw.plano_contas_id,
-    forma_pagamento_id: payloadRaw.forma_pagamento_id,
-    conta_bancaria_id: payloadRaw.conta_bancaria_id,
+    descricao: payloadAtual.descricao ?? "",
+    data_vencimento: payloadAtual.data_vencimento,
+    valor: payloadAtual.valor ?? payloadAtual.valor_total,
+    data_competencia: payloadAtual.data_competencia ?? payloadAtual.data_vencimento,
+    plano_contas_id: payloadAtual.plano_contas_id,
+    forma_pagamento_id: payloadAtual.forma_pagamento_id,
+    conta_bancaria_id: payloadAtual.conta_bancaria_id,
     liquidado: 1,
     data_liquidacao: dataLiquidacao,
-    id_situacao: SITUACAO_CONFIRMADO_ARGUS,
-    observacao: obsFinal,
     usuario_id: GC_API_USER_ID,
   };
 
-  // Campos opcionais
-  if (payloadRaw.cliente_id) payload.cliente_id = payloadRaw.cliente_id;
-  if (payloadRaw.fornecedor_id) payload.fornecedor_id = payloadRaw.fornecedor_id;
-  if (payloadRaw.entidade) payload.entidade = payloadRaw.entidade;
-  if (payloadRaw.centro_custo_id) payload.centro_custo_id = payloadRaw.centro_custo_id;
-  if (payloadRaw.juros) payload.juros = payloadRaw.juros;
-  if (payloadRaw.desconto) payload.desconto = payloadRaw.desconto;
+  // O GC exige a entidade vinculada no PUT financeiro.
+  if (payloadAtual.cliente_id) payload.cliente_id = payloadAtual.cliente_id;
+  if (payloadAtual.fornecedor_id) payload.fornecedor_id = payloadAtual.fornecedor_id;
+  if (payloadAtual.entidade) payload.entidade = payloadAtual.entidade;
 
   try {
     const res = await fetch(`${GC_BASE_URL}/api/${endpoint}/${gcId}`, {

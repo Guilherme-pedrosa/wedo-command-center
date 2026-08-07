@@ -16,8 +16,7 @@ import { format, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay } fro
 import { cn } from "@/lib/utils";
 import { ptBR } from "date-fns/locale";
 import toast from "react-hot-toast";
-import { buscarExtratoInter } from "@/api/financeiro";
-import { syncRecebimentos, syncPagamentos } from "@/api/syncService";
+import { buscarExtratoInter, syncRecebimentosGC, syncPagamentosGC } from "@/api/financeiro";
 
 const GC_BASE = "https://gestaoclick.com";
 
@@ -253,7 +252,14 @@ export default function ConciliacaoPage() {
   const handleSyncGC = async () => {
     setSyncingGC(true);
     try {
-      const [r, p] = await Promise.all([syncRecebimentos(), syncPagamentos()]);
+      const filtros = {
+        dataInicio: format(dateFrom, "yyyy-MM-dd"),
+        dataFim: format(dateTo, "yyyy-MM-dd"),
+      };
+      const [r, p] = await Promise.all([
+        syncRecebimentosGC(undefined, filtros),
+        syncPagamentosGC(undefined, filtros),
+      ]);
       toast.success(`GC sincronizado: ${r.importados} receb., ${p.importados} pagam.`);
       invalidateAll();
     } catch (err) {

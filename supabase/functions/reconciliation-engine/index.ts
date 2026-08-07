@@ -869,7 +869,7 @@ serve(async (req) => {
       : [];
     const requestedLimit = Number(body?.limit);
     const limit = Number.isFinite(requestedLimit)
-      ? Math.max(1, Math.min(requestedLimit, 500))
+      ? Math.max(1, Math.min(requestedLimit, 2000))
       : (extratoIds.length > 0 || dateFrom || dateTo ? 200 : 50);
 
     // 1. Extrato não reconciliado (excluindo exceções manuais)
