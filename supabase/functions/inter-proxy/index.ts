@@ -65,6 +65,14 @@ function isAllowedInterRequest(path: string, method: string): boolean {
   ) {
     return true;
   }
+  // Structured statement endpoint used by inter-extrato. Keep this narrowly
+  // scoped to read-only ISO date ranges and bounded numeric pagination.
+  if (
+    method === "GET" &&
+    /^\/banking\/v2\/extrato\/completo\?dataInicio=\d{4}-\d{2}-\d{2}&dataFim=\d{4}-\d{2}-\d{2}&pagina=\d{1,5}&tamanhoPagina=(?:[1-9]|[1-9]\d|[1-4]\d{2}|500)$/.test(path)
+  ) {
+    return true;
+  }
   return false;
 }
 

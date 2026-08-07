@@ -72,6 +72,36 @@ function extrairNomeDescricao(descricao: unknown): string | null {
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+function parseMoney(value: unknown): number {
+  if (typeof value === "number") return Math.abs(value);
+  const raw = String(value ?? "").trim().replace(/\s/g, "");
+  if (!raw) return 0;
+  const normalized = raw.includes(",")
+    ? raw.replace(/\./g, "").replace(",", ".")
+    : raw;
+  return Math.abs(Number(normalized));
+}
+
+function normalizeBankTimestamp(value: unknown, fallbackDate: string): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return `${fallbackDate}T12:00:00-03:00`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return `${raw}T12:00:00-03:00`;
+
+  const brDate = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (brDate) {
+    const [, day, month, year, hour = "12", minute = "00", second = "00"] = brDate;
+    return `${year}-${month}-${day}T${hour}:${minute}:${second}-03:00`;
+  }
+
+  const withZone = /(?:Z|[+-]\d{2}:\d{2})$/.test(raw)
+    ? raw
+    : `${raw.replace(" ", "T").replace(/\.000$/, "")}-03:00`;
+  if (Number.isNaN(Date.parse(withZone))) {
+    throw new Error(`Data/hora inválida recebida do Inter: ${raw}`);
+  }
+  return withZone;
+}
+
 /** Split a date range into monthly chunks */
 function splitMonthlyChunks(dataInicio: string, dataFim: string): Array<{ start: string; end: string }> {
   const chunks: Array<{ start: string; end: string }> = [];
@@ -146,6 +176,7 @@ serve(async (req) => {
     console.log(`[inter-extrato] Período ${dataInicio} → ${dataFim}: ${chunks.length} chunk(s)`);
 
     let totalInserted = 0, totalSkipped = 0, totalErrors = 0, totalTx = 0;
+    const errorSamples: Array<Record<string, unknown>> = [];
     let endpointUsado = "";
     let endpointRich  = false;
 
@@ -293,6 +324,7 @@ serve(async (req) => {
       if (!transacoes) {
         console.warn(`[inter-extrato] Chunk ${chunk.start}→${chunk.end}: todos endpoints falharam, pulando...`);
         totalErrors++;
+        errorSamples.push({ chunk, error: "Todos os endpoints do Inter falharam" });
         continue;
       }
 
@@ -337,19 +369,44 @@ serve(async (req) => {
           }
 
           const chavePix     = det.chavePixRecebedor ?? det.chavePixBeneficiario ?? det.chavePixPagador ?? det.chave ?? null;
-          const codigoBarras = det.codigoBarras ?? null;
+          const codigoBarras = det.codigoBarras ?? det.codBarras ?? null;
           const realId       = det.endToEndId ?? tx.endToEndId ?? tx.codigoTransacao ?? codigoBarras ?? null;
-          const valor        = Math.abs(parseFloat(String(tx.valor ?? "0").replace(",", ".")));
-          const dataHoraRaw  = tx.dataHora ?? tx.dataInclusao ?? tx.dataEntrada ?? tx.dataMovimento ?? now.toISOString();
-          const dataHora = (() => {
-            const s = String(dataHoraRaw).trim();
-            if (/[+-]\d{2}:\d{2}$/.test(s) || s.endsWith("Z")) return s;
-            const iso = s.replace(" ", "T").replace(/\.000$/, "");
-            return `${iso}-03:00`;
-          })();
+          const bankTxId     = tx.idTransacao ?? tx.id ?? null;
+          const valor        = parseMoney(tx.valor);
+          if (!Number.isFinite(valor) || valor <= 0) {
+            throw new Error(`Valor inválido recebido do Inter: ${String(tx.valor ?? "")}`);
+          }
+          const fallbackDate = String(tx.dataTransacao ?? det.dataTransacao ?? dataFim).substring(0, 10);
+          const dataHoraRaw  = tx.dataHora ?? tx.dataInclusao ?? det.dataTransacao ?? tx.dataEntrada ?? tx.dataMovimento ?? tx.dataTransacao;
+          const dataHora     = normalizeBankTimestamp(dataHoraRaw, fallbackDate);
+
+          // Historical rows used a synthetic id even when idTransacao was
+          // present in payload_raw. Reuse those rows during recovery so the
+          // same bank movement is never duplicated.
+          if (!realId && bankTxId) {
+            const { data: byBankId, error: bankIdErr } = await supabase
+              .from("fin_extrato_inter")
+              .select("id, nome_contraparte, cpf_cnpj")
+              .contains("payload_raw", { idTransacao: bankTxId })
+              .limit(1);
+            if (bankIdErr) throw bankIdErr;
+            if (byBankId?.length) {
+              const existing = byBankId[0] as any;
+              const patch: any = { payload_raw: tx };
+              if (nomeContraparte && !existing.nome_contraparte) {
+                patch.nome_contraparte = nomeContraparte;
+                patch.contrapartida = nomeContraparte;
+              }
+              if (cpfCnpj && !existing.cpf_cnpj) patch.cpf_cnpj = cpfCnpj;
+              const { error: updateErr } = await supabase.from("fin_extrato_inter").update(patch).eq("id", existing.id);
+              if (updateErr) throw updateErr;
+              skipped++;
+              continue;
+            }
+          }
 
           // Dedup without endToEndId: ±2 day window
-          if (!realId) {
+          if (!realId && !bankTxId) {
             const base = new Date(dataHora);
             const df   = new Date(base.getTime() - 2*86400000).toISOString().substring(0,10);
             const dt   = new Date(base.getTime() + 2*86400000).toISOString().substring(0,10);
@@ -400,7 +457,7 @@ serve(async (req) => {
             }
           }
 
-          const endToEndId = realId ?? `${String(dataHora).substring(0,10)}-${valor}-${tipo}`;
+          const endToEndId = realId ?? bankTxId ?? `${String(dataHora).substring(0,10)}-${valor}-${tipo}`;
 
           const record: any = {
             end_to_end_id: endToEndId,
@@ -423,11 +480,34 @@ serve(async (req) => {
             .from("fin_extrato_inter")
             .upsert(record, { onConflict: "end_to_end_id", ignoreDuplicates: false });
 
-          if (upsertErr) { console.error("[inter-extrato] upsert:", upsertErr.message); errors++; }
-          else inserted++;
+          if (upsertErr) {
+            console.error("[inter-extrato] upsert:", upsertErr.message);
+            if (errorSamples.length < 10) {
+              errorSamples.push({
+                chunk,
+                id: endToEndId,
+                data_hora: dataHora,
+                valor,
+                code: upsertErr.code,
+                error: upsertErr.message,
+                details: upsertErr.details,
+                hint: upsertErr.hint,
+              });
+            }
+            errors++;
+          } else inserted++;
 
         } catch (txErr) {
           console.error("[inter-extrato] tx error:", (txErr as Error).message);
+          if (errorSamples.length < 10) {
+            errorSamples.push({
+              chunk,
+              id: tx?.idTransacao ?? tx?.endToEndId ?? null,
+              data: tx?.dataHora ?? tx?.dataInclusao ?? tx?.dataTransacao ?? null,
+              valor: tx?.valor ?? null,
+              error: (txErr as Error).message,
+            });
+          }
           errors++;
         }
       }
@@ -445,23 +525,29 @@ serve(async (req) => {
         status: totalErrors > 0 ? "partial" : "success",
         duracao_ms: duracao,
         payload: { dataInicio, dataFim, chunks: chunks.length, endpoint: endpointUsado, rich: endpointRich },
-        resposta: { total: totalTx, inserted: totalInserted, skipped: totalSkipped, errors: totalErrors },
+        resposta: { total: totalTx, inserted: totalInserted, skipped: totalSkipped, errors: totalErrors, error_samples: errorSamples },
       });
     } catch { /* não bloquear */ }
 
-    console.log("[inter-extrato] Disparando reconciliation-engine...");
-    const reconRes  = await fetch(`${supabaseUrl}/functions/v1/reconciliation-engine`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-      body: JSON.stringify({}),
-    });
-    const reconData = await reconRes.json().catch(() => ({ error: "parse error" }));
+    if (totalErrors > 0) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `Falha ao importar ${totalErrors} transação(ões) do Banco Inter`,
+          extrato: { total: totalTx, inserted: totalInserted, skipped: totalSkipped, errors: totalErrors, duracao_ms: duracao, endpoint: endpointUsado, chunks: chunks.length },
+          error_samples: errorSamples,
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     return new Response(
       JSON.stringify({
         success: true,
         extrato: { total: totalTx, inserted: totalInserted, skipped: totalSkipped, errors: totalErrors, duracao_ms: duracao, endpoint: endpointUsado, chunks: chunks.length },
-        reconciliacao: reconData,
+        // The orchestrator runs reconciliation after refreshing GC titles.
+        // Running it here used stale data and caused a duplicate pass.
+        reconciliacao: { skipped: true, reason: "executada pelo orquestrador após sincronizar títulos GC" },
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
