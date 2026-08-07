@@ -171,10 +171,15 @@ async function baixarNoGC(
     plano_contas_id: payloadAtual.plano_contas_id,
     forma_pagamento_id: payloadAtual.forma_pagamento_id,
     conta_bancaria_id: payloadAtual.conta_bancaria_id,
-    liquidado: "1",
+    liquidado: 1,
     data_liquidacao: dataLiquidacao,
     usuario_id: GC_API_USER_ID,
   };
+
+  // O GC exige a entidade vinculada no PUT financeiro.
+  if (payloadAtual.cliente_id) payload.cliente_id = payloadAtual.cliente_id;
+  if (payloadAtual.fornecedor_id) payload.fornecedor_id = payloadAtual.fornecedor_id;
+  if (payloadAtual.entidade) payload.entidade = payloadAtual.entidade;
 
   try {
     const res = await fetch(`${GC_BASE_URL}/api/${endpoint}/${gcId}`, {
