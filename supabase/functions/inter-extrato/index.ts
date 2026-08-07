@@ -347,6 +347,8 @@ serve(async (req) => {
       let inserted = 0, skipped = 0, errors = 0;
 
       for (const tx of transacoes) {
+        if (expirou()) { truncado = true; break; }
+
         try {
           const det    = tx.detalhe ?? tx.detalhes ?? {};
           const tipoOp = (tx.tipoOperacao ?? "").toUpperCase();
