@@ -139,9 +139,8 @@ async function baixarNoGC(
   dataLiquidacao: string,
   extratos: ExtratoInfo[]
 ): Promise<{ ok: boolean; erro?: string }> {
-  // PUT /pagamentos e /recebimentos do GC: o campo para mudar a situação
-  // é `id_situacao` (NÃO `situacao_id` — este último causa "Erro ao salvar dados").
-  // Setamos id_situacao = 949476 ("Confirmado Argus") para tirar da situação "Atrasado".
+  // No financeiro do GC, a situação "Confirmado" é derivada de liquidado="1".
+  // Não envie id_situacao: esse campo é rejeitado pelo PUT de pagamentos/recebimentos.
   // Também gravamos observação com detalhes do extrato conciliado.
   // Recarrega o financeiro antes do PUT. O payload salvo localmente é um snapshot e pode
   // estar defasado; o GC rejeita a gravação quando campos obrigatórios ou vínculos mudaram.
@@ -172,9 +171,8 @@ async function baixarNoGC(
     plano_contas_id: payloadAtual.plano_contas_id,
     forma_pagamento_id: payloadAtual.forma_pagamento_id,
     conta_bancaria_id: payloadAtual.conta_bancaria_id,
-    liquidado: 1,
+    liquidado: "1",
     data_liquidacao: dataLiquidacao,
-    id_situacao: SITUACAO_CONFIRMADO_ARGUS,
     observacao: obsFinal,
     usuario_id: GC_API_USER_ID,
   };
