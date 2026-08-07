@@ -133,7 +133,7 @@ async function fetchWithRetry(
     const res = await fetch(url, options);
     if (res.status === 429 || res.status === 500 || res.status === 503) {
       if (attempt < maxRetries) {
-        const delay = (attempt + 1) * 6000; // 6s, 12s, 18s
+        const delay = (attempt + 1) * 2000; // 2s, 4s
         console.warn(`[inter-extrato] ${label} → HTTP ${res.status}, aguardando ${delay / 1000}s (tentativa ${attempt + 1}/${maxRetries})...`);
         await sleep(delay);
         continue;
