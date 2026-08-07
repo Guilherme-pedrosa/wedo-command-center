@@ -16,7 +16,7 @@ import { format, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay } fro
 import { cn } from "@/lib/utils";
 import { ptBR } from "date-fns/locale";
 import toast from "react-hot-toast";
-import { buscarExtratoInter, syncRecebimentosGC, syncPagamentosGC } from "@/api/financeiro";
+import { buscarExtratoInter, syncByMonthChunks } from "@/api/financeiro";
 
 const GC_BASE = "https://gestaoclick.com";
 
@@ -256,11 +256,12 @@ export default function ConciliacaoPage() {
         dataInicio: format(dateFrom, "yyyy-MM-dd"),
         dataFim: format(dateTo, "yyyy-MM-dd"),
       };
-      const [r, p] = await Promise.all([
-        syncRecebimentosGC(undefined, filtros),
-        syncPagamentosGC(undefined, filtros),
-      ]);
-      toast.success(`GC sincronizado: ${r.importados} receb., ${p.importados} pagam.`);
+      const result = await syncByMonthChunks(filtros);
+      if (result.baixaGC && !result.baixaGC.ok) {
+        toast.error(`GC sincronizado, mas ${result.baixaGC.falha} baixa(s) não foram confirmadas.`);
+      } else {
+        toast.success(`GC sincronizado: ${result.importados} financeiros, ${result.conciliacao?.conciliados ?? 0} conciliados e ${result.baixaGC?.sucesso ?? 0} confirmados.`);
+      }
       invalidateAll();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao sincronizar GC");
