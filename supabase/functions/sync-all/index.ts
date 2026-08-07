@@ -1429,7 +1429,11 @@ serve(async (req) => {
           const reconRes = await fetch(`${supabaseUrl}/functions/v1/reconciliation-engine`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-            body: JSON.stringify({}),
+            body: JSON.stringify({
+              dateFrom: `${dataInicio}T00:00:00-03:00`,
+              dateTo: `${dataFim}T23:59:59-03:00`,
+              limit: 2000,
+            }),
           });
           const reconText = await reconRes.text();
           if (!reconRes.ok) console.error(`[sync-all] reconciliation-engine HTTP ${reconRes.status}: ${reconText.substring(0, 700)}`);
@@ -1437,7 +1441,13 @@ serve(async (req) => {
           const baixaRes = await fetch(`${supabaseUrl}/functions/v1/argus-baixa-confirmada`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-            body: JSON.stringify({ mode: "auto", scope: "ambos", forceConfirmSituacao: true }),
+            body: JSON.stringify({
+              mode: "auto",
+              scope: "ambos",
+              dataInicio,
+              dataFim,
+              forceConfirmSituacao: true,
+            }),
           });
           const baixaText = await baixaRes.text();
           if (!baixaRes.ok) console.error(`[sync-all] argus-baixa-confirmada HTTP ${baixaRes.status}: ${baixaText.substring(0, 700)}`);

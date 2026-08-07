@@ -33,6 +33,23 @@ const gcHeaders = {
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const GC_MIN_INTERVAL_MS = 450;
+let lastGcRequestAt = 0;
+
+async function gcFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  let lastResponse: Response | null = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const wait = GC_MIN_INTERVAL_MS - (Date.now() - lastGcRequestAt);
+    if (wait > 0) await sleep(wait);
+    lastGcRequestAt = Date.now();
+    const response = await fetch(url, options);
+    lastResponse = response;
+    if (response.status !== 403 && response.status !== 429 && response.status < 500) return response;
+    if (attempt < 3) await sleep(750 * 2 ** attempt);
+  }
+  if (lastResponse) return lastResponse;
+  throw new Error("Falha ao comunicar com o GestãoClick");
+}
 
 function isLiquidadoGC(value: unknown): boolean {
   const normalized = String(value ?? "").toLowerCase().trim();
@@ -146,7 +163,7 @@ async function baixarNoGC(
   // estar defasado; o GC rejeita a gravação quando campos obrigatórios ou vínculos mudaram.
   let payloadAtual = payloadRaw;
   try {
-    const getRes = await fetch(`${GC_BASE_URL}/api/${endpoint}/${gcId}`, { headers: gcHeaders });
+    const getRes = await gcFetch(`${GC_BASE_URL}/api/${endpoint}/${gcId}`, { headers: gcHeaders });
     if (getRes.ok) {
       const getBody = await getRes.json();
       // O GC responde tanto { data: registro } quanto { data: { data: registro } }.
@@ -198,7 +215,7 @@ async function baixarNoGC(
   }
 
   try {
-    const res = await fetch(`${GC_BASE_URL}/api/${endpoint}/${gcId}`, {
+    const res = await gcFetch(`${GC_BASE_URL}/api/${endpoint}/${gcId}`, {
       method: "PUT",
       headers: gcHeaders,
       body: JSON.stringify(payload),
@@ -410,9 +427,31 @@ async function buscarPendentes(dataInicio?: string, dataFim?: string, scope: Bai
     }
     console.log(`[buscarPendentes] ${table}: extratosValidos=${validExtratos.size}`);
 
+    const linkedLancamentoIds = Array.from(new Set(
+      links.filter((link) => validExtratos.has(link.extrato_id)).map((link) => link.lancamento_id).filter(Boolean),
+    ));
+    const pendentes = new Set<string>();
+    for (let i = 0; i < linkedLancamentoIds.length; i += 100) {
+      const { data: lancamentos, error: lancErr } = await supabase
+        .from(table)
+        .select("id, gc_baixado, liquidado, status")
+        .in("id", linkedLancamentoIds.slice(i, i + 100));
+      if (lancErr) {
+        console.warn(`[buscarPendentes] Falha ao verificar pendências ${table}:`, lancErr.message);
+        continue;
+      }
+      for (const lanc of (lancamentos || []) as any[]) {
+        const status = String(lanc.status || "").toLowerCase();
+        if (status === "cancelado") continue;
+        if (lanc.gc_baixado !== true) pendentes.add(lanc.id);
+      }
+    }
+    console.log(`[buscarPendentes] ${table}: pendentesGC=${pendentes.size}`);
+
     let adicionados = 0;
     for (const link of links) {
       if (!validExtratos.has(link.extrato_id)) continue;
+      if (!pendentes.has(link.lancamento_id)) continue;
       const key = `${table}|${link.lancamento_id}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -429,7 +468,9 @@ async function buscarPendentes(dataInicio?: string, dataFim?: string, scope: Bai
 }
 
 async function runBaixaBatch(alvos: LinkInput[], options: BaixaOptions = {}): Promise<BaixaResult[]> {
-  const CONCURRENCY = 5;
+  // A API do GC bloqueia rajadas paralelas com 403. Uma fila serial com rate limit
+  // é mais rápida no resultado final porque evita centenas de rejeições e retries.
+  const CONCURRENCY = 1;
   const resultados: BaixaResult[] = [];
   let cursor = 0;
   async function worker() {
@@ -483,13 +524,35 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Modo auto com muitos alvos: roda em background pra não estourar 150s idle timeout
-    if (mode === "auto" && background) {
+    // Processa em lotes encadeados para cada execução ficar abaixo do timeout do runtime.
+    // O próximo lote recebe IDs explícitos, portanto não repete falhas do lote anterior.
+    if (background) {
+      const BATCH_SIZE = 50;
+      const lote = alvos.slice(0, BATCH_SIZE);
+      const restantes = alvos.slice(BATCH_SIZE);
       const task = (async () => {
         try {
-          const r = await runBaixaBatch(alvos, options);
+          const r = await runBaixaBatch(lote, options);
           const ok = r.filter((x) => x.ok).length;
-          console.log(`[argus-baixa-confirmada/bg] concluído: ${ok}/${r.length}`);
+          console.log(`[argus-baixa-confirmada/bg] lote concluído: ${ok}/${r.length}; restantes=${restantes.length}`);
+          if (restantes.length > 0) {
+            const nextResponse = await fetch(`${SUPABASE_URL}/functions/v1/argus-baixa-confirmada`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+              },
+              body: JSON.stringify({
+                mode: "links",
+                links: restantes,
+                forceConfirmSituacao: options.forceConfirmSituacao === true,
+                background: true,
+              }),
+            });
+            if (!nextResponse.ok) {
+              console.error(`[argus-baixa-confirmada/bg] falha ao encadear lote: HTTP ${nextResponse.status}`);
+            }
+          }
         } catch (e) {
           console.error("[argus-baixa-confirmada/bg] erro:", e);
         }
@@ -500,7 +563,7 @@ Deno.serve(async (req) => {
         EdgeRuntime.waitUntil(task);
       }
       return new Response(
-        JSON.stringify({ ok: true, dispatched: alvos.length, background: true }),
+        JSON.stringify({ ok: true, dispatched: alvos.length, lote: lote.length, background: true }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
