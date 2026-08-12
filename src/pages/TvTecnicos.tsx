@@ -76,10 +76,13 @@ export default function TvTecnicos() {
       if (data?.ok === false) throw new Error(data.error || 'Erro ao calcular premiação da TV');
       return (data?.ordens || []) as OsRow[];
     },
-    staleTime: 2 * 60 * 1000,
-    refetchInterval: 60 * 1000,
-    refetchIntervalInBackground: true,
+    staleTime: 15 * 60 * 1000,
+    refetchInterval: 15 * 60 * 1000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
+
 
   // Fetch last API sync timestamp (new log table + fallback)
   const { data: lastSync } = useQuery({
@@ -136,15 +139,9 @@ export default function TvTecnicos() {
       .channel(`tv-tecnicos-refresh-${year}-${month}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'os_index' },
-        () => qc.invalidateQueries({ queryKey: ['os_index_tecnicos', year, month] })
-      )
-      .on(
-        'postgres_changes',
         { event: '*', schema: 'public', table: 'fin_os_retornos' },
         () => {
           qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] });
-          qc.invalidateQueries({ queryKey: ['os_index_tecnicos', year, month] });
         }
       )
       .on(

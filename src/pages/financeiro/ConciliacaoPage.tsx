@@ -427,13 +427,7 @@ export default function ConciliacaoPage() {
 
           // 2) Atualiza o lançamento conforme tipo
           let tabela = "recebimentos";
-          if (tipo === "recebimento") {
-            await supabase.from("fin_recebimentos").update({ pago_sistema: true, pago_sistema_em: now }).eq("id", lancamentoId);
-            tabela = "recebimentos";
-          } else if (tipo === "pagamento") {
-            await supabase.from("fin_pagamentos").update({ pago_sistema: true, pago_sistema_em: now }).eq("id", lancamentoId);
-            tabela = "pagamentos";
-          } else if (tipo === "grupo_receber") {
+          if (tipo === "grupo_receber") {
             await supabase.from("fin_grupos_receber").update({ status: "pago", data_pagamento: now }).eq("id", lancamentoId);
             tabela = "grupos_receber";
           } else if (tipo === "grupo_pagar") {

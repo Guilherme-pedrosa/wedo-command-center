@@ -15,7 +15,7 @@ export async function reconcileExtratoAtomic(
 ) {
   const { data, error } = await supabase.rpc("fin_reconcile_extrato_atomic", {
     p_extrato_id: extratoId,
-    p_links: links,
+    p_links: links as unknown as never,
     p_reconciliation_rule: reconciliationRule,
   });
 
