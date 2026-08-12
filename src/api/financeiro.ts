@@ -1075,7 +1075,7 @@ export async function syncByMonthChunks(
   try {
     onStep?.("Importando extrato do Banco Inter...");
     const extrato = await buscarExtratoInter(extratoInicio, normalizedDataFim);
-    totals.extrato = { ok: true, processados: extrato.length };
+    totals.extrato = { ok: true, processados: extrato.total };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     totals.extrato = { ok: false, processados: 0, error: message };
