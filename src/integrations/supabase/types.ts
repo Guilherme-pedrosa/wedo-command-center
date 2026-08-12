@@ -4088,6 +4088,39 @@ export type Database = {
         }
         Relationships: []
       }
+      tv_tecnicos_premiacao_cache: {
+        Row: {
+          ano: number
+          cache_key: string
+          mes: number
+          payload: Json | null
+          refresh_started_at: string | null
+          refreshed_at: string | null
+          refreshing: boolean
+          updated_at: string
+        }
+        Insert: {
+          ano: number
+          cache_key: string
+          mes: number
+          payload?: Json | null
+          refresh_started_at?: string | null
+          refreshed_at?: string | null
+          refreshing?: boolean
+          updated_at?: string
+        }
+        Update: {
+          ano?: number
+          cache_key?: string
+          mes?: number
+          payload?: Json | null
+          refresh_started_at?: string | null
+          refreshed_at?: string | null
+          refreshing?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           id: string
@@ -4327,6 +4360,10 @@ export type Database = {
       }
     }
     Functions: {
+      claim_tv_tecnicos_premiacao_cache: {
+        Args: { p_ano: number; p_mes: number; p_ttl_seconds?: number }
+        Returns: Json
+      }
       fin_reconcile_extrato_atomic: {
         Args: {
           p_extrato_id: string
