@@ -2,6 +2,9 @@
 // → 9203836 (CHAMADO FECHADO - FATURADO). NÃO toca em financeiros (omite
 // pagamentos, condicao_pagamento, forma_pagamento_id, data_primeira_parcela,
 // numero_parcelas, intervalo_dias). Disparado após criação de grupo a receber.
+import { installGcUsuarioId } from "../_shared/gc-user.ts";
+installGcUsuarioId();
+
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {

@@ -1,3 +1,6 @@
+import { installGcUsuarioId } from "../_shared/gc-user.ts";
+installGcUsuarioId();
+
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const corsHeaders = {
@@ -7,6 +10,7 @@ const corsHeaders = {
 };
 
 const GC_BASE_URL = "https://api.gestaoclick.com";
+const CACHE_TTL_SECONDS = 15 * 60;
 
 const OS_EXECUTADOS_STATUS = [
   "EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA",
@@ -203,6 +207,9 @@ async function fetchOsDetail(osId: string, gcHeaders: Record<string, string>): P
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  let cacheClient: any = null;
+  let claimedCacheKey: string | null = null;
+
   try {
     const { year, month } = await req.json().catch(() => ({ year: null, month: null }));
     const y = Number(year);
@@ -219,6 +226,75 @@ Deno.serve(async (req) => {
     const end = `${y}-${mm}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    cacheClient = supabase;
+    const cacheKey = `${y}-${mm}`;
+
+    // Uma TV pode ficar aberta em várias telas ao mesmo tempo. O lock no banco
+    // garante que apenas uma delas faça o fanout de detalhes de OS no GC.
+    const { data: claimData, error: claimError } = await supabase.rpc(
+      "claim_tv_tecnicos_premiacao_cache",
+      { p_ano: y, p_mes: m, p_ttl_seconds: CACHE_TTL_SECONDS },
+    );
+    if (claimError) {
+      // Compatibilidade durante a implantação: se a migration ainda não chegou,
+      // a função continua respondendo, mas registra que operou sem cache.
+      console.warn("[tv-tecnicos-premiacao] cache indisponível", claimError.message);
+    } else {
+      const claim = claimData as {
+        state?: "fresh" | "refreshing" | "claimed";
+        payload?: Record<string, unknown> | null;
+        refreshed_at?: string | null;
+      } | null;
+      const cachedPayload = claim?.payload && typeof claim.payload === "object"
+        ? claim.payload
+        : null;
+
+      if (claim?.state === "fresh" && cachedPayload) {
+        return new Response(JSON.stringify({
+          ...cachedPayload,
+          cache: {
+            status: "fresh",
+            refreshed_at: claim.refreshed_at ?? null,
+            ttl_seconds: CACHE_TTL_SECONDS,
+          },
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (claim?.state === "refreshing") {
+        if (cachedPayload) {
+          return new Response(JSON.stringify({
+            ...cachedPayload,
+            cache: {
+              status: "stale_while_refreshing",
+              refreshed_at: claim.refreshed_at ?? null,
+              ttl_seconds: CACHE_TTL_SECONDS,
+            },
+          }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        return new Response(JSON.stringify({
+          ok: false,
+          retryable: true,
+          error: "Premiação em atualização. Tente novamente em instantes.",
+        }), {
+          status: 202,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+            "Retry-After": "5",
+          },
+        });
+      }
+
+      if (claim?.state === "claimed") claimedCacheKey = cacheKey;
+    }
+
     const gcHeaders = {
       "access-token": Deno.env.get("GC_ACCESS_TOKEN")!,
       "secret-access-token": Deno.env.get("GC_SECRET_TOKEN")!,
@@ -323,11 +399,44 @@ Deno.serve(async (req) => {
       });
     }
 
-    return new Response(JSON.stringify({ ok: true, year: y, month: m, ordens }), {
+    const payload = { ok: true, year: y, month: m, ordens };
+    if (claimedCacheKey) {
+      const now = new Date().toISOString();
+      const { error: cacheWriteError } = await supabase
+        .from("tv_tecnicos_premiacao_cache")
+        .upsert({
+          cache_key: claimedCacheKey,
+          ano: y,
+          mes: m,
+          payload,
+          refreshed_at: now,
+          refreshing: false,
+          refresh_started_at: null,
+          updated_at: now,
+        }, { onConflict: "cache_key" });
+      if (cacheWriteError) {
+        console.warn("[tv-tecnicos-premiacao] falha ao gravar cache", cacheWriteError.message);
+      }
+    }
+
+    return new Response(JSON.stringify({
+      ...payload,
+      cache: {
+        status: claimedCacheKey ? "refreshed" : "unavailable",
+        ttl_seconds: CACHE_TTL_SECONDS,
+      },
+    }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
+    if (cacheClient && claimedCacheKey) {
+      await cacheClient
+        .from("tv_tecnicos_premiacao_cache")
+        .update({ refreshing: false, refresh_started_at: null, updated_at: new Date().toISOString() })
+        .eq("cache_key", claimedCacheKey)
+        .then(() => undefined, () => undefined);
+    }
     return new Response(JSON.stringify({ ok: false, error: (error as Error).message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
