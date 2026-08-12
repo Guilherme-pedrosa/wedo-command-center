@@ -8,6 +8,7 @@ import { RetornoDialog } from '@/components/tv-tecnicos/RetornoDialog';
 import toast from 'react-hot-toast';
 
 const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const TV_PREMIACAO_REFRESH_MS = 15 * 60 * 1000;
 
 const formatBRL = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
@@ -76,8 +77,8 @@ export default function TvTecnicos() {
       if (data?.ok === false) throw new Error(data.error || 'Erro ao calcular premiação da TV');
       return (data?.ordens || []) as OsRow[];
     },
-    staleTime: 15 * 60 * 1000,
-    refetchInterval: 15 * 60 * 1000,
+    staleTime: TV_PREMIACAO_REFRESH_MS,
+    refetchInterval: TV_PREMIACAO_REFRESH_MS,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -184,7 +185,6 @@ export default function TvTecnicos() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] });
-      qc.invalidateQueries({ queryKey: ['os_index_tecnicos', year, month] });
       toast.success('OS marcada como retorno');
     },
     onError: (e: any) => toast.error(e.message || 'Erro ao marcar retorno'),
@@ -202,7 +202,6 @@ export default function TvTecnicos() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['fin_os_retornos', year, month] });
-      qc.invalidateQueries({ queryKey: ['os_index_tecnicos', year, month] });
       toast.success('Retorno desfeito');
     },
     onError: (e: any) => toast.error(e.message || 'Erro ao desfazer'),

@@ -6,6 +6,9 @@
 //   - data_liquidacao no GC = data do extrato (yyyy-mm-dd)
 //   - Pode rodar em modo "auto" (varre todos pendentes) ou "links" (lista específica)
 
+import { installGcUsuarioId } from "../_shared/gc-user.ts";
+installGcUsuarioId();
+
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 

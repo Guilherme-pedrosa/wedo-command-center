@@ -1,3 +1,6 @@
+import { GC_API_USER_ID, installGcUsuarioId } from "../_shared/gc-user.ts";
+installGcUsuarioId();
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
@@ -51,17 +54,21 @@ serve(async (req) => {
       );
     }
 
-    // Build URL with query params
-    let url = `${GC_BASE_URL}${endpoint}`;
+    // O proxy é a fronteira central: qualquer usuario_id recebido do cliente é
+    // descartado e substituído pelo usuário técnico da API.
+    const url = new URL(`${GC_BASE_URL}${endpoint}`);
     if (params && Object.keys(params).length > 0) {
-      const searchParams = new URLSearchParams(params);
-      url += `?${searchParams.toString()}`;
+      for (const [key, value] of Object.entries(params)) {
+        url.searchParams.set(key, String(value));
+      }
     }
+    url.searchParams.set("usuario_id", GC_API_USER_ID);
 
     const gcHeaders: Record<string, string> = {
       "access-token": gcAccessToken,
       "secret-access-token": gcSecretToken,
       "Content-Type": "application/json",
+      "usuario-id": GC_API_USER_ID,
     };
 
     const fetchOptions: RequestInit = {
@@ -70,11 +77,14 @@ serve(async (req) => {
     };
 
     if (payload && ["POST", "PUT", "PATCH"].includes(method.toUpperCase())) {
-      fetchOptions.body = JSON.stringify(payload);
+      const protectedPayload = typeof payload === "object" && !Array.isArray(payload)
+        ? { ...payload, usuario_id: GC_API_USER_ID }
+        : payload;
+      fetchOptions.body = JSON.stringify(protectedPayload);
     }
 
     const startTime = Date.now();
-    const response = await rateLimitedFetch(url, fetchOptions);
+    const response = await rateLimitedFetch(url.toString(), fetchOptions);
     const duration = Date.now() - startTime;
 
     const responseText = await response.text();

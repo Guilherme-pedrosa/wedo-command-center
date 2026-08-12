@@ -1,4 +1,6 @@
 import { auth, defineMcp } from "@lovable.dev/mcp-js";
+import { installGcUsuarioId } from "../../../supabase/functions/_shared/gc-user-core.ts";
+import { GC_API_USER_ID } from "../../../supabase/functions/_shared/gc-user-id.ts";
 import listOpenReceivables from "./tools/list-open-receivables";
 import listOpenPayables from "./tools/list-open-payables";
 import financeSummary from "./tools/finance-summary";
@@ -8,6 +10,8 @@ import { gcCatalogWriteTools } from "./tools/gc-catalog-write";
 import { gcSaleWriteTools } from "./tools/gc-sale-write";
 import { gcWriteTools } from "./tools/gc-write";
 import { auvoTools } from "./tools/auvo";
+
+installGcUsuarioId(GC_API_USER_ID);
 
 // Build the direct Supabase issuer from the project ref (Vite inlines this at build).
 const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unset";

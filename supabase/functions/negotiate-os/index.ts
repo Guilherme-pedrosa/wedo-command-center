@@ -1,3 +1,6 @@
+import { GC_API_USER_ID, installGcUsuarioId } from "../_shared/gc-user.ts";
+installGcUsuarioId();
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -342,37 +345,8 @@ serve(async (req) => {
     );
 
     const body: NegotiateRequest = await req.json();
-    const authHeader = req.headers.get("Authorization");
-    let actingGcUserId: string | null = null;
-
-    if (authHeader) {
-      try {
-        const callerClient = createClient(
-          Deno.env.get("SUPABASE_URL")!,
-          Deno.env.get("SUPABASE_ANON_KEY")!,
-          { global: { headers: { Authorization: authHeader } } }
-        );
-
-        const { data: { user } } = await callerClient.auth.getUser();
-        if (user) {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("gc_codigo")
-            .eq("id", user.id)
-            .maybeSingle();
-
-          const gcCodigo = String(profile?.gc_codigo ?? "").trim();
-          if (gcCodigo) {
-            actingGcUserId = gcCodigo;
-            console.log(`[negotiate-os] usando usuario_id GC ${actingGcUserId} do usuário autenticado`);
-          } else {
-            console.warn(`[negotiate-os] usuário ${user.id} sem gc_codigo; mantendo usuário padrão do GC`);
-          }
-        }
-      } catch (authErr) {
-        console.warn(`[negotiate-os] falha ao resolver gc_codigo do usuário autenticado: ${(authErr as Error).message}`);
-      }
-    }
+    // Toda operação automática pertence ao usuário técnico, nunca ao perfil humano.
+    const actingGcUserId = GC_API_USER_ID;
 
     // ─── LIST ──────────────────────────────────────────────
     if (body.action === "list") {

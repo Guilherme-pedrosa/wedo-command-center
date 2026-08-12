@@ -1,5 +1,8 @@
 // Enrichment de compras: GET /api/compras/{id} para popular numero_nfe + itens.
 // Padrão checkpoint FASE D: HTTP 202 quando timeout, HTTP 200 quando completo.
+import { installGcUsuarioId } from "../_shared/gc-user.ts";
+installGcUsuarioId();
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
