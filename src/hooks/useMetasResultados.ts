@@ -368,6 +368,23 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
     return { faturamento, custo };
   }, [vendasBalcaoRows]);
 
+  // Comissões / Premiações: valor oficial vem da tela de Premiação do projeto "Auvo GC Sync"
+  // (comissao_final = bruto − reduções + bônus de meta/telemetria).
+  const { data: premiacaoTotais, isLoading: loadingPremiacao, refetch: refetchPremiacao } = useQuery({
+    queryKey: ['premiacao_comissoes_total', year, month],
+    queryFn: async () => {
+      const monthStr = `${year}-${String(month).padStart(2, '0')}`;
+      const { data, error } = await supabase.functions.invoke('premiacao-comissoes-total', {
+        body: { month: monthStr },
+      });
+      if (error) throw error;
+      if (data?.ok === false) throw new Error(data.error || 'Falha ao buscar premiações');
+      return data as { comissao_total: number; comissao_final: number; faturamento_premiacao: number };
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+  const comissoesPremiacao = Number(premiacaoTotais?.comissao_final) || 0;
+
   // Custo de Venda de Produtos (concretizadas que entraram no faturamento)
   const custoVendasProdutos = useMemo(() => {
     return vendasConcretizadas.reduce((acc, v) => {
