@@ -421,6 +421,10 @@ export const useMetasResultados = (year: number, month: number) => {
       else if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto') || nome.includes('peça'))) {
         realizado = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
       }
+      else if (meta.categoria === 'custo_variavel' && nome.includes('venda') && nome.includes('produto')) {
+        // Custo real (valor_custo GC) das vendas de produtos concretizadas no período
+        realizado = custoVendasProdutos;
+      }
       else if (meta.categoria === 'custo_variavel' && (nome.includes('peça') || nome.includes('estoque'))) {
         // Custo da operação = custo REAL das peças que saíram do estoque para OS no período
         // + custo das saídas internas (Uso Interno / Maleta) que também consomem estoque.
