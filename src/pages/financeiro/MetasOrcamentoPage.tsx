@@ -184,7 +184,7 @@ export default function MetasOrcamentoPage() {
   const [selectedYear, setSelectedYear]   = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
 
-  const { metasComResultado, execTotal, isLoading, refetch, hasOsData, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos } = useMetasResultados(selectedYear, selectedMonth);
+  const { metasComResultado, execTotal, isLoading, refetch, hasOsData, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -413,7 +413,6 @@ export default function MetasOrcamentoPage() {
             : custosVar.flatMap(m => {
                 const n = (m.nome || '').toLowerCase();
                 const isPecas = n.includes('peça') || n.includes('peca') || n.includes('operaç') || n.includes('operac') || n.includes('estoque');
-                const isVendas = n.includes('venda') || n.includes('produto');
                 const row = <MetaRow key={m.id} m={m} execTotal={execTotal} />;
 
                 if (isPecas) {
