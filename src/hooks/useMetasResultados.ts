@@ -585,5 +585,5 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
 
   const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
 
-  return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, dataUpdatedAt: osDataUpdatedAt };
+  return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
 };
