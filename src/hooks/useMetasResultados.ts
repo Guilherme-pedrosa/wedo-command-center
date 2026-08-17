@@ -368,6 +368,23 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
     return { faturamento, custo };
   }, [vendasBalcaoRows]);
 
+  // Comissões / Premiações: valor oficial vem da tela de Premiação do projeto "Auvo GC Sync"
+  // (comissao_final = bruto − reduções + bônus de meta/telemetria).
+  const { data: premiacaoTotais, isLoading: loadingPremiacao, refetch: refetchPremiacao } = useQuery({
+    queryKey: ['premiacao_comissoes_total', year, month],
+    queryFn: async () => {
+      const monthStr = `${year}-${String(month).padStart(2, '0')}`;
+      const { data, error } = await supabase.functions.invoke('premiacao-comissoes-total', {
+        body: { month: monthStr },
+      });
+      if (error) throw error;
+      if (data?.ok === false) throw new Error(data.error || 'Falha ao buscar premiações');
+      return data as { comissao_total: number; comissao_final: number; faturamento_premiacao: number };
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+  const comissoesPremiacao = Number(premiacaoTotais?.comissao_final) || 0;
+
   // Custo de Venda de Produtos (concretizadas que entraram no faturamento)
   const custoVendasProdutos = useMemo(() => {
     return vendasConcretizadas.reduce((acc, v) => {
@@ -403,7 +420,11 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
       let realizado = 0;
       const nome = meta.nome.toLowerCase();
 
-      if (meta.categoria === 'receita' && (nome.includes('contrato') || nome.includes('pcm'))) {
+      // Comissões / Premiações (Técnicos): fonte oficial = tela de Premiação (Auvo GC Sync)
+      if (meta.categoria !== 'receita' && (nome.includes('comiss') || nome.includes('premia'))) {
+        realizado = comissoesPremiacao;
+      }
+      else if (meta.categoria === 'receita' && (nome.includes('contrato') || nome.includes('pcm'))) {
         realizado = gcRecPCM
           .filter(r => r.plano_contas_id === '27867721')
           .reduce((acc, r) => acc + (r.valor || 0), 0);
@@ -531,7 +552,7 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, planoContasMap, uuidToGcId, centrosCustoMap, includeCommercial]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, comissoesPremiacao, planoContasMap, uuidToGcId, centrosCustoMap, includeCommercial]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
@@ -559,10 +580,10 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
 
 
   const refetch = useCallback(() => {
-    refetchRec(); refetchPag(); refetchPagComp(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo();
-  }, [refetchRec, refetchPag, refetchPagComp, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchAuvo]);
+    refetchRec(); refetchPag(); refetchPagComp(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo(); refetchPremiacao();
+  }, [refetchRec, refetchPag, refetchPagComp, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchAuvo, refetchPremiacao]);
 
   const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
 
-  return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, dataUpdatedAt: osDataUpdatedAt };
+  return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
 };
