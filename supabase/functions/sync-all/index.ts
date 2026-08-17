@@ -1022,7 +1022,12 @@ serve(async (req) => {
     // (GC API has 350ms between calls — parallel would conflict)
     // ═══════════════════════════════════════════════════════════
 
+    // Toda a carga pesada roda dentro desta closure. Em modo background ela é
+    // executada via EdgeRuntime.waitUntil para não estourar o idle timeout (150s).
+    const runHeavy = async () => {
+
     // 1. Sync OS
+
     console.log("[sync-all] ── Module 1/6: OS ──");
     results.os = await syncOS(gcHeaders, supabase);
     console.log(`[sync-all] OS done: ${results.os.upserted} upserted (${results.os.duration_ms}ms)`);
