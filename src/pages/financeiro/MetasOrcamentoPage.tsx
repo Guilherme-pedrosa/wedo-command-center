@@ -177,7 +177,7 @@ export default function MetasOrcamentoPage() {
       const runId: string | undefined = data?.run_id;
       if (!runId) throw new Error('Sincronização não retornou identificador de execução');
 
-      toast.info(`Sincronização ${start}→${end} iniciada — aguardando conclusão...`);
+      toast(`Sincronização ${start}→${end} iniciada — aguardando conclusão...`);
 
       // Polling do resultado (a sync roda em background para não estourar timeout)
       const deadline = Date.now() + 10 * 60 * 1000;
@@ -193,7 +193,7 @@ export default function MetasOrcamentoPage() {
       }
 
       if (!finalRow) {
-        toast.warning('Sincronização ainda em andamento — os dados serão atualizados em instantes.');
+        toast('Sincronização ainda em andamento — os dados serão atualizados em instantes.');
       } else if (finalRow.status === 'erro') {
         throw new Error(finalRow.erro || 'Erro na sincronização');
       } else {
@@ -201,7 +201,7 @@ export default function MetasOrcamentoPage() {
         const recOrphans = Number(res?.recebimentos?.cancelled_orphans || 0);
         const pagOrphans = Number(res?.pagamentos?.cancelled_orphans || 0);
         if (finalRow.status === 'partial') {
-          toast.warning(`Sincronizado com avisos: ${finalRow.erro ?? ''}`);
+          toast(`Sincronizado com avisos: ${finalRow.erro ?? ''}`);
         } else {
           toast.success(`Sincronizado ${start}→${end} · removidos ${recOrphans + pagOrphans} órfãos`);
         }
