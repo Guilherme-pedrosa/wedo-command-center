@@ -367,6 +367,14 @@ export const useMetasResultados = (year: number, month: number) => {
     return { faturamento, custo };
   }, [vendasBalcaoRows]);
 
+  // Custo de Venda de Produtos (concretizadas que entraram no faturamento)
+  const custoVendasProdutos = useMemo(() => {
+    return vendasConcretizadas.reduce((acc, v) => {
+      const custoVenda = parseFloat(String(v.gc_payload_raw?.valor_custo || '0')) || 0;
+      return acc + custoVenda;
+    }, 0);
+  }, [vendasConcretizadas]);
+
   const metasComResultado = useMemo((): MetaComResultado[] => {
     return metas.map(meta => {
       const rawLinks = mapeamentos.filter(m => m.meta_id === meta.id);
@@ -534,5 +542,5 @@ export const useMetasResultados = (year: number, month: number) => {
 
   const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
 
-  return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, dataUpdatedAt: osDataUpdatedAt };
+  return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, dataUpdatedAt: osDataUpdatedAt };
 };

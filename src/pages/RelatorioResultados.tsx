@@ -50,7 +50,7 @@ export default function RelatorioResultados() {
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
 
-  const { metasComResultado, execTotal, isLoading } = useMetasResultados(selectedYear, selectedMonth);
+  const { metasComResultado, execTotal, isLoading, custoVendasProdutos } = useMetasResultados(selectedYear, selectedMonth);
 
   const receitas = metasComResultado.filter(m => m.categoria === 'receita');
   const custosVar = metasComResultado.filter(m => m.categoria === 'custo_variavel');
