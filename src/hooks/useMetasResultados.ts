@@ -468,7 +468,10 @@ export const useMetasResultados = (year: number, month: number) => {
         (nome.includes('peça') || nome.includes('peca') || nome.includes('operaç') || nome.includes('operac') || nome.includes('estoque'));
 
       const baseExecCoifa = osExecutadas
-        .filter(os => os.nome_situacao !== 'EXECUTADO - FECHADO CHAMADO')
+        .filter(os =>
+          os.nome_situacao !== 'EXECUTADO - FECHADO CHAMADO' &&
+          os.nome_situacao !== 'CHAMADO FECHADO - FATURADO'
+        )
         .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
 
       const basePercentual = isComissao
