@@ -419,16 +419,14 @@ export default function MetasOrcamentoPage() {
                 if (isPecas) {
                   return [
                     row,
+                    <CustoVendasProdutosRow key={`${m.id}-custo-vendas`} valor={custoVendasProdutos} execTotal={execTotal} />,
                     <SaidasOsRow key={`${m.id}-compras-info`} valor={comprasPecasTotal} execTotal={execTotal} />,
                     <VendasBalcaoRow key={`${m.id}-balcao`} faturamento={vendasBalcao.faturamento} custo={vendasBalcao.custo} />
                   ];
                 }
 
                 if (isVendas) {
-                  return [
-                    row,
-                    <CustoVendasProdutosRow key={`${m.id}-custo-vendas`} valor={custoVendasProdutos} execTotal={execTotal} />
-                  ];
+                  return [row];
                 }
 
                 return [row];
