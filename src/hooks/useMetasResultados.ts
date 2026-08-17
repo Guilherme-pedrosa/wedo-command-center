@@ -420,7 +420,11 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
       let realizado = 0;
       const nome = meta.nome.toLowerCase();
 
-      if (meta.categoria === 'receita' && (nome.includes('contrato') || nome.includes('pcm'))) {
+      // Comissões / Premiações (Técnicos): fonte oficial = tela de Premiação (Auvo GC Sync)
+      if (meta.categoria !== 'receita' && (nome.includes('comiss') || nome.includes('premia'))) {
+        realizado = comissoesPremiacao;
+      }
+      else if (meta.categoria === 'receita' && (nome.includes('contrato') || nome.includes('pcm'))) {
         realizado = gcRecPCM
           .filter(r => r.plano_contas_id === '27867721')
           .reduce((acc, r) => acc + (r.valor || 0), 0);
