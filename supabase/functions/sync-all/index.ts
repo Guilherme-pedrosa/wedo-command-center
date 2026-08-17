@@ -1456,7 +1456,7 @@ serve(async (req) => {
       .join(" | ");
 
     const syncStatus = hasIssues ? "partial" : hasPending ? "running" : "success";
-    await supabase.from("fin_sync_log").insert({
+    await supabase.from("fin_sync_log").upsert({
       id: syncRunId,
       tipo: "sync-all",
       status: syncStatus,
@@ -1468,10 +1468,52 @@ serve(async (req) => {
 
     console.log(`[sync-all] ✅ Complete in ${totalDuration}ms — 6 modules + reconciliação`);
 
-    return new Response(JSON.stringify({ success: !hasIssues, status: syncStatus, run_id: syncRunId, results, duration_ms: totalDuration }), {
+    return { success: !hasIssues, status: syncStatus, run_id: syncRunId, results, duration_ms: totalDuration };
+    }; // ── fim runHeavy ──
+
+    if (background) {
+      await supabase.from("fin_sync_log").upsert({
+        id: syncRunId,
+        tipo: "sync-all",
+        status: "running",
+        payload: { date_range: results.date_range },
+      });
+
+      const task = runHeavy().catch(async (err) => {
+        const message = (err as Error).message;
+        console.error("[sync-all] background fatal:", message);
+        try {
+          await supabase.from("fin_sync_log").upsert({
+            id: syncRunId,
+            tipo: "sync-all",
+            status: "erro",
+            erro: message,
+            duracao_ms: Date.now() - startTime,
+          });
+        } catch { /* ignore */ }
+      });
+
+      // @ts-ignore — EdgeRuntime é global no runtime Deno das Edge Functions
+      if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(task);
+
+      return new Response(JSON.stringify({
+        success: true,
+        background: true,
+        status: "running",
+        run_id: syncRunId,
+        date_range: results.date_range,
+      }), {
+        status: 202,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const finalResult = await runHeavy();
+    return new Response(JSON.stringify(finalResult), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
   } catch (error) {
     const duration = Date.now() - startTime;
     const errorMsg = (error as Error).message;
