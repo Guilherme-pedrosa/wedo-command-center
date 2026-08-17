@@ -306,7 +306,7 @@ export const useMetasResultados = (year: number, month: number) => {
     },
   });
 
-  // Faturamento Executado = OS Execução+Coifa + PCM Confirmado
+  // Faturamento Executado = OS Execução+Coifa + PCM Confirmado + Venda de Produtos
   // FECHADO CHAMADO (Ecolab/Chamados) NÃO entra na execução de serviço — é base só de comissão.
   const execTotal = useMemo(() => {
     const osTotal = osExecutadas
@@ -316,8 +316,9 @@ export const useMetasResultados = (year: number, month: number) => {
       )
       .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
     const recFinanceiro = gcRecPCM.reduce((acc, r) => acc + (r.valor || 0), 0);
-    return osTotal + recFinanceiro;
-  }, [gcRecPCM, osExecutadas]);
+    const faturamentoVendas = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
+    return osTotal + recFinanceiro + faturamentoVendas;
+  }, [gcRecPCM, osExecutadas, vendasConcretizadas]);
 
   // Base de comissões: Ecolab/Chamados + Execução Serviços/Coifas
   const baseComissoes = useMemo(() => {
