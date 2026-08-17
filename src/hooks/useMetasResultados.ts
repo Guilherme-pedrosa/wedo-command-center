@@ -416,7 +416,14 @@ export const useMetasResultados = (year: number, month: number) => {
       else if (meta.categoria === 'custo_variavel' && (nome.includes('peça') || nome.includes('estoque'))) {
         // Custo da operação = custo REAL das peças que saíram do estoque para OS no período
         // + custo das saídas internas (Uso Interno / Maleta) que também consomem estoque.
-        const custoOs = osExecutadas.reduce((acc, os) => acc + (Number(os.valor_pecas_custo) || 0), 0);
+        // Excluímos peças de 'Ecolab / Chamados' do custo de operação/serviços.
+        const ECOLAB_STATUS = [
+          'EXECUTADO - FECHADO CHAMADO',
+          'CHAMADO FECHADO - FATURADO'
+        ];
+        const custoOs = osExecutadas
+          .filter(os => !ECOLAB_STATUS.includes(os.nome_situacao ?? ''))
+          .reduce((acc, os) => acc + (Number(os.valor_pecas_custo) || 0), 0);
         const custoUsoInterno = vendasBalcaoRows.reduce((acc, v) => {
           return acc + (parseFloat(String(v.gc_payload_raw?.valor_custo || '0')) || 0);
         }, 0);
@@ -504,10 +511,15 @@ export const useMetasResultados = (year: number, month: number) => {
   // Custo real das peças que saíram do estoque. Peças consignadas (100% de desconto,
   // ex.: Ecolab) são descartadas item-a-item no sync — então OS de Chamado entram aqui
   // apenas pelas peças efetivamente faturadas.
-  const saidasPecasOs = useMemo(
-    () => osExecutadas.reduce((acc, os) => acc + (Number(os.valor_pecas_custo) || 0), 0),
-    [osExecutadas]
-  );
+  const saidasPecasOs = useMemo(() => {
+    const ECOLAB_STATUS = [
+      'EXECUTADO - FECHADO CHAMADO',
+      'CHAMADO FECHADO - FATURADO'
+    ];
+    return osExecutadas
+      .filter(os => !ECOLAB_STATUS.includes(os.nome_situacao ?? ''))
+      .reduce((acc, os) => acc + (Number(os.valor_pecas_custo) || 0), 0);
+  }, [osExecutadas]);
 
   // Total de compras finalizadas no período (entrada de estoque) — informativo
   const comprasPecasTotal = useMemo(
