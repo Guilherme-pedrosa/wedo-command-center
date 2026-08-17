@@ -906,11 +906,14 @@ serve(async (req) => {
     // Parse optional date range
     let bodyDataInicio: string | undefined;
     let bodyDataFim: string | undefined;
+    let background = true;
     try {
       const body = await req.json();
       bodyDataInicio = body?.data_inicio;
       bodyDataFim = body?.data_fim;
+      if (body?.background === false) background = false;
     } catch { /* no body */ }
+
 
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if ((bodyDataInicio && !dateRegex.test(bodyDataInicio)) || (bodyDataFim && !dateRegex.test(bodyDataFim))) {
