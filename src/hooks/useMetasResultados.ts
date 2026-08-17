@@ -482,7 +482,10 @@ export const useMetasResultados = (year: number, month: number) => {
       // - Custo de peças/operações: APENAS Execução + Coifas (não inclui PCM, Vendas, Ecolab)
       // - Demais: Faturamento Executado total
       const isComissao = nome.includes('comiss') || nome.includes('premia');
+      const isCustoVendaProdutos =
+        meta.categoria === 'custo_variavel' && nome.includes('venda') && nome.includes('produto');
       const isCustoPecasOperacao =
+        !isCustoVendaProdutos &&
         meta.categoria === 'custo_variavel' &&
         (nome.includes('peça') || nome.includes('peca') || nome.includes('operaç') || nome.includes('operac') || nome.includes('estoque'));
 
@@ -493,11 +496,16 @@ export const useMetasResultados = (year: number, month: number) => {
         )
         .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
 
+      // Receita de Venda de Produtos concretizadas — base do custo de venda de produtos
+      const baseVendasProdutos = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
+
       const basePercentual = isComissao
         ? baseComissoes
-        : isCustoPecasOperacao
-          ? baseExecCoifa
-          : execTotal;
+        : isCustoVendaProdutos
+          ? baseVendasProdutos
+          : isCustoPecasOperacao
+            ? baseExecCoifa
+            : execTotal;
 
       const meta_calculada =
         meta.tipo_meta === 'absoluto'
