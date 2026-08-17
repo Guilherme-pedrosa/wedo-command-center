@@ -1,6 +1,7 @@
 // src/pages/RelatorioResultados.tsx — Relatório público de Resultados Operação
 import { useState } from 'react';
 import { useMetasResultados, formatBRL, formatPct, statusBadge, MetaComResultado } from '@/hooks/useMetasResultados';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -49,8 +50,9 @@ export default function RelatorioResultados() {
   const now = new Date();
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
+  const [includeCommercial, setIncludeCommercial] = useState(true);
 
-  const { metasComResultado, execTotal, isLoading, custoVendasProdutos } = useMetasResultados(selectedYear, selectedMonth);
+  const { metasComResultado, execTotal, isLoading, custoVendasProdutos } = useMetasResultados(selectedYear, selectedMonth, includeCommercial);
 
   const receitas = metasComResultado.filter(m => m.categoria === 'receita');
   const custosVar = metasComResultado.filter(m => m.categoria === 'custo_variavel');
@@ -76,6 +78,24 @@ export default function RelatorioResultados() {
             <p className="text-muted-foreground text-sm mt-1">Relatório de acompanhamento de metas</p>
           </div>
           <div className="flex items-center gap-2 print:hidden">
+            <div className="flex bg-muted p-1 rounded-md mr-2">
+              <Button
+                variant={includeCommercial ? "default" : "ghost"}
+                size="sm"
+                className="h-7 text-[10px] px-2"
+                onClick={() => setIncludeCommercial(true)}
+              >
+                Comercial + Serviços
+              </Button>
+              <Button
+                variant={!includeCommercial ? "default" : "ghost"}
+                size="sm"
+                className="h-7 text-[10px] px-2"
+                onClick={() => setIncludeCommercial(false)}
+              >
+                Apenas Serviços
+              </Button>
+            </div>
             <Select value={String(selectedMonth)} onValueChange={v => setSelectedMonth(Number(v))}>
               <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
               <SelectContent>{meses.map((m, i) => <SelectItem key={i+1} value={String(i+1)}>{m}</SelectItem>)}</SelectContent>

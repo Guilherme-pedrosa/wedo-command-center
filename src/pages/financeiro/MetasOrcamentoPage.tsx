@@ -152,8 +152,9 @@ export default function MetasOrcamentoPage() {
   const now = new Date();
   const [selectedYear, setSelectedYear]   = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
+  const [includeCommercial, setIncludeCommercial] = useState(true);
 
-  const { metasComResultado, execTotal, isLoading, refetch, hasOsData, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth);
+  const { metasComResultado, execTotal, isLoading, refetch, hasOsData, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth, includeCommercial);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -219,6 +220,25 @@ export default function MetasOrcamentoPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <div className="flex bg-muted p-1 rounded-md mr-2">
+            <Button
+              variant={includeCommercial ? "default" : "ghost"}
+              size="sm"
+              className="h-8 text-xs px-3"
+              onClick={() => setIncludeCommercial(true)}
+            >
+              Comercial + Serviços
+            </Button>
+            <Button
+              variant={!includeCommercial ? "default" : "ghost"}
+              size="sm"
+              className="h-8 text-xs px-3"
+              onClick={() => setIncludeCommercial(false)}
+            >
+              Apenas Serviços
+            </Button>
+          </div>
+
           <Select
             value={String(selectedMonth)}
             onValueChange={v => setSelectedMonth(Number(v))}
