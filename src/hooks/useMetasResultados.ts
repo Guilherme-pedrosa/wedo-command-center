@@ -186,13 +186,14 @@ export const useMetasResultados = (year: number, month: number) => {
   ]);
 
   // Espelha EXATAMENTE o "Relatório de Ordens de Serviços" do GestãoClick:
-  // só esses 4 status entram em Execução + Coifas. FECHADO CHAMADO é Ecolab (separado).
+  // só esses status entram em Execução + Coifas.
   const OS_EXECUTADOS_STATUS = [
     'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
     'EXECUTADO - AGUARDANDO PAGAMENTO',
     'EXECUTADO COM NOTA EMITIDA',
     'EXECUTADO - FINANCEIRO SEPARADO',
-    'EXECUTADO - FECHADO CHAMADO', // mantido só pra base de comissões / Ecolab
+    'EXECUTADO - FECHADO CHAMADO', 
+    'CHAMADO FECHADO - FATURADO', // Adicionado conforme solicitado
   ];
 
   const { data: osExecutadas = [], isLoading: loadingOS, refetch: refetchOS, dataUpdatedAt: osDataUpdatedAt } = useQuery({
@@ -307,10 +308,12 @@ export const useMetasResultados = (year: number, month: number) => {
 
   // Faturamento Executado = OS Execução+Coifa + PCM Confirmado
   // FECHADO CHAMADO (Ecolab/Chamados) NÃO entra na execução de serviço — é base só de comissão.
-  // Vendas Concretizadas NÃO entram no faturamento total (apenas como meta isolada).
   const execTotal = useMemo(() => {
     const osTotal = osExecutadas
-      .filter(os => os.nome_situacao !== 'EXECUTADO - FECHADO CHAMADO')
+      .filter(os => 
+        os.nome_situacao !== 'EXECUTADO - FECHADO CHAMADO' && 
+        os.nome_situacao !== 'CHAMADO FECHADO - FATURADO'
+      )
       .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
     const recFinanceiro = gcRecPCM.reduce((acc, r) => acc + (r.valor || 0), 0);
     return osTotal + recFinanceiro;
@@ -324,9 +327,13 @@ export const useMetasResultados = (year: number, month: number) => {
       'EXECUTADO - FINANCEIRO SEPARADO',
       'EXECUTADO COM NOTA EMITIDA',
     ];
+    const ECOLAB_STATUS = [
+      'EXECUTADO - FECHADO CHAMADO',
+      'CHAMADO FECHADO - FATURADO'
+    ];
     return osExecutadas
       .filter(os =>
-        os.nome_situacao === 'EXECUTADO - FECHADO CHAMADO' ||
+        ECOLAB_STATUS.includes(os.nome_situacao ?? '') ||
         EXEC_SERVICO_STATUS.includes(os.nome_situacao ?? '')
       )
       .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
@@ -395,8 +402,12 @@ export const useMetasResultados = (year: number, month: number) => {
           .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
       }
       else if (meta.categoria === 'receita' && (nome.includes('ecolab') || nome.includes('chamado'))) {
+        const ECOLAB_STATUS = [
+          'EXECUTADO - FECHADO CHAMADO',
+          'CHAMADO FECHADO - FATURADO'
+        ];
         realizado = osExecutadas
-          .filter(os => os.nome_situacao === 'EXECUTADO - FECHADO CHAMADO')
+          .filter(os => ECOLAB_STATUS.includes(os.nome_situacao ?? ''))
           .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
       }
       else if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto') || nome.includes('peça'))) {
