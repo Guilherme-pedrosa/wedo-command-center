@@ -76,7 +76,7 @@ const AUVO_SOURCE_MAP: Record<string, number[]> = {
 };
 
 // ─── HOOK ──────────────────────────────────────────────────────────────────
-export const useMetasResultados = (year: number, month: number) => {
+export const useMetasResultados = (year: number, month: number, includeCommercial: boolean = true) => {
   const { start, end } = getPeriodRange(year, month);
 
   const { data: metas = [], isLoading: loadingMetas } = useQuery({
@@ -306,7 +306,7 @@ export const useMetasResultados = (year: number, month: number) => {
     },
   });
 
-  // Faturamento Executado = OS Execução+Coifa + PCM Confirmado + Venda de Produtos
+  // Faturamento Executado = OS Execução+Coifa + PCM Confirmado + (opcional) Venda de Produtos
   // FECHADO CHAMADO (Ecolab/Chamados) NÃO entra na execução de serviço — é base só de comissão.
   const execTotal = useMemo(() => {
     const osTotal = osExecutadas
@@ -316,9 +316,9 @@ export const useMetasResultados = (year: number, month: number) => {
       )
       .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
     const recFinanceiro = gcRecPCM.reduce((acc, r) => acc + (r.valor || 0), 0);
-    const faturamentoVendas = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
+    const faturamentoVendas = includeCommercial ? vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0) : 0;
     return osTotal + recFinanceiro + faturamentoVendas;
-  }, [gcRecPCM, osExecutadas, vendasConcretizadas]);
+  }, [gcRecPCM, osExecutadas, vendasConcretizadas, includeCommercial]);
 
   // Base de comissões: Ecolab/Chamados + Execução Serviços/Coifas
   const baseComissoes = useMemo(() => {
@@ -377,7 +377,16 @@ export const useMetasResultados = (year: number, month: number) => {
   }, [vendasConcretizadas]);
 
   const metasComResultado = useMemo((): MetaComResultado[] => {
-    return metas.map(meta => {
+    return metas.filter(meta => {
+      if (!includeCommercial) {
+        const nome = meta.nome.toLowerCase();
+        // Ignora meta de custo de venda de produtos se comercial estiver desativado
+        if (meta.categoria === 'custo_variavel' && nome.includes('venda') && nome.includes('produto')) return false;
+        // Ignora meta de receita de venda de produtos se comercial estiver desativado
+        if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto'))) return false;
+      }
+      return true;
+    }).map(meta => {
       const rawLinks = mapeamentos.filter(m => m.meta_id === meta.id);
       // Dedupe links por (plano_contas_id + centro_custo_id) — evita somar 2x
       // quando há mapeamentos duplicados em fin_meta_plano_contas.
@@ -522,7 +531,7 @@ export const useMetasResultados = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, planoContasMap, uuidToGcId, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, planoContasMap, uuidToGcId, centrosCustoMap, includeCommercial]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
