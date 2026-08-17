@@ -145,37 +145,6 @@ const VendasBalcaoRow = ({ faturamento, custo }: { faturamento: number; custo: n
   );
 };
 
-// Linha informativa: Custo de Venda de Produtos (concretizadas)
-const CustoVendasProdutosRow = ({ valor, execTotal }: { valor: number; execTotal: number }) => {
-  const pct = execTotal > 0 ? valor / execTotal : 0;
-  return (
-    <div className="flex flex-col gap-1 p-3 rounded-lg border border-dashed border-emerald-300 bg-emerald-50/40 dark:bg-emerald-950/20">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="font-medium text-sm truncate text-foreground">
-            Custo com Venda de Produtos (concretizadas no período)
-          </span>
-          <span className="text-xs text-muted-foreground">informativo · custo real das vendas</span>
-        </div>
-        <Badge variant="outline" className="text-xs bg-emerald-100 text-emerald-800 border-emerald-200">
-          ENTRA NO RESULTADO
-        </Badge>
-      </div>
-      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-        <div>
-          <span className="block text-[10px] uppercase tracking-wide">Total Custo</span>
-          <span className="font-medium text-foreground">{formatBRL(valor)}</span>
-        </div>
-        <div>
-          <span className="block text-[10px] uppercase tracking-wide">% Fatur. Executado</span>
-          <span className="font-medium text-foreground">
-            {execTotal > 0 ? formatPct(pct) : '—'}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 
 // ─── COMPONENTE PRINCIPAL ───────────────────────────────────────────────────
@@ -184,7 +153,7 @@ export default function MetasOrcamentoPage() {
   const [selectedYear, setSelectedYear]   = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
 
-  const { metasComResultado, execTotal, isLoading, refetch, hasOsData, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos } = useMetasResultados(selectedYear, selectedMonth);
+  const { metasComResultado, execTotal, isLoading, refetch, hasOsData, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -413,20 +382,14 @@ export default function MetasOrcamentoPage() {
             : custosVar.flatMap(m => {
                 const n = (m.nome || '').toLowerCase();
                 const isPecas = n.includes('peça') || n.includes('peca') || n.includes('operaç') || n.includes('operac') || n.includes('estoque');
-                const isVendas = n.includes('venda') || n.includes('produto');
                 const row = <MetaRow key={m.id} m={m} execTotal={execTotal} />;
 
                 if (isPecas) {
                   return [
                     row,
-                    <CustoVendasProdutosRow key={`${m.id}-custo-vendas`} valor={custoVendasProdutos} execTotal={execTotal} />,
                     <SaidasOsRow key={`${m.id}-compras-info`} valor={comprasPecasTotal} execTotal={execTotal} />,
                     <VendasBalcaoRow key={`${m.id}-balcao`} faturamento={vendasBalcao.faturamento} custo={vendasBalcao.custo} />
                   ];
-                }
-
-                if (isVendas) {
-                  return [row];
                 }
 
                 return [row];

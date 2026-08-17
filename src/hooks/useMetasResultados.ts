@@ -421,6 +421,10 @@ export const useMetasResultados = (year: number, month: number) => {
       else if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto') || nome.includes('peça'))) {
         realizado = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
       }
+      else if (meta.categoria === 'custo_variavel' && nome.includes('venda') && nome.includes('produto')) {
+        // Custo real (valor_custo GC) das vendas de produtos concretizadas no período
+        realizado = custoVendasProdutos;
+      }
       else if (meta.categoria === 'custo_variavel' && (nome.includes('peça') || nome.includes('estoque'))) {
         // Custo da operação = custo REAL das peças que saíram do estoque para OS no período
         // + custo das saídas internas (Uso Interno / Maleta) que também consomem estoque.
@@ -478,7 +482,10 @@ export const useMetasResultados = (year: number, month: number) => {
       // - Custo de peças/operações: APENAS Execução + Coifas (não inclui PCM, Vendas, Ecolab)
       // - Demais: Faturamento Executado total
       const isComissao = nome.includes('comiss') || nome.includes('premia');
+      const isCustoVendaProdutos =
+        meta.categoria === 'custo_variavel' && nome.includes('venda') && nome.includes('produto');
       const isCustoPecasOperacao =
+        !isCustoVendaProdutos &&
         meta.categoria === 'custo_variavel' &&
         (nome.includes('peça') || nome.includes('peca') || nome.includes('operaç') || nome.includes('operac') || nome.includes('estoque'));
 
@@ -489,11 +496,16 @@ export const useMetasResultados = (year: number, month: number) => {
         )
         .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
 
+      // Receita de Venda de Produtos concretizadas — base do custo de venda de produtos
+      const baseVendasProdutos = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
+
       const basePercentual = isComissao
         ? baseComissoes
-        : isCustoPecasOperacao
-          ? baseExecCoifa
-          : execTotal;
+        : isCustoVendaProdutos
+          ? baseVendasProdutos
+          : isCustoPecasOperacao
+            ? baseExecCoifa
+            : execTotal;
 
       const meta_calculada =
         meta.tipo_meta === 'absoluto'
@@ -509,7 +521,7 @@ export const useMetasResultados = (year: number, month: number) => {
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, vendasBalcaoRows, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, planoContasMap, uuidToGcId, centrosCustoMap]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, planoContasMap, uuidToGcId, centrosCustoMap]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
