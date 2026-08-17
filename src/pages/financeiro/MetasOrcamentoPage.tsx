@@ -174,9 +174,38 @@ export default function MetasOrcamentoPage() {
       if (data?.error) throw new Error(data.error);
       if (data?.skipped) throw new Error(data.reason || 'Sincronização ignorada');
 
-      const recOrphans = Number(data?.results?.recebimentos?.cancelled_orphans || 0);
-      const pagOrphans = Number(data?.results?.pagamentos?.cancelled_orphans || 0);
-      toast.success(`Sincronizado ${start}→${end} · removidos ${recOrphans + pagOrphans} órfãos`);
+      const runId: string | undefined = data?.run_id;
+      if (!runId) throw new Error('Sincronização não retornou identificador de execução');
+
+      toast(`Sincronização ${start}→${end} iniciada — aguardando conclusão...`);
+
+      // Polling do resultado (a sync roda em background para não estourar timeout)
+      const deadline = Date.now() + 10 * 60 * 1000;
+      let finalRow: any = null;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 5000));
+        const { data: row } = await supabase
+          .from('fin_sync_log')
+          .select('status, erro, resposta')
+          .eq('id', runId)
+          .maybeSingle();
+        if (row && row.status !== 'running') { finalRow = row; break; }
+      }
+
+      if (!finalRow) {
+        toast('Sincronização ainda em andamento — os dados serão atualizados em instantes.');
+      } else if (finalRow.status === 'erro') {
+        throw new Error(finalRow.erro || 'Erro na sincronização');
+      } else {
+        const res: any = finalRow.resposta || {};
+        const recOrphans = Number(res?.recebimentos?.cancelled_orphans || 0);
+        const pagOrphans = Number(res?.pagamentos?.cancelled_orphans || 0);
+        if (finalRow.status === 'partial') {
+          toast(`Sincronizado com avisos: ${finalRow.erro ?? ''}`);
+        } else {
+          toast.success(`Sincronizado ${start}→${end} · removidos ${recOrphans + pagOrphans} órfãos`);
+        }
+      }
     } catch (e: any) {
       toast.error(e.message || 'Erro ao sincronizar período');
     } finally {
@@ -184,6 +213,7 @@ export default function MetasOrcamentoPage() {
       setSyncingAll(false);
     }
   }, [selectedYear, selectedMonth, refetch]);
+
 
   const receitas       = metasComResultado.filter(m => m.categoria === 'receita');
   const custosVar      = metasComResultado.filter(m => m.categoria === 'custo_variavel');

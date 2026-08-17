@@ -906,11 +906,14 @@ serve(async (req) => {
     // Parse optional date range
     let bodyDataInicio: string | undefined;
     let bodyDataFim: string | undefined;
+    let background = true;
     try {
       const body = await req.json();
       bodyDataInicio = body?.data_inicio;
       bodyDataFim = body?.data_fim;
+      if (body?.background === false) background = false;
     } catch { /* no body */ }
+
 
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if ((bodyDataInicio && !dateRegex.test(bodyDataInicio)) || (bodyDataFim && !dateRegex.test(bodyDataFim))) {
@@ -1022,7 +1025,12 @@ serve(async (req) => {
     // (GC API has 350ms between calls — parallel would conflict)
     // ═══════════════════════════════════════════════════════════
 
+    // Toda a carga pesada roda dentro desta closure. Em modo background ela é
+    // executada via EdgeRuntime.waitUntil para não estourar o idle timeout (150s).
+    const runHeavy = async () => {
+
     // 1. Sync OS
+
     console.log("[sync-all] ── Module 1/6: OS ──");
     results.os = await syncOS(gcHeaders, supabase);
     console.log(`[sync-all] OS done: ${results.os.upserted} upserted (${results.os.duration_ms}ms)`);
@@ -1451,7 +1459,7 @@ serve(async (req) => {
       .join(" | ");
 
     const syncStatus = hasIssues ? "partial" : hasPending ? "running" : "success";
-    await supabase.from("fin_sync_log").insert({
+    await supabase.from("fin_sync_log").upsert({
       id: syncRunId,
       tipo: "sync-all",
       status: syncStatus,
@@ -1463,10 +1471,52 @@ serve(async (req) => {
 
     console.log(`[sync-all] ✅ Complete in ${totalDuration}ms — 6 modules + reconciliação`);
 
-    return new Response(JSON.stringify({ success: !hasIssues, status: syncStatus, run_id: syncRunId, results, duration_ms: totalDuration }), {
+    return { success: !hasIssues, status: syncStatus, run_id: syncRunId, results, duration_ms: totalDuration };
+    }; // ── fim runHeavy ──
+
+    if (background) {
+      await supabase.from("fin_sync_log").upsert({
+        id: syncRunId,
+        tipo: "sync-all",
+        status: "running",
+        payload: { date_range: results.date_range },
+      });
+
+      const task = runHeavy().catch(async (err) => {
+        const message = (err as Error).message;
+        console.error("[sync-all] background fatal:", message);
+        try {
+          await supabase.from("fin_sync_log").upsert({
+            id: syncRunId,
+            tipo: "sync-all",
+            status: "erro",
+            erro: message,
+            duracao_ms: Date.now() - startTime,
+          });
+        } catch { /* ignore */ }
+      });
+
+      // @ts-ignore — EdgeRuntime é global no runtime Deno das Edge Functions
+      if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(task);
+
+      return new Response(JSON.stringify({
+        success: true,
+        background: true,
+        status: "running",
+        run_id: syncRunId,
+        date_range: results.date_range,
+      }), {
+        status: 202,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const finalResult = await runHeavy();
+    return new Response(JSON.stringify(finalResult), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
   } catch (error) {
     const duration = Date.now() - startTime;
     const errorMsg = (error as Error).message;
