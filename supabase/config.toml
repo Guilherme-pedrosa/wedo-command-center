@@ -31,3 +31,6 @@ verify_jwt = false
 
 [functions.sync-gc-produtos]
 verify_jwt = false
+
+[functions.premiacao-comissoes-total]
+verify_jwt = false
