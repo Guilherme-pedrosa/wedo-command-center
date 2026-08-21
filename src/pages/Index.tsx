@@ -1,17 +1,20 @@
-const Index = () => {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-8 text-foreground">
-      <div className="max-w-2xl text-center">
-        <h1 className="mb-6 text-3xl font-bold tracking-tight">Status do Backend</h1>
-        
-        <div className="rounded-lg border bg-card p-6 shadow-sm">
-          <p className="text-lg leading-relaxed">
-            cara, novamente vc ta ignorando a origem que eu já te ensinei como olhar!!
-          </p>
-        </div>
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 
-        <div className="mt-8 text-sm text-muted-foreground">
-          <p>Esta mensagem é exibida para monitoramento do estado do sistema.</p>
+const Index = () => {
+  const navigate = useNavigate();
+  useEffect(() => {
+    navigate("/financeiro/precificacao");
+  }, [navigate]);
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background p-8">
+      <div className="text-center max-w-2xl">
+        <h1 className="mb-4 text-2xl font-bold">Carregando...</h1>
+        <div className="text-sm text-muted-foreground whitespace-pre-wrap text-left border rounded p-4 bg-secondary/20">
+          corrija este erro:
+
+Erro ao agendar correção: new row violates row-level security policy (USING expression) for table "fin_gc_write_jobs"
         </div>
       </div>
     </div>
