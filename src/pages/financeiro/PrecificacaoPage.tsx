@@ -644,23 +644,26 @@ export default function PrecificacaoPage() {
     const jobs = [];
     const falhas = [];
 
+    let semNcm = 0;
+    let origemAssumida = 0;
+
     for (const p of selecionados) {
       const trib = tributosMap.get(String(p.id));
-      const nfNcm = trib?.ncm;
-      const nfOrig = trib?.origem;
+      const nfNcm = normNcm(trib?.ncm);
+      const nfOrig = normOrig(trib?.origem);
 
-      if (!nfNcm || nfNcm.length !== 8) {
+      if (nfNcm.length !== 8) {
+        semNcm++;
         falhas.push(p.nome);
         continue;
       }
 
-      const gcNcm = normNcm(p.ncm);
       const gcOrig = normOrig(p.origem);
-      
-      const origemFinal = nfOrig || gcOrig;
+
+      let origemFinal = nfOrig || gcOrig;
       if (!origemFinal) {
-        falhas.push(`${p.nome} (sem origem)`);
-        continue;
+        origemFinal = "0"; // NF sem tag de origem: assume nacional
+        origemAssumida++;
       }
 
       jobs.push({
@@ -673,9 +676,14 @@ export default function PrecificacaoPage() {
     }
 
     if (jobs.length === 0) {
-      toast.error("Nenhum produto selecionado tem NCM válido na NF.");
+      toast.error(
+        semNcm > 0
+          ? `Nenhum dos ${semNcm} produto(s) selecionado(s) tem NCM de 8 dígitos na NF.`
+          : "Nenhum produto selecionado pôde ser corrigido.",
+      );
       return;
     }
+
 
     setSavingBatchFiscal(true);
     try {
@@ -683,7 +691,11 @@ export default function PrecificacaoPage() {
         onConflict: "recurso,recurso_id,payload_hash"
       });
       if (error) throw error;
-      toast.success(`${jobs.length} correções agendadas com sucesso.`);
+      toast.success(
+        `${jobs.length} correção(ões) agendada(s).` +
+          (origemAssumida > 0 ? ` ${origemAssumida} sem origem na NF — assumida 0 (Nacional).` : "") +
+          (falhas.length > 0 ? ` ${falhas.length} ignorado(s) por NCM inválido.` : ""),
+      );
       if (falhas.length > 0) {
         console.warn("Produtos ignorados no lote fiscal:", falhas);
       }
@@ -1312,8 +1324,7 @@ export default function PrecificacaoPage() {
       if (ncmFilter === "pendente_com_nf") {
         if (p.ncm) return false;
         const trib = tributosMap.get(p.id);
-        const nfNcm = trib?.ncm;
-        if (!nfNcm || nfNcm.length !== 8) return false;
+        if (normNcm(trib?.ncm).length !== 8) return false;
       }
       return true;
     });
