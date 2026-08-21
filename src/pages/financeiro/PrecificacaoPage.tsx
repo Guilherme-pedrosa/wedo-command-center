@@ -3148,86 +3148,17 @@ export default function PrecificacaoPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {(() => {
-                          const ncmGc = custoCan?.ncm || p.ncm || "";
-                          const origGc = custoCan?.origem || p.origem || "";
-                          const ncmNf = tributo?.ncm || "";
-                          const origNf = tributo?.origem || "";
-                          const divOrig = origNf !== "" && origGc !== "" && String(origNf) !== String(origGc);
-                          const pendNcm = !ncmGc;
-
-                          return (
-                            <div className="flex flex-col gap-1.5 min-w-[140px]">
-                              {/* NCM */}
-                              <div className="flex flex-col gap-0.5">
-                                <span className="text-[10px] text-muted-foreground uppercase font-semibold">NCM</span>
-                                <div className="flex items-center gap-1.5">
-                                  <Input
-                                    value={ncmGc}
-                                    onChange={(e) => {
-                                      // Local update logic can be added if needed, but for now we focus on sync
-                                    }}
-                                    className={`h-6 text-[10px] px-1.5 font-mono ${pendNcm ? "border-red-500/50 bg-red-500/5" : "bg-secondary"}`}
-                                    placeholder="NCM Pendente"
-                                  />
-                                  {ncmNf && ncmNf !== ncmGc && (
-                                    <span className="text-[9px] text-blue-400 font-mono" title={`NCM na última NF: ${ncmNf}`}>NF: {ncmNf}</span>
-                                  )}
-                                </div>
-                              </div>
-                              {/* Origem */}
-                              <div className="flex flex-col gap-0.5">
-                                <span className="text-[10px] text-muted-foreground uppercase font-semibold">Origem</span>
-                                <div className="flex items-center gap-1.5">
-                                  <div 
-                                    className={`text-[10px] px-1.5 py-0.5 rounded border ${divOrig ? "border-amber-500/50 text-amber-400 bg-amber-500/5" : "border-border text-foreground bg-secondary"}`}
-                                    title={divOrig ? `Divergência: GC=${origGc} vs NF=${origNf}` : `Origem no cadastro: ${origGc}`}
-                                  >
-                                    {origGc || "—"}
-                                  </div>
-                                  {origNf !== "" && divOrig && (
-                                    <span className="text-[9px] text-amber-500 font-mono" title={`Origem na última NF: ${origNf}`}>NF: {origNf}</span>
-                                  )}
-                                  <Button 
-                                    size="sm" 
-                                    variant="ghost" 
-                                    className="h-5 w-5 p-0 hover:bg-primary/20"
-                                    onClick={async () => {
-                                       const novoNcm = window.prompt(`Novo NCM para ${p.nome}:`, ncmGc);
-                                       const novaOrig = window.prompt(`Nova Origem (0-8) para ${p.nome}:`, origGc);
-                                       if (novoNcm === null && novaOrig === null) return;
-                                       
-                                       const jobPayload = {
-                                         ncm: novoNcm !== null ? novoNcm : ncmGc,
-                                         origem: novaOrig !== null ? novaOrig : origGc
-                                       };
-                                       
-                                       const { error } = await supabase
-                                         .from("fin_gc_write_jobs")
-                                         .insert({
-                                           recurso: "produtos",
-                                           recurso_id: String(p.id),
-                                           payload: jobPayload,
-                                           payload_hash: btoa(JSON.stringify(jobPayload)),
-                                           status: "pendente"
-                                         });
-                                       
-                                       if (error) {
-                                         toast.error("Erro ao agendar atualização: " + error.message);
-                                       } else {
-                                         toast.success("Atualização fiscal agendada no GestãoClick");
-                                         // Trigger sync log polling or refetch
-                                       }
-                                    }}
-                                  >
-                                    <Edit className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })()}
+                        <FiscalCell
+                          key={`fiscal-${p.id}-${custoCan?.ncm || p.ncm || ""}-${custoCan?.origem || p.origem || ""}`}
+                          produtoId={String(p.id)}
+                          nome={p.nome}
+                          ncmGc={String(custoCan?.ncm || p.ncm || "")}
+                          origGc={String(custoCan?.origem || p.origem || "")}
+                          ncmNf={String(tributo?.ncm || "")}
+                          origNf={String(tributo?.origem || "")}
+                        />
                       </TableCell>
+
                       <TableCell className="text-right font-mono text-sm">{estoque}</TableCell>
                       {(() => {
                         const fr = freteRateioMap.get(String(p.id));
