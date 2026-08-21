@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
     let url: string;
     let method: string;
     if (job.recurso === "produtos") {
-      url = `${GC_BASE_URL}/api/produtos/${job.recurso_id}`;
+      url = `${GC_BASE_URL}/api/v1/produtos/${job.recurso_id}`;
       method = "PUT";
     } else {
       await supabase.from("fin_gc_write_jobs").update({
