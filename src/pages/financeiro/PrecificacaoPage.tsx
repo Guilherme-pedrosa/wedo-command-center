@@ -544,7 +544,7 @@ function FiscalCell({
                 setNcm(nfNcm || gcNcm);
                 setOrig("");
                 setEditing(true);
-                toast.info("A NF não trouxe Origem — selecione a origem e salve.");
+                toast("A NF não trouxe Origem — selecione a origem e salve.");
                 return;
               }
               enviar(nfNcm || gcNcm, nfOrig || gcOrig);
