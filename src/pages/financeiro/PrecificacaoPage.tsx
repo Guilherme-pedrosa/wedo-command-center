@@ -634,6 +634,68 @@ export default function PrecificacaoPage() {
     });
     toast.success(`Comissão ${pct}% aplicada a ${selectedProductIds.size} produto(s)`);
   };
+
+  const [savingBatchFiscal, setSavingBatchFiscal] = useState(false);
+  const aplicarFiscalDaNfLote = async () => {
+    if (selectedProductIds.size === 0) {
+      toast.error("Selecione ao menos um produto.");
+      return;
+    }
+    const selecionados = produtos?.filter(p => selectedProductIds.has(String(p.id))) || [];
+    const jobs = [];
+    const falhas = [];
+
+    for (const p of selecionados) {
+      const trib = tributosMap.get(String(p.id));
+      const nfNcm = trib?.ncm;
+      const nfOrig = trib?.origem;
+
+      if (!nfNcm || nfNcm.length !== 8) {
+        falhas.push(p.nome);
+        continue;
+      }
+
+      const gcNcm = normNcm(p.ncm);
+      const gcOrig = normOrig(p.origem);
+      
+      const origemFinal = nfOrig || gcOrig;
+      if (!origemFinal) {
+        falhas.push(`${p.nome} (sem origem)`);
+        continue;
+      }
+
+      jobs.push({
+        recurso: "produtos",
+        recurso_id: String(p.id),
+        payload: { ncm: nfNcm, origem: origemFinal },
+        payload_hash: btoa(`${p.id}|${nfNcm}|${origemFinal}`),
+        status: "pendente",
+      });
+    }
+
+    if (jobs.length === 0) {
+      toast.error("Nenhum produto selecionado tem NCM válido na NF.");
+      return;
+    }
+
+    setSavingBatchFiscal(true);
+    try {
+      const { error } = await supabase.from("fin_gc_write_jobs").upsert(jobs, {
+        onConflict: "recurso,recurso_id,payload_hash"
+      });
+      if (error) throw error;
+      toast.success(`${jobs.length} correções agendadas com sucesso.`);
+      if (falhas.length > 0) {
+        console.warn("Produtos ignorados no lote fiscal:", falhas);
+      }
+      setSelectedProductIds(new Set());
+    } catch (err: any) {
+      toast.error("Erro ao agendar lote: " + err.message);
+    } finally {
+      setSavingBatchFiscal(false);
+    }
+  };
+
   const activeSyncRef = useRef<"gc" | "offline" | null>(null);
 
   // ── Manual tributo (crédito manual quando não há NF) ──
