@@ -34,6 +34,7 @@ interface GCProduto {
   valor_venda: string;
   nome_grupo?: string;
   ncm?: string;
+  origem?: string;
   unidade?: string;
 }
 
@@ -42,6 +43,7 @@ interface ProdutoTributo {
   nome_produto: string;
   descricao_nf?: string | null;
   ncm: string | null;
+  origem: string | null;
   cfop: string | null;
   nf_numero: string | null;
   nf_chave: string | null;
@@ -636,7 +638,7 @@ export default function PrecificacaoPage() {
       while (true) {
         const { data, error } = await supabase
           .from("v_produto_custo_atual" as any)
-          .select("produto_gc_id, custo_variavel_real, status_custo")
+          .select("produto_gc_id, custo_variavel_real, status_custo, ncm, origem")
           .range(from, from + pageSize - 1);
         if (error) throw error;
         const batch = (data || []) as any[];
@@ -650,11 +652,13 @@ export default function PrecificacaoPage() {
   });
 
   const custoCanonicoMap = useMemo(() => {
-    const m = new Map<string, { custo: number; status: string }>();
+    const m = new Map<string, { custo: number; status: string; ncm: string | null; origem: string | null }>();
     for (const r of custoCanonico || []) {
       m.set(String(r.produto_gc_id), {
         custo: Number(r.custo_variavel_real) || 0,
         status: r.status_custo || "ok_sem_tributo",
+        ncm: r.ncm || null,
+        origem: r.origem !== undefined ? String(r.origem) : null,
       });
     }
     return m;
@@ -1048,13 +1052,14 @@ export default function PrecificacaoPage() {
         if (divergenciaFilter === "gc_abaixo" && direcao !== "gc_abaixo") return false;
         if (divergenciaFilter === "ok" && divergente) return false;
       }
+      if (ncmFilter === "pendente" && !!p.ncm) return false;
       return true;
     });
-  }, [produtos, search, grupoFilter, estoqueFilter, divergenciaFilter, ultimaCompraMap, tributosMap]);
+  }, [produtos, search, grupoFilter, estoqueFilter, divergenciaFilter, ncmFilter, ultimaCompraMap, tributosMap]);
 
 
   // Reseta página ao mudar filtros para evitar ficar fora do range
-  useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, estoqueFilter, divergenciaFilter, tipoSaidaGlobal]);
+  useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, estoqueFilter, divergenciaFilter, ncmFilter, tipoSaidaGlobal]);
 
 
 
@@ -2488,6 +2493,18 @@ export default function PrecificacaoPage() {
                   <SelectItem value="gc_acima">GC mais caro que a NF</SelectItem>
                   <SelectItem value="gc_abaixo">GC mais barato que a NF</SelectItem>
                   <SelectItem value="ok">Sem divergência</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">NCM:</Label>
+              <Select value={ncmFilter} onValueChange={(v) => setNcmFilter(v as typeof ncmFilter)}>
+                <SelectTrigger className="w-[150px] h-8 text-xs bg-secondary">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="pendente">Sem NCM</SelectItem>
                 </SelectContent>
               </Select>
             </div>
