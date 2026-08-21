@@ -386,8 +386,8 @@ const normOrig = (v: unknown) => {
   if (s === "null" || s === "") return "";
   
   // Se for uma string longa que começa com o código (ex: "0 - Nacional"), pega o primeiro caractere
-  const firstDigit = s.charAt(0);
-  return /^[0-8]$/.test(firstDigit) ? firstDigit : "";
+  const firstDigit = s.replace(/[^0-8]/g, "").charAt(0);
+  return firstDigit || "";
 };
 
 function FiscalCell({
