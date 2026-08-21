@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
     // Endpoint/método por recurso
     let url: string;
     let method: string;
-    if (job.recurso === "produtos" || job.recurso === "fin_gc_write_jobs" || job.recurso === "fin_nfe_entrada_itens") {
+    if (job.recurso === "produtos" || job.recurso === "fin_gc_write_jobs" || job.recurso === "fin_nfe_entrada_itens" || job.recurso === "produto_custo_incremento") {
       url = `${GC_BASE_URL}/api/v1/produtos/${job.recurso_id}`;
       method = "PUT";
     } else if (job.recurso === "fin_pagamentos") {
