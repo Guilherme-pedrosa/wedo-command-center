@@ -2584,6 +2584,7 @@ export default function PrecificacaoPage() {
                     />
                   </TableHead>
                   <TableHead className="text-xs" rowSpan={2}>Produto</TableHead>
+                  <TableHead className="text-xs" rowSpan={2}>NCM / Origem</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Estoque</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2} title="Custo cadastrado no GestãoClick (gc_produtos_cache.valor_custo)">Custo GC</TableHead>
@@ -2726,14 +2727,16 @@ export default function PrecificacaoPage() {
                         })()}
                       </TableCell>
                       <TableCell>
-                        <div>
-                          <span className="font-medium text-foreground text-sm">{p.nome}</span>
-                          {(p.codigo_interno || p.codigo_barra) && (
-                            <span className="text-xs text-muted-foreground ml-2" title="Código interno GC">#{p.codigo_interno || p.codigo_barra}</span>
-                          )}
-                          {p.nome_grupo && (
-                            <Badge variant="outline" className="ml-2 text-[10px] py-0">{p.nome_grupo}</Badge>
-                          )}
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-foreground text-sm">{p.nome}</span>
+                            {(p.codigo_interno || p.codigo_barra) && (
+                              <span className="text-xs text-muted-foreground" title="Código interno GC">#{p.codigo_interno || p.codigo_barra}</span>
+                            )}
+                            {p.nome_grupo && (
+                              <Badge variant="outline" className="text-[10px] py-0">{p.nome_grupo}</Badge>
+                            )}
+                          </div>
                           <span className="inline-flex items-center gap-1 ml-2 align-middle" title="Comissão % sobre a venda deste produto. Entra no divisor do mark-up (afeta preço mínimo e margem exibida).">
                             <span className="text-[10px] text-muted-foreground">Comissão</span>
                             <Input
@@ -2992,6 +2995,87 @@ export default function PrecificacaoPage() {
                             </div>
                           )}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const ncmGc = custoCan?.ncm || p.ncm || "";
+                          const origGc = custoCan?.origem || p.origem || "";
+                          const ncmNf = tributo?.ncm || "";
+                          const origNf = tributo?.origem || "";
+                          const divOrig = origNf !== "" && origGc !== "" && String(origNf) !== String(origGc);
+                          const pendNcm = !ncmGc;
+
+                          return (
+                            <div className="flex flex-col gap-1.5 min-w-[140px]">
+                              {/* NCM */}
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-[10px] text-muted-foreground uppercase font-semibold">NCM</span>
+                                <div className="flex items-center gap-1.5">
+                                  <Input
+                                    value={ncmGc}
+                                    onChange={(e) => {
+                                      // Local update logic can be added if needed, but for now we focus on sync
+                                    }}
+                                    className={`h-6 text-[10px] px-1.5 font-mono ${pendNcm ? "border-red-500/50 bg-red-500/5" : "bg-secondary"}`}
+                                    placeholder="NCM Pendente"
+                                  />
+                                  {ncmNf && ncmNf !== ncmGc && (
+                                    <span className="text-[9px] text-blue-400 font-mono" title={`NCM na última NF: ${ncmNf}`}>NF: {ncmNf}</span>
+                                  )}
+                                </div>
+                              </div>
+                              {/* Origem */}
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-[10px] text-muted-foreground uppercase font-semibold">Origem</span>
+                                <div className="flex items-center gap-1.5">
+                                  <div 
+                                    className={`text-[10px] px-1.5 py-0.5 rounded border ${divOrig ? "border-amber-500/50 text-amber-400 bg-amber-500/5" : "border-border text-foreground bg-secondary"}`}
+                                    title={divOrig ? `Divergência: GC=${origGc} vs NF=${origNf}` : `Origem no cadastro: ${origGc}`}
+                                  >
+                                    {origGc || "—"}
+                                  </div>
+                                  {origNf !== "" && divOrig && (
+                                    <span className="text-[9px] text-amber-500 font-mono" title={`Origem na última NF: ${origNf}`}>NF: {origNf}</span>
+                                  )}
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost" 
+                                    className="h-5 w-5 p-0 hover:bg-primary/20"
+                                    onClick={async () => {
+                                       const novoNcm = window.prompt(`Novo NCM para ${p.nome}:`, ncmGc);
+                                       const novaOrig = window.prompt(`Nova Origem (0-8) para ${p.nome}:`, origGc);
+                                       if (novoNcm === null && novaOrig === null) return;
+                                       
+                                       const jobPayload = {
+                                         ncm: novoNcm !== null ? novoNcm : ncmGc,
+                                         origem: novaOrig !== null ? novaOrig : origGc
+                                       };
+                                       
+                                       const { error } = await supabase
+                                         .from("fin_gc_write_jobs")
+                                         .insert({
+                                           recurso: "produtos",
+                                           recurso_id: String(p.id),
+                                           payload: jobPayload,
+                                           payload_hash: btoa(JSON.stringify(jobPayload)),
+                                           status: "pendente"
+                                         });
+                                       
+                                       if (error) {
+                                         toast.error("Erro ao agendar atualização: " + error.message);
+                                       } else {
+                                         toast.success("Atualização fiscal agendada no GestãoClick");
+                                         // Trigger sync log polling or refetch
+                                       }
+                                    }}
+                                  >
+                                    <Edit className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{estoque}</TableCell>
                       {(() => {
