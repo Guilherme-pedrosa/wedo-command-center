@@ -445,7 +445,7 @@ function FiscalCell({
       toast.error("Erro ao agendar correção: " + error.message);
       return;
     }
-    toast.success(`NCM/Origem de ${nome} enviado para o GestãoClick`);
+    toast.success(`NCM/Origem de ${nome} agendado para o GestãoClick`);
     setNcm(ncmLimpo);
     setOrig(payload.origem);
     setEditing(false);
