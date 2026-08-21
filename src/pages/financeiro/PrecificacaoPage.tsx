@@ -651,7 +651,7 @@ export default function PrecificacaoPage() {
     const falhas = [];
 
     let semNcm = 0;
-    let origemAssumida = 0;
+    let semOrigem = 0;
 
     for (const p of selecionados) {
       const trib = tributosMap.get(String(p.id));
@@ -666,10 +666,10 @@ export default function PrecificacaoPage() {
 
       const gcOrig = normOrig(p.origem);
 
-      let origemFinal = nfOrig || gcOrig;
+      const origemFinal = nfOrig || gcOrig;
       if (!origemFinal) {
-        origemFinal = "0"; // NF sem tag de origem: assume nacional
-        origemAssumida++;
+        semOrigem++;
+        continue;
       }
 
       jobs.push({
@@ -699,7 +699,7 @@ export default function PrecificacaoPage() {
       if (error) throw error;
       toast.success(
         `${jobs.length} correção(ões) agendada(s).` +
-          (origemAssumida > 0 ? ` ${origemAssumida} sem origem na NF — assumida 0 (Nacional).` : "") +
+          (semOrigem > 0 ? ` ${semOrigem} ignorado(s) porque a origem não foi identificada.` : "") +
           (falhas.length > 0 ? ` ${falhas.length} ignorado(s) por NCM inválido.` : ""),
       );
       if (falhas.length > 0) {
