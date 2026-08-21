@@ -1548,7 +1548,7 @@ function processarXml(
       gc_produto_id: gcProdId,
       nome_produto: item.nome_produto || "",
       ncm: xi.NCM || "",
-      origem: String(xi.icms_orig ?? ""),
+      origem: String(xi.icms_orig ?? "").trim().charAt(0),
       cfop: xi.CFOP || "",
       nf_gc_id: meta.chave || xmlMeta.chave,
       nf_numero: meta.numero_nf || xmlMeta.numero_nf || "",

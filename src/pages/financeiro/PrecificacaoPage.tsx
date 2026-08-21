@@ -397,7 +397,9 @@ function FiscalCell({
   const normNcm = (v: unknown) => String(v ?? "").replace(/\D/g, "").slice(0, 8);
   const normOrig = (v: unknown) => {
     const s = String(v ?? "").trim();
-    return /^[0-8]$/.test(s) ? s : "";
+    // A origem no XML costuma ser o primeiro dígito da tag <orig>
+    const firstDigit = s.charAt(0);
+    return /^[0-8]$/.test(firstDigit) ? firstDigit : "";
   };
 
   const gcNcm = normNcm(ncmGc);
