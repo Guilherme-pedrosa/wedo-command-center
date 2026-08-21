@@ -367,6 +367,157 @@ function calcPricingWithNF(
   };
 }
 
+const ORIGEM_OPTS = [
+  { v: "0", l: "0 - Nacional" },
+  { v: "1", l: "1 - Estrangeira (importação direta)" },
+  { v: "2", l: "2 - Estrangeira (mercado interno)" },
+  { v: "3", l: "3 - Nacional (import. 40-70%)" },
+  { v: "4", l: "4 - Nacional (proc. produtivos básicos)" },
+  { v: "5", l: "5 - Nacional (import. <= 40%)" },
+  { v: "6", l: "6 - Estrangeira direta (lista CAMEX)" },
+  { v: "7", l: "7 - Estrangeira mercado interno (lista CAMEX)" },
+  { v: "8", l: "8 - Nacional (import. > 70%)" },
+];
+
+function FiscalCell({
+  produtoId,
+  nome,
+  ncmGc,
+  origGc,
+  ncmNf,
+  origNf,
+}: {
+  produtoId: string;
+  nome: string;
+  ncmGc: string;
+  origGc: string;
+  ncmNf: string;
+  origNf: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [ncm, setNcm] = useState(ncmGc);
+  const [orig, setOrig] = useState(origGc);
+  const [saving, setSaving] = useState(false);
+
+  const divNcm = !!ncmNf && ncmNf !== ncmGc;
+  const divOrig = origNf !== "" && origGc !== "" && String(origNf) !== String(origGc);
+  const pendNcm = !ncmGc;
+
+  const enviar = async (novoNcm: string, novaOrigem: string) => {
+    const ncmLimpo = novoNcm.replace(/\D/g, "");
+    if (ncmLimpo.length !== 8) {
+      toast.error("NCM deve ter 8 dígitos.");
+      return;
+    }
+    if (novaOrigem && !/^[0-8]$/.test(novaOrigem)) {
+      toast.error("Origem deve ser um código de 0 a 8.");
+      return;
+    }
+    setSaving(true);
+    const payload = { ncm: ncmLimpo, origem: novaOrigem || origGc || "0" };
+    const { error } = await supabase.from("fin_gc_write_jobs").insert({
+      recurso: "produtos",
+      recurso_id: String(produtoId),
+      payload,
+      payload_hash: btoa(`${produtoId}|${payload.ncm}|${payload.origem}`),
+      status: "pendente",
+    });
+    setSaving(false);
+    if (error) {
+      toast.error("Erro ao agendar correção: " + error.message);
+      return;
+    }
+    toast.success(`NCM/Origem de ${nome} enviado para o GestãoClick`);
+    setNcm(ncmLimpo);
+    setOrig(payload.origem);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex flex-col gap-1.5 min-w-[190px]">
+        <Input
+          autoFocus
+          value={ncm}
+          onChange={(e) => setNcm(e.target.value)}
+          placeholder="NCM (8 dígitos)"
+          className="h-7 text-[11px] px-1.5 font-mono"
+        />
+        <Select value={orig || undefined} onValueChange={setOrig}>
+          <SelectTrigger className="h-7 text-[10px]">
+            <SelectValue placeholder="Origem" />
+          </SelectTrigger>
+          <SelectContent>
+            {ORIGEM_OPTS.map((o) => (
+              <SelectItem key={o.v} value={o.v} className="text-xs">{o.l}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex items-center gap-1">
+          <Button size="sm" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => enviar(ncm, orig)}>
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar no GC"}
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => { setNcm(ncmGc); setOrig(origGc); setEditing(false); }}>
+            Cancelar
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 min-w-[150px]">
+      <div className="flex flex-col gap-0.5">
+        <span className="text-[10px] text-muted-foreground uppercase font-semibold">NCM</span>
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ${pendNcm ? "border-red-500/50 text-red-400 bg-red-500/5" : "border-border bg-secondary"}`}
+          >
+            {ncmGc || "Pendente"}
+          </span>
+          {divNcm && (
+            <span className="text-[9px] text-blue-400 font-mono" title="NCM na última NF de entrada">NF: {ncmNf}</span>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-col gap-0.5">
+        <span className="text-[10px] text-muted-foreground uppercase font-semibold">Origem</span>
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`text-[10px] px-1.5 py-0.5 rounded border ${divOrig ? "border-amber-500/50 text-amber-400 bg-amber-500/5" : "border-border bg-secondary"}`}
+            title={divOrig ? `Divergência: GC=${origGc} vs NF=${origNf}` : `Origem no cadastro: ${origGc || "não informada"}`}
+          >
+            {origGc || "—"}
+          </span>
+          {divOrig && (
+            <span className="text-[9px] text-amber-500 font-mono" title="Origem na última NF">NF: {origNf}</span>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-col gap-1">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-6 px-2 text-[10px] gap-1"
+          onClick={() => { setNcm(ncmGc); setOrig(origGc); setEditing(true); }}
+        >
+          <Edit className="h-3 w-3" /> Corrigir NCM/Origem
+        </Button>
+        {(divNcm || divOrig) && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[10px] text-blue-400 hover:text-blue-300"
+            disabled={saving}
+            onClick={() => enviar(ncmNf || ncmGc, origNf || origGc)}
+          >
+            Usar dados da NF
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 
 export default function PrecificacaoPage() {
