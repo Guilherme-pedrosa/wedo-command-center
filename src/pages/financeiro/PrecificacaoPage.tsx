@@ -379,6 +379,13 @@ const ORIGEM_OPTS = [
   { v: "8", l: "8 - Nacional (import. > 70%)" },
 ];
 
+const normNcm = (v: unknown) => String(v ?? "").replace(/\D/g, "").slice(0, 8);
+const normOrig = (v: unknown) => {
+  const s = String(v ?? "").trim();
+  const firstDigit = s.charAt(0);
+  return /^[0-8]$/.test(firstDigit) ? firstDigit : "";
+};
+
 function FiscalCell({
   produtoId,
   nome,
