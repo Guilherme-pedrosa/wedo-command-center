@@ -136,6 +136,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
           "access-token": GC_ACCESS_TOKEN,
           "secret-access-token": GC_SECRET_TOKEN,
+          "usuario-id": "1320473",
         },
       });
 
@@ -228,6 +229,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
           "access-token": GC_ACCESS_TOKEN,
           "secret-access-token": GC_SECRET_TOKEN,
+          "usuario-id": "1320473",
         },
         body: JSON.stringify(putBody),
       });
