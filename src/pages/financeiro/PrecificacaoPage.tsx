@@ -1251,7 +1251,7 @@ export default function PrecificacaoPage() {
       if (ncmFilter === "pendente_com_nf") {
         if (p.ncm) return false;
         const trib = tributosMap.get(p.id);
-        const nfNcm = tributo?.ncm || trib?.ncm;
+        const nfNcm = trib?.ncm;
         if (!nfNcm || nfNcm.length !== 8) return false;
       }
       return true;
