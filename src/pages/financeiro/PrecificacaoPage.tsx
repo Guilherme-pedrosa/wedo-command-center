@@ -569,7 +569,8 @@ export default function PrecificacaoPage() {
   const [grupoFilter, setGrupoFilter] = useState<string>("todos");
   const [estoqueFilter, setEstoqueFilter] = useState<"todos" | "com_estoque" | "sem_estoque">("todos");
   const [divergenciaFilter, setDivergenciaFilter] = useState<"todos" | "divergentes" | "gc_acima" | "gc_abaixo" | "ok">("todos");
-  const [ncmFilter, setNcmFilter] = useState<"todos" | "pendente">("todos");
+  const [ncmFilter, setNcmFilter] = useState<"todos" | "pendente" | "pendente_com_nf">("todos");
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
   const [taxEntrada, setTaxEntrada] = useState<TaxConfigEntrada>(DEFAULT_ENTRADA);
