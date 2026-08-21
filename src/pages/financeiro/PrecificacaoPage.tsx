@@ -465,7 +465,7 @@ function FiscalCell({
         />
         <Select value={orig || undefined} onValueChange={setOrig}>
           <SelectTrigger className="h-7 text-[10px]">
-            <SelectValue placeholder="Origem" />
+            <SelectValue placeholder={orig ? ORIGEM_OPTS.find(o => o.v === orig)?.l : "Origem"} />
           </SelectTrigger>
           <SelectContent>
             {ORIGEM_OPTS.map((o) => (
