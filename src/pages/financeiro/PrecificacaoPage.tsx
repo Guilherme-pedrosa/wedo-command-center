@@ -382,6 +382,8 @@ const ORIGEM_OPTS = [
 const normNcm = (v: unknown) => String(v ?? "").replace(/\D/g, "").slice(0, 8);
 const normOrig = (v: unknown) => {
   const s = String(v ?? "").trim();
+  // Se for "null" ou vazio, retorna string vazia
+  if (s === "null" || s === "") return "";
   const firstDigit = s.charAt(0);
   return /^[0-8]$/.test(firstDigit) ? firstDigit : "";
 };
@@ -429,13 +431,15 @@ function FiscalCell({
     }
     setSaving(true);
     const payload = { ncm: ncmLimpo, origem: origemFinal };
-    const { error } = await supabase.from("fin_gc_write_jobs").insert({
+    console.log("[FiscalCell] Enviando job para GC:", { produtoId, payload });
+    
+    const { error } = await supabase.from("fin_gc_write_jobs").upsert({
       recurso: "produtos",
       recurso_id: String(produtoId),
       payload,
       payload_hash: btoa(`${produtoId}|${payload.ncm}|${payload.origem}`),
       status: "pendente",
-    });
+    }, { onConflict: "recurso,recurso_id,payload_hash" });
     setSaving(false);
     if (error) {
       toast.error("Erro ao agendar correção: " + error.message);
