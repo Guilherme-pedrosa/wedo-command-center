@@ -519,7 +519,7 @@ function FiscalCell({
             className={`text-[10px] px-1.5 py-0.5 rounded border ${divOrig ? "border-amber-500/50 text-amber-400 bg-amber-500/5" : "border-border bg-secondary"}`}
             title={divOrig ? `Divergência: GC=${gcOrig || "—"} vs NF=${nfOrig}` : `Origem no cadastro: ${gcOrig || "não informada"}`}
           >
-            {gcOrig || "—"}
+            {gcOrig ? (ORIGEM_OPTS.find(o => o.v === gcOrig)?.l || gcOrig) : "—"}
           </span>
           {divOrig && (
             <span className="text-[9px] text-amber-500 font-mono" title="Origem na última NF">NF: {nfOrig}</span>
