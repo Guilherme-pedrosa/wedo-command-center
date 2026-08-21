@@ -379,6 +379,13 @@ const ORIGEM_OPTS = [
   { v: "8", l: "8 - Nacional (import. > 70%)" },
 ];
 
+const normNcm = (v: unknown) => String(v ?? "").replace(/\D/g, "").slice(0, 8);
+const normOrig = (v: unknown) => {
+  const s = String(v ?? "").trim();
+  const firstDigit = s.charAt(0);
+  return /^[0-8]$/.test(firstDigit) ? firstDigit : "";
+};
+
 function FiscalCell({
   produtoId,
   nome,
@@ -394,14 +401,6 @@ function FiscalCell({
   ncmNf: string;
   origNf: string;
 }) {
-  const normNcm = (v: unknown) => String(v ?? "").replace(/\D/g, "").slice(0, 8);
-  const normOrig = (v: unknown) => {
-    const s = String(v ?? "").trim();
-    // A origem no XML costuma ser o primeiro dígito da tag <orig>
-    const firstDigit = s.charAt(0);
-    return /^[0-8]$/.test(firstDigit) ? firstDigit : "";
-  };
-
   const gcNcm = normNcm(ncmGc);
   const gcOrig = normOrig(origGc);
   const nfNcm = normNcm(ncmNf);
@@ -569,7 +568,8 @@ export default function PrecificacaoPage() {
   const [grupoFilter, setGrupoFilter] = useState<string>("todos");
   const [estoqueFilter, setEstoqueFilter] = useState<"todos" | "com_estoque" | "sem_estoque">("todos");
   const [divergenciaFilter, setDivergenciaFilter] = useState<"todos" | "divergentes" | "gc_acima" | "gc_abaixo" | "ok">("todos");
-  const [ncmFilter, setNcmFilter] = useState<"todos" | "pendente">("todos");
+  const [ncmFilter, setNcmFilter] = useState<"todos" | "pendente" | "pendente_com_nf">("todos");
+  
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
   const [taxEntrada, setTaxEntrada] = useState<TaxConfigEntrada>(DEFAULT_ENTRADA);
@@ -633,6 +633,68 @@ export default function PrecificacaoPage() {
     });
     toast.success(`Comissão ${pct}% aplicada a ${selectedProductIds.size} produto(s)`);
   };
+
+  const [savingBatchFiscal, setSavingBatchFiscal] = useState(false);
+  const aplicarFiscalDaNfLote = async () => {
+    if (selectedProductIds.size === 0) {
+      toast.error("Selecione ao menos um produto.");
+      return;
+    }
+    const selecionados = produtos?.filter(p => selectedProductIds.has(String(p.id))) || [];
+    const jobs = [];
+    const falhas = [];
+
+    for (const p of selecionados) {
+      const trib = tributosMap.get(String(p.id));
+      const nfNcm = trib?.ncm;
+      const nfOrig = trib?.origem;
+
+      if (!nfNcm || nfNcm.length !== 8) {
+        falhas.push(p.nome);
+        continue;
+      }
+
+      const gcNcm = normNcm(p.ncm);
+      const gcOrig = normOrig(p.origem);
+      
+      const origemFinal = nfOrig || gcOrig;
+      if (!origemFinal) {
+        falhas.push(`${p.nome} (sem origem)`);
+        continue;
+      }
+
+      jobs.push({
+        recurso: "produtos",
+        recurso_id: String(p.id),
+        payload: { ncm: nfNcm, origem: origemFinal },
+        payload_hash: btoa(`${p.id}|${nfNcm}|${origemFinal}`),
+        status: "pendente",
+      });
+    }
+
+    if (jobs.length === 0) {
+      toast.error("Nenhum produto selecionado tem NCM válido na NF.");
+      return;
+    }
+
+    setSavingBatchFiscal(true);
+    try {
+      const { error } = await supabase.from("fin_gc_write_jobs").upsert(jobs, {
+        onConflict: "recurso,recurso_id,payload_hash"
+      });
+      if (error) throw error;
+      toast.success(`${jobs.length} correções agendadas com sucesso.`);
+      if (falhas.length > 0) {
+        console.warn("Produtos ignorados no lote fiscal:", falhas);
+      }
+      setSelectedProductIds(new Set());
+    } catch (err: any) {
+      toast.error("Erro ao agendar lote: " + err.message);
+    } finally {
+      setSavingBatchFiscal(false);
+    }
+  };
+
   const activeSyncRef = useRef<"gc" | "offline" | null>(null);
 
   // ── Manual tributo (crédito manual quando não há NF) ──
@@ -1247,6 +1309,12 @@ export default function PrecificacaoPage() {
         if (divergenciaFilter === "ok" && divergente) return false;
       }
       if (ncmFilter === "pendente" && !!p.ncm) return false;
+      if (ncmFilter === "pendente_com_nf") {
+        if (p.ncm) return false;
+        const trib = tributosMap.get(p.id);
+        const nfNcm = trib?.ncm;
+        if (!nfNcm || nfNcm.length !== 8) return false;
+      }
       return true;
     });
   }, [produtos, search, grupoFilter, estoqueFilter, divergenciaFilter, ncmFilter, ultimaCompraMap, tributosMap]);
@@ -2689,7 +2757,19 @@ export default function PrecificacaoPage() {
                   <SelectItem value="ok">Sem divergência</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            {selectedProductIds.size > 0 && ncmFilter === "pendente_com_nf" && (
+              <Button
+                size="sm"
+                variant="default"
+                onClick={aplicarFiscalDaNfLote}
+                disabled={savingBatchFiscal}
+                className="bg-blue-600 hover:bg-blue-500 text-white"
+              >
+                {savingBatchFiscal ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                Corrigir NCM/Origem em lote ({selectedProductIds.size})
+              </Button>
+            )}
+          </div>
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">NCM:</Label>
               <Select value={ncmFilter} onValueChange={(v) => setNcmFilter(v as typeof ncmFilter)}>
@@ -2699,6 +2779,7 @@ export default function PrecificacaoPage() {
                 <SelectContent>
                   <SelectItem value="todos">Todos</SelectItem>
                   <SelectItem value="pendente">Sem NCM</SelectItem>
+                  <SelectItem value="pendente_com_nf">Sem NCM + NF Identificada</SelectItem>
                 </SelectContent>
               </Select>
             </div>
