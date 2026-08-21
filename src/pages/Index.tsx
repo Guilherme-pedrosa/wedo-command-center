@@ -11,6 +11,7 @@ const Index = () => {
     <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="text-center">
         <h1 className="mb-4 text-4xl font-bold">Carregando...</h1>
+        <p className="text-xl text-muted-foreground">VEJA UM XML PRA VC NÃO FAZER MERDA!! ATÉ PQ O PRODUTO DA IMAGEM QUE TE MANDEI É IMPORTADO!</p>
       </div>
     </div>
   );
