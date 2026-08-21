@@ -12,7 +12,7 @@ const Index = () => {
       <div className="text-center">
         <h1 className="mb-4 text-4xl font-bold">Carregando...</h1>
         <p className="text-xl text-muted-foreground whitespace-pre-wrap text-center max-w-2xl px-4">
-          {"TRABALHE NO BACK END PARA EXECUTAR A TAREFA QUE TE PEDI E REMOVA QUALQUER TEXTO QUE COLOCOU NO FRONT NO ULTIMO PROMPT"}
+          {"Carregando..."}
         </p>
       </div>
     </div>
