@@ -522,7 +522,7 @@ function FiscalCell({
             {gcOrig ? (ORIGEM_OPTS.find(o => o.v === gcOrig)?.l || gcOrig) : "—"}
           </span>
           {divOrig && (
-            <span className="text-[9px] text-amber-500 font-mono" title="Origem na última NF">NF: {nfOrig}</span>
+            <span className="text-[9px] text-amber-500 font-mono" title="Origem na última NF">NF: {nfOrig} ({ORIGEM_OPTS.find(o => o.v === nfOrig)?.l || nfOrig})</span>
           )}
         </div>
       </div>
