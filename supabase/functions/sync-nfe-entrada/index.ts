@@ -251,10 +251,13 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     const vOutro = parseFloat(getTag(prod, "vOutro")) || 0;
     const vDesc = parseFloat(getTag(prod, "vDesc")) || 0;
 
+    // ICMS: o nó interno é dinâmico (ICMS00, ICMS40, ICMSSN101, ICMSPart, ...).
+    // Busca dinâmica de <orig> em QUALQUER filho, sem fixar CST. Se não existir, fica vazio (=> null no banco).
     const icmsBlock = getBlock(imposto, "ICMS");
     const icmsInner = icmsBlock.replace(/<\/?(?:[a-zA-Z0-9]+:)?ICMS>/gi, "").trim();
-    const icms_orig = getTag(icmsInner, "orig");
+    const icms_orig = getTag(icmsInner, "orig") || getTag(imposto, "orig");
     const icms_cst = getTag(icmsInner, "CST") || getTag(icmsInner, "CSOSN");
+
     const icms_pRedBC = parseFloat(getTag(icmsInner, "pRedBC")) || 0;
     const icms_vBC = parseFloat(getTag(icmsInner, "vBC")) || 0;
     const icms_pICMS = parseFloat(getTag(icmsInner, "pICMS")) || 0;
