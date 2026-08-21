@@ -13,7 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Loader2, Search, Calculator, Package, TrendingUp, AlertTriangle, DollarSign, BarChart3, RefreshCw, FileText, Info, ShoppingCart, Wrench, Upload, Pencil, Plus, Download, Calendar as CalendarIcon } from "lucide-react";
+import { Loader2, Search, Calculator, Package, TrendingUp, AlertTriangle, DollarSign, BarChart3, RefreshCw, FileText, Info, ShoppingCart, Wrench, Upload, Pencil, Edit, Plus, Download, Calendar as CalendarIcon } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatCurrency } from "@/lib/format";
 import toast from "react-hot-toast";
