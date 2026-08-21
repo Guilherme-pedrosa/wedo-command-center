@@ -644,23 +644,26 @@ export default function PrecificacaoPage() {
     const jobs = [];
     const falhas = [];
 
+    let semNcm = 0;
+    let origemAssumida = 0;
+
     for (const p of selecionados) {
       const trib = tributosMap.get(String(p.id));
-      const nfNcm = trib?.ncm;
-      const nfOrig = trib?.origem;
+      const nfNcm = normNcm(trib?.ncm);
+      const nfOrig = normOrig(trib?.origem);
 
-      if (!nfNcm || nfNcm.length !== 8) {
+      if (nfNcm.length !== 8) {
+        semNcm++;
         falhas.push(p.nome);
         continue;
       }
 
-      const gcNcm = normNcm(p.ncm);
       const gcOrig = normOrig(p.origem);
-      
-      const origemFinal = nfOrig || gcOrig;
+
+      let origemFinal = nfOrig || gcOrig;
       if (!origemFinal) {
-        falhas.push(`${p.nome} (sem origem)`);
-        continue;
+        origemFinal = "0"; // NF sem tag de origem: assume nacional
+        origemAssumida++;
       }
 
       jobs.push({
@@ -673,9 +676,14 @@ export default function PrecificacaoPage() {
     }
 
     if (jobs.length === 0) {
-      toast.error("Nenhum produto selecionado tem NCM válido na NF.");
+      toast.error(
+        semNcm > 0
+          ? `Nenhum dos ${semNcm} produto(s) selecionado(s) tem NCM de 8 dígitos na NF.`
+          : "Nenhum produto selecionado pôde ser corrigido.",
+      );
       return;
     }
+
 
     setSavingBatchFiscal(true);
     try {
