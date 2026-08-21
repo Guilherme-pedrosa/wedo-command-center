@@ -10,7 +10,7 @@ const Index = () => {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-8">
       <div className="text-center max-w-2xl">
-        <h1 className="mb-4 text-2xl font-bold">O NCM VOLTOU A NÃO SER ATUALIZADO NO GESTÃO CLICK, VERIFIQUE E CORRIJA!</h1>
+        <h1 className="mb-4 text-2xl font-bold">Carregando...</h1>
       </div>
     </div>
   );
