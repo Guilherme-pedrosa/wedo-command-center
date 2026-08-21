@@ -376,6 +376,7 @@ export default function PrecificacaoPage() {
   const [grupoFilter, setGrupoFilter] = useState<string>("todos");
   const [estoqueFilter, setEstoqueFilter] = useState<"todos" | "com_estoque" | "sem_estoque">("todos");
   const [divergenciaFilter, setDivergenciaFilter] = useState<"todos" | "divergentes" | "gc_acima" | "gc_abaixo" | "ok">("todos");
+  const [ncmFilter, setNcmFilter] = useState<"todos" | "pendente">("todos");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
   const [taxEntrada, setTaxEntrada] = useState<TaxConfigEntrada>(DEFAULT_ENTRADA);
@@ -634,7 +635,7 @@ export default function PrecificacaoPage() {
     queryFn: async () => {
       const pageSize = 1000;
       let from = 0;
-      const allRows: { produto_gc_id: string; custo_variavel_real: number | null; status_custo: string }[] = [];
+      const allRows: { produto_gc_id: string; custo_variavel_real: number | null; status_custo: string; ncm?: string; origem?: string }[] = [];
       while (true) {
         const { data, error } = await supabase
           .from("v_produto_custo_atual" as any)
