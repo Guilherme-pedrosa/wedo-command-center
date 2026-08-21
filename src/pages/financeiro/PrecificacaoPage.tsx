@@ -498,10 +498,10 @@ function FiscalCell({
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ${pendNcm ? "border-red-500/50 text-red-400 bg-red-500/5" : "border-border bg-secondary"}`}
           >
-            {ncmGc || "Pendente"}
+            {gcNcm || "Pendente"}
           </span>
           {divNcm && (
-            <span className="text-[9px] text-blue-400 font-mono" title="NCM na última NF de entrada">NF: {ncmNf}</span>
+            <span className="text-[9px] text-blue-400 font-mono" title="NCM na última NF de entrada">NF: {nfNcm}</span>
           )}
         </div>
       </div>
@@ -510,12 +510,12 @@ function FiscalCell({
         <div className="flex items-center gap-1.5">
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded border ${divOrig ? "border-amber-500/50 text-amber-400 bg-amber-500/5" : "border-border bg-secondary"}`}
-            title={divOrig ? `Divergência: GC=${origGc} vs NF=${origNf}` : `Origem no cadastro: ${origGc || "não informada"}`}
+            title={divOrig ? `Divergência: GC=${gcOrig || "—"} vs NF=${nfOrig}` : `Origem no cadastro: ${gcOrig || "não informada"}`}
           >
-            {origGc || "—"}
+            {gcOrig || "—"}
           </span>
           {divOrig && (
-            <span className="text-[9px] text-amber-500 font-mono" title="Origem na última NF">NF: {origNf}</span>
+            <span className="text-[9px] text-amber-500 font-mono" title="Origem na última NF">NF: {nfOrig}</span>
           )}
         </div>
       </div>
@@ -524,17 +524,31 @@ function FiscalCell({
           size="sm"
           variant="outline"
           className="h-6 px-2 text-[10px] gap-1"
-          onClick={() => { setNcm(ncmGc); setOrig(origGc); setEditing(true); }}
+          onClick={() => { setNcm(gcNcm || nfNcm); setOrig(gcOrig || nfOrig); setEditing(true); }}
         >
-          <Edit className="h-3 w-3" /> Corrigir NCM/Origem
+          <Edit className="h-3 w-3" /> Corrigir manual
         </Button>
-        {(divNcm || divOrig) && (
+        {temNf && (
           <Button
             size="sm"
             variant="ghost"
             className="h-6 px-2 text-[10px] text-blue-400 hover:text-blue-300"
             disabled={saving}
-            onClick={() => enviar(ncmNf || ncmGc, origNf || origGc)}
+            onClick={() => {
+              if (!nfNcm && !nfOrig) return;
+              if (!normNcm(nfNcm || gcNcm)) {
+                toast.error("A NF não trouxe NCM válido — use 'Corrigir manual'.");
+                return;
+              }
+              if (!normOrig(nfOrig || gcOrig)) {
+                setNcm(nfNcm || gcNcm);
+                setOrig("");
+                setEditing(true);
+                toast.info("A NF não trouxe Origem — selecione a origem e salve.");
+                return;
+              }
+              enviar(nfNcm || gcNcm, nfOrig || gcOrig);
+            }}
           >
             Usar dados da NF
           </Button>
@@ -542,6 +556,7 @@ function FiscalCell({
       </div>
     </div>
   );
+
 }
 
 
