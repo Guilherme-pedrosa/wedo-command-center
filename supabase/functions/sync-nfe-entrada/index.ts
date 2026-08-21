@@ -97,6 +97,8 @@ interface ProductTaxRecord {
   fornecedor_nome: string;
   regime_fornecedor: string;
   sem_credito: boolean;
+  ncm: string;
+  origem: string;
   icms_aliquota: number;
   icms_base: number;
   pis_aliquota: number;
@@ -1546,6 +1548,7 @@ function processarXml(
       gc_produto_id: gcProdId,
       nome_produto: item.nome_produto || "",
       ncm: xi.NCM || "",
+      origem: String(xi.icms_orig ?? ""),
       cfop: xi.CFOP || "",
       nf_gc_id: meta.chave || xmlMeta.chave,
       nf_numero: meta.numero_nf || xmlMeta.numero_nf || "",

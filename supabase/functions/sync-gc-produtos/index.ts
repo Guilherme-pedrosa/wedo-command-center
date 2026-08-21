@@ -141,6 +141,7 @@ serve(async (req) => {
         nome_grupo: p.nome_grupo ?? null,
         grupo_id: p.grupo_id ? String(p.grupo_id) : null,
         ncm: p.fiscal?.ncm ?? p.ncm ?? null,
+        origem: p.fiscal?.origem ?? p.origem ?? null,
         unidade: p.unidade ?? null,
         estoque: numericOrNull(p.estoque),
         valor_custo: numericOrNull(p.valor_custo),
@@ -183,7 +184,7 @@ serve(async (req) => {
     if (startedAt) {
       const { data: orfaos, error: selErr } = await supabase
         .from("gc_produtos_cache")
-        .select("produto_gc_id, nome, codigo_interno")
+        .select("produto_gc_id, nome, codigo_interno, ncm, origem")
         .lt("ultima_sincronizacao", startedAt)
         .limit(500);
 

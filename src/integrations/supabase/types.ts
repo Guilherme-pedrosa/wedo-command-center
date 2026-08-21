@@ -2525,6 +2525,7 @@ export type Database = {
           nf_gc_id: string | null
           nf_numero: string | null
           nome_produto: string
+          origem: string | null
           pis_aliquota: number | null
           pis_aliquota_manual: number | null
           q_com: number | null
@@ -2588,6 +2589,7 @@ export type Database = {
           nf_gc_id?: string | null
           nf_numero?: string | null
           nome_produto: string
+          origem?: string | null
           pis_aliquota?: number | null
           pis_aliquota_manual?: number | null
           q_com?: number | null
@@ -2651,6 +2653,7 @@ export type Database = {
           nf_gc_id?: string | null
           nf_numero?: string | null
           nome_produto?: string
+          origem?: string | null
           pis_aliquota?: number | null
           pis_aliquota_manual?: number | null
           q_com?: number | null
@@ -3251,6 +3254,7 @@ export type Database = {
           ncm: string | null
           nome: string
           nome_grupo: string | null
+          origem: string | null
           peso: number | null
           possui_composicao: boolean | null
           possui_variacao: boolean | null
@@ -3274,6 +3278,7 @@ export type Database = {
           ncm?: string | null
           nome: string
           nome_grupo?: string | null
+          origem?: string | null
           peso?: number | null
           possui_composicao?: boolean | null
           possui_variacao?: boolean | null
@@ -3297,6 +3302,7 @@ export type Database = {
           ncm?: string | null
           nome?: string
           nome_grupo?: string | null
+          origem?: string | null
           peso?: number | null
           possui_composicao?: boolean | null
           possui_variacao?: boolean | null
@@ -4150,6 +4156,7 @@ export type Database = {
           ncm: string | null
           nome: string | null
           nome_grupo: string | null
+          origem: string | null
           produto_gc_id: string | null
           status_custo: string | null
           ultima_sincronizacao: string | null
@@ -4165,6 +4172,7 @@ export type Database = {
           ncm?: string | null
           nome?: string | null
           nome_grupo?: string | null
+          origem?: string | null
           produto_gc_id?: string | null
           status_custo?: never
           ultima_sincronizacao?: string | null
@@ -4180,6 +4188,7 @@ export type Database = {
           ncm?: string | null
           nome?: string | null
           nome_grupo?: string | null
+          origem?: string | null
           produto_gc_id?: string | null
           status_custo?: never
           ultima_sincronizacao?: string | null

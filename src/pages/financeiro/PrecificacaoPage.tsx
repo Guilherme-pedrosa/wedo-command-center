@@ -13,7 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Loader2, Search, Calculator, Package, TrendingUp, AlertTriangle, DollarSign, BarChart3, RefreshCw, FileText, Info, ShoppingCart, Wrench, Upload, Pencil, Plus, Download, Calendar as CalendarIcon } from "lucide-react";
+import { Loader2, Search, Calculator, Package, TrendingUp, AlertTriangle, DollarSign, BarChart3, RefreshCw, FileText, Info, ShoppingCart, Wrench, Upload, Pencil, Edit, Plus, Download, Calendar as CalendarIcon } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatCurrency } from "@/lib/format";
 import toast from "react-hot-toast";
@@ -34,6 +34,7 @@ interface GCProduto {
   valor_venda: string;
   nome_grupo?: string;
   ncm?: string;
+  origem?: string;
   unidade?: string;
 }
 
@@ -42,6 +43,7 @@ interface ProdutoTributo {
   nome_produto: string;
   descricao_nf?: string | null;
   ncm: string | null;
+  origem: string | null;
   cfop: string | null;
   nf_numero: string | null;
   nf_chave: string | null;
@@ -374,6 +376,7 @@ export default function PrecificacaoPage() {
   const [grupoFilter, setGrupoFilter] = useState<string>("todos");
   const [estoqueFilter, setEstoqueFilter] = useState<"todos" | "com_estoque" | "sem_estoque">("todos");
   const [divergenciaFilter, setDivergenciaFilter] = useState<"todos" | "divergentes" | "gc_acima" | "gc_abaixo" | "ok">("todos");
+  const [ncmFilter, setNcmFilter] = useState<"todos" | "pendente">("todos");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
   const [taxEntrada, setTaxEntrada] = useState<TaxConfigEntrada>(DEFAULT_ENTRADA);
@@ -632,11 +635,11 @@ export default function PrecificacaoPage() {
     queryFn: async () => {
       const pageSize = 1000;
       let from = 0;
-      const allRows: { produto_gc_id: string; custo_variavel_real: number | null; status_custo: string }[] = [];
+      const allRows: { produto_gc_id: string; custo_variavel_real: number | null; status_custo: string; ncm?: string; origem?: string }[] = [];
       while (true) {
         const { data, error } = await supabase
           .from("v_produto_custo_atual" as any)
-          .select("produto_gc_id, custo_variavel_real, status_custo")
+          .select("produto_gc_id, custo_variavel_real, status_custo, ncm, origem")
           .range(from, from + pageSize - 1);
         if (error) throw error;
         const batch = (data || []) as any[];
@@ -650,11 +653,13 @@ export default function PrecificacaoPage() {
   });
 
   const custoCanonicoMap = useMemo(() => {
-    const m = new Map<string, { custo: number; status: string }>();
+    const m = new Map<string, { custo: number; status: string; ncm: string | null; origem: string | null }>();
     for (const r of custoCanonico || []) {
       m.set(String(r.produto_gc_id), {
         custo: Number(r.custo_variavel_real) || 0,
         status: r.status_custo || "ok_sem_tributo",
+        ncm: r.ncm || null,
+        origem: r.origem !== undefined ? String(r.origem) : null,
       });
     }
     return m;
@@ -1048,13 +1053,14 @@ export default function PrecificacaoPage() {
         if (divergenciaFilter === "gc_abaixo" && direcao !== "gc_abaixo") return false;
         if (divergenciaFilter === "ok" && divergente) return false;
       }
+      if (ncmFilter === "pendente" && !!p.ncm) return false;
       return true;
     });
-  }, [produtos, search, grupoFilter, estoqueFilter, divergenciaFilter, ultimaCompraMap, tributosMap]);
+  }, [produtos, search, grupoFilter, estoqueFilter, divergenciaFilter, ncmFilter, ultimaCompraMap, tributosMap]);
 
 
   // Reseta página ao mudar filtros para evitar ficar fora do range
-  useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, estoqueFilter, divergenciaFilter, tipoSaidaGlobal]);
+  useEffect(() => { setPage(1); }, [search, marginFilter, grupoFilter, estoqueFilter, divergenciaFilter, ncmFilter, tipoSaidaGlobal]);
 
 
 
@@ -2492,6 +2498,18 @@ export default function PrecificacaoPage() {
               </Select>
             </div>
             <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">NCM:</Label>
+              <Select value={ncmFilter} onValueChange={(v) => setNcmFilter(v as typeof ncmFilter)}>
+                <SelectTrigger className="w-[150px] h-8 text-xs bg-secondary">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="pendente">Sem NCM</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Tipo saída:</Label>
               <Select value={tipoSaidaGlobal} onValueChange={(v) => setTipoSaidaGlobal(v as TipoSaida)}>
                 <SelectTrigger className="w-[160px] h-8 text-xs bg-secondary">
@@ -2566,6 +2584,7 @@ export default function PrecificacaoPage() {
                     />
                   </TableHead>
                   <TableHead className="text-xs" rowSpan={2}>Produto</TableHead>
+                  <TableHead className="text-xs" rowSpan={2}>NCM / Origem</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Estoque</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2} title="Custo cadastrado no GestãoClick (gc_produtos_cache.valor_custo)">Custo GC</TableHead>
@@ -2708,14 +2727,16 @@ export default function PrecificacaoPage() {
                         })()}
                       </TableCell>
                       <TableCell>
-                        <div>
-                          <span className="font-medium text-foreground text-sm">{p.nome}</span>
-                          {(p.codigo_interno || p.codigo_barra) && (
-                            <span className="text-xs text-muted-foreground ml-2" title="Código interno GC">#{p.codigo_interno || p.codigo_barra}</span>
-                          )}
-                          {p.nome_grupo && (
-                            <Badge variant="outline" className="ml-2 text-[10px] py-0">{p.nome_grupo}</Badge>
-                          )}
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-foreground text-sm">{p.nome}</span>
+                            {(p.codigo_interno || p.codigo_barra) && (
+                              <span className="text-xs text-muted-foreground" title="Código interno GC">#{p.codigo_interno || p.codigo_barra}</span>
+                            )}
+                            {p.nome_grupo && (
+                              <Badge variant="outline" className="text-[10px] py-0">{p.nome_grupo}</Badge>
+                            )}
+                          </div>
                           <span className="inline-flex items-center gap-1 ml-2 align-middle" title="Comissão % sobre a venda deste produto. Entra no divisor do mark-up (afeta preço mínimo e margem exibida).">
                             <span className="text-[10px] text-muted-foreground">Comissão</span>
                             <Input
@@ -2974,6 +2995,87 @@ export default function PrecificacaoPage() {
                             </div>
                           )}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const ncmGc = custoCan?.ncm || p.ncm || "";
+                          const origGc = custoCan?.origem || p.origem || "";
+                          const ncmNf = tributo?.ncm || "";
+                          const origNf = tributo?.origem || "";
+                          const divOrig = origNf !== "" && origGc !== "" && String(origNf) !== String(origGc);
+                          const pendNcm = !ncmGc;
+
+                          return (
+                            <div className="flex flex-col gap-1.5 min-w-[140px]">
+                              {/* NCM */}
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-[10px] text-muted-foreground uppercase font-semibold">NCM</span>
+                                <div className="flex items-center gap-1.5">
+                                  <Input
+                                    value={ncmGc}
+                                    onChange={(e) => {
+                                      // Local update logic can be added if needed, but for now we focus on sync
+                                    }}
+                                    className={`h-6 text-[10px] px-1.5 font-mono ${pendNcm ? "border-red-500/50 bg-red-500/5" : "bg-secondary"}`}
+                                    placeholder="NCM Pendente"
+                                  />
+                                  {ncmNf && ncmNf !== ncmGc && (
+                                    <span className="text-[9px] text-blue-400 font-mono" title={`NCM na última NF: ${ncmNf}`}>NF: {ncmNf}</span>
+                                  )}
+                                </div>
+                              </div>
+                              {/* Origem */}
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-[10px] text-muted-foreground uppercase font-semibold">Origem</span>
+                                <div className="flex items-center gap-1.5">
+                                  <div 
+                                    className={`text-[10px] px-1.5 py-0.5 rounded border ${divOrig ? "border-amber-500/50 text-amber-400 bg-amber-500/5" : "border-border text-foreground bg-secondary"}`}
+                                    title={divOrig ? `Divergência: GC=${origGc} vs NF=${origNf}` : `Origem no cadastro: ${origGc}`}
+                                  >
+                                    {origGc || "—"}
+                                  </div>
+                                  {origNf !== "" && divOrig && (
+                                    <span className="text-[9px] text-amber-500 font-mono" title={`Origem na última NF: ${origNf}`}>NF: {origNf}</span>
+                                  )}
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost" 
+                                    className="h-5 w-5 p-0 hover:bg-primary/20"
+                                    onClick={async () => {
+                                       const novoNcm = window.prompt(`Novo NCM para ${p.nome}:`, ncmGc);
+                                       const novaOrig = window.prompt(`Nova Origem (0-8) para ${p.nome}:`, origGc);
+                                       if (novoNcm === null && novaOrig === null) return;
+                                       
+                                       const jobPayload = {
+                                         ncm: novoNcm !== null ? novoNcm : ncmGc,
+                                         origem: novaOrig !== null ? novaOrig : origGc
+                                       };
+                                       
+                                       const { error } = await supabase
+                                         .from("fin_gc_write_jobs")
+                                         .insert({
+                                           recurso: "produtos",
+                                           recurso_id: String(p.id),
+                                           payload: jobPayload,
+                                           payload_hash: btoa(JSON.stringify(jobPayload)),
+                                           status: "pendente"
+                                         });
+                                       
+                                       if (error) {
+                                         toast.error("Erro ao agendar atualização: " + error.message);
+                                       } else {
+                                         toast.success("Atualização fiscal agendada no GestãoClick");
+                                         // Trigger sync log polling or refetch
+                                       }
+                                    }}
+                                  >
+                                    <Edit className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{estoque}</TableCell>
                       {(() => {

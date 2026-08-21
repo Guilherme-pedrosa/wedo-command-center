@@ -208,6 +208,13 @@ Deno.serve(async (req) => {
       const putBody = {
         ...produtoBase,
         valor_custo: String(novoCustoTopLevel),
+        ncm: payload.ncm ?? produtoBase.ncm,
+        origem: payload.origem ?? produtoBase.origem,
+        fiscal: {
+          ...(produtoBase.fiscal as Record<string, unknown> || {}),
+          ncm: payload.ncm ?? (produtoBase.fiscal as Record<string, unknown> || {}).ncm ?? produtoBase.ncm,
+          origem: payload.origem ?? (produtoBase.fiscal as Record<string, unknown> || {}).origem ?? produtoBase.origem,
+        },
         valores: valoresMerged,
       };
 
@@ -286,6 +293,7 @@ Deno.serve(async (req) => {
             nome_grupo: responseProduto.nome_grupo ? String(responseProduto.nome_grupo) : null,
             grupo_id: responseProduto.grupo_id ? String(responseProduto.grupo_id) : null,
             ncm: (responseProduto.fiscal as { ncm?: unknown } | undefined)?.ncm ? String((responseProduto.fiscal as { ncm?: unknown }).ncm) : responseProduto.ncm ? String(responseProduto.ncm) : null,
+            origem: (responseProduto.fiscal as { origem?: unknown } | undefined)?.origem !== undefined ? String((responseProduto.fiscal as { origem?: unknown }).origem) : responseProduto.origem !== undefined ? String(responseProduto.origem) : null,
             unidade: responseProduto.unidade ? String(responseProduto.unidade) : null,
             estoque: numericOrNull(responseProduto.estoque),
             valor_custo: numericOrNull(responseProduto.valor_custo),
