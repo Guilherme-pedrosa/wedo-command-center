@@ -161,6 +161,13 @@ function getAllBlocks(xml: string, tag: string): string[] {
   return [...xml.matchAll(re)].map((m) => m[0]);
 }
 
+function normalizeOrigemXml(value: unknown): string {
+  const raw = String(value ?? "").trim();
+  if (!raw || raw.toLowerCase() === "null") return "";
+  const match = raw.match(/[0-8]/);
+  return match?.[0] ?? "";
+}
+
 interface XmlItemTax {
   nItem: number;
   cProd: string;
@@ -1548,7 +1555,7 @@ function processarXml(
       gc_produto_id: gcProdId,
       nome_produto: item.nome_produto || "",
       ncm: xi.NCM || "",
-      origem: String(xi.icms_orig ?? "").trim() === "null" ? "" : String(xi.icms_orig ?? "").trim().charAt(0),
+      origem: normalizeOrigemXml(xi.icms_orig),
       cfop: xi.CFOP || "",
       nf_gc_id: meta.chave || xmlMeta.chave,
       nf_numero: meta.numero_nf || xmlMeta.numero_nf || "",
