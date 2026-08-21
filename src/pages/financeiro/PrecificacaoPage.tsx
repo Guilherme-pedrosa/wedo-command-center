@@ -384,8 +384,10 @@ const normOrig = (v: unknown) => {
   const s = String(v ?? "").trim();
   // Se for "null" ou vazio, retorna string vazia
   if (s === "null" || s === "") return "";
-  const firstDigit = s.charAt(0);
-  return /^[0-8]$/.test(firstDigit) ? firstDigit : "";
+  
+  // Se for uma string longa que começa com o código (ex: "0 - Nacional"), pega o primeiro caractere
+  const firstDigit = s.replace(/[^0-8]/g, "").charAt(0);
+  return firstDigit || "";
 };
 
 function FiscalCell({
@@ -463,7 +465,7 @@ function FiscalCell({
         />
         <Select value={orig || undefined} onValueChange={setOrig}>
           <SelectTrigger className="h-7 text-[10px]">
-            <SelectValue placeholder="Origem" />
+            <SelectValue placeholder={orig ? ORIGEM_OPTS.find(o => o.v === orig)?.l : "Origem"} />
           </SelectTrigger>
           <SelectContent>
             {ORIGEM_OPTS.map((o) => (
@@ -517,10 +519,10 @@ function FiscalCell({
             className={`text-[10px] px-1.5 py-0.5 rounded border ${divOrig ? "border-amber-500/50 text-amber-400 bg-amber-500/5" : "border-border bg-secondary"}`}
             title={divOrig ? `Divergência: GC=${gcOrig || "—"} vs NF=${nfOrig}` : `Origem no cadastro: ${gcOrig || "não informada"}`}
           >
-            {gcOrig || "—"}
+            {gcOrig ? (ORIGEM_OPTS.find(o => o.v === gcOrig)?.l || gcOrig) : "—"}
           </span>
           {divOrig && (
-            <span className="text-[9px] text-amber-500 font-mono" title="Origem na última NF">NF: {nfOrig}</span>
+            <span className="text-[9px] text-amber-500 font-mono" title="Origem na última NF">NF: {nfOrig} ({ORIGEM_OPTS.find(o => o.v === nfOrig)?.l || nfOrig})</span>
           )}
         </div>
       </div>
