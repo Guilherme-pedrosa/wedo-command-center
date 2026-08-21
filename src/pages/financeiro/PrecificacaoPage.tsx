@@ -2706,6 +2706,7 @@ export default function PrecificacaoPage() {
                 <SelectContent>
                   <SelectItem value="todos">Todos</SelectItem>
                   <SelectItem value="pendente">Sem NCM</SelectItem>
+                  <SelectItem value="pendente_com_nf">Sem NCM + NF Identificada</SelectItem>
                 </SelectContent>
               </Select>
             </div>
