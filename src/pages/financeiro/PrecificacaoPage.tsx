@@ -1248,6 +1248,12 @@ export default function PrecificacaoPage() {
         if (divergenciaFilter === "ok" && divergente) return false;
       }
       if (ncmFilter === "pendente" && !!p.ncm) return false;
+      if (ncmFilter === "pendente_com_nf") {
+        if (p.ncm) return false;
+        const trib = tributosMap.get(p.id);
+        const nfNcm = tributo?.ncm || trib?.ncm;
+        if (!nfNcm || nfNcm.length !== 8) return false;
+      }
       return true;
     });
   }, [produtos, search, grupoFilter, estoqueFilter, divergenciaFilter, ncmFilter, ultimaCompraMap, tributosMap]);
