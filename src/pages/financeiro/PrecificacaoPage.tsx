@@ -394,27 +394,40 @@ function FiscalCell({
   ncmNf: string;
   origNf: string;
 }) {
+  const normNcm = (v: unknown) => String(v ?? "").replace(/\D/g, "").slice(0, 8);
+  const normOrig = (v: unknown) => {
+    const s = String(v ?? "").trim();
+    return /^[0-8]$/.test(s) ? s : "";
+  };
+
+  const gcNcm = normNcm(ncmGc);
+  const gcOrig = normOrig(origGc);
+  const nfNcm = normNcm(ncmNf);
+  const nfOrig = normOrig(origNf);
+
   const [editing, setEditing] = useState(false);
-  const [ncm, setNcm] = useState(ncmGc);
-  const [orig, setOrig] = useState(origGc);
+  const [ncm, setNcm] = useState(gcNcm || nfNcm);
+  const [orig, setOrig] = useState(gcOrig || nfOrig);
   const [saving, setSaving] = useState(false);
 
-  const divNcm = !!ncmNf && ncmNf !== ncmGc;
-  const divOrig = origNf !== "" && origGc !== "" && String(origNf) !== String(origGc);
-  const pendNcm = !ncmGc;
+  const divNcm = !!nfNcm && nfNcm !== gcNcm;
+  const divOrig = nfOrig !== "" && nfOrig !== gcOrig;
+  const pendNcm = !gcNcm;
+  const temNf = !!nfNcm || nfOrig !== "";
 
   const enviar = async (novoNcm: string, novaOrigem: string) => {
-    const ncmLimpo = novoNcm.replace(/\D/g, "");
+    const ncmLimpo = normNcm(novoNcm);
     if (ncmLimpo.length !== 8) {
       toast.error("NCM deve ter 8 dígitos.");
       return;
     }
-    if (novaOrigem && !/^[0-8]$/.test(novaOrigem)) {
-      toast.error("Origem deve ser um código de 0 a 8.");
+    const origemFinal = normOrig(novaOrigem) || gcOrig || nfOrig;
+    if (!origemFinal) {
+      toast.error("Selecione a Origem (código de 0 a 8).");
       return;
     }
     setSaving(true);
-    const payload = { ncm: ncmLimpo, origem: novaOrigem || origGc || "0" };
+    const payload = { ncm: ncmLimpo, origem: origemFinal };
     const { error } = await supabase.from("fin_gc_write_jobs").insert({
       recurso: "produtos",
       recurso_id: String(produtoId),
@@ -439,7 +452,7 @@ function FiscalCell({
         <Input
           autoFocus
           value={ncm}
-          onChange={(e) => setNcm(e.target.value)}
+          onChange={(e) => setNcm(normNcm(e.target.value))}
           placeholder="NCM (8 dígitos)"
           className="h-7 text-[11px] px-1.5 font-mono"
         />
@@ -453,17 +466,29 @@ function FiscalCell({
             ))}
           </SelectContent>
         </Select>
+        {temNf && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[10px] text-blue-400 hover:text-blue-300 justify-start"
+            disabled={saving}
+            onClick={() => { setNcm(nfNcm || ncm); setOrig(nfOrig || orig); }}
+          >
+            Preencher com dados da NF{nfNcm ? ` (${nfNcm})` : ""}
+          </Button>
+        )}
         <div className="flex items-center gap-1">
           <Button size="sm" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => enviar(ncm, orig)}>
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar no GC"}
           </Button>
-          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => { setNcm(ncmGc); setOrig(origGc); setEditing(false); }}>
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => { setNcm(gcNcm || nfNcm); setOrig(gcOrig || nfOrig); setEditing(false); }}>
             Cancelar
           </Button>
         </div>
       </div>
     );
   }
+
 
   return (
     <div className="flex flex-col gap-1.5 min-w-[150px]">
@@ -473,10 +498,10 @@ function FiscalCell({
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ${pendNcm ? "border-red-500/50 text-red-400 bg-red-500/5" : "border-border bg-secondary"}`}
           >
-            {ncmGc || "Pendente"}
+            {gcNcm || "Pendente"}
           </span>
           {divNcm && (
-            <span className="text-[9px] text-blue-400 font-mono" title="NCM na última NF de entrada">NF: {ncmNf}</span>
+            <span className="text-[9px] text-blue-400 font-mono" title="NCM na última NF de entrada">NF: {nfNcm}</span>
           )}
         </div>
       </div>
@@ -485,12 +510,12 @@ function FiscalCell({
         <div className="flex items-center gap-1.5">
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded border ${divOrig ? "border-amber-500/50 text-amber-400 bg-amber-500/5" : "border-border bg-secondary"}`}
-            title={divOrig ? `Divergência: GC=${origGc} vs NF=${origNf}` : `Origem no cadastro: ${origGc || "não informada"}`}
+            title={divOrig ? `Divergência: GC=${gcOrig || "—"} vs NF=${nfOrig}` : `Origem no cadastro: ${gcOrig || "não informada"}`}
           >
-            {origGc || "—"}
+            {gcOrig || "—"}
           </span>
           {divOrig && (
-            <span className="text-[9px] text-amber-500 font-mono" title="Origem na última NF">NF: {origNf}</span>
+            <span className="text-[9px] text-amber-500 font-mono" title="Origem na última NF">NF: {nfOrig}</span>
           )}
         </div>
       </div>
@@ -499,17 +524,31 @@ function FiscalCell({
           size="sm"
           variant="outline"
           className="h-6 px-2 text-[10px] gap-1"
-          onClick={() => { setNcm(ncmGc); setOrig(origGc); setEditing(true); }}
+          onClick={() => { setNcm(gcNcm || nfNcm); setOrig(gcOrig || nfOrig); setEditing(true); }}
         >
-          <Edit className="h-3 w-3" /> Corrigir NCM/Origem
+          <Edit className="h-3 w-3" /> Corrigir manual
         </Button>
-        {(divNcm || divOrig) && (
+        {temNf && (
           <Button
             size="sm"
             variant="ghost"
             className="h-6 px-2 text-[10px] text-blue-400 hover:text-blue-300"
             disabled={saving}
-            onClick={() => enviar(ncmNf || ncmGc, origNf || origGc)}
+            onClick={() => {
+              if (!nfNcm && !nfOrig) return;
+              if (!normNcm(nfNcm || gcNcm)) {
+                toast.error("A NF não trouxe NCM válido — use 'Corrigir manual'.");
+                return;
+              }
+              if (!normOrig(nfOrig || gcOrig)) {
+                setNcm(nfNcm || gcNcm);
+                setOrig("");
+                setEditing(true);
+                toast("A NF não trouxe Origem — selecione a origem e salve.");
+                return;
+              }
+              enviar(nfNcm || gcNcm, nfOrig || gcOrig);
+            }}
           >
             Usar dados da NF
           </Button>
@@ -517,6 +556,7 @@ function FiscalCell({
       </div>
     </div>
   );
+
 }
 
 
