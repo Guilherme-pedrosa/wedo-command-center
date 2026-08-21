@@ -2757,7 +2757,19 @@ export default function PrecificacaoPage() {
                   <SelectItem value="ok">Sem divergência</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            {selectedProductIds.size > 0 && ncmFilter === "pendente_com_nf" && (
+              <Button
+                size="sm"
+                variant="default"
+                onClick={aplicarFiscalDaNfLote}
+                disabled={savingBatchFiscal}
+                className="bg-blue-600 hover:bg-blue-500 text-white"
+              >
+                {savingBatchFiscal ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                Corrigir NCM/Origem em lote ({selectedProductIds.size})
+              </Button>
+            )}
+          </div>
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">NCM:</Label>
               <Select value={ncmFilter} onValueChange={(v) => setNcmFilter(v as typeof ncmFilter)}>
