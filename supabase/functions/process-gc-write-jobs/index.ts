@@ -112,6 +112,9 @@ Deno.serve(async (req) => {
     if (job.recurso === "produtos" || job.recurso === "fin_gc_write_jobs" || job.recurso === "fin_nfe_entrada_itens") {
       url = `${GC_BASE_URL}/api/v1/produtos/${job.recurso_id}`;
       method = "PUT";
+    } else if (job.recurso === "fin_pagamentos") {
+      url = `${GC_BASE_URL}/api/v1/pagamentos/${job.recurso_id}`;
+      method = "PUT";
     } else {
       await supabase.from("fin_gc_write_jobs").update({
         status: "erro_fatal",
