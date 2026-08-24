@@ -22,6 +22,7 @@ import { format } from "date-fns";
 import { SyncNFPorPeriodoDialog } from "@/components/financeiro/SyncNFPorPeriodoDialog";
 import { SyncNFStatusChip } from "@/components/financeiro/SyncNFStatusChip";
 import { reindexNfeXmlsEmLotes } from "@/lib/reindexNfeXmls";
+import { normalizeOrigemFiscal, origemNfParaCadastroGc } from "@/lib/origemFiscal";
 
 // ── Types ──
 interface GCProduto {
@@ -390,12 +391,7 @@ const ORIGEM_OPTS = [
 ];
 
 const normNcm = (v: unknown) => String(v ?? "").replace(/\D/g, "").slice(0, 8);
-const normOrig = (v: unknown) => {
-  const s = String(v ?? "").trim();
-  if (!s || s.toLowerCase() === "null") return "";
-  const match = s.match(/^([0-8])(?:\D|$)/);
-  return match?.[1] ?? "";
-};
+const normOrig = normalizeOrigemFiscal;
 
 type FiscalCorrectionInput = { produtoId: string; ncm: string; origem?: string };
 
@@ -477,14 +473,15 @@ function FiscalCell({
   const gcOrig = normOrig(origGc);
   const nfNcm = normNcm(ncmNf);
   const nfOrig = normOrig(origNf);
+  const nfOrigParaGc = origemNfParaCadastroGc(nfOrig);
 
   const [editing, setEditing] = useState(false);
   const [ncm, setNcm] = useState(gcNcm || nfNcm);
-  const [orig, setOrig] = useState(gcOrig || nfOrig);
+  const [orig, setOrig] = useState(gcOrig || nfOrigParaGc);
   const [saving, setSaving] = useState(false);
 
   const divNcm = !!nfNcm && nfNcm !== gcNcm;
-  const divOrig = nfOrig !== "" && nfOrig !== gcOrig;
+  const divOrig = nfOrigParaGc !== "" && nfOrigParaGc !== gcOrig;
   const pendNcm = !gcNcm;
   const temNf = !!nfNcm || nfOrig !== "";
 
@@ -494,7 +491,7 @@ function FiscalCell({
       toast.error("NCM deve ter 8 dígitos.");
       return;
     }
-    const origemFinal = normOrig(novaOrigem) || gcOrig || nfOrig;
+    const origemFinal = normOrig(novaOrigem) || gcOrig || nfOrigParaGc;
     setSaving(true);
     try {
       await corrigirFiscalNoGc([{ produtoId, ncm: ncmLimpo, origem: origemFinal || undefined }]);
@@ -541,16 +538,16 @@ function FiscalCell({
             variant="ghost"
             className="h-6 px-2 text-[10px] text-blue-400 hover:text-blue-300 justify-start"
             disabled={saving}
-            onClick={() => { setNcm(nfNcm || ncm); setOrig(nfOrig || orig); }}
+            onClick={() => { setNcm(nfNcm || ncm); setOrig(nfOrigParaGc || orig); }}
           >
-            Preencher com dados da NF{nfNcm ? ` (${nfNcm})` : ""}
+            Preencher com NCM da NF e origem correta{nfNcm ? ` (${nfNcm})` : ""}
           </Button>
         )}
         <div className="flex items-center gap-1">
           <Button size="sm" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => enviar(ncm, orig)}>
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar no GC"}
           </Button>
-          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => { setNcm(gcNcm || nfNcm); setOrig(gcOrig || nfOrig); setEditing(false); }}>
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => { setNcm(gcNcm || nfNcm); setOrig(gcOrig || nfOrigParaGc); setEditing(false); }}>
             Cancelar
           </Button>
         </div>
@@ -579,12 +576,20 @@ function FiscalCell({
         <div className="flex items-center gap-1.5">
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded border ${divOrig ? "border-amber-500/50 text-amber-400 bg-amber-500/5" : "border-border bg-secondary"}`}
-            title={divOrig ? `Divergência: GC=${gcOrig || "—"} vs NF=${nfOrig}` : `Origem confirmada no GC: ${gcOrig || "não informada"}`}
+            title={divOrig ? `Divergência: GC=${gcOrig || "—"}; origem correta para a WeDo=${nfOrigParaGc}` : `Origem confirmada no GC: ${gcOrig || "não informada"}`}
           >
             {gcOrig ? (ORIGEM_OPTS.find(o => o.v === gcOrig)?.l || gcOrig) : "—"}
           </span>
-          {divOrig && (
-            <span className="text-[9px] text-amber-500 font-mono" title="Origem na última NF">NF: {nfOrig} ({ORIGEM_OPTS.find(o => o.v === nfOrig)?.l || nfOrig})</span>
+          {!!nfOrig && (
+            <span
+              className={`text-[9px] font-mono ${divOrig ? "text-amber-500" : "text-muted-foreground"}`}
+              title={nfOrig !== nfOrigParaGc
+                ? `A NF informa a origem sob a perspectiva do fornecedor. Para o cadastro da WeDo, ${nfOrig} vira ${nfOrigParaGc}.`
+                : "Origem informada na última NF de entrada."}
+            >
+              NF fornecedor: {nfOrig}
+              {nfOrig !== nfOrigParaGc ? ` → GC sugerido: ${nfOrigParaGc}` : ""}
+            </span>
           )}
         </div>
       </div>
@@ -593,7 +598,7 @@ function FiscalCell({
           size="sm"
           variant="outline"
           className="h-6 px-2 text-[10px] gap-1"
-          onClick={() => { setNcm(gcNcm || nfNcm); setOrig(gcOrig || nfOrig); setEditing(true); }}
+          onClick={() => { setNcm(gcNcm || nfNcm); setOrig(gcOrig || nfOrigParaGc); setEditing(true); }}
         >
           <Edit className="h-3 w-3" /> Corrigir manual
         </Button>
@@ -609,10 +614,10 @@ function FiscalCell({
                 toast.error("A NF não trouxe NCM válido — use 'Corrigir manual'.");
                 return;
               }
-              enviar(nfNcm || gcNcm, nfOrig || gcOrig);
+              enviar(nfNcm || gcNcm, nfOrigParaGc || gcOrig);
             }}
           >
-            Usar dados da NF
+            Usar NCM da NF + origem sugerida
           </Button>
         )}
       </div>
@@ -712,6 +717,7 @@ export default function PrecificacaoPage() {
       const trib = tributosMap.get(String(p.id));
       const nfNcm = normNcm(trib?.ncm);
       const nfOrig = normOrig(trib?.origem);
+      const nfOrigParaGc = origemNfParaCadastroGc(nfOrig);
 
       if (nfNcm.length !== 8) {
         semNcm++;
@@ -721,7 +727,7 @@ export default function PrecificacaoPage() {
 
       const gcOrig = normOrig(p.origem);
 
-      const origemFinal = nfOrig || gcOrig;
+      const origemFinal = nfOrigParaGc || gcOrig;
       if (!origemFinal) semOrigem++;
 
       jobs.push({
