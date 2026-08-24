@@ -96,5 +96,12 @@ describe("cadastro fiscal interno do GestãoClick", () => {
       Fornecedor: [],
       Loja: [],
     })).toMatchObject({ ok: false });
+
+    expect(prepareGcInternalProductForSave({
+      Produto: { possui_composicao: true },
+      TiposValoresProduto: [],
+      Fornecedor: [],
+      Loja: [],
+    })).toMatchObject({ ok: false });
   });
 });

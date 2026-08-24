@@ -99,7 +99,7 @@ export function prepareGcInternalProductForSave(
     };
   }
 
-  if (String(produto.possui_composicao ?? "0") === "1") {
+  if (produto.possui_composicao === true || String(produto.possui_composicao ?? "0") === "1") {
     return {
       ok: false,
       error: "Produto composto exige preservação específica da composição; gravação fiscal abortada",

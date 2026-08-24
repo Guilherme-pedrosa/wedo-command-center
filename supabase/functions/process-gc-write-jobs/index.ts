@@ -2,6 +2,13 @@
 // Roda em loop interno respeitando rate limit (350ms entre requests ≈ 2.85 req/s, margem sobre 3 req/s do GC).
 // Marca status: pendente → processando → sucesso | erro_retentavel | erro_fatal
 import { installGcUsuarioId } from "../_shared/gc-user.ts";
+import {
+  internalProductTax,
+  isFiscalOnlyProductPayload,
+  mergeGcInternalFiscal,
+  prepareGcInternalProductForSave,
+  unwrapGcInternalProduct,
+} from "../_shared/gc-internal-fiscal.ts";
 installGcUsuarioId();
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -73,26 +80,170 @@ function normalizeOrigem(value: unknown): string | null {
   return /^[0-8]$/.test(raw) ? raw : null;
 }
 
+async function requestCanWriteGc(
+  req: Request,
+  supabaseUrl: string,
+  anonKey: string,
+  serviceRoleKey: string,
+  adminClient: ReturnType<typeof createClient>,
+): Promise<boolean> {
+  const authorization = req.headers.get("authorization") ?? "";
+  if (!authorization.startsWith("Bearer ")) return false;
+  if (authorization === `Bearer ${serviceRoleKey}`) return true;
+  if (!anonKey) return false;
+
+  const token = authorization.slice("Bearer ".length).trim();
+  const authClient = createClient(supabaseUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await authClient.auth.getUser(token);
+  if (error || !data.user) return false;
+
+  const { data: roles, error: roleError } = await adminClient
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", data.user.id)
+    .in("role", ["admin", "ceo", "gerente_financeiro"]);
+  return !roleError && Boolean(roles?.length);
+}
+
+type InternalFiscalResult =
+  | {
+    ok: true;
+    before: string | null;
+    ncmAfter: string;
+    origemAfter: string;
+    productName: string;
+  }
+  | { ok: false; error: string };
+
+async function updateAndVerifyInternalFiscal(params: {
+  produtoId: string;
+  ncm: string;
+  origem: string;
+  sessionToken: string;
+}): Promise<InternalFiscalResult> {
+  const url = `https://app.api.click.app/produtos/editar/${encodeURIComponent(params.produtoId)}?tab=fiscal`;
+  const headers = {
+    "Accept": "application/json, text/plain, */*",
+    "Origin": "https://gestaoclick.com",
+    "Referer": "https://gestaoclick.com/",
+    "host-origin": "gestaoclick.com",
+    "x-token-auth": params.sessionToken,
+  };
+
+  try {
+    const getRes = await gcFetch(url, { method: "GET", headers });
+    const getBody = await getRes.json().catch(() => null);
+    const produtoInterno = getRes.ok ? unwrapGcInternalProduct(getBody) : null;
+    if (!produtoInterno) {
+      const message = String(asRecord(getBody)?.message ?? asRecord(getBody)?.error ?? "cadastro fiscal não retornado");
+      return {
+        ok: false,
+        error: `A sessão autenticada da tela fiscal do GC foi recusada (HTTP ${getRes.status}: ${message}). A conexão técnica da implantação precisa ser renovada.`,
+      };
+    }
+
+    const tributoAnterior = internalProductTax(produtoInterno);
+    if (!tributoAnterior) {
+      return { ok: false, error: "GC não devolveu o bloco tributário atual; gravação fiscal abortada." };
+    }
+    const origemAnterior = normalizeOrigem(tributoAnterior.ICMS_orig);
+    const fiscalMerged = mergeGcInternalFiscal(produtoInterno, params.ncm, params.origem);
+    const prepared = prepareGcInternalProductForSave(fiscalMerged);
+    if (!prepared.ok) return { ok: false, error: prepared.error };
+
+    const postRes = await gcFetch(url, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "multipart/form-data" },
+      body: JSON.stringify({ data: prepared.payload }),
+    });
+    const postBody = await postRes.json().catch(() => null);
+    const postJson = asRecord(postBody);
+    if (!postRes.ok) {
+      const message = String(postJson?.message ?? `HTTP ${postRes.status}`);
+      return { ok: false, error: `GC recusou a atualização fiscal: ${message}` };
+    }
+
+    // O GET é a confirmação real. Repetimos brevemente porque o cadastro do GC
+    // pode demorar alguns milissegundos para refletir o POST.
+    let verifyStatus = 0;
+    let verifyProduto: Record<string, unknown> | null = null;
+    let ncmPersistido = "";
+    let origemPersistida: string | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await sleep(250);
+      const verifyRes = await gcFetch(url, { method: "GET", headers });
+      verifyStatus = verifyRes.status;
+      const verifyBody = await verifyRes.json().catch(() => null);
+      verifyProduto = verifyRes.ok ? unwrapGcInternalProduct(verifyBody) : null;
+      const tributoPersistido = internalProductTax(verifyProduto);
+      ncmPersistido = normalizeNcm(tributoPersistido?.NCM);
+      origemPersistida = normalizeOrigem(tributoPersistido?.ICMS_orig);
+      if (
+        verifyProduto &&
+        (!params.ncm || ncmPersistido === params.ncm) &&
+        origemPersistida === params.origem
+      ) break;
+    }
+
+    if (!verifyProduto) {
+      return {
+        ok: false,
+        error: `GC aceitou o envio, mas a releitura fiscal falhou (HTTP ${verifyStatus}).`,
+      };
+    }
+    if (params.ncm && ncmPersistido !== params.ncm) {
+      return {
+        ok: false,
+        error: `GC respondeu sucesso, mas não gravou o NCM ${params.ncm}. Retorno: ${ncmPersistido || "vazio"}.`,
+      };
+    }
+    if (origemPersistida !== params.origem) {
+      return {
+        ok: false,
+        error: `GC respondeu sucesso, mas não gravou a origem ${params.origem}. Retorno: ${origemPersistida ?? "vazio"}.`,
+      };
+    }
+
+    const produtoPersistido = asRecord(verifyProduto.Produto);
+
+    return {
+      ok: true,
+      before: origemAnterior,
+      ncmAfter: ncmPersistido,
+      origemAfter: origemPersistida,
+      productName: String(produtoPersistido?.nome ?? produtoPersistido?.descricao ?? "(sem nome)"),
+    };
+  } catch (error) {
+    return { ok: false, error: `Falha ao acessar o cadastro fiscal do GC: ${(error as Error).message}` };
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+  const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  if (!await requestCanWriteGc(req, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, supabase)) {
+    return new Response(JSON.stringify({ error: "Sem permissão para alterar o GestãoClick." }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   const body = await req.json().catch(() => ({})) as { job_id?: string; job_ids?: string[] };
 
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
-
   const GC_BASE_URL = Deno.env.get("GC_BASE_URL") ?? "https://api.gestaoclick.com";
-  const GC_ACCESS_TOKEN = Deno.env.get("GC_ACCESS_TOKEN");
-  const GC_SECRET_TOKEN = Deno.env.get("GC_SECRET_TOKEN");
-
-  if (!GC_ACCESS_TOKEN || !GC_SECRET_TOKEN) {
-    return new Response(
-      JSON.stringify({ error: "GC credentials not configured" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
-  }
+  const GC_ACCESS_TOKEN = Deno.env.get("GC_ACCESS_TOKEN") ?? "";
+  const GC_SECRET_TOKEN = Deno.env.get("GC_SECRET_TOKEN") ?? "";
+  // Compatibilidade: versões anteriores já usavam GC_WEB_TOKEN para a sessão
+  // técnica do app do GC. O nome novo não pode invalidar um secret existente.
+  const GC_FISCAL_SESSION_TOKEN = (
+    Deno.env.get("GC_FISCAL_SESSION_TOKEN") ?? Deno.env.get("GC_WEB_TOKEN") ?? ""
+  ).trim();
 
   // 1. Buscar jobs pendentes
   let jobsQuery = supabase
@@ -174,8 +325,55 @@ Deno.serve(async (req) => {
     let responseBody: unknown = null;
     let httpStatus = 0;
     let verifiedProduto: Record<string, unknown> | null = null;
+    let verifiedOrigem: string | null = null;
+    let verifiedProductName: string | null = null;
+    const fiscalOnlyJob = job.recurso === "produtos" && isFiscalOnlyProductPayload(job.payload);
 
     try {
+      if (fiscalOnlyJob) {
+        const ncmSolicitado = normalizeNcm(job.payload.ncm);
+        const origemSolicitada = normalizeOrigem(job.payload.origem)!;
+
+        if (job.payload.ncm != null && ncmSolicitado.length !== 8) {
+          errorMsg = "NCM fiscal inválido: informe exatamente 8 dígitos.";
+          responseBody = { source: "gc_internal_fiscal", invalid_ncm: true };
+        } else if (!GC_FISCAL_SESSION_TOKEN) {
+          errorMsg = "A sessão autenticada da tela fiscal do GC não está configurada na implantação; a origem não foi alterada.";
+          responseBody = { source: "gc_internal_fiscal", configured: false };
+        } else {
+          const fiscalResult = await updateAndVerifyInternalFiscal({
+            produtoId: job.recurso_id,
+            ncm: ncmSolicitado,
+            origem: origemSolicitada,
+            sessionToken: GC_FISCAL_SESSION_TOKEN,
+          });
+
+          if (!fiscalResult.ok) {
+            errorMsg = fiscalResult.error;
+            responseBody = { source: "gc_internal_fiscal", verified: false };
+          } else {
+            success = true;
+            httpStatus = 200;
+            verifiedOrigem = fiscalResult.origemAfter;
+            verifiedProductName = fiscalResult.productName;
+            responseBody = {
+              source: "gc_internal_fiscal",
+              produto_id: job.recurso_id,
+              produto_nome: fiscalResult.productName,
+              origem_before: fiscalResult.before,
+              _argus_verification: {
+                source: "gc_internal_get",
+                ncm: fiscalResult.ncmAfter,
+                origem: fiscalResult.origemAfter,
+                verified_at: new Date().toISOString(),
+              },
+            };
+          }
+        }
+      } else {
+      if (!GC_ACCESS_TOKEN || !GC_SECRET_TOKEN) {
+        throw new Error("Credenciais públicas do GestãoClick não configuradas.");
+      }
       // ===== GET-before-PUT =====
       // 1. GET produto completo do GC (PUT parcial é rejeitado com HTTP 500)
       const getRes = await gcFetch(url, {
@@ -266,11 +464,9 @@ Deno.serve(async (req) => {
         ...produtoBase,
         valor_custo: String(novoCustoTopLevel),
         ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),
-        ...(origemSolicitada ? { origem: origemSolicitada } : {}),
         fiscal: {
           ...fiscalBase,
           ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),
-          ...(origemSolicitada ? { origem: origemSolicitada } : {}),
         },
         valores: valoresMerged,
       };
@@ -312,8 +508,47 @@ Deno.serve(async (req) => {
           errorMsg = `PUT aceito, mas a conferência falhou HTTP ${verifyRes.status}: ${JSON.stringify(verifyBody)}`;
         } else if (ncmSolicitado && productNcm(verifiedProduto) !== ncmSolicitado) {
           errorMsg = `GC respondeu sucesso, mas não gravou o NCM ${ncmSolicitado}. Retorno atual: ${productNcm(verifiedProduto) || "vazio"}`;
+        } else if (origemSolicitada && job.recurso === "produtos") {
+          if (!GC_FISCAL_SESSION_TOKEN) {
+            errorMsg = "NCM gravado, mas a sessão autenticada da tela fiscal do GC não está configurada na implantação; a origem não foi alterada.";
+          } else {
+            const fiscalResult = await updateAndVerifyInternalFiscal({
+              produtoId: job.recurso_id,
+              ncm: ncmSolicitado || productNcm(verifiedProduto),
+              origem: origemSolicitada,
+              sessionToken: GC_FISCAL_SESSION_TOKEN,
+            });
+            if (!fiscalResult.ok) {
+              errorMsg = fiscalResult.error;
+            } else {
+              success = true;
+              verifiedOrigem = fiscalResult.origemAfter;
+              verifiedProductName = fiscalResult.productName;
+              responseBody = {
+                source: "gc_public_then_internal_fiscal",
+                produto_id: job.recurso_id,
+                gc_response: responseBody,
+                _argus_verification: {
+                  source: "gc_internal_get",
+                  ncm: fiscalResult.ncmAfter,
+                  origem: fiscalResult.origemAfter,
+                  verified_at: new Date().toISOString(),
+                },
+              };
+            }
+          }
         } else {
           success = true;
+          responseBody = {
+            source: "gc_public",
+            gc_response: responseBody,
+            _argus_verification: {
+              source: "gc_public_get",
+              ncm: productNcm(verifiedProduto),
+              origem: null,
+              verified_at: new Date().toISOString(),
+            },
+          };
         }
       } else if (response.status === 429 || response.status >= 500) {
         errorMsg = `HTTP ${response.status}: ${JSON.stringify(responseBody)}`;
@@ -329,6 +564,7 @@ Deno.serve(async (req) => {
         await sleep(RATE_LIMIT_MS);
         continue;
       }
+      }
     } catch (e) {
       errorMsg = `network: ${(e as Error).message}`;
     }
@@ -341,12 +577,13 @@ Deno.serve(async (req) => {
         origem?: string;
       };
       const valoresPayload = payload.valores ?? [];
+      let cacheSyncError = "";
 
       if (job.recurso === "produtos") {
-        const responseProduto = verifiedProduto ?? unwrapGcProduct(responseBody);
+        const responseProduto = verifiedProduto ?? (fiscalOnlyJob ? null : unwrapGcProduct(responseBody));
         const { data: cacheRow } = await supabase
           .from("gc_produtos_cache")
-          .select("valores, origem")
+          .select("nome, valores, origem")
           .eq("produto_gc_id", job.recurso_id)
           .maybeSingle();
 
@@ -369,7 +606,7 @@ Deno.serve(async (req) => {
         }
 
         if (responseProduto) {
-          await supabase.from("gc_produtos_cache").upsert({
+          const { error: cacheError } = await supabase.from("gc_produtos_cache").upsert({
             produto_gc_id: String(responseProduto.id ?? job.recurso_id),
             nome: String(responseProduto.nome ?? "(sem nome)"),
             codigo_interno: responseProduto.codigo_interno ? String(responseProduto.codigo_interno) : null,
@@ -377,10 +614,9 @@ Deno.serve(async (req) => {
             nome_grupo: responseProduto.nome_grupo ? String(responseProduto.nome_grupo) : null,
             grupo_id: responseProduto.grupo_id ? String(responseProduto.grupo_id) : null,
             ncm: (responseProduto.fiscal as { ncm?: unknown } | undefined)?.ncm ? String((responseProduto.fiscal as { ncm?: unknown }).ncm) : responseProduto.ncm ? String(responseProduto.ncm) : null,
-            // O endpoint público de produto não devolve a origem do ICMS na leitura.
-            // Mantém no cache o valor enviado no PUT, sem tratá-lo como prova externa.
-            origem: normalizeOrigem((asRecord(responseProduto.fiscal))?.origem ?? responseProduto.origem)
-              ?? normalizeOrigem(payload.origem)
+            // Origem só entra no cache depois da releitura do cadastro fiscal interno.
+            origem: verifiedOrigem
+              ?? normalizeOrigem((asRecord(responseProduto.fiscal))?.origem ?? responseProduto.origem)
               ?? normalizeOrigem(cacheRow?.origem),
             unidade: responseProduto.unidade ? String(responseProduto.unidade) : null,
             estoque: numericOrNull(responseProduto.estoque),
@@ -396,17 +632,41 @@ Deno.serve(async (req) => {
             ultima_sincronizacao: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           }, { onConflict: "produto_gc_id" });
+          if (cacheError) cacheSyncError = cacheError.message;
         } else {
-          await supabase
+          const verification = asRecord(asRecord(responseBody)?._argus_verification);
+          const { error: cacheError } = await supabase
             .from("gc_produtos_cache")
-            .update({
+            .upsert({
+              produto_gc_id: job.recurso_id,
+              nome: String(verifiedProductName ?? cacheRow?.nome ?? "(sem nome)"),
               valores: valoresAtualizados,
-              ...(normalizeNcm(payload.ncm) ? { ncm: normalizeNcm(payload.ncm) } : {}),
-              ...(normalizeOrigem(payload.origem) ? { origem: normalizeOrigem(payload.origem) } : {}),
+              ...(normalizeNcm(verification?.ncm ?? payload.ncm) ? { ncm: normalizeNcm(verification?.ncm ?? payload.ncm) } : {}),
+              ...(verifiedOrigem ? { origem: verifiedOrigem } : {}),
               updated_at: new Date().toISOString(),
-            })
-            .eq("produto_gc_id", job.recurso_id);
+              ultima_sincronizacao: new Date().toISOString(),
+            }, { onConflict: "produto_gc_id" });
+          if (cacheError) cacheSyncError = cacheError.message;
         }
+      }
+
+      if (cacheSyncError) {
+        const novasTentativas = (job.tentativas ?? 0) + 1;
+        const novoStatus = novasTentativas >= MAX_RETRIES ? "erro_fatal" : "erro_retentavel";
+        const erro = `GC confirmou a alteração, mas o cache do Argus não foi atualizado: ${cacheSyncError}`;
+        const responseComFalhaLocal = {
+          ...(asRecord(responseBody) ?? {}),
+          cache_sync_error: cacheSyncError,
+        };
+        await supabase.from("fin_gc_write_jobs").update({
+          status: novoStatus,
+          ultimo_erro: erro,
+          response_body: responseComFalhaLocal as never,
+          finalizado_em: novoStatus === "erro_fatal" ? new Date().toISOString() : null,
+        }).eq("id", job.id);
+        results.push({ id: job.id, status: novoStatus, erro, http: httpStatus });
+        await sleep(RATE_LIMIT_MS);
+        continue;
       }
 
       await supabase.from("fin_gc_write_jobs").update({
