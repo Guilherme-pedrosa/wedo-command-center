@@ -84,82 +84,78 @@ async function updateAndVerifyInternalFiscal(params: {
   produtoId: string;
   ncm: string;
   origem: string;
-  tokens: string[];
+  accessToken: string;
+  secretToken: string;
 }): Promise<
   | { ok: true; before: string | null; after: string; response: unknown }
   | { ok: false; error: string }
 > {
   const url = `https://app.api.click.app/produtos/editar/${encodeURIComponent(params.produtoId)}?tab=fiscal`;
-  const candidates = [...new Set(params.tokens.map((token) => token.trim()).filter(Boolean))];
-  let authError = "nenhuma credencial interna disponível";
-
-  for (const token of candidates) {
-    const headers = {
-      "Accept": "application/json, text/plain, */*",
-      "Origin": "https://gestaoclick.com",
-      "Referer": "https://gestaoclick.com/",
-      "host-origin": "gestaoclick.com",
-      "x-token-auth": token,
-    };
-
-    try {
-      const getRes = await gcFetch(url, { method: "GET", headers });
-      const getBody = await getRes.json().catch(() => null);
-      const produtoInterno = getRes.ok ? unwrapGcInternalProduct(getBody) : null;
-      if (!produtoInterno) {
-        authError = `autenticação interna recusada (HTTP ${getRes.status})`;
-        continue;
-      }
-
-      const fiscalMerged = mergeGcInternalFiscal(
-        produtoInterno,
-        params.ncm,
-        params.origem,
-      );
-      const origemAnterior = normalizeOrigem(internalProductTax(produtoInterno)?.ICMS_orig);
-      const prepared = prepareGcInternalProductForSave(fiscalMerged);
-      if (!prepared.ok) {
-        return { ok: false, error: prepared.error };
-      }
-
-      const postRes = await gcFetch(url, {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "multipart/form-data" },
-        body: JSON.stringify({ data: prepared.payload }),
-      });
-      const postBody = await postRes.json().catch(() => null);
-      const postJson = asRecord(postBody);
-      if (!postRes.ok || postJson?.status !== "success") {
-        const message = String(postJson?.message ?? `HTTP ${postRes.status}`);
-        return { ok: false, error: `GC interno recusou a origem: ${message}` };
-      }
-
-      const verifyRes = await gcFetch(url, { method: "GET", headers });
-      const verifyBody = await verifyRes.json().catch(() => null);
-      const verifyProduto = verifyRes.ok ? unwrapGcInternalProduct(verifyBody) : null;
-      const origemPersistida = normalizeOrigem(internalProductTax(verifyProduto)?.ICMS_orig);
-      if (origemPersistida !== params.origem) {
-        return {
-          ok: false,
-          error: `GC respondeu sucesso, mas não gravou a origem ${params.origem}. Retorno atual: ${origemPersistida ?? "vazio"}`,
-        };
-      }
-
-      return {
-        ok: true,
-        before: origemAnterior,
-        after: origemPersistida,
-        response: postBody,
-      };
-    } catch (error) {
-      authError = (error as Error).message;
-    }
-  }
-
-  return {
-    ok: false,
-    error: `A API pública do GC não grava origem e a API fiscal interna não autenticou (${authError}). Configure o secret GC_WEB_TOKEN.`,
+  const headers = {
+    "Accept": "application/json, text/plain, */*",
+    "Origin": "https://gestaoclick.com",
+    "Referer": "https://gestaoclick.com/",
+    "host-origin": "gestaoclick.com",
+    "access-token": params.accessToken,
+    "secret-access-token": params.secretToken,
+    "usuario-id": "1320473",
   };
+
+  try {
+    const getRes = await gcFetch(url, { method: "GET", headers });
+    const getBody = await getRes.json().catch(() => null);
+    const produtoInterno = getRes.ok ? unwrapGcInternalProduct(getBody) : null;
+    if (!produtoInterno) {
+      const message = String(asRecord(getBody)?.message ?? asRecord(getBody)?.error ?? "resposta sem cadastro fiscal");
+      return {
+        ok: false,
+        error: `A rota fiscal do GC recusou o Access Token + Secret Access Token oficiais (HTTP ${getRes.status}: ${message})`,
+      };
+    }
+
+    const fiscalMerged = mergeGcInternalFiscal(
+      produtoInterno,
+      params.ncm,
+      params.origem,
+    );
+    const origemAnterior = normalizeOrigem(internalProductTax(produtoInterno)?.ICMS_orig);
+    const prepared = prepareGcInternalProductForSave(fiscalMerged);
+    if (!prepared.ok) {
+      return { ok: false, error: prepared.error };
+    }
+
+    const postRes = await gcFetch(url, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "multipart/form-data" },
+      body: JSON.stringify({ data: prepared.payload }),
+    });
+    const postBody = await postRes.json().catch(() => null);
+    const postJson = asRecord(postBody);
+    if (!postRes.ok || postJson?.status !== "success") {
+      const message = String(postJson?.message ?? `HTTP ${postRes.status}`);
+      return { ok: false, error: `GC interno recusou a origem: ${message}` };
+    }
+
+    const verifyRes = await gcFetch(url, { method: "GET", headers });
+    const verifyBody = await verifyRes.json().catch(() => null);
+    const verifyProduto = verifyRes.ok ? unwrapGcInternalProduct(verifyBody) : null;
+    const origemPersistida = normalizeOrigem(internalProductTax(verifyProduto)?.ICMS_orig);
+    if (origemPersistida !== params.origem) {
+      return {
+        ok: false,
+        error: `GC respondeu sucesso, mas não gravou a origem ${params.origem}. Retorno atual: ${origemPersistida ?? "vazio"}`,
+      };
+    }
+
+    return {
+      ok: true,
+      before: origemAnterior,
+      after: origemPersistida,
+      response: postBody,
+    };
+  } catch (error) {
+    return { ok: false, error: `Falha ao acessar o cadastro fiscal do GC: ${(error as Error).message}` };
+  }
 }
 
 Deno.serve(async (req) => {
@@ -175,7 +171,6 @@ Deno.serve(async (req) => {
   const GC_BASE_URL = Deno.env.get("GC_BASE_URL") ?? "https://api.gestaoclick.com";
   const GC_ACCESS_TOKEN = Deno.env.get("GC_ACCESS_TOKEN");
   const GC_SECRET_TOKEN = Deno.env.get("GC_SECRET_TOKEN");
-  const GC_WEB_TOKEN = Deno.env.get("GC_WEB_TOKEN");
 
   if (!GC_ACCESS_TOKEN || !GC_SECRET_TOKEN) {
     return new Response(
@@ -277,7 +272,8 @@ Deno.serve(async (req) => {
           produtoId: job.recurso_id,
           ncm: ncmSolicitado,
           origem: origemSolicitada,
-          tokens: [GC_WEB_TOKEN ?? ""],
+          accessToken: GC_ACCESS_TOKEN,
+          secretToken: GC_SECRET_TOKEN,
         });
 
         if (!fiscalInterno.ok) {
@@ -435,7 +431,8 @@ Deno.serve(async (req) => {
               produtoId: job.recurso_id,
               ncm: ncmSolicitado || productNcm(verifiedProduto),
               origem: origemSolicitada,
-              tokens: [GC_WEB_TOKEN ?? ""],
+              accessToken: GC_ACCESS_TOKEN,
+              secretToken: GC_SECRET_TOKEN,
             });
             if (!fiscalInterno.ok) {
               errorMsg = fiscalInterno.error;
