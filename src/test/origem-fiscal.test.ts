@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { normalizeOrigemFiscal, origemNfParaCadastroGc } from "@/lib/origemFiscal";
+import {
+  normalizeOrigemFiscal,
+  origemNfParaCadastroGc,
+  origemRegistradaNoArgus,
+  ORIGENS_FISCAIS_GC,
+} from "@/lib/origemFiscal";
 
 describe("origem fiscal da mercadoria", () => {
   it("normaliza os códigos aceitos pelo cadastro fiscal", () => {
@@ -9,14 +14,29 @@ describe("origem fiscal da mercadoria", () => {
     expect(normalizeOrigemFiscal("10")).toBe("");
   });
 
-  it("converte importação direta do fornecedor em aquisição no mercado interno pela WeDo", () => {
-    expect(origemNfParaCadastroGc("1")).toBe("2");
-    expect(origemNfParaCadastroGc("6")).toBe("7");
-  });
-
-  it("preserva as demais origens informadas na NF", () => {
-    for (const origem of ["0", "2", "3", "4", "5", "7", "8"]) {
+  it("preserva exatamente todos os códigos informados na NF", () => {
+    for (const origem of ["0", "1", "2", "3", "4", "5", "6", "7", "8"]) {
       expect(origemNfParaCadastroGc(origem)).toBe(origem);
     }
+  });
+
+  it("usa exatamente a numeração e os significados exibidos pelo GC", () => {
+    expect(ORIGENS_FISCAIS_GC).toEqual([
+      { codigo: "0", descricao: "Nacional, exceto as indicadas nos códigos de 3 a 5" },
+      { codigo: "1", descricao: "Estrangeira - Importação direta, exceto a indicada no código 6" },
+      { codigo: "2", descricao: "Estrangeira - Adquirida no mercado interno, exceto a indicada no código 7" },
+      { codigo: "3", descricao: "Nacional, mercadoria ou bem com Conteúdo de Importação superior a 40%" },
+      { codigo: "4", descricao: "Nacional, produção em conformidade com processos básicos que tratam as legislações dos Ajustes" },
+      { codigo: "5", descricao: "Nacional, mercadoria ou bem com Conteúdo de Importação inferior ou igual a 40%" },
+      { codigo: "6", descricao: "Estrangeira - Importação direta, sem similar nacional, constante em lista da CAMEX" },
+      { codigo: "7", descricao: "Estrangeira - Adquirida mercado interno, sem similar nacional, constante em lista da CAMEX" },
+      { codigo: "8", descricao: "Nacional, mercadoria ou bem com Conteúdo de Importação superior a 70%" },
+    ]);
+  });
+
+  it("preserva uma correção do Argus sem esconder divergência da NF", () => {
+    expect(origemRegistradaNoArgus("3", "2")).toBe("3");
+    expect(origemRegistradaNoArgus("", "3")).toBe("3");
+    expect(origemRegistradaNoArgus("0", "3")).toBe("0");
   });
 });
