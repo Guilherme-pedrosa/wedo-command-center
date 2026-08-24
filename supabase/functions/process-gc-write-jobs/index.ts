@@ -4,7 +4,9 @@
 import { installGcUsuarioId } from "../_shared/gc-user.ts";
 import {
   internalProductTax,
+  isFiscalOnlyProductPayload,
   mergeGcInternalFiscal,
+  prepareGcInternalProductForSave,
   unwrapGcInternalProduct,
 } from "../_shared/gc-internal-fiscal.ts";
 installGcUsuarioId();
@@ -83,7 +85,10 @@ async function updateAndVerifyInternalFiscal(params: {
   ncm: string;
   origem: string;
   tokens: string[];
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+}): Promise<
+  | { ok: true; before: string | null; after: string; response: unknown }
+  | { ok: false; error: string }
+> {
   const url = `https://app.api.click.app/produtos/editar/${encodeURIComponent(params.produtoId)}?tab=fiscal`;
   const candidates = [...new Set(params.tokens.map((token) => token.trim()).filter(Boolean))];
   let authError = "nenhuma credencial interna disponível";
@@ -91,7 +96,8 @@ async function updateAndVerifyInternalFiscal(params: {
   for (const token of candidates) {
     const headers = {
       "Accept": "application/json, text/plain, */*",
-      "Content-Type": "multipart/form-data",
+      "Origin": "https://gestaoclick.com",
+      "Referer": "https://gestaoclick.com/",
       "host-origin": "gestaoclick.com",
       "x-token-auth": token,
     };
@@ -105,16 +111,21 @@ async function updateAndVerifyInternalFiscal(params: {
         continue;
       }
 
-      const payloadInterno = mergeGcInternalFiscal(
+      const fiscalMerged = mergeGcInternalFiscal(
         produtoInterno,
         params.ncm,
         params.origem,
       );
+      const origemAnterior = normalizeOrigem(internalProductTax(produtoInterno)?.ICMS_orig);
+      const prepared = prepareGcInternalProductForSave(fiscalMerged);
+      if (!prepared.ok) {
+        return { ok: false, error: prepared.error };
+      }
 
       const postRes = await gcFetch(url, {
         method: "POST",
-        headers,
-        body: JSON.stringify({ data: payloadInterno }),
+        headers: { ...headers, "Content-Type": "multipart/form-data" },
+        body: JSON.stringify({ data: prepared.payload }),
       });
       const postBody = await postRes.json().catch(() => null);
       const postJson = asRecord(postBody);
@@ -134,7 +145,12 @@ async function updateAndVerifyInternalFiscal(params: {
         };
       }
 
-      return { ok: true };
+      return {
+        ok: true,
+        before: origemAnterior,
+        after: origemPersistida,
+        response: postBody,
+      };
     } catch (error) {
       authError = (error as Error).message;
     }
@@ -248,8 +264,38 @@ Deno.serve(async (req) => {
     let responseBody: unknown = null;
     let httpStatus = 0;
     let verifiedProduto: Record<string, unknown> | null = null;
+    const fiscalOnlyJob = job.recurso === "produtos" && isFiscalOnlyProductPayload(job.payload);
 
     try {
+      // NCM + origem pertencem ao cadastro fiscal interno do GC. Passar antes
+      // pelo PUT público regrava um produto sem ICMS_orig e pode limpar a origem.
+      // Por isso uma correção fiscal pura nunca toca a API pública.
+      if (fiscalOnlyJob) {
+        const ncmSolicitado = normalizeNcm(job.payload.ncm);
+        const origemSolicitada = normalizeOrigem(job.payload.origem)!;
+        const fiscalInterno = await updateAndVerifyInternalFiscal({
+          produtoId: job.recurso_id,
+          ncm: ncmSolicitado,
+          origem: origemSolicitada,
+          tokens: [GC_WEB_TOKEN ?? ""],
+        });
+
+        if (!fiscalInterno.ok) {
+          errorMsg = fiscalInterno.error;
+          responseBody = { source: "gc_internal_fiscal", error: fiscalInterno.error };
+        } else {
+          success = true;
+          httpStatus = 200;
+          responseBody = {
+            source: "gc_internal_fiscal",
+            produto_id: job.recurso_id,
+            ncm: ncmSolicitado,
+            origem_before: fiscalInterno.before,
+            origem_after: fiscalInterno.after,
+            gc_response: fiscalInterno.response,
+          };
+        }
+      } else {
       // ===== GET-before-PUT =====
       // 1. GET produto completo do GC (PUT parcial é rejeitado com HTTP 500)
       const getRes = await gcFetch(url, {
@@ -389,10 +435,20 @@ Deno.serve(async (req) => {
               produtoId: job.recurso_id,
               ncm: ncmSolicitado || productNcm(verifiedProduto),
               origem: origemSolicitada,
-              tokens: [GC_WEB_TOKEN ?? "", GC_ACCESS_TOKEN, GC_SECRET_TOKEN],
+              tokens: [GC_WEB_TOKEN ?? ""],
             });
-            if (!fiscalInterno.ok) errorMsg = fiscalInterno.error;
-            else success = true;
+            if (!fiscalInterno.ok) {
+              errorMsg = fiscalInterno.error;
+            } else {
+              success = true;
+              responseBody = {
+                source: "gc_public_then_internal_fiscal",
+                produto_id: job.recurso_id,
+                origem_before: fiscalInterno.before,
+                origem_after: fiscalInterno.after,
+                gc_response: fiscalInterno.response,
+              };
+            }
           } else {
             success = true;
           }
@@ -411,6 +467,7 @@ Deno.serve(async (req) => {
         await sleep(RATE_LIMIT_MS);
         continue;
       }
+      }
     } catch (e) {
       errorMsg = `network: ${(e as Error).message}`;
     }
@@ -425,7 +482,7 @@ Deno.serve(async (req) => {
       const valoresPayload = payload.valores ?? [];
 
       if (job.recurso === "produtos") {
-        const responseProduto = verifiedProduto ?? unwrapGcProduct(responseBody);
+        const responseProduto = verifiedProduto ?? (fiscalOnlyJob ? null : unwrapGcProduct(responseBody));
         const { data: cacheRow } = await supabase
           .from("gc_produtos_cache")
           .select("valores, origem")
