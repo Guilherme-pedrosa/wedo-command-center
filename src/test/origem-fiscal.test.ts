@@ -4,6 +4,7 @@ import {
   origemNfParaCadastroGc,
   origemRegistradaNoArgus,
   ORIGENS_FISCAIS_GC,
+  resolverOrigemFiscal,
 } from "@/lib/origemFiscal";
 
 describe("origem fiscal da mercadoria", () => {
@@ -38,5 +39,23 @@ describe("origem fiscal da mercadoria", () => {
     expect(origemRegistradaNoArgus("3", "2")).toBe("3");
     expect(origemRegistradaNoArgus("", "3")).toBe("3");
     expect(origemRegistradaNoArgus("0", "3")).toBe("0");
+  });
+
+  it("resolve origem manual antes da NF e mantém divergência legada visível", () => {
+    expect(resolverOrigemFiscal({ manual: "3", nf: "2", legado: "1" })).toEqual({
+      origemEfetiva: "3",
+      divergenciaManual: true,
+      divergenciaLegada: false,
+    });
+    expect(resolverOrigemFiscal({ manual: "", nf: "2", legado: "3" })).toEqual({
+      origemEfetiva: "2",
+      divergenciaManual: false,
+      divergenciaLegada: true,
+    });
+    expect(resolverOrigemFiscal({ manual: "", nf: "", legado: "3" })).toEqual({
+      origemEfetiva: "3",
+      divergenciaManual: false,
+      divergenciaLegada: false,
+    });
   });
 });

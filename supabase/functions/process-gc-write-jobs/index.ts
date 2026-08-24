@@ -308,15 +308,9 @@ Deno.serve(async (req) => {
         ...produtoBase,
         valor_custo: String(novoCustoTopLevel),
         ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),
-        // Restaura o contrato que estava em produção antes da regressão:
-        // a API pública recebia a origem tanto no produto quanto no bloco
-        // fiscal. O GET público não devolve esse campo, por isso a confirmação
-        // continua separada da simples aceitação do PUT.
-        ...(origemSolicitada ? { origem: origemSolicitada } : {}),
         fiscal: {
           ...fiscalBase,
           ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),
-          ...(origemSolicitada ? { origem: origemSolicitada } : {}),
         },
         valores: valoresMerged,
       };
@@ -359,23 +353,26 @@ Deno.serve(async (req) => {
         } else if (ncmSolicitado && productNcm(verifiedProduto) !== ncmSolicitado) {
           errorMsg = `GC respondeu sucesso, mas não gravou o NCM ${ncmSolicitado}. Retorno atual: ${productNcm(verifiedProduto) || "vazio"}`;
         } else {
-          success = true;
+          const publicResponse = responseBody;
           responseBody = {
             source: "gc_public",
-            gc_response: responseBody,
-            ...(origemSolicitada && job.recurso === "produtos"
-              ? { origin_write_status: "sent_via_public_api_unverified" }
-              : {}),
+            gc_response: publicResponse,
             _argus_verification: {
               source: "gc_public_get",
               ncm: productNcm(verifiedProduto),
               origem: null,
-              ...(origemSolicitada && job.recurso === "produtos"
-                ? { origin_write_status: "sent_via_public_api_unverified" }
-                : {}),
               verified_at: new Date().toISOString(),
             },
           };
+
+          success = true;
+          if (origemSolicitada && job.recurso === "produtos") {
+            responseBody = {
+              ...(asRecord(responseBody) ?? {}),
+              origin_write_status: "not_sent_public_api_unsupported",
+              origin_requested: origemSolicitada,
+            };
+          }
         }
       } else if (response.status === 429 || response.status >= 500) {
         errorMsg = `HTTP ${response.status}: ${JSON.stringify(responseBody)}`;
@@ -412,6 +409,7 @@ Deno.serve(async (req) => {
           .select("nome, valores, origem")
           .eq("produto_gc_id", job.recurso_id)
           .maybeSingle();
+        const verification = asRecord(asRecord(responseBody)?._argus_verification);
 
         const valoresDoGc = Array.isArray(responseProduto?.valores)
           ? responseProduto.valores as Array<Record<string, unknown>>
@@ -440,9 +438,10 @@ Deno.serve(async (req) => {
             nome_grupo: responseProduto.nome_grupo ? String(responseProduto.nome_grupo) : null,
             grupo_id: responseProduto.grupo_id ? String(responseProduto.grupo_id) : null,
             ncm: (responseProduto.fiscal as { ncm?: unknown } | undefined)?.ncm ? String((responseProduto.fiscal as { ncm?: unknown }).ncm) : responseProduto.ncm ? String(responseProduto.ncm) : null,
-            // Este cache guarda a origem escolhida no Argus (NF/manual). A
-            // prova de persistência no GC fica em _argus_verification.
-            origem: normalizeOrigem(payload.origem) ?? normalizeOrigem(cacheRow?.origem),
+            // `gc_produtos_cache.origem` é legado e pode conter uma correção
+            // humana antiga. A API pública não confirmou a origem solicitada,
+            // portanto este worker não pode sobrescrever esse vestígio.
+            origem: normalizeOrigem(cacheRow?.origem),
             unidade: responseProduto.unidade ? String(responseProduto.unidade) : null,
             estoque: numericOrNull(responseProduto.estoque),
             valor_custo: numericOrNull(responseProduto.valor_custo),
@@ -459,7 +458,6 @@ Deno.serve(async (req) => {
           }, { onConflict: "produto_gc_id" });
           if (cacheError) cacheSyncError = cacheError.message;
         } else {
-          const verification = asRecord(asRecord(responseBody)?._argus_verification);
           const { error: cacheError } = await supabase
             .from("gc_produtos_cache")
             .upsert({
@@ -467,7 +465,6 @@ Deno.serve(async (req) => {
               nome: String(cacheRow?.nome ?? "(sem nome)"),
               valores: valoresAtualizados,
               ...(normalizeNcm(verification?.ncm ?? payload.ncm) ? { ncm: normalizeNcm(verification?.ncm ?? payload.ncm) } : {}),
-              ...(normalizeOrigem(payload.origem) ? { origem: normalizeOrigem(payload.origem) } : {}),
               updated_at: new Date().toISOString(),
               ultima_sincronizacao: new Date().toISOString(),
             }, { onConflict: "produto_gc_id" });
@@ -494,13 +491,28 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      await supabase.from("fin_gc_write_jobs").update({
-        status: "sucesso",
+      const finalStatus = asRecord(responseBody)?.origin_write_status === "not_sent_public_api_unsupported"
+        ? "sucesso_parcial"
+        : "sucesso";
+      const { error: finalUpdateError } = await supabase.from("fin_gc_write_jobs").update({
+        status: finalStatus,
         ultimo_erro: null,
         response_body: responseBody as never,
         finalizado_em: new Date().toISOString(),
       }).eq("id", job.id);
-      results.push({ id: job.id, status: "sucesso", recurso_id: job.recurso_id, http: httpStatus });
+      if (finalUpdateError) {
+        const erro = `GC respondeu, mas o resultado final do job não foi persistido: ${finalUpdateError.message}`;
+        await supabase.from("fin_gc_write_jobs").update({
+          status: "erro_fatal",
+          ultimo_erro: erro,
+          response_body: responseBody as never,
+          finalizado_em: new Date().toISOString(),
+        }).eq("id", job.id);
+        results.push({ id: job.id, status: "erro_fatal", erro, http: httpStatus });
+        await sleep(RATE_LIMIT_MS);
+        continue;
+      }
+      results.push({ id: job.id, status: finalStatus, recurso_id: job.recurso_id, http: httpStatus });
     } else {
       const novasTentativas = (job.tentativas ?? 0) + 1;
       const novoStatus = novasTentativas >= MAX_RETRIES ? "erro_fatal" : "erro_retentavel";
@@ -517,8 +529,9 @@ Deno.serve(async (req) => {
   }
 
   const sucessos = results.filter((r) => (r as { status: string }).status === "sucesso").length;
+  const sucessosParciais = results.filter((r) => (r as { status: string }).status === "sucesso_parcial").length;
   return new Response(
-    JSON.stringify({ ok: true, processed: jobs.length, sucessos, results }),
+    JSON.stringify({ ok: true, processed: jobs.length, sucessos, sucessos_parciais: sucessosParciais, results }),
     { headers: { ...corsHeaders, "Content-Type": "application/json" } },
   );
 });

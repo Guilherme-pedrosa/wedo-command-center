@@ -24,8 +24,8 @@ import { SyncNFStatusChip } from "@/components/financeiro/SyncNFStatusChip";
 import { reindexNfeXmlsEmLotes } from "@/lib/reindexNfeXmls";
 import {
   normalizeOrigemFiscal,
-  origemRegistradaNoArgus,
   ORIGENS_FISCAIS_GC,
+  resolverOrigemFiscal,
 } from "@/lib/origemFiscal";
 import { dividirNfeEmLotes, NFE_FILES_PER_LOT } from "@/lib/nfeUpload";
 
@@ -51,6 +51,7 @@ interface ProdutoTributo {
   descricao_nf?: string | null;
   ncm: string | null;
   origem: string | null;
+  origem_manual: string | null;
   cfop: string | null;
   nf_numero: string | null;
   nf_chave: string | null;
@@ -442,7 +443,7 @@ export function classifyFiscalVerification(
 }
 
 export function isFiscalJobOperationallyComplete(status: unknown): boolean {
-  return status === "sucesso";
+  return status === "sucesso" || status === "sucesso_parcial";
 }
 
 async function corrigirFiscalNoGc(inputs: FiscalCorrectionInput[]) {
@@ -458,7 +459,7 @@ async function corrigirFiscalNoGc(inputs: FiscalCorrectionInput[]) {
       recurso: "produtos",
       recurso_id: String(item.produtoId),
       payload,
-      payload_hash: btoa(`fiscal-v3|${item.produtoId}|${ncm}|${origem}`),
+      payload_hash: btoa(`fiscal-v4|${item.produtoId}|${ncm}|${origem}`),
       status: "pendente",
       tentativas: 0,
       ultimo_erro: null,
@@ -539,7 +540,8 @@ function FiscalCell({
   produtoId,
   nome,
   ncmGc,
-  origArgus,
+  origCache,
+  origManual,
   ncmNf,
   origNf,
   onSaved,
@@ -547,18 +549,21 @@ function FiscalCell({
   produtoId: string;
   nome: string;
   ncmGc: string;
-  origArgus: string;
+  origCache: string;
+  origManual: string;
   ncmNf: string;
   origNf: string;
   onSaved?: () => void;
 }) {
   const gcNcm = normNcm(ncmGc);
-  // `gc_produtos_cache.origem` é uma origem identificada no Argus (normalmente
-  // pela NF). A API pública do GC não a devolve, portanto não é prova do GC.
-  const cachedOrig = normOrig(origArgus);
+  const cachedOrig = normOrig(origCache);
+  const manualOrig = normOrig(origManual);
   const nfNcm = normNcm(ncmNf);
   const nfOrig = normOrig(origNf);
-  const origemIdentificada = origemRegistradaNoArgus(cachedOrig, nfOrig);
+  // Correção explícita > XML da última NF > cache legado. O cache nunca é
+  // tratado como prova de gravação no GestãoClick.
+  const origemResolvida = resolverOrigemFiscal({ manual: manualOrig, nf: nfOrig, legado: cachedOrig });
+  const origemIdentificada = origemResolvida.origemEfetiva;
 
   const [editing, setEditing] = useState(false);
   const [ncm, setNcm] = useState(gcNcm || nfNcm);
@@ -566,7 +571,8 @@ function FiscalCell({
   const [saving, setSaving] = useState(false);
 
   const divNcm = !!nfNcm && nfNcm !== gcNcm;
-  const divOrig = !!cachedOrig && !!nfOrig && cachedOrig !== nfOrig;
+  const legacyOrigDivergente = origemResolvida.divergenciaLegada;
+  const divOrig = origemResolvida.divergenciaManual || legacyOrigDivergente;
   const pendNcm = !gcNcm;
   const temNf = !!nfNcm || nfOrig !== "";
 
@@ -579,19 +585,29 @@ function FiscalCell({
     const origemFinal = normOrig(novaOrigem) || origemIdentificada;
     setSaving(true);
     try {
+      if (fonteOrigem === "manual" && origemFinal) {
+        const { error: manualError } = await supabase
+          .from("fin_produto_tributos")
+          .upsert({
+            gc_produto_id: produtoId,
+            nome_produto: nome,
+            origem_manual: origemFinal,
+            ultima_atualizacao: new Date().toISOString(),
+          }, { onConflict: "gc_produto_id" });
+        if (manualError) throw new Error(`Não foi possível preservar a origem manual: ${manualError.message}`);
+        onSaved?.();
+      }
+
       const result = await corrigirFiscalNoGc([{
         produtoId,
         ncm: ncmLimpo,
         origem: origemFinal || undefined,
       }]);
-      const origemPendenteDescricao = fonteOrigem === "nf"
-        ? `Origem ${origemFinal} identificada na NF`
-        : `Origem ${origemFinal} informada no Argus`;
       const mensagem = `NCM de ${nome} confirmado no GestãoClick.` +
         (result.origensPendentes > 0
-          ? ` ${origemPendenteDescricao} e enviada automaticamente ao GC; a API de leitura do GC não devolve esse campo para conferência.`
+          ? ` A origem ${origemFinal} não foi confirmada no cadastro fiscal do GC; nenhum sucesso foi presumido.`
           : result.origensConfirmadas > 0
-            ? " Origem também confirmada no cadastro fiscal do GC."
+            ? ` Origem ${origemFinal} também confirmada no cadastro fiscal do GC.`
             : " A origem ainda não foi identificada na NF.");
       if (result.origensPendentes > 0) toast(mensagem, { icon: "⚠️" });
       else toast.success(mensagem);
@@ -601,6 +617,33 @@ function FiscalCell({
       onSaved?.();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removerOrigemManual = async () => {
+    if (!manualOrig) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("fin_produto_tributos")
+        .update({
+          origem_manual: null,
+          ultima_atualizacao: new Date().toISOString(),
+        })
+        .eq("gc_produto_id", produtoId);
+      if (error) throw error;
+      setOrig(nfOrig || cachedOrig);
+      setEditing(false);
+      onSaved?.();
+      toast.success(
+        nfOrig
+          ? `Correção manual removida. O Argus voltou a usar a origem ${nfOrig} da NF.`
+          : "Correção manual removida. Este produto ainda não tem origem válida na NF.",
+      );
+    } catch (error) {
+      toast.error(`Não foi possível remover a correção manual: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setSaving(false);
     }
@@ -671,9 +714,11 @@ function FiscalCell({
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded border ${divOrig ? "border-red-500/50 text-red-400 bg-red-500/5" : origemIdentificada ? "border-amber-500/50 text-amber-400 bg-amber-500/5" : "border-border bg-secondary"}`}
             title={divOrig
-              ? `A origem registrada no Argus (${cachedOrig}) diverge da última NF (${nfOrig}). Use a NF ou corrija manualmente.`
+              ? manualOrig
+                ? `A correção manual (${manualOrig}) diverge da última NF (${nfOrig}) e prevalece até ser removida explicitamente.`
+                : `O histórico legado do Argus (${cachedOrig}) diverge da última NF (${nfOrig}). A NF prevalece, mas a divergência exige revisão manual.`
               : origemIdentificada
-                ? "Código identificado no XML/Argus. A API pública não permite confirmar este campo no cadastro do GC."
+                ? manualOrig ? "Correção manual preservada no Argus." : "Código lido sem conversão do XML da última NF."
               : "Origem ainda não identificada."}
           >
             {origemIdentificada ? (ORIGEM_OPTS.find(o => o.v === origemIdentificada)?.l || origemIdentificada) : "—"}
@@ -686,10 +731,13 @@ function FiscalCell({
               NF fornecedor: {nfOrig}
             </span>
           )}
-          {!!origemIdentificada && (
-            <span className="text-[9px] text-amber-500" title="O GC não devolveu confirmação desta origem.">
-              Pendente no GC
+          {legacyOrigDivergente && (
+            <span className="text-[9px] text-red-400 font-mono" title="Valor antigo misturava NF e correção manual; não foi tratado como prova.">
+              Histórico Argus: {cachedOrig} — revisar
             </span>
+          )}
+          {!!origemIdentificada && (
+            <span className="text-[9px] text-amber-500" title="A API pública do GC não devolve este campo; o Argus não presume confirmação.">Pendente no GC</span>
           )}
         </div>
       </div>
@@ -714,10 +762,31 @@ function FiscalCell({
                 toast.error("A NF não trouxe NCM válido — use 'Corrigir manual'.");
                 return;
               }
-              enviar(nfNcm || gcNcm, nfOrig || cachedOrig, "nf");
+              // A ação em massa/atalho de NCM não pode apagar uma correção
+              // fiscal manual. Quando houver divergência, preserva a manual.
+              enviar(
+                nfNcm || gcNcm,
+                manualOrig || nfOrig || cachedOrig,
+                manualOrig || legacyOrigDivergente ? "manual" : "nf",
+              );
             }}
           >
-            Usar NCM e origem da NF
+            {legacyOrigDivergente
+              ? `Usar origem ${nfOrig} da NF no Argus (histórico ${cachedOrig})`
+              : manualOrig && nfOrig && manualOrig !== nfOrig
+              ? `Usar NCM da NF (mantém origem ${manualOrig})`
+              : "Usar NCM e origem da NF"}
+          </Button>
+        )}
+        {!!manualOrig && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[10px] text-amber-400 hover:text-amber-300"
+            disabled={saving}
+            onClick={removerOrigemManual}
+          >
+            {nfOrig ? `Voltar a usar origem ${nfOrig} da NF` : "Remover correção manual"}
           </Button>
         )}
       </div>
@@ -808,10 +877,11 @@ export default function PrecificacaoPage() {
     }
     const selecionados = produtos?.filter(p => selectedProductIds.has(String(p.id))) || [];
     const jobs: FiscalCorrectionInput[] = [];
-    const falhas = [];
+    const falhasNcm: string[] = [];
 
     let semNcm = 0;
     let semOrigem = 0;
+    let revisaoOrigem = 0;
 
     for (const p of selecionados) {
       const trib = tributosMap.get(String(p.id));
@@ -820,27 +890,37 @@ export default function PrecificacaoPage() {
 
       if (nfNcm.length !== 8) {
         semNcm++;
-        falhas.push(p.nome);
+        falhasNcm.push(p.nome);
         continue;
       }
 
-      const origemArgus = normOrig(p.origem);
+      const origemManual = normOrig(trib?.origem_manual);
+      const origemLegada = normOrig(p.origem);
+      if (!origemManual && origemLegada && nfOrig && origemLegada !== nfOrig) {
+        // O campo legado misturava NF e correção humana. O lote não escolhe um
+        // lado e não apaga a única evidência; exige decisão explícita na linha.
+        revisaoOrigem++;
+        continue;
+      }
 
-      // Preserva exatamente o código 0..8 do XML. Reclassificação é manual.
-      const origemFinal = nfOrig || origemArgus;
+      // A sincronização em lote jamais pode desfazer uma correção explícita.
+      // Sem override, usa exatamente o código 0..8 da NF, sem reclassificar.
+      const origemFinal = origemManual || nfOrig;
       if (!origemFinal) semOrigem++;
 
       jobs.push({
         produtoId: String(p.id),
         ncm: nfNcm,
-        // Cache local não comprova o GC: sempre comunica a origem identificada.
         origem: origemFinal || undefined,
       });
     }
 
     if (jobs.length === 0) {
       toast.error(
-        semNcm > 0
+        revisaoOrigem > 0
+          ? `Nenhum produto foi alterado: ${revisaoOrigem} exige(m) revisão da origem na própria linha` +
+            (semNcm > 0 ? ` e ${semNcm} não possui(em) NCM válido.` : ".")
+          : semNcm > 0
           ? `Nenhum dos ${semNcm} produto(s) selecionado(s) tem NCM de 8 dígitos na NF.`
           : "Nenhum produto selecionado pôde ser corrigido.",
       );
@@ -857,14 +937,15 @@ export default function PrecificacaoPage() {
           ? ` ${result.origensConfirmadas} origem(ns) também confirmada(s) no cadastro fiscal.`
           : "") +
         (result.origensPendentes > 0
-          ? ` ${result.origensPendentes} origem(ns) foi(ram) enviada(s) automaticamente ao GC; a API de leitura não devolve esse campo para conferência.`
+          ? ` ${result.origensPendentes} origem(ns) não foi(ram) confirmada(s) no cadastro fiscal do GC; nenhum sucesso foi presumido.`
           : "") +
         (semOrigem > 0 ? ` ${semOrigem} ficou(aram) sem origem porque a NF ainda não a trouxe.` : "") +
-        (falhas.length > 0 ? ` ${falhas.length} ignorado(s) por NCM inválido.` : "");
+        (falhasNcm.length > 0 ? ` ${falhasNcm.length} ignorado(s) por NCM inválido.` : "") +
+        (revisaoOrigem > 0 ? ` ${revisaoOrigem} ignorado(s) porque o histórico de origem diverge da NF e exige revisão na linha.` : "");
       if (result.origensPendentes > 0) toast(mensagem, { icon: "⚠️" });
       else toast.success(mensagem);
-      if (falhas.length > 0) {
-        console.warn("Produtos ignorados no lote fiscal:", falhas);
+      if (falhasNcm.length > 0) {
+        console.warn("Produtos ignorados no lote fiscal por NCM inválido:", falhasNcm);
       }
       setSelectedProductIds(new Set());
       await Promise.all([refetchProdutos(), refetchTributos()]);
@@ -1203,6 +1284,7 @@ export default function PrecificacaoPage() {
       (t) =>
         t.excecao_manual ||
         t.match_rule === "manual" ||
+        normOrig(t.origem_manual) !== "" ||
         (Boolean(t.nf_chave) && indexedNfChaves.has(t.nf_chave as string))
     );
   }, [tributos, indexedNfChaves]);
@@ -3519,13 +3601,14 @@ export default function PrecificacaoPage() {
                       </TableCell>
                       <TableCell>
                         <FiscalCell
-                          key={`fiscal-${p.id}-${p.ncm || ""}-${p.origem || ""}-${tributo?.ncm || ""}-${tributo?.origem || ""}`}
+                          key={`fiscal-${p.id}-${p.ncm || ""}-${p.origem || ""}-${tributoRaw?.ncm || ""}-${tributoRaw?.origem || ""}-${tributoRaw?.origem_manual || ""}`}
                           produtoId={String(p.id)}
                           nome={p.nome}
                           ncmGc={String(p.ncm || "")}
-                          origArgus={String(p.origem || "")}
-                          ncmNf={String(tributo?.ncm || "")}
-                          origNf={String(tributo?.origem || "")}
+                          origCache={String(p.origem || "")}
+                          origManual={String(tributoRaw?.origem_manual || "")}
+                          ncmNf={String(tributoRaw?.ncm || "")}
+                          origNf={String(tributoRaw?.origem || "")}
                           onSaved={() => {
                             void refetchProdutos();
                             void refetchTributos();

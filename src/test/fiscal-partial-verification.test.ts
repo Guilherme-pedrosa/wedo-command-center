@@ -12,12 +12,16 @@ const gcWorkerSource = readFileSync(
 );
 
 describe("confirmação parcial de NCM e origem no GestãoClick", () => {
-  it("restaura o envio público da origem sem depender de token inexistente", () => {
+  it("não repete a autenticação interna já recusada nem envia origem pela API pública", () => {
     expect(gcWorkerSource).not.toContain("GC_WEB_TOKEN");
     expect(gcWorkerSource).not.toContain("GC_FISCAL_SESSION_TOKEN");
     expect(gcWorkerSource).toContain('source: "gc_public_get"');
-    expect(gcWorkerSource).toContain('...(origemSolicitada ? { origem: origemSolicitada } : {})');
-    expect(gcWorkerSource).toContain('origin_write_status: "sent_via_public_api_unverified"');
+    expect(gcWorkerSource).not.toContain("updateAndVerifyInternalFiscal");
+    expect(gcWorkerSource).not.toContain('"x-token-auth"');
+    expect(gcWorkerSource).toContain('origin_write_status: "not_sent_public_api_unsupported"');
+    expect(gcWorkerSource).not.toContain('origin_write_status: "sent_via_public_api_unverified"');
+    expect(gcWorkerSource).not.toContain('fiscal: {\n          ...fiscalBase,\n          ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),\n          ...(origemSolicitada');
+    expect(gcWorkerSource).not.toContain("origem: normalizeOrigem(payload.origem)");
   });
 
   it("confirma o NCM pela API pública e mantém a origem como pendente", () => {
@@ -109,6 +113,7 @@ describe("confirmação parcial de NCM e origem no GestãoClick", () => {
 
   it("não esconde falha do cache mesmo quando o GET do GC confirmou o NCM", () => {
     expect(isFiscalJobOperationallyComplete("sucesso")).toBe(true);
+    expect(isFiscalJobOperationallyComplete("sucesso_parcial")).toBe(true);
     expect(isFiscalJobOperationallyComplete("erro_retentavel")).toBe(false);
     expect(isFiscalJobOperationallyComplete("erro_fatal")).toBe(false);
   });

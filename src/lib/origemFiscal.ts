@@ -31,3 +31,19 @@ export function origemNfParaCadastroGc(value: unknown): string {
 export function origemRegistradaNoArgus(origemArgus: unknown, origemNf: unknown): string {
   return normalizeOrigemFiscal(origemArgus) || normalizeOrigemFiscal(origemNf);
 }
+
+export function resolverOrigemFiscal(params: {
+  manual: unknown;
+  nf: unknown;
+  legado: unknown;
+}) {
+  const manual = normalizeOrigemFiscal(params.manual);
+  const nf = normalizeOrigemFiscal(params.nf);
+  const legado = normalizeOrigemFiscal(params.legado);
+
+  return {
+    origemEfetiva: manual || nf || legado,
+    divergenciaManual: Boolean(manual && nf && manual !== nf),
+    divergenciaLegada: Boolean(!manual && legado && nf && legado !== nf),
+  };
+}
