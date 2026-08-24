@@ -2,13 +2,6 @@
 // Roda em loop interno respeitando rate limit (350ms entre requests ≈ 2.85 req/s, margem sobre 3 req/s do GC).
 // Marca status: pendente → processando → sucesso | erro_retentavel | erro_fatal
 import { installGcUsuarioId } from "../_shared/gc-user.ts";
-import {
-  internalProductTax,
-  isFiscalOnlyProductPayload,
-  mergeGcInternalFiscal,
-  prepareGcInternalProductForSave,
-  unwrapGcInternalProduct,
-} from "../_shared/gc-internal-fiscal.ts";
 installGcUsuarioId();
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -78,84 +71,6 @@ function productNcm(product: Record<string, unknown> | null): string {
 function normalizeOrigem(value: unknown): string | null {
   const raw = String(value ?? "").trim();
   return /^[0-8]$/.test(raw) ? raw : null;
-}
-
-async function updateAndVerifyInternalFiscal(params: {
-  produtoId: string;
-  ncm: string;
-  origem: string;
-  accessToken: string;
-  secretToken: string;
-}): Promise<
-  | { ok: true; before: string | null; after: string; response: unknown }
-  | { ok: false; error: string }
-> {
-  const url = `https://app.api.click.app/produtos/editar/${encodeURIComponent(params.produtoId)}?tab=fiscal`;
-  const headers = {
-    "Accept": "application/json, text/plain, */*",
-    "Origin": "https://gestaoclick.com",
-    "Referer": "https://gestaoclick.com/",
-    "host-origin": "gestaoclick.com",
-    "access-token": params.accessToken,
-    "secret-access-token": params.secretToken,
-    "usuario-id": "1320473",
-  };
-
-  try {
-    const getRes = await gcFetch(url, { method: "GET", headers });
-    const getBody = await getRes.json().catch(() => null);
-    const produtoInterno = getRes.ok ? unwrapGcInternalProduct(getBody) : null;
-    if (!produtoInterno) {
-      const message = String(asRecord(getBody)?.message ?? asRecord(getBody)?.error ?? "resposta sem cadastro fiscal");
-      return {
-        ok: false,
-        error: `A rota fiscal do GC recusou o Access Token + Secret Access Token oficiais (HTTP ${getRes.status}: ${message})`,
-      };
-    }
-
-    const fiscalMerged = mergeGcInternalFiscal(
-      produtoInterno,
-      params.ncm,
-      params.origem,
-    );
-    const origemAnterior = normalizeOrigem(internalProductTax(produtoInterno)?.ICMS_orig);
-    const prepared = prepareGcInternalProductForSave(fiscalMerged);
-    if (!prepared.ok) {
-      return { ok: false, error: prepared.error };
-    }
-
-    const postRes = await gcFetch(url, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "multipart/form-data" },
-      body: JSON.stringify({ data: prepared.payload }),
-    });
-    const postBody = await postRes.json().catch(() => null);
-    const postJson = asRecord(postBody);
-    if (!postRes.ok || postJson?.status !== "success") {
-      const message = String(postJson?.message ?? `HTTP ${postRes.status}`);
-      return { ok: false, error: `GC interno recusou a origem: ${message}` };
-    }
-
-    const verifyRes = await gcFetch(url, { method: "GET", headers });
-    const verifyBody = await verifyRes.json().catch(() => null);
-    const verifyProduto = verifyRes.ok ? unwrapGcInternalProduct(verifyBody) : null;
-    const origemPersistida = normalizeOrigem(internalProductTax(verifyProduto)?.ICMS_orig);
-    if (origemPersistida !== params.origem) {
-      return {
-        ok: false,
-        error: `GC respondeu sucesso, mas não gravou a origem ${params.origem}. Retorno atual: ${origemPersistida ?? "vazio"}`,
-      };
-    }
-
-    return {
-      ok: true,
-      before: origemAnterior,
-      after: origemPersistida,
-      response: postBody,
-    };
-  } catch (error) {
-    return { ok: false, error: `Falha ao acessar o cadastro fiscal do GC: ${(error as Error).message}` };
-  }
 }
 
 Deno.serve(async (req) => {
@@ -259,39 +174,8 @@ Deno.serve(async (req) => {
     let responseBody: unknown = null;
     let httpStatus = 0;
     let verifiedProduto: Record<string, unknown> | null = null;
-    const fiscalOnlyJob = job.recurso === "produtos" && isFiscalOnlyProductPayload(job.payload);
 
     try {
-      // NCM + origem pertencem ao cadastro fiscal interno do GC. Passar antes
-      // pelo PUT público regrava um produto sem ICMS_orig e pode limpar a origem.
-      // Por isso uma correção fiscal pura nunca toca a API pública.
-      if (fiscalOnlyJob) {
-        const ncmSolicitado = normalizeNcm(job.payload.ncm);
-        const origemSolicitada = normalizeOrigem(job.payload.origem)!;
-        const fiscalInterno = await updateAndVerifyInternalFiscal({
-          produtoId: job.recurso_id,
-          ncm: ncmSolicitado,
-          origem: origemSolicitada,
-          accessToken: GC_ACCESS_TOKEN,
-          secretToken: GC_SECRET_TOKEN,
-        });
-
-        if (!fiscalInterno.ok) {
-          errorMsg = fiscalInterno.error;
-          responseBody = { source: "gc_internal_fiscal", error: fiscalInterno.error };
-        } else {
-          success = true;
-          httpStatus = 200;
-          responseBody = {
-            source: "gc_internal_fiscal",
-            produto_id: job.recurso_id,
-            ncm: ncmSolicitado,
-            origem_before: fiscalInterno.before,
-            origem_after: fiscalInterno.after,
-            gc_response: fiscalInterno.response,
-          };
-        }
-      } else {
       // ===== GET-before-PUT =====
       // 1. GET produto completo do GC (PUT parcial é rejeitado com HTTP 500)
       const getRes = await gcFetch(url, {
@@ -381,9 +265,12 @@ Deno.serve(async (req) => {
       const putBody = {
         ...produtoBase,
         valor_custo: String(novoCustoTopLevel),
+        ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),
+        ...(origemSolicitada ? { origem: origemSolicitada } : {}),
         fiscal: {
           ...fiscalBase,
           ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),
+          ...(origemSolicitada ? { origem: origemSolicitada } : {}),
         },
         valores: valoresMerged,
       };
@@ -426,29 +313,7 @@ Deno.serve(async (req) => {
         } else if (ncmSolicitado && productNcm(verifiedProduto) !== ncmSolicitado) {
           errorMsg = `GC respondeu sucesso, mas não gravou o NCM ${ncmSolicitado}. Retorno atual: ${productNcm(verifiedProduto) || "vazio"}`;
         } else {
-          if (origemSolicitada && job.recurso === "produtos") {
-            const fiscalInterno = await updateAndVerifyInternalFiscal({
-              produtoId: job.recurso_id,
-              ncm: ncmSolicitado || productNcm(verifiedProduto),
-              origem: origemSolicitada,
-              accessToken: GC_ACCESS_TOKEN,
-              secretToken: GC_SECRET_TOKEN,
-            });
-            if (!fiscalInterno.ok) {
-              errorMsg = fiscalInterno.error;
-            } else {
-              success = true;
-              responseBody = {
-                source: "gc_public_then_internal_fiscal",
-                produto_id: job.recurso_id,
-                origem_before: fiscalInterno.before,
-                origem_after: fiscalInterno.after,
-                gc_response: fiscalInterno.response,
-              };
-            }
-          } else {
-            success = true;
-          }
+          success = true;
         }
       } else if (response.status === 429 || response.status >= 500) {
         errorMsg = `HTTP ${response.status}: ${JSON.stringify(responseBody)}`;
@@ -464,7 +329,6 @@ Deno.serve(async (req) => {
         await sleep(RATE_LIMIT_MS);
         continue;
       }
-      }
     } catch (e) {
       errorMsg = `network: ${(e as Error).message}`;
     }
@@ -479,7 +343,7 @@ Deno.serve(async (req) => {
       const valoresPayload = payload.valores ?? [];
 
       if (job.recurso === "produtos") {
-        const responseProduto = verifiedProduto ?? (fiscalOnlyJob ? null : unwrapGcProduct(responseBody));
+        const responseProduto = verifiedProduto ?? unwrapGcProduct(responseBody);
         const { data: cacheRow } = await supabase
           .from("gc_produtos_cache")
           .select("valores, origem")
@@ -513,8 +377,8 @@ Deno.serve(async (req) => {
             nome_grupo: responseProduto.nome_grupo ? String(responseProduto.nome_grupo) : null,
             grupo_id: responseProduto.grupo_id ? String(responseProduto.grupo_id) : null,
             ncm: (responseProduto.fiscal as { ncm?: unknown } | undefined)?.ncm ? String((responseProduto.fiscal as { ncm?: unknown }).ncm) : responseProduto.ncm ? String(responseProduto.ncm) : null,
-            // O endpoint público de produto não devolve origem do ICMS. Preserva
-            // no cache o valor que acabou de ser conferido pelo endpoint interno.
+            // O endpoint público de produto não devolve a origem do ICMS na leitura.
+            // Mantém no cache o valor enviado no PUT, sem tratá-lo como prova externa.
             origem: normalizeOrigem((asRecord(responseProduto.fiscal))?.origem ?? responseProduto.origem)
               ?? normalizeOrigem(payload.origem)
               ?? normalizeOrigem(cacheRow?.origem),
