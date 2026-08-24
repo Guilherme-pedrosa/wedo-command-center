@@ -23,6 +23,7 @@ import { SyncNFPorPeriodoDialog } from "@/components/financeiro/SyncNFPorPeriodo
 import { SyncNFStatusChip } from "@/components/financeiro/SyncNFStatusChip";
 import { reindexNfeXmlsEmLotes } from "@/lib/reindexNfeXmls";
 import { normalizeOrigemFiscal, origemNfParaCadastroGc } from "@/lib/origemFiscal";
+import { dividirNfeEmLotes, NFE_FILES_PER_LOT } from "@/lib/nfeUpload";
 
 // ── Types ──
 interface GCProduto {
@@ -1864,30 +1865,35 @@ export default function PrecificacaoPage() {
   const handleUploadXmls = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    const selecionouPasta = e.currentTarget.dataset.folder === "true";
     setUploading(true);
-    setUploadProgress("Preparando arquivos...");
+    setUploadProgress(`Preparando ${files.length.toLocaleString("pt-BR")} arquivo(s)...`);
 
     try {
       // Heurística: alguns navegadores limitam seleção múltipla em ~1000 arquivos
-      if (files.length === 1000) {
-        toast("O navegador entregou exatamente 1.000 arquivos. Para enviar mais em uma única seleção, use um ZIP; também é possível selecionar os lotes seguintes depois.");
+      if (!selecionouPasta && files.length === 1000) {
+        toast.error("O navegador entregou somente 1.000 arquivos. Para pacotes maiores, use 'Upload pasta completa' ou envie um ZIP.");
       }
 
       // Collect all XML items (from .xml files and from .zip files)
       const allItems: { name: string; blob: Blob }[] = [];
       let totalZipEntries = 0;
       let totalNestedZips = 0;
+      let arquivosIgnorados = 0;
 
       for (const file of Array.from(files)) {
-        if (file.name.toLowerCase().endsWith(".zip")) {
+        const lowerName = file.name.toLowerCase();
+        if (lowerName.endsWith(".zip")) {
           setUploadProgress(`Extraindo ${file.name}...`);
           const zipResult = await extractXmlsFromZip(file);
           allItems.push(...zipResult.xmlFiles);
           totalZipEntries += zipResult.totalEntries;
           totalNestedZips += zipResult.nestedZips;
           setUploadProgress(`Encontrados ${zipResult.xmlFiles.length} XML(s) em ${file.name}`);
-        } else {
+        } else if (lowerName.endsWith(".xml")) {
           allItems.push({ name: file.name, blob: file });
+        } else {
+          arquivosIgnorados++;
         }
       }
 
@@ -1903,18 +1909,19 @@ export default function PrecificacaoPage() {
         );
       }
 
-      const FILES_PER_LOT = 1000;
       const CONCURRENT_UPLOADS = 15;
-      const totalLotes = Math.ceil(allItems.length / FILES_PER_LOT);
+      const lotes = dividirNfeEmLotes(allItems);
+      const totalLotes = lotes.length;
       const keyOccurrences = new Map<string, number>();
       let uploaded = 0;
       let repeatedKeys = 0;
       let errors = 0;
       let indexed = 0;
 
-      for (let start = 0; start < allItems.length; start += FILES_PER_LOT) {
-        const loteAtual = Math.floor(start / FILES_PER_LOT) + 1;
-        const lote = allItems.slice(start, start + FILES_PER_LOT);
+      for (let loteIndex = 0; loteIndex < lotes.length; loteIndex++) {
+        const loteAtual = loteIndex + 1;
+        const lote = lotes[loteIndex];
+        const start = loteIndex * NFE_FILES_PER_LOT;
         setUploadProgress(`Lote ${loteAtual}/${totalLotes} • ${start}/${allItems.length}`);
 
         const result = await uploadBatch(
@@ -1936,7 +1943,8 @@ export default function PrecificacaoPage() {
       toast.success(
         `${uploaded} arquivo(s) enviados, ${indexed} indexados` +
           (repeatedKeys > 0 ? `, ${repeatedKeys} chave(s) repetida(s)` : "") +
-          (errors > 0 ? `, ${errors} erro(s)` : "")
+          (errors > 0 ? `, ${errors} erro(s)` : "") +
+          (arquivosIgnorados > 0 ? `, ${arquivosIgnorados} arquivo(s) não XML ignorado(s)` : "")
       );
     } catch (err) {
       toast.error(`Erro no upload: ${err instanceof Error ? err.message : String(err)}`);
@@ -2629,13 +2637,37 @@ export default function PrecificacaoPage() {
               <span className="text-xs text-muted-foreground font-mono animate-pulse">{syncProgress}</span>
             )}
           </div>
-          <Button variant="outline" size="sm" disabled={uploading} asChild>
-            <label className="cursor-pointer">
-              {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
-              {uploading && uploadProgress ? uploadProgress : "Upload XMLs / ZIP"}
-              <input type="file" accept=".xml,.zip" multiple className="hidden" onChange={handleUploadXmls} />
-            </label>
-          </Button>
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" disabled={uploading} asChild>
+                <label className="cursor-pointer">
+                  {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
+                  {uploading && uploadProgress ? uploadProgress : "Upload XMLs / ZIP"}
+                  <input type="file" accept=".xml,.zip" multiple className="hidden" onChange={handleUploadXmls} />
+                </label>
+              </Button>
+              {!uploading && (
+                <Button variant="outline" size="sm" asChild>
+                  <label className="cursor-pointer" title="Use esta opção para pacotes com mais de 1.000 XMLs">
+                    <Upload className="h-4 w-4 mr-1" />
+                    Upload pasta completa
+                    <input
+                      type="file"
+                      accept=".xml,.zip"
+                      multiple
+                      data-folder="true"
+                      className="hidden"
+                      onChange={handleUploadXmls}
+                      {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+                    />
+                  </label>
+                </Button>
+              )}
+            </div>
+            {!uploading && (
+              <span className="text-[10px] text-muted-foreground">Mais de 1.000 XMLs: use pasta completa ou ZIP.</span>
+            )}
+          </div>
           {isSyncing && syncProgress && (
             <span className="text-xs text-muted-foreground animate-pulse">{syncProgress}</span>
           )}
