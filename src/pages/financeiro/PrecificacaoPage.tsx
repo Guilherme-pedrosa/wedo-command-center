@@ -589,7 +589,7 @@ function FiscalCell({
         : `Origem ${origemFinal} informada no Argus`;
       const mensagem = `NCM de ${nome} confirmado no GestãoClick.` +
         (result.origensPendentes > 0
-          ? ` ${origemPendenteDescricao}, mas pendente no GC; ajuste-a manualmente no cadastro fiscal.`
+          ? ` ${origemPendenteDescricao} e enviada automaticamente ao GC; a API de leitura do GC não devolve esse campo para conferência.`
           : result.origensConfirmadas > 0
             ? " Origem também confirmada no cadastro fiscal do GC."
             : " A origem ainda não foi identificada na NF.");
@@ -857,7 +857,7 @@ export default function PrecificacaoPage() {
           ? ` ${result.origensConfirmadas} origem(ns) também confirmada(s) no cadastro fiscal.`
           : "") +
         (result.origensPendentes > 0
-          ? ` ${result.origensPendentes} origem(ns) identificada(s) pela NF permanece(m) pendente(s) no GC; ajuste manualmente no cadastro fiscal.`
+          ? ` ${result.origensPendentes} origem(ns) foi(ram) enviada(s) automaticamente ao GC; a API de leitura não devolve esse campo para conferência.`
           : "") +
         (semOrigem > 0 ? ` ${semOrigem} ficou(aram) sem origem porque a NF ainda não a trouxe.` : "") +
         (falhas.length > 0 ? ` ${falhas.length} ignorado(s) por NCM inválido.` : "");

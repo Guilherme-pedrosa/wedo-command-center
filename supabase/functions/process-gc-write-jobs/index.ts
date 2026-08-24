@@ -308,9 +308,15 @@ Deno.serve(async (req) => {
         ...produtoBase,
         valor_custo: String(novoCustoTopLevel),
         ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),
+        // Restaura o contrato que estava em produção antes da regressão:
+        // a API pública recebia a origem tanto no produto quanto no bloco
+        // fiscal. O GET público não devolve esse campo, por isso a confirmação
+        // continua separada da simples aceitação do PUT.
+        ...(origemSolicitada ? { origem: origemSolicitada } : {}),
         fiscal: {
           ...fiscalBase,
           ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),
+          ...(origemSolicitada ? { origem: origemSolicitada } : {}),
         },
         valores: valoresMerged,
       };
@@ -358,14 +364,14 @@ Deno.serve(async (req) => {
             source: "gc_public",
             gc_response: responseBody,
             ...(origemSolicitada && job.recurso === "produtos"
-              ? { origin_write_status: "unsupported_official_api" }
+              ? { origin_write_status: "sent_via_public_api_unverified" }
               : {}),
             _argus_verification: {
               source: "gc_public_get",
               ncm: productNcm(verifiedProduto),
               origem: null,
               ...(origemSolicitada && job.recurso === "produtos"
-                ? { origin_write_status: "unsupported_official_api" }
+                ? { origin_write_status: "sent_via_public_api_unverified" }
                 : {}),
               verified_at: new Date().toISOString(),
             },
@@ -434,8 +440,8 @@ Deno.serve(async (req) => {
             nome_grupo: responseProduto.nome_grupo ? String(responseProduto.nome_grupo) : null,
             grupo_id: responseProduto.grupo_id ? String(responseProduto.grupo_id) : null,
             ncm: (responseProduto.fiscal as { ncm?: unknown } | undefined)?.ncm ? String((responseProduto.fiscal as { ncm?: unknown }).ncm) : responseProduto.ncm ? String(responseProduto.ncm) : null,
-            // Origem continua como dado identificado no Argus (NF/manual), não
-            // como confirmação do GC. O response_body registra a pendência.
+            // Este cache guarda a origem escolhida no Argus (NF/manual). A
+            // prova de persistência no GC fica em _argus_verification.
             origem: normalizeOrigem(payload.origem) ?? normalizeOrigem(cacheRow?.origem),
             unidade: responseProduto.unidade ? String(responseProduto.unidade) : null,
             estoque: numericOrNull(responseProduto.estoque),

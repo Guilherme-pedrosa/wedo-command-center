@@ -12,11 +12,12 @@ const gcWorkerSource = readFileSync(
 );
 
 describe("confirmação parcial de NCM e origem no GestãoClick", () => {
-  it("não condiciona a gravação pública do NCM a token privado inexistente", () => {
+  it("restaura o envio público da origem sem depender de token inexistente", () => {
     expect(gcWorkerSource).not.toContain("GC_WEB_TOKEN");
     expect(gcWorkerSource).not.toContain("GC_FISCAL_SESSION_TOKEN");
     expect(gcWorkerSource).toContain('source: "gc_public_get"');
-    expect(gcWorkerSource).toContain('origin_write_status: "unsupported_official_api"');
+    expect(gcWorkerSource).toContain('...(origemSolicitada ? { origem: origemSolicitada } : {})');
+    expect(gcWorkerSource).toContain('origin_write_status: "sent_via_public_api_unverified"');
   });
 
   it("confirma o NCM pela API pública e mantém a origem como pendente", () => {
