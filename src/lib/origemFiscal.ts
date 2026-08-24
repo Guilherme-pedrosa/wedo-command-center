@@ -3,10 +3,10 @@ export const ORIGENS_FISCAIS_GC = [
   { codigo: "1", descricao: "Estrangeira - Importação direta, exceto a indicada no código 6" },
   { codigo: "2", descricao: "Estrangeira - Adquirida no mercado interno, exceto a indicada no código 7" },
   { codigo: "3", descricao: "Nacional, mercadoria ou bem com Conteúdo de Importação superior a 40%" },
-  { codigo: "4", descricao: "Nacional, produção em conformidade com processos básicos que tratam as legislações dos Ajustes" },
+  { codigo: "4", descricao: "Nacional, produção em conformidade com processos básicos que tratam as legisl. dos Ajustes" },
   { codigo: "5", descricao: "Nacional, mercadoria ou bem com Conteúdo de Importação inferior ou igual a 40%" },
   { codigo: "6", descricao: "Estrangeira - Importação direta, sem similar nacional, constante em lista da CAMEX" },
-  { codigo: "7", descricao: "Estrangeira - Adquirida mercado interno, sem similar nacional, constante em lista da CAMEX" },
+  { codigo: "7", descricao: "Estrangeira - Adquirida no mercado interno, sem similar nacional, constante em lista da CAMEX" },
   { codigo: "8", descricao: "Nacional, mercadoria ou bem com Conteúdo de Importação superior a 70%" },
 ] as const;
 
