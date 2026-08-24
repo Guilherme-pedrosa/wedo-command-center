@@ -560,8 +560,9 @@ async function listBucketRecursive(supabase: any, prefix = ""): Promise<string[]
   return out;
 }
 
-async function reindexBucketDelta(supabase: any) {
-  const stats = { listed: 0, missing: 0, indexed: 0, failed: 0 };
+async function reindexBucketDelta(supabase: any, requestedBatchSize = 1000) {
+  const batchLimit = Math.max(1, Math.min(1000, Math.trunc(requestedBatchSize) || 1000));
+  const stats = { listed: 0, missing: 0, attempted: 0, indexed: 0, failed: 0, remaining: 0 };
 
   // Conjunto de storage_paths já indexados
   const known = new Set<string>();
@@ -586,12 +587,19 @@ async function reindexBucketDelta(supabase: any) {
   const missing = allFiles.filter((p) => !known.has(p));
   stats.missing = missing.length;
 
-  // Cap por chamada para caber no timeout (~60s).
-  // Além dos XMLs novos, refresca parte dos já conhecidos: versões antigas do
-  // indexador gravavam valor_produtos usando o <vProd> do primeiro item.
-  const cap = 600;
-  const refreshKnown = allFiles.filter((p) => known.has(p)).slice(0, Math.min(25, Math.max(0, cap - missing.length)));
-  const toProcess = [...missing.slice(0, cap), ...refreshKnown];
+  // Cada chamada trata no máximo 1.000 XMLs. O cliente repete a chamada
+  // enquanto `remaining` for maior que zero, evitando o teto padrão de 1.000
+  // linhas do PostgREST/Storage sem estourar o tempo da Edge Function.
+  const missingBatch = missing.slice(0, batchLimit);
+  stats.attempted = missingBatch.length;
+  stats.remaining = Math.max(0, missing.length - missingBatch.length);
+
+  // Quando não há pendência, refresca uma pequena amostra de XMLs conhecidos:
+  // versões antigas do indexador gravavam valor_produtos pelo primeiro item.
+  const refreshKnown = missing.length === 0
+    ? allFiles.filter((p) => known.has(p)).slice(0, Math.min(25, batchLimit))
+    : [];
+  const toProcess = [...missingBatch, ...refreshKnown];
   const batchSize = 25;
   const upsertBuffer: Record<string, unknown>[] = [];
 
@@ -659,6 +667,8 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const offset = Number(body.offset) || 0;
     const batchSize = Math.min(Number(body.batch_size) || 50, 200);
+    const reindexBatchSize = Math.min(Number(body.reindex_batch_size) || 1000, 1000);
+    const reindexOnly = body.reindex_only === true;
     const dryRun = body.dry_run === true;
     const compraCodigosFilter: string[] = Array.isArray(body.compra_codigos)
       ? body.compra_codigos.map((c: any) => String(c))
@@ -675,9 +685,23 @@ serve(async (req) => {
     // Lista o bucket e indexa todo XML que ainda não está em fin_nfe_xml_index.
     // Garante que o "Cruzar Pedidos" sempre opere sobre o estado mais recente do bucket.
     const skipReindex = body.skip_reindex === true;
-    let reindexStats = { listed: 0, missing: 0, indexed: 0, failed: 0 };
+    let reindexStats = { listed: 0, missing: 0, attempted: 0, indexed: 0, failed: 0, remaining: 0 };
     if (!skipReindex && offset === 0) {
-      reindexStats = await reindexBucketDelta(supabase);
+      reindexStats = await reindexBucketDelta(supabase, reindexBatchSize);
+    }
+
+    if (reindexOnly) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          reindex_only: true,
+          reindex_batch_size: reindexBatchSize,
+          reindex_has_more: reindexStats.remaining > 0,
+          reindex_stats: reindexStats,
+          tempo_ms: Date.now() - inicio,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     // ── Filtro opcional: compras sem tributo NF gravado ainda ──
