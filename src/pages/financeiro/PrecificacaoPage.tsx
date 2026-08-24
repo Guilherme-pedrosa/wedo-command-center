@@ -21,6 +21,7 @@ import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import { SyncNFPorPeriodoDialog } from "@/components/financeiro/SyncNFPorPeriodoDialog";
 import { SyncNFStatusChip } from "@/components/financeiro/SyncNFStatusChip";
+import { reindexNfeXmlsEmLotes } from "@/lib/reindexNfeXmls";
 
 // ── Types ──
 interface GCProduto {
@@ -1046,7 +1047,7 @@ export default function PrecificacaoPage() {
 
 
   // Índice de XMLs realmente enviados/processados
-  const { data: xmlIndexRows } = useQuery({
+  const { data: xmlIndexRows, refetch: refetchXmlIndex } = useQuery({
     queryKey: ["nfe-xml-index-keys"],
     queryFn: async () => {
       const pageSize = 1000;
@@ -1057,6 +1058,7 @@ export default function PrecificacaoPage() {
         const { data, error } = await supabase
           .from("fin_nfe_xml_index")
           .select("chave")
+          .order("chave")
           .range(from, from + pageSize - 1);
 
         if (error) throw error;
@@ -1652,8 +1654,9 @@ export default function PrecificacaoPage() {
     });
   }, [preFiltered, marginFilter, outOfMarginByProduct, custoCanonicoMap, ultimaCompraMap, valoresMap]);
 
-  // Cap para renderização (display apenas). Exportação usa filteredAll completo.
-  const filtered = useMemo(() => filteredAll.slice(0, 1000), [filteredAll]);
+  // A tabela já renderiza somente a página corrente. Não truncar em 1.000:
+  // consultas maiores chegam do Supabase em páginas de 1.000 registros.
+  const filtered = filteredAll;
 
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -1764,14 +1767,16 @@ export default function PrecificacaoPage() {
   const uploadBatch = async (
     items: { name: string; blob: Blob }[],
     batchSize: number,
-    onProgress: (done: number, total: number) => void
+    onProgress: (done: number, total: number) => void,
+    keyOccurrences: Map<string, number>,
+    progressOffset: number,
+    progressTotal: number,
   ) => {
     let uploaded = 0;
     let repeatedKeys = 0;
     let indexed = 0;
     let errors = 0;
     const total = items.length;
-    const keyOccurrences = new Map<string, number>();
     const indexBatch: Record<string, unknown>[] = [];
 
     for (let i = 0; i < total; i += batchSize) {
@@ -1836,7 +1841,7 @@ export default function PrecificacaoPage() {
         else console.error("Index upsert error:", idxErr.message);
       }
 
-      onProgress(uploaded + errors, total);
+      onProgress(progressOffset + uploaded + errors, progressTotal);
     }
 
     // Flush remaining index records
@@ -1859,7 +1864,7 @@ export default function PrecificacaoPage() {
     try {
       // Heurística: alguns navegadores limitam seleção múltipla em ~1000 arquivos
       if (files.length === 1000) {
-        toast("Se você selecionou mais de 1000, prefira ZIP para enviar tudo de uma vez.");
+        toast("O navegador entregou exatamente 1.000 arquivos. Para enviar mais em uma única seleção, use um ZIP; também é possível selecionar os lotes seguintes depois.");
       }
 
       // Collect all XML items (from .xml files and from .zip files)
@@ -1892,11 +1897,35 @@ export default function PrecificacaoPage() {
         );
       }
 
-      setUploadProgress(`0 / ${allItems.length} processados`);
-      const BATCH_SIZE = 15;
-      const { uploaded, repeatedKeys, errors, indexed } = await uploadBatch(allItems, BATCH_SIZE, (done, total) => {
-        setUploadProgress(`${done} / ${total} processados`);
-      });
+      const FILES_PER_LOT = 1000;
+      const CONCURRENT_UPLOADS = 15;
+      const totalLotes = Math.ceil(allItems.length / FILES_PER_LOT);
+      const keyOccurrences = new Map<string, number>();
+      let uploaded = 0;
+      let repeatedKeys = 0;
+      let errors = 0;
+      let indexed = 0;
+
+      for (let start = 0; start < allItems.length; start += FILES_PER_LOT) {
+        const loteAtual = Math.floor(start / FILES_PER_LOT) + 1;
+        const lote = allItems.slice(start, start + FILES_PER_LOT);
+        setUploadProgress(`Lote ${loteAtual}/${totalLotes} • ${start}/${allItems.length}`);
+
+        const result = await uploadBatch(
+          lote,
+          CONCURRENT_UPLOADS,
+          (done, total) => setUploadProgress(`Lote ${loteAtual}/${totalLotes} • ${done}/${total}`),
+          keyOccurrences,
+          start,
+          allItems.length,
+        );
+        uploaded += result.uploaded;
+        repeatedKeys += result.repeatedKeys;
+        errors += result.errors;
+        indexed += result.indexed;
+      }
+
+      await refetchXmlIndex();
 
       toast.success(
         `${uploaded} arquivo(s) enviados, ${indexed} indexados` +
@@ -1932,6 +1961,10 @@ export default function PrecificacaoPage() {
       }
 
       markSyncStarted("sync-nfe-entrada-gc");
+      setSyncProgress("Indexando XMLs em lotes de até 1.000...");
+      await reindexNfeXmlsEmLotes((p) => {
+        setSyncProgress(`Indexação lote ${p.lote}: ${p.indexados} indexados, ${p.restantes} restantes`);
+      });
       setSyncProgress("Cruzando pedidos GC com XMLs vinculados...");
 
       let offset = 0;
@@ -1939,7 +1972,7 @@ export default function PrecificacaoPage() {
       let totalProdutos = 0;
       while (true) {
         const { data, error } = await supabase.functions.invoke("sync-nfe-entrada", {
-          body: { offset, batch_size: batchSize },
+          body: { offset, batch_size: batchSize, skip_reindex: true },
         });
         if (error) throw error;
         totalProdutos += data.upserted || data.produtos_processados || data.produtos_atualizados || 0;
@@ -1982,6 +2015,10 @@ export default function PrecificacaoPage() {
       }
       markSyncStarted("sync-nfe-entrada");
 
+      setSyncProgress("Indexando XMLs em lotes de até 1.000...");
+      await reindexNfeXmlsEmLotes((p) => {
+        setSyncProgress(`Indexação lote ${p.lote}: ${p.indexados} indexados, ${p.restantes} restantes`);
+      });
       setSyncProgress("Reprocessando Pedido GC + XML vinculado...");
       let offset = 0;
       const batchSize = 80;
@@ -1991,7 +2028,7 @@ export default function PrecificacaoPage() {
 
       while (true) {
         const { data, error } = await supabase.functions.invoke("sync-nfe-entrada", {
-          body: { offset, batch_size: batchSize },
+          body: { offset, batch_size: batchSize, skip_reindex: true },
         });
         if (error) throw error;
 

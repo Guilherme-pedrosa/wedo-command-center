@@ -3,6 +3,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import toast from "react-hot-toast";
+import { reindexNfeXmlsEmLotes } from "@/lib/reindexNfeXmls";
 
 export interface SyncNFEstado {
   running: boolean;
@@ -97,6 +98,11 @@ export function startSyncNFPeriodo(params: StartSyncParams): boolean {
       });
       if (comprasSyncErr) throw new Error(comprasSyncErr.message);
 
+      update({ progress: "Indexando XMLs em lotes de até 1.000..." });
+      await reindexNfeXmlsEmLotes((p) => {
+        update({ progress: `Indexação lote ${p.lote}: ${p.indexados} indexados, ${p.restantes} restantes` });
+      });
+
       let offset = 0;
       const batchSize = 60;
       let totalCompras = Number(comprasSync?.upserted || comprasSync?.totalFetched || 0);
@@ -113,7 +119,7 @@ export function startSyncNFPeriodo(params: StartSyncParams): boolean {
             data_inicio: diStr,
             data_fim: dfStr,
             apenas_sem_nf: params.apenasSemNf,
-            skip_reindex: offset > 0,
+            skip_reindex: true,
           },
         });
         if (error) throw new Error(error.message);
