@@ -2,6 +2,11 @@
 // Roda em loop interno respeitando rate limit (350ms entre requests ≈ 2.85 req/s, margem sobre 3 req/s do GC).
 // Marca status: pendente → processando → sucesso | erro_retentavel | erro_fatal
 import { installGcUsuarioId } from "../_shared/gc-user.ts";
+import {
+  internalProductTax,
+  mergeGcInternalFiscal,
+  unwrapGcInternalProduct,
+} from "../_shared/gc-internal-fiscal.ts";
 installGcUsuarioId();
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -73,20 +78,6 @@ function normalizeOrigem(value: unknown): string | null {
   return /^[0-8]$/.test(raw) ? raw : null;
 }
 
-function unwrapGcInternalProduct(value: unknown): Record<string, unknown> | null {
-  const root = asRecord(value);
-  const data = asRecord(root?.data);
-  const request = asRecord(data?.request);
-  return asRecord(request?.data);
-}
-
-function internalProductTax(value: Record<string, unknown> | null): Record<string, unknown> | null {
-  if (!value) return null;
-  const raw = value.ProdutosTributacao;
-  if (Array.isArray(raw)) return asRecord(raw[0]);
-  return asRecord(raw);
-}
-
 async function updateAndVerifyInternalFiscal(params: {
   produtoId: string;
   ncm: string;
@@ -114,15 +105,11 @@ async function updateAndVerifyInternalFiscal(params: {
         continue;
       }
 
-      const tributoAtual = internalProductTax(produtoInterno) ?? {};
-      const payloadInterno = {
-        ...produtoInterno,
-        ProdutosTributacao: {
-          ...tributoAtual,
-          NCM: params.ncm || String(tributoAtual.NCM ?? ""),
-          ICMS_orig: Number(params.origem),
-        },
-      };
+      const payloadInterno = mergeGcInternalFiscal(
+        produtoInterno,
+        params.ncm,
+        params.origem,
+      );
 
       const postRes = await gcFetch(url, {
         method: "POST",
