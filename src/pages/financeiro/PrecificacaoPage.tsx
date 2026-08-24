@@ -423,6 +423,9 @@ async function corrigirFiscalNoGc(inputs: FiscalCorrectionInput[]) {
       status: "pendente",
       tentativas: 0,
       ultimo_erro: null,
+      // Sem isso, um job reaproveitado mantém a resposta antiga e a verificação
+      // fiscal avalia prova de uma execução anterior.
+      response_body: null,
       iniciado_em: null,
       processado_em: null,
       finalizado_em: null,
