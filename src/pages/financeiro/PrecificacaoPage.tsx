@@ -407,7 +407,7 @@ async function corrigirFiscalNoGc(inputs: FiscalCorrectionInput[]) {
       recurso: "produtos",
       recurso_id: String(item.produtoId),
       payload,
-      payload_hash: btoa(`fiscal-v2|${item.produtoId}|${ncm}|${origem}`),
+      payload_hash: btoa(`fiscal-v3|${item.produtoId}|${ncm}|${origem}`),
       status: "pendente",
       tentativas: 0,
       ultimo_erro: null,
@@ -447,6 +447,48 @@ async function corrigirFiscalNoGc(inputs: FiscalCorrectionInput[]) {
     throw new Error(
       `${falhas.length} produto(s) não foram confirmados no GC. ` +
       (primeira.ultimo_erro || `Status: ${primeira.status}`),
+    );
+  }
+
+  // O worker só atualiza o cache depois de reler e confirmar o cadastro fiscal
+  // no endpoint interno do GC. Esta segunda conferência impede que uma versão
+  // antiga da função devolva "sucesso" mesmo quando o GC ignorou a origem.
+  const expectedByProduct = new Map(
+    inputs.map((item) => [String(item.produtoId), {
+      ncm: normNcm(item.ncm),
+      origem: normOrig(item.origem),
+    }]),
+  );
+  const cacheByProduct = new Map<string, { ncm: string; origem: string }>();
+  const productIds = [...expectedByProduct.keys()];
+
+  for (let offset = 0; offset < productIds.length; offset += 100) {
+    const loteIds = productIds.slice(offset, offset + 100);
+    const { data: cacheRows, error: cacheError } = await supabase
+      .from("gc_produtos_cache")
+      .select("produto_gc_id, ncm, origem")
+      .in("produto_gc_id", loteIds);
+    if (cacheError) throw new Error(`Não foi possível validar o cadastro fiscal: ${cacheError.message}`);
+
+    for (const row of cacheRows || []) {
+      cacheByProduct.set(String(row.produto_gc_id), {
+        ncm: normNcm(row.ncm),
+        origem: normOrig(row.origem),
+      });
+    }
+  }
+
+  const divergencias = productIds.filter((produtoId) => {
+    const expected = expectedByProduct.get(produtoId)!;
+    const cached = cacheByProduct.get(produtoId);
+    if (!cached || cached.ncm !== expected.ncm) return true;
+    return expected.origem !== "" && cached.origem !== expected.origem;
+  });
+
+  if (divergencias.length > 0) {
+    throw new Error(
+      `O GC não confirmou NCM/origem de ${divergencias.length} produto(s). ` +
+      `Nenhum sucesso foi presumido; primeiro produto divergente: ${divergencias[0]}.`,
     );
   }
 
