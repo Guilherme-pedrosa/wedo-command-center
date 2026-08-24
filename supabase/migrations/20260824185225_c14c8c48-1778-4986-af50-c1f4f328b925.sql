@@ -30,8 +30,8 @@ ALTER TABLE public.fin_gc_write_jobs
     'erro_fatal'
   ));
 
--- Correção informada pelo usuário para este produto: código 3 no cadastro
--- fiscal do GC. O valor 2 veio do fluxo regressivo NF/cache e não pode vencer.
+-- Este produto é importado pelo fornecedor e adquirido no mercado nacional:
+-- código 2. "Terceira opção" da lista não significa código 3.
 INSERT INTO public.fin_produto_tributos (
   gc_produto_id,
   nome_produto,
@@ -40,7 +40,7 @@ INSERT INTO public.fin_produto_tributos (
 ) VALUES (
   '93413152',
   'EMBALAGEM GOFRADA TRANSP. 28X40CM X 0,16MM CAIXA C/100',
-  '3',
+  '2',
   now()
 )
 ON CONFLICT (gc_produto_id) DO UPDATE
@@ -48,6 +48,6 @@ SET origem_manual = EXCLUDED.origem_manual,
     ultima_atualizacao = EXCLUDED.ultima_atualizacao;
 
 UPDATE public.gc_produtos_cache
-SET origem = '3',
+SET origem = '2',
     updated_at = now()
 WHERE produto_gc_id = '93413152';

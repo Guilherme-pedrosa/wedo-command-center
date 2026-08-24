@@ -19,12 +19,16 @@ export function normalizeOrigemFiscal(value: unknown): string {
 }
 
 /**
- * O campo `orig` da NF-e e o cadastro fiscal do GC usam a mesma tabela
- * oficial de códigos (0 a 8). O Argus não pode reclassificar esse valor
- * silenciosamente; qualquer alteração deve ser uma decisão manual.
+ * A NF de entrada descreve a origem sob a perspectiva do fornecedor.
+ * Como a WeDo não faz importação direta, um item importado diretamente pelo
+ * fornecedor passa a ser uma aquisição no mercado interno no nosso cadastro:
+ * 1 -> 2 e 6 -> 7. Os demais códigos mantêm o significado original.
  */
 export function origemNfParaCadastroGc(value: unknown): string {
-  return normalizeOrigemFiscal(value);
+  const origemNf = normalizeOrigemFiscal(value);
+  if (origemNf === "1") return "2";
+  if (origemNf === "6") return "7";
+  return origemNf;
 }
 
 /** Mantém uma correção já registrada no Argus; a NF continua visível para comparação. */
@@ -38,7 +42,7 @@ export function resolverOrigemFiscal(params: {
   legado: unknown;
 }) {
   const manual = normalizeOrigemFiscal(params.manual);
-  const nf = normalizeOrigemFiscal(params.nf);
+  const nf = origemNfParaCadastroGc(params.nf);
   const legado = normalizeOrigemFiscal(params.legado);
 
   return {

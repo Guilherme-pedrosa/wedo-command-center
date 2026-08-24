@@ -15,8 +15,10 @@ describe("origem fiscal da mercadoria", () => {
     expect(normalizeOrigemFiscal("10")).toBe("");
   });
 
-  it("preserva exatamente todos os códigos informados na NF", () => {
-    for (const origem of ["0", "1", "2", "3", "4", "5", "6", "7", "8"]) {
+  it("converte importação do fornecedor em aquisição da WeDo no mercado interno", () => {
+    expect(origemNfParaCadastroGc("1")).toBe("2");
+    expect(origemNfParaCadastroGc("6")).toBe("7");
+    for (const origem of ["0", "2", "3", "4", "5", "7", "8"]) {
       expect(origemNfParaCadastroGc(origem)).toBe(origem);
     }
   });
@@ -42,15 +44,20 @@ describe("origem fiscal da mercadoria", () => {
   });
 
   it("resolve origem manual antes da NF e mantém divergência legada visível", () => {
-    expect(resolverOrigemFiscal({ manual: "3", nf: "2", legado: "1" })).toEqual({
+    expect(resolverOrigemFiscal({ manual: "3", nf: "1", legado: "2" })).toEqual({
       origemEfetiva: "3",
       divergenciaManual: true,
       divergenciaLegada: false,
     });
-    expect(resolverOrigemFiscal({ manual: "", nf: "2", legado: "3" })).toEqual({
+    expect(resolverOrigemFiscal({ manual: "", nf: "1", legado: "3" })).toEqual({
       origemEfetiva: "2",
       divergenciaManual: false,
       divergenciaLegada: true,
+    });
+    expect(resolverOrigemFiscal({ manual: "", nf: "1", legado: "2" })).toEqual({
+      origemEfetiva: "2",
+      divergenciaManual: false,
+      divergenciaLegada: false,
     });
     expect(resolverOrigemFiscal({ manual: "", nf: "", legado: "3" })).toEqual({
       origemEfetiva: "3",

@@ -8,6 +8,8 @@ const page = read("src/pages/financeiro/PrecificacaoPage.tsx");
 const offline = read("supabase/functions/sync-nfe-entrada-offline/index.ts");
 const worker = read("supabase/functions/process-gc-write-jobs/index.ts");
 const migration = read("supabase/migrations/20260824170000_preservar_origem_fiscal_manual.sql");
+const lovableMigration = read("supabase/migrations/20260824185225_c14c8c48-1778-4986-af50-c1f4f328b925.sql");
+const correctionMigration = read("supabase/migrations/20260824190000_corrigir_origem_embalagem_gofrada.sql");
 
 describe("persistência da origem fiscal manual", () => {
   it("separa a correção manual do valor original do XML", () => {
@@ -17,9 +19,11 @@ describe("persistência da origem fiscal manual", () => {
     expect(page).toContain("origem_manual: origemFinal");
   });
 
-  it("preserva a correção 3 já informada para o produto afetado", () => {
-    expect(migration).toContain("'93413152'");
-    expect(migration).toContain("'3'");
+  it("classifica a embalagem como estrangeira adquirida no mercado interno (código 2)", () => {
+    expect(migration).toMatch(/'93413152'[\s\S]*?'2'/);
+    expect(lovableMigration).toMatch(/'93413152'[\s\S]*?'2'/);
+    expect(correctionMigration).toMatch(/'93413152'[\s\S]*?'2'/);
+    expect(correctionMigration).toContain("estrangeira, adquirida no mercado interno");
   });
 
   it("o importador ZIP grava a origem do item e não apaga overrides", () => {

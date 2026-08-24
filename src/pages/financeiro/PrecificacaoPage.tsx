@@ -24,6 +24,7 @@ import { SyncNFStatusChip } from "@/components/financeiro/SyncNFStatusChip";
 import { reindexNfeXmlsEmLotes } from "@/lib/reindexNfeXmls";
 import {
   normalizeOrigemFiscal,
+  origemNfParaCadastroGc,
   ORIGENS_FISCAIS_GC,
   resolverOrigemFiscal,
 } from "@/lib/origemFiscal";
@@ -560,6 +561,7 @@ function FiscalCell({
   const manualOrig = normOrig(origManual);
   const nfNcm = normNcm(ncmNf);
   const nfOrig = normOrig(origNf);
+  const nfOrigParaGc = origemNfParaCadastroGc(nfOrig);
   // Correção explícita > XML da última NF > cache legado. O cache nunca é
   // tratado como prova de gravação no GestãoClick.
   const origemResolvida = resolverOrigemFiscal({ manual: manualOrig, nf: nfOrig, legado: cachedOrig });
@@ -634,12 +636,12 @@ function FiscalCell({
         })
         .eq("gc_produto_id", produtoId);
       if (error) throw error;
-      setOrig(nfOrig || cachedOrig);
+      setOrig(nfOrigParaGc || cachedOrig);
       setEditing(false);
       onSaved?.();
       toast.success(
-        nfOrig
-          ? `Correção manual removida. O Argus voltou a usar a origem ${nfOrig} da NF.`
+        nfOrigParaGc
+          ? `Correção manual removida. O Argus voltou a usar a origem ${nfOrigParaGc} derivada da NF.`
           : "Correção manual removida. Este produto ainda não tem origem válida na NF.",
       );
     } catch (error) {
@@ -675,7 +677,7 @@ function FiscalCell({
             variant="ghost"
             className="h-6 px-2 text-[10px] text-blue-400 hover:text-blue-300 justify-start"
             disabled={saving}
-            onClick={() => { setNcm(nfNcm || ncm); setOrig(nfOrig || orig); }}
+            onClick={() => { setNcm(nfNcm || ncm); setOrig(nfOrigParaGc || orig); }}
           >
             Preencher com NCM e origem da NF{nfNcm ? ` (${nfNcm})` : ""}
           </Button>
@@ -715,10 +717,10 @@ function FiscalCell({
             className={`text-[10px] px-1.5 py-0.5 rounded border ${divOrig ? "border-red-500/50 text-red-400 bg-red-500/5" : origemIdentificada ? "border-amber-500/50 text-amber-400 bg-amber-500/5" : "border-border bg-secondary"}`}
             title={divOrig
               ? manualOrig
-                ? `A correção manual (${manualOrig}) diverge da última NF (${nfOrig}) e prevalece até ser removida explicitamente.`
-                : `O histórico legado do Argus (${cachedOrig}) diverge da última NF (${nfOrig}). A NF prevalece, mas a divergência exige revisão manual.`
+                ? `A correção manual (${manualOrig}) diverge da origem aplicável (${nfOrigParaGc}) e prevalece até ser removida explicitamente.`
+                : `O histórico legado do Argus (${cachedOrig}) diverge da origem aplicável (${nfOrigParaGc}). A NF prevalece, mas a divergência exige revisão manual.`
               : origemIdentificada
-                ? manualOrig ? "Correção manual preservada no Argus." : "Código lido sem conversão do XML da última NF."
+                ? manualOrig ? "Correção manual preservada no Argus." : "Origem calculada a partir do XML da última NF."
               : "Origem ainda não identificada."}
           >
             {origemIdentificada ? (ORIGEM_OPTS.find(o => o.v === origemIdentificada)?.l || origemIdentificada) : "—"}
@@ -726,9 +728,11 @@ function FiscalCell({
           {!!nfOrig && (
             <span
               className={`text-[9px] font-mono ${divOrig ? "text-red-400" : "text-muted-foreground"}`}
-              title="Código de origem informado na última NF de entrada, preservado sem conversão automática."
+              title={nfOrig !== nfOrigParaGc
+                ? `A NF do fornecedor informa ${nfOrig}; para a WeDo, adquirida no mercado interno, o cadastro usa ${nfOrigParaGc}.`
+                : "Código de origem informado na última NF de entrada."}
             >
-              NF fornecedor: {nfOrig}
+              NF fornecedor: {nfOrig}{nfOrig !== nfOrigParaGc ? ` → GC: ${nfOrigParaGc}` : ""}
             </span>
           )}
           {legacyOrigDivergente && (
@@ -766,14 +770,14 @@ function FiscalCell({
               // fiscal manual. Quando houver divergência, preserva a manual.
               enviar(
                 nfNcm || gcNcm,
-                manualOrig || nfOrig || cachedOrig,
+                manualOrig || nfOrigParaGc || cachedOrig,
                 manualOrig || legacyOrigDivergente ? "manual" : "nf",
               );
             }}
           >
             {legacyOrigDivergente
-              ? `Usar origem ${nfOrig} da NF no Argus (histórico ${cachedOrig})`
-              : manualOrig && nfOrig && manualOrig !== nfOrig
+              ? `Usar origem ${nfOrigParaGc} da NF no Argus (histórico ${cachedOrig})`
+              : manualOrig && nfOrigParaGc && manualOrig !== nfOrigParaGc
               ? `Usar NCM da NF (mantém origem ${manualOrig})`
               : "Usar NCM e origem da NF"}
           </Button>
@@ -786,7 +790,7 @@ function FiscalCell({
             disabled={saving}
             onClick={removerOrigemManual}
           >
-            {nfOrig ? `Voltar a usar origem ${nfOrig} da NF` : "Remover correção manual"}
+            {nfOrigParaGc ? `Voltar a usar origem ${nfOrigParaGc} da NF` : "Remover correção manual"}
           </Button>
         )}
       </div>
@@ -887,6 +891,7 @@ export default function PrecificacaoPage() {
       const trib = tributosMap.get(String(p.id));
       const nfNcm = normNcm(trib?.ncm);
       const nfOrig = normOrig(trib?.origem);
+      const nfOrigParaGc = origemNfParaCadastroGc(nfOrig);
 
       if (nfNcm.length !== 8) {
         semNcm++;
@@ -896,7 +901,7 @@ export default function PrecificacaoPage() {
 
       const origemManual = normOrig(trib?.origem_manual);
       const origemLegada = normOrig(p.origem);
-      if (!origemManual && origemLegada && nfOrig && origemLegada !== nfOrig) {
+      if (!origemManual && origemLegada && nfOrigParaGc && origemLegada !== nfOrigParaGc) {
         // O campo legado misturava NF e correção humana. O lote não escolhe um
         // lado e não apaga a única evidência; exige decisão explícita na linha.
         revisaoOrigem++;
@@ -904,8 +909,9 @@ export default function PrecificacaoPage() {
       }
 
       // A sincronização em lote jamais pode desfazer uma correção explícita.
-      // Sem override, usa exatamente o código 0..8 da NF, sem reclassificar.
-      const origemFinal = origemManual || nfOrig;
+      // Sem override, converte apenas importação direta do fornecedor em
+      // aquisição da WeDo no mercado interno (1 -> 2 e 6 -> 7).
+      const origemFinal = origemManual || nfOrigParaGc;
       if (!origemFinal) semOrigem++;
 
       jobs.push({
