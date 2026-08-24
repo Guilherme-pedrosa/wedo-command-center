@@ -133,6 +133,21 @@ serve(async (req) => {
 
       if (items.length === 0) break;
 
+      // A API de produtos do GC não expõe a origem do ICMS no retorno.
+      // Portanto, um sync de catálogo não pode apagar a origem já extraída
+      // da NF e adotada no Argus.
+      const idsPagina = items.map((p: any) => String(p.id));
+      const { data: origensExistentes } = await supabase
+        .from("gc_produtos_cache")
+        .select("produto_gc_id, origem")
+        .in("produto_gc_id", idsPagina);
+      const origemPorProduto = new Map<string, string>();
+      for (const row of origensExistentes || []) {
+        if (/^[0-8]$/.test(String(row.origem ?? ""))) {
+          origemPorProduto.set(String(row.produto_gc_id), String(row.origem));
+        }
+      }
+
       const rows = items.map((p: any) => ({
         produto_gc_id: String(p.id),
         nome: p.nome ?? "(sem nome)",
@@ -141,7 +156,7 @@ serve(async (req) => {
         nome_grupo: p.nome_grupo ?? null,
         grupo_id: p.grupo_id ? String(p.grupo_id) : null,
         ncm: p.fiscal?.ncm ?? p.ncm ?? null,
-        origem: p.fiscal?.origem ?? p.origem ?? null,
+        origem: p.fiscal?.origem ?? p.origem ?? origemPorProduto.get(String(p.id)) ?? null,
         unidade: p.unidade ?? null,
         estoque: numericOrNull(p.estoque),
         valor_custo: numericOrNull(p.valor_custo),

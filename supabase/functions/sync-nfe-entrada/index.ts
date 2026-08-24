@@ -164,8 +164,8 @@ function getAllBlocks(xml: string, tag: string): string[] {
 function normalizeOrigemXml(value: unknown): string {
   const raw = String(value ?? "").trim();
   if (!raw || raw.toLowerCase() === "null") return "";
-  const match = raw.match(/[0-8]/);
-  return match?.[0] ?? "";
+  const match = raw.match(/(?:^|\D)([0-8])(?:\D|$)/);
+  return match?.[1] ?? "";
 }
 
 interface XmlItemTax {
@@ -254,8 +254,8 @@ function parseXmlItems(xml: string): XmlItemTax[] {
     // ICMS: o nó interno é dinâmico (ICMS00, ICMS40, ICMSSN101, ICMSPart, ...).
     // Busca dinâmica de <orig> em QUALQUER filho, sem fixar CST. Se não existir, fica vazio (=> null no banco).
     const icmsBlock = getBlock(imposto, "ICMS");
-    const icmsInner = icmsBlock.replace(/<\/?(?:[a-zA-Z0-9]+:)?ICMS>/gi, "").trim();
-    const icms_orig = getTag(icmsInner, "orig") || getTag(imposto, "orig");
+    const icmsInner = icmsBlock.trim();
+    const icms_orig = getTag(icmsBlock, "orig") || getTag(imposto, "orig");
     const icms_cst = getTag(icmsInner, "CST") || getTag(icmsInner, "CSOSN");
 
     const icms_pRedBC = parseFloat(getTag(icmsInner, "pRedBC")) || 0;
@@ -1119,6 +1119,7 @@ serve(async (req) => {
         xmls_lidos: xmlsLidos,
         xmls_falha_bucket: xmlsFalha,
         produtos_atualizados: productTaxMap.size,
+        origens_extraidas: [...productTaxMap.values()].filter((r) => /^[0-8]$/.test(r.origem)).length,
         upserted,
         skipped_older: skippedOlder,
         pendentes_registrados: pendentesNovos.length,
@@ -1243,6 +1244,7 @@ function processarXml(
       gc_produto_id: gcProdId,
       nome_produto: item.nome_produto || "",
       ncm: "",
+      origem: "",
       cfop: "",
       nf_gc_id: meta.chave || xmlMeta.chave,
       nf_numero: meta.numero_nf || xmlMeta.numero_nf || "",

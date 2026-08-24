@@ -382,13 +382,69 @@ const ORIGEM_OPTS = [
 const normNcm = (v: unknown) => String(v ?? "").replace(/\D/g, "").slice(0, 8);
 const normOrig = (v: unknown) => {
   const s = String(v ?? "").trim();
-  // Se for "null" ou vazio, retorna string vazia
-  if (s === "null" || s === "") return "";
-  
-  // Se for uma string longa que começa com o código (ex: "0 - Nacional"), pega o primeiro caractere
-  const firstDigit = s.replace(/[^0-8]/g, "").charAt(0);
-  return firstDigit || "";
+  if (!s || s.toLowerCase() === "null") return "";
+  const match = s.match(/^([0-8])(?:\D|$)/);
+  return match?.[1] ?? "";
 };
+
+type FiscalCorrectionInput = { produtoId: string; ncm: string; origem?: string };
+
+async function corrigirFiscalNoGc(inputs: FiscalCorrectionInput[]) {
+  if (inputs.length === 0) return { sucessos: 0 };
+
+  const jobs = inputs.map((item) => {
+    const ncm = normNcm(item.ncm);
+    const origem = normOrig(item.origem);
+    const payload = { ncm, ...(origem ? { origem } : {}) };
+    return {
+      recurso: "produtos",
+      recurso_id: String(item.produtoId),
+      payload,
+      payload_hash: btoa(`fiscal-v2|${item.produtoId}|${ncm}|${origem}`),
+      status: "pendente",
+      tentativas: 0,
+      ultimo_erro: null,
+      iniciado_em: null,
+      processado_em: null,
+      finalizado_em: null,
+    };
+  });
+
+  const { data: queued, error: queueError } = await supabase
+    .from("fin_gc_write_jobs")
+    .upsert(jobs, { onConflict: "recurso,recurso_id,payload_hash" })
+    .select("id, recurso_id");
+  if (queueError) throw new Error(`Não foi possível preparar a correção: ${queueError.message}`);
+
+  const jobIds = (queued || []).map((job) => String(job.id));
+  if (jobIds.length !== jobs.length) throw new Error("A fila fiscal não devolveu todos os itens solicitados.");
+
+  for (let offset = 0; offset < jobIds.length; offset += 50) {
+    const loteIds = jobIds.slice(offset, offset + 50);
+    const { error: workerError } = await supabase.functions.invoke("process-gc-write-jobs", {
+      body: { job_ids: loteIds },
+    });
+    if (workerError) throw new Error(`Falha ao executar a correção no GC: ${workerError.message}`);
+  }
+
+  // A fonte da verdade é o estado persistido do job, não apenas o HTTP da função.
+  const { data: states, error: stateError } = await supabase
+    .from("fin_gc_write_jobs")
+    .select("recurso_id, status, ultimo_erro")
+    .in("id", jobIds);
+  if (stateError) throw new Error(`Não foi possível conferir a correção: ${stateError.message}`);
+
+  const falhas = (states || []).filter((job) => job.status !== "sucesso");
+  if (falhas.length > 0) {
+    const primeira = falhas[0];
+    throw new Error(
+      `${falhas.length} produto(s) não foram confirmados no GC. ` +
+      (primeira.ultimo_erro || `Status: ${primeira.status}`),
+    );
+  }
+
+  return { sucessos: states?.length ?? 0 };
+}
 
 function FiscalCell({
   produtoId,
@@ -397,6 +453,7 @@ function FiscalCell({
   origGc,
   ncmNf,
   origNf,
+  onSaved,
 }: {
   produtoId: string;
   nome: string;
@@ -404,6 +461,7 @@ function FiscalCell({
   origGc: string;
   ncmNf: string;
   origNf: string;
+  onSaved?: () => void;
 }) {
   const gcNcm = normNcm(ncmGc);
   const gcOrig = normOrig(origGc);
@@ -427,30 +485,24 @@ function FiscalCell({
       return;
     }
     const origemFinal = normOrig(novaOrigem) || gcOrig || nfOrig;
-    if (!origemFinal) {
-      toast.error("Selecione a Origem (código de 0 a 8).");
-      return;
-    }
     setSaving(true);
-    const payload = { ncm: ncmLimpo, origem: origemFinal };
-    console.log("[FiscalCell] Enviando job para GC:", { produtoId, payload });
-    
-    const { error } = await supabase.from("fin_gc_write_jobs").upsert({
-      recurso: "produtos",
-      recurso_id: String(produtoId),
-      payload,
-      payload_hash: btoa(`${produtoId}|${payload.ncm}|${payload.origem}`),
-      status: "pendente",
-    }, { onConflict: "recurso,recurso_id,payload_hash" });
-    setSaving(false);
-    if (error) {
-      toast.error("Erro ao agendar correção: " + error.message);
-      return;
+    try {
+      await corrigirFiscalNoGc([{ produtoId, ncm: ncmLimpo, origem: origemFinal || undefined }]);
+      toast.success(
+        `NCM de ${nome} confirmado no GestãoClick.` +
+        (origemFinal
+          ? " Origem também confirmada no cadastro fiscal do GC."
+          : " A origem ainda não foi identificada na NF."),
+      );
+      setNcm(ncmLimpo);
+      setOrig(origemFinal);
+      setEditing(false);
+      onSaved?.();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
     }
-    toast.success(`NCM/Origem de ${nome} agendado para o GestãoClick`);
-    setNcm(ncmLimpo);
-    setOrig(payload.origem);
-    setEditing(false);
   };
 
   if (editing) {
@@ -513,11 +565,11 @@ function FiscalCell({
         </div>
       </div>
       <div className="flex flex-col gap-0.5">
-        <span className="text-[10px] text-muted-foreground uppercase font-semibold">Origem</span>
+        <span className="text-[10px] text-muted-foreground uppercase font-semibold">Origem GC</span>
         <div className="flex items-center gap-1.5">
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded border ${divOrig ? "border-amber-500/50 text-amber-400 bg-amber-500/5" : "border-border bg-secondary"}`}
-            title={divOrig ? `Divergência: GC=${gcOrig || "—"} vs NF=${nfOrig}` : `Origem no cadastro: ${gcOrig || "não informada"}`}
+            title={divOrig ? `Divergência: GC=${gcOrig || "—"} vs NF=${nfOrig}` : `Origem confirmada no GC: ${gcOrig || "não informada"}`}
           >
             {gcOrig ? (ORIGEM_OPTS.find(o => o.v === gcOrig)?.l || gcOrig) : "—"}
           </span>
@@ -545,13 +597,6 @@ function FiscalCell({
               if (!nfNcm && !nfOrig) return;
               if (!normNcm(nfNcm || gcNcm)) {
                 toast.error("A NF não trouxe NCM válido — use 'Corrigir manual'.");
-                return;
-              }
-              if (!normOrig(nfOrig || gcOrig)) {
-                setNcm(nfNcm || gcNcm);
-                setOrig("");
-                setEditing(true);
-                toast("A NF não trouxe Origem — selecione a origem e salve.");
                 return;
               }
               enviar(nfNcm || gcNcm, nfOrig || gcOrig);
@@ -647,7 +692,7 @@ export default function PrecificacaoPage() {
       return;
     }
     const selecionados = produtos?.filter(p => selectedProductIds.has(String(p.id))) || [];
-    const jobs = [];
+    const jobs: FiscalCorrectionInput[] = [];
     const falhas = [];
 
     let semNcm = 0;
@@ -667,17 +712,12 @@ export default function PrecificacaoPage() {
       const gcOrig = normOrig(p.origem);
 
       const origemFinal = nfOrig || gcOrig;
-      if (!origemFinal) {
-        semOrigem++;
-        continue;
-      }
+      if (!origemFinal) semOrigem++;
 
       jobs.push({
-        recurso: "produtos",
-        recurso_id: String(p.id),
-        payload: { ncm: nfNcm, origem: origemFinal },
-        payload_hash: btoa(`${p.id}|${nfNcm}|${origemFinal}`),
-        status: "pendente",
+        produtoId: String(p.id),
+        ncm: nfNcm,
+        origem: origemFinal || undefined,
       });
     }
 
@@ -693,21 +733,19 @@ export default function PrecificacaoPage() {
 
     setSavingBatchFiscal(true);
     try {
-      const { error } = await supabase.from("fin_gc_write_jobs").upsert(jobs, {
-        onConflict: "recurso,recurso_id,payload_hash"
-      });
-      if (error) throw error;
+      const result = await corrigirFiscalNoGc(jobs);
       toast.success(
-        `${jobs.length} correção(ões) agendada(s).` +
-          (semOrigem > 0 ? ` ${semOrigem} ignorado(s) porque a origem não foi identificada.` : "") +
+        `${result.sucessos} cadastro(s) fiscal(is) confirmado(s) no GestãoClick (NCM e origem quando informada).` +
+          (semOrigem > 0 ? ` ${semOrigem} ficou(aram) sem origem porque a NF ainda não a trouxe.` : "") +
           (falhas.length > 0 ? ` ${falhas.length} ignorado(s) por NCM inválido.` : ""),
       );
       if (falhas.length > 0) {
         console.warn("Produtos ignorados no lote fiscal:", falhas);
       }
       setSelectedProductIds(new Set());
+      await Promise.all([refetchProdutos(), refetchTributos()]);
     } catch (err: any) {
-      toast.error("Erro ao agendar lote: " + err.message);
+      toast.error("Erro ao corrigir lote: " + err.message);
     } finally {
       setSavingBatchFiscal(false);
     }
@@ -821,7 +859,7 @@ export default function PrecificacaoPage() {
       while (true) {
         const { data, error } = await supabase
           .from("gc_produtos_cache")
-          .select("produto_gc_id, nome, codigo_interno, codigo_barra, estoque, valor_custo, valor_venda_padrao, nome_grupo, ncm, unidade")
+          .select("produto_gc_id, nome, codigo_interno, codigo_barra, estoque, valor_custo, valor_venda_padrao, nome_grupo, ncm, origem, unidade")
           .eq("ativo", true)
           .order("nome")
           .range(from, from + pageSize - 1);
@@ -838,6 +876,7 @@ export default function PrecificacaoPage() {
           valor_venda: String(p.valor_venda_padrao ?? 0),
           nome_grupo: p.nome_grupo || undefined,
           ncm: p.ncm || undefined,
+          origem: p.origem || undefined,
           unidade: p.unidade || undefined,
         })) as GCProduto[];
         allRows.push(...batch);
@@ -3289,13 +3328,17 @@ export default function PrecificacaoPage() {
                       </TableCell>
                       <TableCell>
                         <FiscalCell
-                          key={`fiscal-${p.id}-${custoCan?.ncm || p.ncm || ""}-${custoCan?.origem || p.origem || ""}`}
+                          key={`fiscal-${p.id}-${p.ncm || ""}-${p.origem || ""}-${tributo?.ncm || ""}-${tributo?.origem || ""}`}
                           produtoId={String(p.id)}
                           nome={p.nome}
-                          ncmGc={String(custoCan?.ncm || p.ncm || "")}
-                          origGc={String(custoCan?.origem || p.origem || "")}
+                          ncmGc={String(p.ncm || "")}
+                          origGc={String(p.origem || "")}
                           ncmNf={String(tributo?.ncm || "")}
                           origNf={String(tributo?.origem || "")}
+                          onSaved={() => {
+                            void refetchProdutos();
+                            void refetchTributos();
+                          }}
                         />
                       </TableCell>
 

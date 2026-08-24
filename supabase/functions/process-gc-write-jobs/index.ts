@@ -14,6 +14,7 @@ const corsHeaders = {
 const RATE_LIMIT_MS = 350;
 const BATCH_SIZE = 50;
 const MAX_RETRIES = 3;
+let lastGcCallAt = 0;
 
 interface WriteJob {
   id: string;
@@ -26,16 +27,142 @@ interface WriteJob {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+async function gcFetch(url: string, init: RequestInit): Promise<Response> {
+  const elapsed = Date.now() - lastGcCallAt;
+  if (elapsed < RATE_LIMIT_MS) await sleep(RATE_LIMIT_MS - elapsed);
+  lastGcCallAt = Date.now();
+  return fetch(url, init);
+}
+
 function numericOrNull(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+// A API do GC usa envelopes diferentes entre endpoints/versões
+// ({data: produto}, {data: {Produto: produto}}, {Produto: produto}).
+function unwrapGcProduct(value: unknown): Record<string, unknown> | null {
+  let current = asRecord(value);
+  for (let i = 0; i < 4 && current; i++) {
+    const next = asRecord(current.data) ?? asRecord(current.Produto) ?? asRecord(current.produto);
+    if (!next) break;
+    current = next;
+  }
+  return current;
+}
+
+function normalizeNcm(value: unknown): string {
+  return String(value ?? "").replace(/\D/g, "").slice(0, 8);
+}
+
+function productNcm(product: Record<string, unknown> | null): string {
+  if (!product) return "";
+  const fiscal = asRecord(product.fiscal);
+  return normalizeNcm(fiscal?.ncm ?? product.ncm);
+}
+
+function normalizeOrigem(value: unknown): string | null {
+  const raw = String(value ?? "").trim();
+  return /^[0-8]$/.test(raw) ? raw : null;
+}
+
+function unwrapGcInternalProduct(value: unknown): Record<string, unknown> | null {
+  const root = asRecord(value);
+  const data = asRecord(root?.data);
+  const request = asRecord(data?.request);
+  return asRecord(request?.data);
+}
+
+function internalProductTax(value: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!value) return null;
+  const raw = value.ProdutosTributacao;
+  if (Array.isArray(raw)) return asRecord(raw[0]);
+  return asRecord(raw);
+}
+
+async function updateAndVerifyInternalFiscal(params: {
+  produtoId: string;
+  ncm: string;
+  origem: string;
+  tokens: string[];
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const url = `https://app.api.click.app/produtos/editar/${encodeURIComponent(params.produtoId)}?tab=fiscal`;
+  const candidates = [...new Set(params.tokens.map((token) => token.trim()).filter(Boolean))];
+  let authError = "nenhuma credencial interna disponível";
+
+  for (const token of candidates) {
+    const headers = {
+      "Accept": "application/json, text/plain, */*",
+      "Content-Type": "multipart/form-data",
+      "host-origin": "gestaoclick.com",
+      "x-token-auth": token,
+    };
+
+    try {
+      const getRes = await gcFetch(url, { method: "GET", headers });
+      const getBody = await getRes.json().catch(() => null);
+      const produtoInterno = getRes.ok ? unwrapGcInternalProduct(getBody) : null;
+      if (!produtoInterno) {
+        authError = `autenticação interna recusada (HTTP ${getRes.status})`;
+        continue;
+      }
+
+      const tributoAtual = internalProductTax(produtoInterno) ?? {};
+      const payloadInterno = {
+        ...produtoInterno,
+        ProdutosTributacao: {
+          ...tributoAtual,
+          NCM: params.ncm || String(tributoAtual.NCM ?? ""),
+          ICMS_orig: Number(params.origem),
+        },
+      };
+
+      const postRes = await gcFetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ data: payloadInterno }),
+      });
+      const postBody = await postRes.json().catch(() => null);
+      const postJson = asRecord(postBody);
+      if (!postRes.ok || postJson?.status !== "success") {
+        const message = String(postJson?.message ?? `HTTP ${postRes.status}`);
+        return { ok: false, error: `GC interno recusou a origem: ${message}` };
+      }
+
+      const verifyRes = await gcFetch(url, { method: "GET", headers });
+      const verifyBody = await verifyRes.json().catch(() => null);
+      const verifyProduto = verifyRes.ok ? unwrapGcInternalProduct(verifyBody) : null;
+      const origemPersistida = normalizeOrigem(internalProductTax(verifyProduto)?.ICMS_orig);
+      if (origemPersistida !== params.origem) {
+        return {
+          ok: false,
+          error: `GC respondeu sucesso, mas não gravou a origem ${params.origem}. Retorno atual: ${origemPersistida ?? "vazio"}`,
+        };
+      }
+
+      return { ok: true };
+    } catch (error) {
+      authError = (error as Error).message;
+    }
+  }
+
+  return {
+    ok: false,
+    error: `A API pública do GC não grava origem e a API fiscal interna não autenticou (${authError}). Configure o secret GC_WEB_TOKEN.`,
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const body = await req.json().catch(() => ({})) as { job_id?: string };
+  const body = await req.json().catch(() => ({})) as { job_id?: string; job_ids?: string[] };
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -45,6 +172,7 @@ Deno.serve(async (req) => {
   const GC_BASE_URL = Deno.env.get("GC_BASE_URL") ?? "https://api.gestaoclick.com";
   const GC_ACCESS_TOKEN = Deno.env.get("GC_ACCESS_TOKEN");
   const GC_SECRET_TOKEN = Deno.env.get("GC_SECRET_TOKEN");
+  const GC_WEB_TOKEN = Deno.env.get("GC_WEB_TOKEN");
 
   if (!GC_ACCESS_TOKEN || !GC_SECRET_TOKEN) {
     return new Response(
@@ -62,6 +190,9 @@ Deno.serve(async (req) => {
 
   if (body.job_id) {
     jobsQuery = jobsQuery.eq("id", body.job_id).limit(1);
+  } else if (Array.isArray(body.job_ids) && body.job_ids.length > 0) {
+    const jobIds = [...new Set(body.job_ids.map(String))].slice(0, BATCH_SIZE);
+    jobsQuery = jobsQuery.in("id", jobIds).limit(BATCH_SIZE);
   } else {
     jobsQuery = jobsQuery
     .order("created_at", { ascending: true })
@@ -129,11 +260,12 @@ Deno.serve(async (req) => {
     let errorMsg = "";
     let responseBody: unknown = null;
     let httpStatus = 0;
+    let verifiedProduto: Record<string, unknown> | null = null;
 
     try {
       // ===== GET-before-PUT =====
       // 1. GET produto completo do GC (PUT parcial é rejeitado com HTTP 500)
-      const getRes = await fetch(url, {
+      const getRes = await gcFetch(url, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -165,9 +297,9 @@ Deno.serve(async (req) => {
       }
 
       const getJson = await getRes.json();
-      const produtoBase = (getJson?.data ?? getJson) as Record<string, unknown>;
+      const produtoBase = unwrapGcProduct(getJson);
 
-      if (!Array.isArray((produtoBase as { valores?: unknown }).valores)) {
+      if (!produtoBase || !Array.isArray(produtoBase.valores)) {
         const errMsg = "GET retornou produto sem campo 'valores' (array). Anormal.";
         await supabase.from("fin_gc_write_jobs").update({
           status: "erro_fatal",
@@ -181,7 +313,12 @@ Deno.serve(async (req) => {
       }
 
       // 2. Mesclar payload do job (mínimo) com produto completo do GC
-      const payload = job.payload as { valor_custo?: string | number; valores?: Array<Record<string, unknown>> };
+      const payload = job.payload as {
+        valor_custo?: string | number;
+        valores?: Array<Record<string, unknown>>;
+        ncm?: string;
+        origem?: string;
+      };
       const valoresPayload = payload.valores ?? [];
       const tiposAlterados = new Set<string>();
       const valoresMerged = (produtoBase.valores as Array<Record<string, unknown>>).map((vBase) => {
@@ -207,17 +344,17 @@ Deno.serve(async (req) => {
 
       // 3. Custo top-level: do payload, fallback pro atual do GC
       const novoCustoTopLevel = payload.valor_custo ?? produtoBase.valor_custo;
+      const ncmSolicitado = normalizeNcm(payload.ncm);
+      const origemSolicitada = normalizeOrigem(payload.origem);
+      const fiscalBase = asRecord(produtoBase.fiscal) ?? {};
 
       // 4. Montar PUT completo
       const putBody = {
         ...produtoBase,
         valor_custo: String(novoCustoTopLevel),
-        ncm: payload.ncm ?? produtoBase.ncm,
-        origem: payload.origem ?? produtoBase.origem,
         fiscal: {
-          ...(produtoBase.fiscal as Record<string, unknown> || {}),
-          ncm: payload.ncm ?? (produtoBase.fiscal as Record<string, unknown> || {}).ncm ?? produtoBase.ncm,
-          origem: payload.origem ?? (produtoBase.fiscal as Record<string, unknown> || {}).origem ?? produtoBase.origem,
+          ...fiscalBase,
+          ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),
         },
         valores: valoresMerged,
       };
@@ -226,7 +363,7 @@ Deno.serve(async (req) => {
       await sleep(150);
 
       // 6. PUT
-      const response = await fetch(url, {
+      const response = await gcFetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",
@@ -240,7 +377,39 @@ Deno.serve(async (req) => {
       responseBody = await response.json().catch(() => null);
 
       if (response.ok) {
-        success = true;
+        // HTTP 200 não basta: o GC ignora silenciosamente campos que não aceita.
+        // Relê o produto e só confirma a operação se o NCM realmente persistiu.
+        await sleep(150);
+        const verifyRes = await gcFetch(url, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "access-token": GC_ACCESS_TOKEN,
+            "secret-access-token": GC_SECRET_TOKEN,
+            "usuario-id": "1320473",
+          },
+        });
+        const verifyBody = await verifyRes.json().catch(() => null);
+        verifiedProduto = verifyRes.ok ? unwrapGcProduct(verifyBody) : null;
+
+        if (!verifyRes.ok) {
+          errorMsg = `PUT aceito, mas a conferência falhou HTTP ${verifyRes.status}: ${JSON.stringify(verifyBody)}`;
+        } else if (ncmSolicitado && productNcm(verifiedProduto) !== ncmSolicitado) {
+          errorMsg = `GC respondeu sucesso, mas não gravou o NCM ${ncmSolicitado}. Retorno atual: ${productNcm(verifiedProduto) || "vazio"}`;
+        } else {
+          if (origemSolicitada && job.recurso === "produtos") {
+            const fiscalInterno = await updateAndVerifyInternalFiscal({
+              produtoId: job.recurso_id,
+              ncm: ncmSolicitado || productNcm(verifiedProduto),
+              origem: origemSolicitada,
+              tokens: [GC_WEB_TOKEN ?? "", GC_ACCESS_TOKEN, GC_SECRET_TOKEN],
+            });
+            if (!fiscalInterno.ok) errorMsg = fiscalInterno.error;
+            else success = true;
+          } else {
+            success = true;
+          }
+        }
       } else if (response.status === 429 || response.status >= 500) {
         errorMsg = `HTTP ${response.status}: ${JSON.stringify(responseBody)}`;
       } else {
@@ -260,14 +429,19 @@ Deno.serve(async (req) => {
     }
 
     if (success) {
-      const payload = job.payload as { valor_custo?: string | number; valores?: Array<Record<string, unknown>> };
+      const payload = job.payload as {
+        valor_custo?: string | number;
+        valores?: Array<Record<string, unknown>>;
+        ncm?: string;
+        origem?: string;
+      };
       const valoresPayload = payload.valores ?? [];
 
       if (job.recurso === "produtos") {
-        const responseProduto = (responseBody as { data?: Record<string, unknown> } | null)?.data;
+        const responseProduto = verifiedProduto ?? unwrapGcProduct(responseBody);
         const { data: cacheRow } = await supabase
           .from("gc_produtos_cache")
-          .select("valores")
+          .select("valores, origem")
           .eq("produto_gc_id", job.recurso_id)
           .maybeSingle();
 
@@ -298,7 +472,11 @@ Deno.serve(async (req) => {
             nome_grupo: responseProduto.nome_grupo ? String(responseProduto.nome_grupo) : null,
             grupo_id: responseProduto.grupo_id ? String(responseProduto.grupo_id) : null,
             ncm: (responseProduto.fiscal as { ncm?: unknown } | undefined)?.ncm ? String((responseProduto.fiscal as { ncm?: unknown }).ncm) : responseProduto.ncm ? String(responseProduto.ncm) : null,
-            origem: (responseProduto.fiscal as { origem?: unknown } | undefined)?.origem !== undefined ? String((responseProduto.fiscal as { origem?: unknown }).origem) : responseProduto.origem !== undefined ? String(responseProduto.origem) : null,
+            // O endpoint público de produto não devolve origem do ICMS. Preserva
+            // no cache o valor que acabou de ser conferido pelo endpoint interno.
+            origem: normalizeOrigem((asRecord(responseProduto.fiscal))?.origem ?? responseProduto.origem)
+              ?? normalizeOrigem(payload.origem)
+              ?? normalizeOrigem(cacheRow?.origem),
             unidade: responseProduto.unidade ? String(responseProduto.unidade) : null,
             estoque: numericOrNull(responseProduto.estoque),
             valor_custo: numericOrNull(responseProduto.valor_custo),
@@ -316,7 +494,12 @@ Deno.serve(async (req) => {
         } else {
           await supabase
             .from("gc_produtos_cache")
-            .update({ valores: valoresAtualizados, updated_at: new Date().toISOString() })
+            .update({
+              valores: valoresAtualizados,
+              ...(normalizeNcm(payload.ncm) ? { ncm: normalizeNcm(payload.ncm) } : {}),
+              ...(normalizeOrigem(payload.origem) ? { origem: normalizeOrigem(payload.origem) } : {}),
+              updated_at: new Date().toISOString(),
+            })
             .eq("produto_gc_id", job.recurso_id);
         }
       }
