@@ -1254,7 +1254,9 @@ function processarXml(
       compra_codigo: compra.codigo,
       fornecedor_nome: xmlMeta.nome_emitente || compra.nome_fornecedor || "",
       regime_fornecedor: isSN ? "simples_nacional" : "normal",
-      sem_credito: isSN,
+      // Simples Nacional bloqueia o crédito de ICMS nesta operação, mas não
+      // elimina por si só os créditos não cumulativos de PIS/COFINS.
+      sem_credito: false,
       icms_aliquota: 0, icms_base: 0, pis_aliquota: 0, cofins_aliquota: 0, ipi_aliquota: 0,
       frete_percentual: 0, valor_unitario_nf: 0,
       valor_icms_unit: 0, valor_pis_unit: 0, valor_cofins_unit: 0, valor_ipi_unit: 0, valor_frete_unit: 0,
@@ -1538,8 +1540,8 @@ function processarXml(
     const freteUnit = qtd > 0 ? (xmlFrete * proporcao) / qtd : 0;
     const ipiUnit = qtd > 0 ? xi.ipi_vIPI / qtd : 0;
     const icmsUnit = isSN ? 0 : qtd > 0 ? xi.icms_vICMS / qtd : 0;
-    const pisAliqCredito = isSN ? 0 : PIS_CREDITO_LUCRO_REAL;
-    const cofinsAliqCredito = isSN ? 0 : COFINS_CREDITO_LUCRO_REAL;
+    const pisAliqCredito = PIS_CREDITO_LUCRO_REAL;
+    const cofinsAliqCredito = COFINS_CREDITO_LUCRO_REAL;
     const pisUnit = valorUnit * (pisAliqCredito / 100);
     const cofinsUnit = valorUnit * (cofinsAliqCredito / 100);
 
@@ -1570,7 +1572,9 @@ function processarXml(
       compra_codigo: compra.codigo,
       fornecedor_nome: xmlMeta.nome_emitente || compra.nome_fornecedor || "",
       regime_fornecedor: isSN ? "simples_nacional" : "normal",
-      sem_credito: isSN,
+      // `sem_credito` fica reservado para uma vedação integral e explícita.
+      // O regime do Simples, isoladamente, zera somente o ICMS neste fluxo.
+      sem_credito: false,
       icms_aliquota: isSN ? 0 : r(icmsAliqReal),
       icms_base: isSN ? 0 : r(icmsBasePerc),
       pis_aliquota: r(pisAliqCredito),

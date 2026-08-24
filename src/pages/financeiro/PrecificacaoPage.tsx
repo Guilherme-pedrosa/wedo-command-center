@@ -219,15 +219,24 @@ function calcPricing(
   };
 }
 
-// Get effective aliquota (manual override > NF sync value; sem_credito zeroes all)
+// Regras separadas: Simples Nacional zera ICMS neste fluxo, mas mantém os
+// créditos não cumulativos de PIS/COFINS. `sem_credito` só bloqueia tudo quando
+// for uma vedação integral explícita fora do enquadramento automático do SN.
 function getEffectiveRates(t: ProdutoTributo) {
-  const semCredito = t.sem_credito || t.regime_fornecedor === "simples_nacional";
+  const simplesNacional = t.regime_fornecedor === "simples_nacional";
+  const semCreditoGeral = Boolean(t.sem_credito) && !simplesNacional;
+  const semCreditoIcms = simplesNacional || semCreditoGeral;
+  const semCreditoPisCofins = semCreditoGeral;
   return {
-    icms: semCredito ? 0 : (t.icms_aliquota_manual ?? t.icms_aliquota),
-    pis: semCredito ? 0 : (t.pis_aliquota_manual ?? PIS_CREDITO_PRODUTO),
-    cofins: semCredito ? 0 : (t.cofins_aliquota_manual ?? COFINS_CREDITO_PRODUTO),
+    icms: semCreditoIcms ? 0 : (t.icms_aliquota_manual ?? t.icms_aliquota),
+    pis: semCreditoPisCofins ? 0 : (t.pis_aliquota_manual ?? (simplesNacional ? PIS_CREDITO_PRODUTO : t.pis_aliquota) ?? PIS_CREDITO_PRODUTO),
+    cofins: semCreditoPisCofins ? 0 : (t.cofins_aliquota_manual ?? (simplesNacional ? COFINS_CREDITO_PRODUTO : t.cofins_aliquota) ?? COFINS_CREDITO_PRODUTO),
     ipi: t.ipi_aliquota_manual ?? t.ipi_aliquota,
-    semCredito,
+    simplesNacional,
+    semCredito: simplesNacional || semCreditoGeral,
+    semCreditoGeral,
+    semCreditoIcms,
+    semCreditoPisCofins,
   };
 }
 
@@ -794,7 +803,7 @@ export default function PrecificacaoPage() {
     }
     setSavingManualTributo(true);
     try {
-      const semCredito = manualTributoForm.regime === "simples_nacional";
+      const simplesNacional = manualTributoForm.regime === "simples_nacional";
       const icms = parseDecimalInput(manualTributoForm.icms_aliquota);
       const pis = parseDecimalInput(manualTributoForm.pis_aliquota);
       const cofins = parseDecimalInput(manualTributoForm.cofins_aliquota);
@@ -814,15 +823,15 @@ export default function PrecificacaoPage() {
         cofins_aliquota_manual: cofins,
         ipi_aliquota_manual: ipi,
         frete_percentual: frete,
-        valor_icms_unit: semCredito ? 0 : valorUnit * (icms / 100),
-        valor_pis_unit: semCredito ? 0 : valorUnit * (pis / 100),
-        valor_cofins_unit: semCredito ? 0 : valorUnit * (cofins / 100),
+        valor_icms_unit: simplesNacional ? 0 : valorUnit * (icms / 100),
+        valor_pis_unit: valorUnit * (pis / 100),
+        valor_cofins_unit: valorUnit * (cofins / 100),
         valor_ipi_unit: valorUnit * (ipi / 100),
         valor_frete_unit: valorUnit * (frete / 100),
         fornecedor_nome: manualTributoForm.fornecedor_nome || "Manual",
         nf_numero: manualTributoForm.nf_numero || null,
         regime_fornecedor: manualTributoForm.regime,
-        sem_credito: semCredito,
+        sem_credito: false,
         match_rule: "manual",
         ultima_atualizacao: new Date().toISOString(),
       };
@@ -3497,7 +3506,7 @@ export default function PrecificacaoPage() {
                                 </p>
                               )}
                               {(tributo.regime_fornecedor === "simples_nacional" || tributo.sem_credito) && (
-                                <p className="text-amber-400 font-semibold">⚠ Simples Nacional — Sem créditos de entrada</p>
+                                <p className="text-amber-400 font-semibold">Simples Nacional — ICMS sem crédito; PIS/COFINS mantidos</p>
                               )}
                               {(() => { const eff = getEffectiveRates(tributo); return (
                                 <>
@@ -3961,7 +3970,7 @@ export default function PrecificacaoPage() {
                   const effCustoEfetivo = t.valor_unitario_nf + t.valor_ipi_unit + t.valor_frete_unit - effCreditoIcms - effCreditoPis - effCreditoCofins;
                   
                   return (
-                  <TableRow key={t.gc_produto_id} className={`border-border ${eff.semCredito ? "bg-amber-500/5" : ""}`}>
+                  <TableRow key={t.gc_produto_id} className={`border-border ${eff.simplesNacional ? "bg-amber-500/5" : ""}`}>
                     <TableCell>
                       <span className="font-medium text-foreground text-sm">{t.nome_produto}</span>
                       {t.cfop && <span className="text-[10px] text-muted-foreground ml-1">CFOP {t.cfop}</span>}
@@ -3977,44 +3986,44 @@ export default function PrecificacaoPage() {
                     <TableCell className="text-xs font-mono text-muted-foreground">{t.ncm || "—"}</TableCell>
                     <TableCell className="text-center">
                       <Button
-                        variant={eff.semCredito ? "default" : "outline"}
+                        variant={eff.simplesNacional ? "default" : "outline"}
                         size="sm"
-                        className={`text-[10px] h-6 px-2 ${eff.semCredito ? "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border-amber-500/30" : ""}`}
+                        className={`text-[10px] h-6 px-2 ${eff.simplesNacional ? "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border-amber-500/30" : ""}`}
                         onClick={async () => {
-                          const newSemCredito = !eff.semCredito;
+                          const novoSimplesNacional = !eff.simplesNacional;
                           const { error } = await supabase
                             .from("fin_produto_tributos")
                             .update({ 
-                              sem_credito: newSemCredito,
-                              regime_fornecedor: newSemCredito ? "simples_nacional" : "normal"
+                              sem_credito: false,
+                              regime_fornecedor: novoSimplesNacional ? "simples_nacional" : "normal"
                             })
                             .eq("gc_produto_id", t.gc_produto_id);
                           if (!error) {
                             refetchTributos();
-                            toast.success(newSemCredito ? "Marcado como Simples Nacional" : "Regime alterado para Normal");
+                            toast.success(novoSimplesNacional ? "Simples Nacional: ICMS zerado e PIS/COFINS mantidos" : "Regime alterado para Normal");
                           }
                         }}
                       >
-                        {eff.semCredito ? "SN ✓" : "Normal"}
+                        {eff.simplesNacional ? "SN ✓" : "Normal"}
                       </Button>
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm">{formatCurrency(t.valor_unitario_nf)}</TableCell>
                     <TableCell className="text-right">
-                      <EditableRate value={eff.icms} originalValue={t.icms_aliquota} disabled={eff.semCredito}
+                      <EditableRate value={eff.icms} originalValue={t.icms_aliquota} disabled={eff.semCreditoIcms}
                         onSave={async (v) => {
                           await supabase.from("fin_produto_tributos").update({ icms_aliquota_manual: v }).eq("gc_produto_id", t.gc_produto_id);
                           refetchTributos();
                         }} />
                     </TableCell>
                     <TableCell className="text-right">
-                      <EditableRate value={eff.pis} originalValue={PIS_CREDITO_PRODUTO} disabled={eff.semCredito}
+                      <EditableRate value={eff.pis} originalValue={PIS_CREDITO_PRODUTO} disabled={eff.semCreditoPisCofins}
                         onSave={async (v) => {
                           await supabase.from("fin_produto_tributos").update({ pis_aliquota_manual: v }).eq("gc_produto_id", t.gc_produto_id);
                           refetchTributos();
                         }} />
                     </TableCell>
                     <TableCell className="text-right">
-                      <EditableRate value={eff.cofins} originalValue={COFINS_CREDITO_PRODUTO} disabled={eff.semCredito}
+                      <EditableRate value={eff.cofins} originalValue={COFINS_CREDITO_PRODUTO} disabled={eff.semCreditoPisCofins}
                         onSave={async (v) => {
                           await supabase.from("fin_produto_tributos").update({ cofins_aliquota_manual: v }).eq("gc_produto_id", t.gc_produto_id);
                           refetchTributos();
