@@ -2526,7 +2526,6 @@ export type Database = {
           nf_numero: string | null
           nome_produto: string
           origem: string | null
-          origem_manual: string | null
           pis_aliquota: number | null
           pis_aliquota_manual: number | null
           q_com: number | null
@@ -2591,7 +2590,6 @@ export type Database = {
           nf_numero?: string | null
           nome_produto: string
           origem?: string | null
-          origem_manual?: string | null
           pis_aliquota?: number | null
           pis_aliquota_manual?: number | null
           q_com?: number | null
@@ -2656,7 +2654,6 @@ export type Database = {
           nf_numero?: string | null
           nome_produto?: string
           origem?: string | null
-          origem_manual?: string | null
           pis_aliquota?: number | null
           pis_aliquota_manual?: number | null
           q_com?: number | null
