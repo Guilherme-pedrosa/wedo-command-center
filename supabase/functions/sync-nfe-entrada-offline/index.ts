@@ -8,7 +8,8 @@ const corsHeaders = {
 };
 
 // Regra de precificação: PIS/COFINS do produto NÃO vem da alíquota destacada pelo fornecedor na NF.
-// No Lucro Real, o crédito usado na formação de preço é o não-cumulativo padrão, salvo fornecedor sem crédito.
+// No Lucro Real, o crédito usado na formação de preço é o não-cumulativo padrão.
+// A opção do fornecedor pelo Simples não elimina, por si só, PIS/COFINS.
 const PIS_CREDITO_LUCRO_REAL = 1.65;
 const COFINS_CREDITO_LUCRO_REAL = 7.6;
 
@@ -493,8 +494,8 @@ serve(async (req) => {
           const freteUnit = qtd > 0 ? (xmlFrete * proporcao) / qtd : 0;
           const ipiUnit = qtd > 0 ? xmlItem.ipi_vIPI / qtd : 0;
           const icmsUnit = isSN ? 0 : (qtd > 0 ? xmlItem.icms_vICMS / qtd : 0);
-          const pisAliqCredito = isSN ? 0 : PIS_CREDITO_LUCRO_REAL;
-          const cofinsAliqCredito = isSN ? 0 : COFINS_CREDITO_LUCRO_REAL;
+          const pisAliqCredito = PIS_CREDITO_LUCRO_REAL;
+          const cofinsAliqCredito = COFINS_CREDITO_LUCRO_REAL;
           const pisUnit = valorUnit * (pisAliqCredito / 100);
           const cofinsUnit = valorUnit * (cofinsAliqCredito / 100);
 
@@ -521,7 +522,7 @@ serve(async (req) => {
             compra_codigo: compraCodigo,
             fornecedor_nome: fornecedorNome || "",
             regime_fornecedor: isSN ? "simples_nacional" : "normal",
-            sem_credito: isSN,
+            sem_credito: false,
             icms_aliquota: isSN ? 0 : r(icmsAliqReal),
             icms_base: isSN ? 0 : r(icmsBasePerc),
             pis_aliquota: r(pisAliqCredito),
@@ -547,8 +548,8 @@ serve(async (req) => {
           const totalBaseICMS = xmlItems.reduce((s, i) => s + i.icms_vBC, 0);
 
           const avgIcmsAliq = totalVProd > 0 ? (totalICMS / totalVProd) * 100 : 0;
-          const avgPisAliq = isSN ? 0 : PIS_CREDITO_LUCRO_REAL;
-          const avgCofinsAliq = isSN ? 0 : COFINS_CREDITO_LUCRO_REAL;
+          const avgPisAliq = PIS_CREDITO_LUCRO_REAL;
+          const avgCofinsAliq = COFINS_CREDITO_LUCRO_REAL;
           const avgIpiAliq = totalVProd > 0 ? (totalIPI / totalVProd) * 100 : 0;
           const freteRate = totalVProd > 0 ? (xmlFrete / totalVProd) * 100 : 0;
           const icmsBasePerc = totalVProd > 0 ? (totalBaseICMS / totalVProd) * 100 : 100;
@@ -556,8 +557,8 @@ serve(async (req) => {
           const qtd = parseFloat(compraProd.quantidade || "1") || 1;
           const valorUnit = compraProdQtd > 0 ? compraProdValor / compraProdQtd : compraProdValor;
           const icmsUnit = isSN ? 0 : valorUnit * (avgIcmsAliq / 100);
-          const pisUnit = isSN ? 0 : valorUnit * (avgPisAliq / 100);
-          const cofinsUnit = isSN ? 0 : valorUnit * (avgCofinsAliq / 100);
+          const pisUnit = valorUnit * (avgPisAliq / 100);
+          const cofinsUnit = valorUnit * (avgCofinsAliq / 100);
           const ipiUnit = valorUnit * (avgIpiAliq / 100);
           const freteUnit = valorUnit * (freteRate / 100);
           const custoEfetivo = valorUnit + ipiUnit + freteUnit - icmsUnit - pisUnit - cofinsUnit;
@@ -578,11 +579,11 @@ serve(async (req) => {
             compra_codigo: compraCodigo,
             fornecedor_nome: fornecedorNome || "",
             regime_fornecedor: isSN ? "simples_nacional" : "normal",
-            sem_credito: isSN,
+            sem_credito: false,
             icms_aliquota: isSN ? 0 : r(avgIcmsAliq),
             icms_base: isSN ? 0 : r(icmsBasePerc),
-            pis_aliquota: isSN ? 0 : r(avgPisAliq),
-            cofins_aliquota: isSN ? 0 : r(avgCofinsAliq),
+            pis_aliquota: r(avgPisAliq),
+            cofins_aliquota: r(avgCofinsAliq),
             ipi_aliquota: r(avgIpiAliq),
             frete_percentual: r(freteRate),
             valor_unitario_nf: r(valorUnit),
@@ -608,10 +609,11 @@ serve(async (req) => {
       const batch = existingIds.slice(i, i + 100);
       const { data } = await supabase
         .from("fin_produto_tributos")
-        .select("gc_produto_id, icms_aliquota_manual, pis_aliquota_manual, cofins_aliquota_manual, sem_credito, excecao_manual")
+        .select("gc_produto_id, icms_aliquota_manual, pis_aliquota_manual, cofins_aliquota_manual, regime_fornecedor, sem_credito, excecao_manual")
         .in("gc_produto_id", batch);
       for (const row of (data || [])) {
-        if (row.sem_credito || row.icms_aliquota_manual != null || row.pis_aliquota_manual != null || row.cofins_aliquota_manual != null) {
+        const vedacaoIntegralManual = row.sem_credito && row.regime_fornecedor !== "simples_nacional";
+        if (vedacaoIntegralManual || row.icms_aliquota_manual != null || row.pis_aliquota_manual != null || row.cofins_aliquota_manual != null) {
           existingManual.add(row.gc_produto_id);
         }
         if (row.excecao_manual === true) existingExcecao.add(row.gc_produto_id);
