@@ -37,7 +37,7 @@ describe("persistência da origem fiscal manual", () => {
     expect(page).toContain("nenhum sucesso foi presumido");
     expect(migration).toContain("'sucesso_parcial'");
     expect(worker).toContain('? "sucesso_parcial"');
-    expect(worker).toContain('origin_write_status: "not_sent_public_api_unsupported"');
+    expect(worker).toContain('origin_write_status: "sent_icms_orig_not_confirmed"');
     expect(worker).toContain("finalUpdateError");
     expect(worker).toContain("sucessos_parciais: sucessosParciais");
   });

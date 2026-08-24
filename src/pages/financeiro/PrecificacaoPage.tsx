@@ -422,16 +422,18 @@ export function classifyFiscalVerification(
   const verification = fiscalVerificationFromResponse(responseBody);
   const origem = normOrig(origemEsperada);
   const fonteConfirmada = verification?.source === "gc_public_get" ||
+    verification?.source === "gc_public_icms_get" ||
     verification?.source === "gc_internal_get";
   const ncmConfirmado = Boolean(
     fonteConfirmada && verification?.ncm === normNcm(ncmEsperado),
   );
-  // A consulta pública confirma somente o NCM. Origem só pode ser considerada
-  // gravada quando houver releitura explícita do cadastro fiscal interno.
+  // A origem só é confirmada quando a releitura devolve o campo canônico
+  // `ICMS_orig`, usado pela própria tela fiscal do GestãoClick.
   const origemConfirmada = Boolean(
     origem &&
       ncmConfirmado &&
-      verification?.source === "gc_internal_get" &&
+      (verification?.source === "gc_public_icms_get" ||
+        verification?.source === "gc_internal_get") &&
       verification.origem === origem,
   );
 
@@ -460,7 +462,7 @@ async function corrigirFiscalNoGc(inputs: FiscalCorrectionInput[]) {
       recurso: "produtos",
       recurso_id: String(item.produtoId),
       payload,
-      payload_hash: btoa(`fiscal-v4|${item.produtoId}|${ncm}|${origem}`),
+      payload_hash: btoa(`fiscal-v5|${item.produtoId}|${ncm}|${origem}`),
       status: "pendente",
       tentativas: 0,
       ultimo_erro: null,

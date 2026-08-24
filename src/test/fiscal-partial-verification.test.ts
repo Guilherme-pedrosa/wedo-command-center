@@ -12,16 +12,16 @@ const gcWorkerSource = readFileSync(
 );
 
 describe("confirmação parcial de NCM e origem no GestãoClick", () => {
-  it("não repete a autenticação interna já recusada nem envia origem pela API pública", () => {
+  it("envia a origem pelo nome canônico ICMS_orig sem inventar token de sessão", () => {
     expect(gcWorkerSource).not.toContain("GC_WEB_TOKEN");
     expect(gcWorkerSource).not.toContain("GC_FISCAL_SESSION_TOKEN");
-    expect(gcWorkerSource).toContain('source: "gc_public_get"');
+    expect(gcWorkerSource).toContain('source: origemVerificada ? "gc_public_icms_get" : "gc_public_get"');
     expect(gcWorkerSource).not.toContain("updateAndVerifyInternalFiscal");
     expect(gcWorkerSource).not.toContain('"x-token-auth"');
-    expect(gcWorkerSource).toContain('origin_write_status: "not_sent_public_api_unsupported"');
+    expect(gcWorkerSource).toContain('origin_write_status: "sent_icms_orig_not_confirmed"');
     expect(gcWorkerSource).not.toContain('origin_write_status: "sent_via_public_api_unverified"');
-    expect(gcWorkerSource).not.toContain('fiscal: {\n          ...fiscalBase,\n          ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),\n          ...(origemSolicitada');
-    expect(gcWorkerSource).not.toContain("origem: normalizeOrigem(payload.origem)");
+    expect(gcWorkerSource).toContain("ICMS_orig: origem");
+    expect(gcWorkerSource).toContain("origem: origemConfirmada ?? normalizeOrigem(cacheRow?.origem)");
   });
 
   it("confirma o NCM pela API pública e mantém a origem como pendente", () => {
@@ -61,6 +61,21 @@ describe("confirmação parcial de NCM e origem no GestãoClick", () => {
         origem: "3",
       },
     }, "39201099", "3")).toEqual({
+      ncmConfirmado: true,
+      origemSolicitada: true,
+      origemConfirmada: true,
+      origemPendente: false,
+    });
+  });
+
+  it("confirma a origem quando o GET público devolve o ICMS_orig canônico", () => {
+    expect(classifyFiscalVerification({
+      _argus_verification: {
+        source: "gc_public_icms_get",
+        ncm: "39201099",
+        origem: "2",
+      },
+    }, "39201099", "2")).toEqual({
       ncmConfirmado: true,
       origemSolicitada: true,
       origemConfirmada: true,

@@ -73,6 +73,72 @@ function normalizeOrigem(value: unknown): string | null {
   return /^[0-8]$/.test(raw) ? raw : null;
 }
 
+/**
+ * `origem` era o nome usado pelo Argus, mas o cadastro fiscal do GC persiste
+ * esse valor como `ICMS_orig`. Só o campo canônico serve como prova: respostas
+ * antigas com `fiscal.origem` podiam apenas ecoar o PUT sem gravar a tela.
+ */
+function productCanonicalOrigem(product: Record<string, unknown> | null): string | null {
+  if (!product) return null;
+
+  const fiscal = asRecord(product.fiscal);
+  const fiscalOrigem = normalizeOrigem(fiscal?.ICMS_orig);
+  if (fiscalOrigem) return fiscalOrigem;
+
+  const topLevelOrigem = normalizeOrigem(product.ICMS_orig);
+  if (topLevelOrigem) return topLevelOrigem;
+
+  const tributacaoRaw = product.ProdutosTributacao;
+  const tributacao = Array.isArray(tributacaoRaw)
+    ? asRecord(tributacaoRaw[0])
+    : asRecord(tributacaoRaw);
+  return normalizeOrigem(tributacao?.ICMS_orig);
+}
+
+function mergeCanonicalOrigemIntoPublicProduct(
+  product: Record<string, unknown>,
+  fiscal: Record<string, unknown>,
+  origem: string | null,
+): {
+  fiscal: Record<string, unknown>;
+  ICMS_orig?: string;
+  ProdutosTributacao?: unknown;
+} {
+  const fiscalAtualizado = {
+    ...fiscal,
+    ...(origem ? { ICMS_orig: origem } : {}),
+  };
+
+  const result: {
+    fiscal: Record<string, unknown>;
+    ICMS_orig?: string;
+    ProdutosTributacao?: unknown;
+  } = {
+    fiscal: fiscalAtualizado,
+  };
+  if (!origem) return result;
+
+  // O endpoint público pode expor o campo no produto ou no bloco fiscal.
+  // Enviamos os dois nomes canônicos. O bloco associado só é alterado quando
+  // veio no próprio GET, preservando id e todos os demais tributos existentes.
+  result.ICMS_orig = origem;
+  const tributacaoRaw = product.ProdutosTributacao;
+  if (Array.isArray(tributacaoRaw) && tributacaoRaw.length > 0) {
+    const primeira = asRecord(tributacaoRaw[0]);
+    if (primeira) {
+      result.ProdutosTributacao = [
+        { ...primeira, ICMS_orig: origem },
+        ...tributacaoRaw.slice(1),
+      ];
+    }
+  } else {
+    const tributacao = asRecord(tributacaoRaw);
+    if (tributacao) result.ProdutosTributacao = { ...tributacao, ICMS_orig: origem };
+  }
+
+  return result;
+}
+
 async function requestCanWriteGc(
   req: Request,
   supabaseUrl: string,
@@ -302,16 +368,21 @@ Deno.serve(async (req) => {
       const ncmSolicitado = ncmDoJob;
       const origemSolicitada = normalizeOrigem(payload.origem);
       const fiscalBase = asRecord(produtoBase.fiscal) ?? {};
+      const fiscalCanonical = mergeCanonicalOrigemIntoPublicProduct(
+        produtoBase,
+        {
+          ...fiscalBase,
+          ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),
+        },
+        origemSolicitada,
+      );
 
       // 4. Montar PUT completo
       const putBody = {
         ...produtoBase,
         valor_custo: String(novoCustoTopLevel),
         ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),
-        fiscal: {
-          ...fiscalBase,
-          ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),
-        },
+        ...fiscalCanonical,
         valores: valoresMerged,
       };
 
@@ -347,6 +418,7 @@ Deno.serve(async (req) => {
         });
         const verifyBody = await verifyRes.json().catch(() => null);
         verifiedProduto = verifyRes.ok ? unwrapGcProduct(verifyBody) : null;
+        const origemVerificada = productCanonicalOrigem(verifiedProduto);
 
         if (!verifyRes.ok) {
           errorMsg = `PUT aceito, mas a conferência falhou HTTP ${verifyRes.status}: ${JSON.stringify(verifyBody)}`;
@@ -358,18 +430,22 @@ Deno.serve(async (req) => {
             source: "gc_public",
             gc_response: publicResponse,
             _argus_verification: {
-              source: "gc_public_get",
+              source: origemVerificada ? "gc_public_icms_get" : "gc_public_get",
               ncm: productNcm(verifiedProduto),
-              origem: null,
+              origem: origemVerificada,
               verified_at: new Date().toISOString(),
             },
           };
 
           success = true;
-          if (origemSolicitada && job.recurso === "produtos") {
+          if (
+            origemSolicitada &&
+            job.recurso === "produtos" &&
+            origemVerificada !== origemSolicitada
+          ) {
             responseBody = {
               ...(asRecord(responseBody) ?? {}),
-              origin_write_status: "not_sent_public_api_unsupported",
+              origin_write_status: "sent_icms_orig_not_confirmed",
               origin_requested: origemSolicitada,
             };
           }
@@ -410,6 +486,13 @@ Deno.serve(async (req) => {
           .eq("produto_gc_id", job.recurso_id)
           .maybeSingle();
         const verification = asRecord(asRecord(responseBody)?._argus_verification);
+        const verificationSource = String(verification?.source ?? "");
+        const origemConfirmada = (
+          verificationSource === "gc_public_icms_get" ||
+          verificationSource === "gc_internal_get"
+        )
+          ? normalizeOrigem(verification?.origem)
+          : null;
 
         const valoresDoGc = Array.isArray(responseProduto?.valores)
           ? responseProduto.valores as Array<Record<string, unknown>>
@@ -438,10 +521,9 @@ Deno.serve(async (req) => {
             nome_grupo: responseProduto.nome_grupo ? String(responseProduto.nome_grupo) : null,
             grupo_id: responseProduto.grupo_id ? String(responseProduto.grupo_id) : null,
             ncm: (responseProduto.fiscal as { ncm?: unknown } | undefined)?.ncm ? String((responseProduto.fiscal as { ncm?: unknown }).ncm) : responseProduto.ncm ? String(responseProduto.ncm) : null,
-            // `gc_produtos_cache.origem` é legado e pode conter uma correção
-            // humana antiga. A API pública não confirmou a origem solicitada,
-            // portanto este worker não pode sobrescrever esse vestígio.
-            origem: normalizeOrigem(cacheRow?.origem),
+            // Só atualiza o cache com a origem que voltou do campo fiscal
+            // canônico do GC. Sem essa prova, preserva a correção humana.
+            origem: origemConfirmada ?? normalizeOrigem(cacheRow?.origem),
             unidade: responseProduto.unidade ? String(responseProduto.unidade) : null,
             estoque: numericOrNull(responseProduto.estoque),
             valor_custo: numericOrNull(responseProduto.valor_custo),
@@ -465,6 +547,7 @@ Deno.serve(async (req) => {
               nome: String(cacheRow?.nome ?? "(sem nome)"),
               valores: valoresAtualizados,
               ...(normalizeNcm(verification?.ncm ?? payload.ncm) ? { ncm: normalizeNcm(verification?.ncm ?? payload.ncm) } : {}),
+              ...(origemConfirmada ? { origem: origemConfirmada } : {}),
               updated_at: new Date().toISOString(),
               ultima_sincronizacao: new Date().toISOString(),
             }, { onConflict: "produto_gc_id" });
@@ -491,7 +574,7 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const finalStatus = asRecord(responseBody)?.origin_write_status === "not_sent_public_api_unsupported"
+      const finalStatus = asRecord(responseBody)?.origin_write_status === "sent_icms_orig_not_confirmed"
         ? "sucesso_parcial"
         : "sucesso";
       const { error: finalUpdateError } = await supabase.from("fin_gc_write_jobs").update({
