@@ -338,7 +338,17 @@ CREATE TABLE IF NOT EXISTS public.fis_anomalia (
 CREATE INDEX IF NOT EXISTS idx_fis_anomalia_competencia ON public.fis_anomalia (competencia, resolvida);
 
 -- ---------------------------------------------------------------------------
--- 7. RLS — dado fiscal é restrito a admin / CEO / gerente financeiro
+-- 7. Configurações usadas pela apuração
+-- ---------------------------------------------------------------------------
+INSERT INTO public.fin_configuracoes (chave, valor, descricao) VALUES
+  ('CNPJ_EMPRESA', '',
+   'CNPJ da empresa, só dígitos. Usado por fis-parse-entrada para descartar do lote de ENTRADAS as notas emitidas pela própria empresa. Enquanto vazio, esse descarte não acontece.'),
+  ('FISCAL_INCLUIR_FRETE_NA_BASE_CREDITO', 'false',
+   'Inclui o frete rateado na base do crédito de PIS/COFINS. Default false: a regra de negócio fala em "valor dos produtos". Alinhar com a contabilidade antes de ligar.')
+ON CONFLICT (chave) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- 8. RLS — dado fiscal é restrito a admin / CEO / gerente financeiro
 -- ---------------------------------------------------------------------------
 ALTER TABLE public.fis_cfop_regra       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.fis_nf_saida         ENABLE ROW LEVEL SECURITY;
