@@ -5,6 +5,7 @@ import {
   decidirReceitaSaida,
   apurarPisCofins,
   apurarIcms,
+  ratearRetencoes,
   round2,
   type ItemEntrada,
   type NotaSaida,
@@ -359,5 +360,88 @@ describe("arredondamento", () => {
       saldoCredorAnteriorCofins: 0,
     });
     expect(pis.valorDebito).toBe(5.5);
+  });
+});
+
+describe("Regra 3 — rateio de retenções por liquidação", () => {
+  const nota = {
+    nfSaidaId: "nf-1",
+    numero: "500",
+    valorTotalNf: 10_000,
+    valorPisRetido: 65,
+    valorCofinsRetido: 300,
+  };
+
+  it("retém integral quando a nota é paga de uma vez", () => {
+    const r = ratearRetencoes(
+      [nota],
+      [{ recebimentoId: "r1", nfNumero: "500", valor: 10_000, dataLiquidacao: "2026-07-10" }],
+    );
+    expect(r.totalPis).toBe(65);
+    expect(r.totalCofins).toBe(300);
+    expect(r.retencoes).toHaveLength(1);
+  });
+
+  it("rateia proporcionalmente em pagamento parcial", () => {
+    const r = ratearRetencoes(
+      [nota],
+      [{ recebimentoId: "r1", nfNumero: "500", valor: 4_000, dataLiquidacao: "2026-07-10" }],
+    );
+    expect(r.retencoes[0].proporcao).toBeCloseTo(0.4);
+    expect(r.totalPis).toBe(26);
+    expect(r.totalCofins).toBe(120);
+  });
+
+  it("duas parcelas na mesma competência somam o total", () => {
+    const r = ratearRetencoes(
+      [nota],
+      [
+        { recebimentoId: "r1", nfNumero: "500", valor: 6_000, dataLiquidacao: "2026-07-10" },
+        { recebimentoId: "r2", nfNumero: "500", valor: 4_000, dataLiquidacao: "2026-07-25" },
+      ],
+    );
+    expect(r.totalPis).toBe(65);
+    expect(r.totalCofins).toBe(300);
+  });
+
+  it("nunca rateia mais que 100% da retenção da nota", () => {
+    const r = ratearRetencoes(
+      [nota],
+      [
+        { recebimentoId: "r1", nfNumero: "500", valor: 9_000, dataLiquidacao: "2026-07-10" },
+        { recebimentoId: "r2", nfNumero: "500", valor: 9_000, dataLiquidacao: "2026-07-25" },
+      ],
+    );
+    expect(r.totalPis).toBeLessThanOrEqual(65);
+    expect(r.totalCofins).toBeLessThanOrEqual(300);
+    expect(r.avisos.some((a) => a.tipo === "LIQUIDACAO_EXCEDE_NOTA")).toBe(true);
+  });
+
+  it("ignora recebimento sem NFS-e correspondente", () => {
+    const r = ratearRetencoes(
+      [nota],
+      [{ recebimentoId: "r1", nfNumero: "999", valor: 1_000, dataLiquidacao: "2026-07-10" }],
+    );
+    expect(r.retencoes).toHaveLength(0);
+    expect(r.totalPis).toBe(0);
+  });
+
+  it("ignora nota sem retenção declarada", () => {
+    const semRetencao = { ...nota, valorPisRetido: 0, valorCofinsRetido: 0 };
+    const r = ratearRetencoes(
+      [semRetencao],
+      [{ recebimentoId: "r1", nfNumero: "500", valor: 10_000, dataLiquidacao: "2026-07-10" }],
+    );
+    expect(r.retencoes).toHaveLength(0);
+  });
+
+  it("avisa quando a nota tem retenção mas valor zero", () => {
+    const invalida = { ...nota, valorTotalNf: 0 };
+    const r = ratearRetencoes(
+      [invalida],
+      [{ recebimentoId: "r1", nfNumero: "500", valor: 500, dataLiquidacao: "2026-07-10" }],
+    );
+    expect(r.retencoes).toHaveLength(0);
+    expect(r.avisos[0].tipo).toBe("NFSE_SEM_VALOR");
   });
 });

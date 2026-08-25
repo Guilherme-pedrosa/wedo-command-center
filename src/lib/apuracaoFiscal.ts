@@ -471,6 +471,135 @@ export function apurarPisCofins(e: EntradasApuracao): {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Regra 3 — retenções na fonte, rateadas por liquidação
+// ---------------------------------------------------------------------------
+
+export interface NfseComRetencao {
+  nfSaidaId: string;
+  numero: string;
+  valorTotalNf: number;
+  valorPisRetido: number;
+  valorCofinsRetido: number;
+}
+
+export interface Liquidacao {
+  recebimentoId: string;
+  nfNumero: string | null;
+  valor: number;
+  dataLiquidacao: string;
+  nomeCliente?: string | null;
+}
+
+export interface RetencaoRateada {
+  nfSaidaId: string;
+  recebimentoId: string;
+  nfNumero: string;
+  nomeCliente: string | null;
+  dataLiquidacao: string;
+  valorBase: number;
+  valorPisRetido: number;
+  valorCofinsRetido: number;
+  proporcao: number;
+}
+
+export interface RateioResultado {
+  retencoes: RetencaoRateada[];
+  totalPis: number;
+  totalCofins: number;
+  avisos: { tipo: string; referencia: string; descricao: string }[];
+}
+
+/**
+ * A NFS-e declara a retenção na EMISSÃO; a guia deduz na LIQUIDAÇÃO.
+ * Quando a nota é paga em parcelas, a CSRF é retida proporcionalmente a cada
+ * baixa — creditar o valor cheio na primeira parcela adianta dedução e é
+ * exatamente o tipo de erro que aparece só na malha.
+ *
+ * Recebe as liquidações de UMA competência e rateia a retenção de cada nota
+ * na proporção do que foi efetivamente recebido.
+ */
+export function ratearRetencoes(
+  notas: NfseComRetencao[],
+  liquidacoes: Liquidacao[],
+): RateioResultado {
+  const porNumero = new Map<string, NfseComRetencao>();
+  for (const n of notas) {
+    if (n.numero) porNumero.set(String(n.numero).trim(), n);
+  }
+
+  const retencoes: RetencaoRateada[] = [];
+  const avisos: RateioResultado["avisos"] = [];
+  /** Acumula proporção já rateada por nota, para não passar de 100%. */
+  const consumido = new Map<string, number>();
+
+  for (const liq of liquidacoes) {
+    const numero = String(liq.nfNumero ?? "").trim();
+    if (!numero) continue;
+
+    const nota = porNumero.get(numero);
+    if (!nota) continue; // recebimento sem NFS-e com retenção: nada a deduzir
+
+    if (nota.valorPisRetido === 0 && nota.valorCofinsRetido === 0) continue;
+
+    if (nota.valorTotalNf <= 0) {
+      avisos.push({
+        tipo: "NFSE_SEM_VALOR",
+        referencia: numero,
+        descricao:
+          `NFS-e ${numero} tem retenção declarada mas valor total zero — ` +
+          `impossível ratear. Lançar a retenção manualmente.`,
+      });
+      continue;
+    }
+
+    const jaConsumido = consumido.get(numero) ?? 0;
+    const bruta = liq.valor / nota.valorTotalNf;
+    const proporcao = Math.min(bruta, Math.max(0, 1 - jaConsumido));
+
+    if (proporcao <= 0) {
+      avisos.push({
+        tipo: "RETENCAO_JA_INTEGRAL",
+        referencia: numero,
+        descricao:
+          `NFS-e ${numero}: liquidações somam mais que o valor da nota. ` +
+          `Retenção já rateada integralmente; excedente ignorado.`,
+      });
+      continue;
+    }
+
+    if (bruta > proporcao) {
+      avisos.push({
+        tipo: "LIQUIDACAO_EXCEDE_NOTA",
+        referencia: numero,
+        descricao:
+          `NFS-e ${numero}: baixas excedem o valor da nota. Rateio limitado a 100%.`,
+      });
+    }
+
+    consumido.set(numero, jaConsumido + proporcao);
+
+    retencoes.push({
+      nfSaidaId: nota.nfSaidaId,
+      recebimentoId: liq.recebimentoId,
+      nfNumero: numero,
+      nomeCliente: liq.nomeCliente ?? null,
+      dataLiquidacao: liq.dataLiquidacao,
+      valorBase: round2(liq.valor),
+      valorPisRetido: round2(nota.valorPisRetido * proporcao),
+      valorCofinsRetido: round2(nota.valorCofinsRetido * proporcao),
+      proporcao,
+    });
+  }
+
+  return {
+    retencoes,
+    totalPis: round2(retencoes.reduce((s, r) => s + r.valorPisRetido, 0)),
+    totalCofins: round2(retencoes.reduce((s, r) => s + r.valorCofinsRetido, 0)),
+    avisos,
+  };
+}
+
 export interface EntradasIcms {
   debitoDestacado: number;
   creditoDestacado: number;
