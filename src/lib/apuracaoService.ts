@@ -396,7 +396,7 @@ export async function apurarCompetencia(
   // de depender do CST que o fornecedor digitou.
   const { data: compras } = await db
     .from<CompraRow>("gc_compras")
-    .select("numero_nfe")
+    .select("numero_nfe, codigo, data, nome_fornecedor, valor_total, nome_situacao")
     .gte("data", competenciaAnterior(competencia))
     .lte("data", ultimoDiaDoMes(competencia));
   const semZeros = (s: string) => s.replace(/^0+/, "");
@@ -574,6 +574,49 @@ export async function apurarCompetencia(
         decisaoIcms,
       });
     }
+  }
+
+  // ── Compra registrada sem XML: crédito que existe e ninguém vê ─────────
+  // Se há pedido de compra com número de NF e o XML nunca chegou, o crédito
+  // simplesmente não entra na apuração — em silêncio. Em julho/2026 isso
+  // escondia R$ 72.509,55 de uma única nota. Aqui vira lista de trabalho.
+  const numerosComXml = new Set(
+    (entradas ?? []).map((e) => semZeros((e.numero ?? "").trim())).filter(Boolean),
+  );
+  const semXml = (compras ?? []).filter((c) => {
+    const nf = semZeros((c.numero_nfe ?? "").trim());
+    if (!nf) return false;
+    // Só interessa compra da própria competência.
+    if (!c.data || c.data < inicio || c.data > fim) return false;
+    return !numerosComXml.has(nf);
+  });
+
+  let valorSemXml = 0;
+  for (const c of semXml) {
+    const valor = Number(c.valor_total) || 0;
+    valorSemXml += valor;
+    anomalias.push({
+      tipo: "COMPRA_SEM_XML",
+      // Acima de mil reais o crédito perdido passa de R$ 92 e vira dinheiro.
+      severidade: valor >= 1000 ? "critico" : "aviso",
+      referencia: `NF ${c.numero_nfe} · pedido ${c.codigo ?? "?"}`,
+      descricao:
+        `${c.nome_fornecedor ?? "Fornecedor"} — R$ ${valor.toFixed(2)} (${c.nome_situacao ?? "?"}). ` +
+        `Pedido de compra registrado, XML nunca importado. Crédito potencial de ` +
+        `R$ ${round2((valor * ALIQUOTA_PIS_COFINS) / 100).toFixed(2)} em PIS/COFINS não está ` +
+        `sendo aproveitado. Baixar o XML na SEFAZ e importar.`,
+    });
+  }
+  if (valorSemXml > 0) {
+    anomalias.push({
+      tipo: "COMPRA_SEM_XML_TOTAL",
+      severidade: "critico",
+      referencia: competencia.slice(0, 7),
+      descricao:
+        `${semXml.length} compra(s) somando R$ ${valorSemXml.toFixed(2)} sem XML importado. ` +
+        `Crédito de PIS/COFINS deixado na mesa: aproximadamente ` +
+        `R$ ${round2((valorSemXml * ALIQUOTA_PIS_COFINS) / 100).toFixed(2)}.`,
+    });
   }
 
   // ── Regra 3: retenções na fonte, regime de caixa ──────────────────────
