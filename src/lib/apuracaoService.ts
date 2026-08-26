@@ -593,15 +593,23 @@ export async function apurarCompetencia(
       // marcou como inelegível (brinde, bonificação, doação), a apuração
       // não pode conceder crédito por cima dessa decisão.
       const curado = curadoria.get(chaveCuradoria(nf.chave, item.nome_produto));
-      if (decisao.permitido && curado?.sem_credito) {
+      // sem_credito e conceito de CUSTEIO, e a propria migration de origem
+      // avisa: "vedacao integral excepcional; nao usar automaticamente para
+      // fornecedor do Simples Nacional". Na pratica os 223 produtos marcados
+      // sao todos do Simples e so 7 tem motivo escrito -- e o veto automatico
+      // do Simples entrando pela porta dos fundos, que e exatamente o erro
+      // que este sistema existe para corrigir.
+      //
+      // Veto sem motivo registrado nao mata credito. Com motivo, mata.
+      const vetoComMotivo =
+        curado?.sem_credito === true && (curado?.excecao_motivo ?? "").trim() !== "";
+      if (decisao.permitido && vetoComMotivo) {
         decisao = {
           ...decisao,
           permitido: false,
           base: 0,
           regra: "VETO_PRECIFICACAO",
-          motivo:
-            "Vedado na precificação (sem_credito). " +
-            (curado.excecao_motivo ?? "Sem motivo registrado."),
+          motivo: `Vedado na precificação: ${curado?.excecao_motivo}`,
         };
       } else if (decisao.permitido && curado?.ineligivel_precificacao) {
         decisao = {

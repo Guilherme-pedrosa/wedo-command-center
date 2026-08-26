@@ -64,7 +64,8 @@ function linhaEntrada(l: LinhaCredito) {
   };
 }
 
-function linhaSaida(l: LinhaReceita) {
+/** Registro de saidas de mercadoria: NF-e e NFC-e, com CFOP e ICMS. */
+function linhaSaidaProduto(l: LinhaReceita) {
   return {
     "Modelo": l.modelo,
     "Número": l.numero ?? "",
@@ -72,6 +73,23 @@ function linhaSaida(l: LinhaReceita) {
     "CFOP": l.cfop ?? "",
     "Natureza da Operação": l.natureza ?? "",
     "Valor": l.valor,
+    "Na Base de Débito": l.compoe ? "SIM" : "NÃO",
+    "Motivo": l.motivo,
+    "Documento GC": l.gcId,
+  };
+}
+
+/**
+ * Servicos prestados: NFS-e nao tem CFOP nem ICMS, tem ISS municipal.
+ * Misturar com mercadoria numa lista so confunde a conferencia -- sao livros
+ * fiscais diferentes.
+ */
+function linhaSaidaServico(l: LinhaReceita) {
+  return {
+    "NFS-e": l.numero ?? "",
+    "Tomador": l.cliente ?? "",
+    "Discriminação": l.natureza ?? "",
+    "Valor do Serviço": l.valor,
     "Na Base de Débito": l.compoe ? "SIM" : "NÃO",
     "Motivo": l.motivo,
     "Documento GC": l.gcId,
@@ -132,10 +150,22 @@ export async function exportarApuracaoXlsx(r: ResultadoApuracao): Promise<void> 
     .map(linhaEntrada);
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(entradas), "Entradas");
 
-  const saidas = [...r.linhasReceita]
-    .sort((a, b) => (a.compoe !== b.compoe ? (a.compoe ? 1 : -1) : b.valor - a.valor))
-    .map(linhaSaida);
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(saidas), "Saidas");
+  const ordenar = (xs: LinhaReceita[]) =>
+    [...xs].sort((a, b) => (a.compoe !== b.compoe ? (a.compoe ? 1 : -1) : b.valor - a.valor));
+
+  const produtos = ordenar(r.linhasReceita.filter((l) => l.modelo !== "NFSE"));
+  if (produtos.length) {
+    XLSX.utils.book_append_sheet(
+      wb, XLSX.utils.json_to_sheet(produtos.map(linhaSaidaProduto)), "Saidas Produto",
+    );
+  }
+
+  const servicos = ordenar(r.linhasReceita.filter((l) => l.modelo === "NFSE"));
+  if (servicos.length) {
+    XLSX.utils.book_append_sheet(
+      wb, XLSX.utils.json_to_sheet(servicos.map(linhaSaidaServico)), "Servicos Prestados",
+    );
+  }
 
   if (r.retencoes.length) {
     XLSX.utils.book_append_sheet(
