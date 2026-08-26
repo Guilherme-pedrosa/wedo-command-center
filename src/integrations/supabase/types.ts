@@ -3669,6 +3669,39 @@ export type Database = {
           },
         ]
       }
+      fis_servico_regra: {
+        Row: {
+          ativo: boolean
+          categoria: string
+          credita: boolean
+          criado_em: string | null
+          fundamento: string
+          id: string
+          padrao: string
+          prioridade: number
+        }
+        Insert: {
+          ativo?: boolean
+          categoria: string
+          credita: boolean
+          criado_em?: string | null
+          fundamento: string
+          id?: string
+          padrao: string
+          prioridade?: number
+        }
+        Update: {
+          ativo?: boolean
+          categoria?: string
+          credita?: boolean
+          criado_em?: string | null
+          fundamento?: string
+          id?: string
+          padrao?: string
+          prioridade?: number
+        }
+        Relationships: []
+      }
       gc_compras: {
         Row: {
           cadastrado_em: string | null
