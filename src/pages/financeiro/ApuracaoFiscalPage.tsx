@@ -28,6 +28,7 @@ import {
   voltarParaRegraAutomatica,
   listarApuracoes,
   fecharCompetencia,
+  reapurarCadeia,
   type ApuracaoHistorico,
 } from "@/lib/apuracaoService";
 import { importarXmlFiscal, type ResultadoImportacao } from "@/lib/importarXmlFiscal";
@@ -136,8 +137,23 @@ export default function ApuracaoFiscalPage() {
       // Grava sozinho: apuração que não fica registrada não serve de nada
       // quando alguém perguntar, meses depois, de onde saiu o número.
       await salvarApuracao(r);
+
+      // O saldo credor encadeia: mexer num mês muda todos os seguintes.
+      // Sem reapurar a frente, a cadeia fica desalinhada em silêncio.
+      setCarregando("Reapurando meses seguintes");
+      const mudancas = await reapurarCadeia(competenciaIso);
       await carregarHistorico();
-      toast.success("Apuração calculada e registrada.");
+
+      if (mudancas.length) {
+        toast.success(
+          "Apuração registrada. " +
+            mudancas.length +
+            " competência(s) seguinte(s) mudaram de saldo pelo encadeamento do crédito.",
+          { duration: 9000 },
+        );
+      } else {
+        toast.success("Apuração calculada e registrada.");
+      }
     } catch (e) {
       toast.error(`Apuração falhou: ${(e as Error)?.message ?? e}`);
     } finally {

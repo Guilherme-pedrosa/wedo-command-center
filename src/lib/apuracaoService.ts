@@ -1105,3 +1105,52 @@ export async function fecharCompetencia(competencia: string, quem: string): Prom
     .eq("competencia", competencia);
   if (error) throw new Error(`Falha ao fechar competência: ${error.message}`);
 }
+
+/**
+ * Reapura as competências POSTERIORES a uma que acabou de mudar.
+ *
+ * O saldo credor encadeia: o que sobra num mês abate o seguinte. Cada
+ * apuração lê o saldo do mês anterior no instante em que roda, então
+ * recalcular um mês antigo — ou apurar fora de ordem — deixa a cadeia
+ * desalinhada em silêncio.
+ *
+ * Aconteceu de verdade: maio/2026 foi apurado antes de abril e ignorou
+ * R$ 3.247,02 de crédito que abril havia gerado, inflando o DARF de junho no
+ * mesmo valor. Ninguém veria, porque cada mês isolado fecha certo.
+ *
+ * Devolve as competências que mudaram de saldo.
+ */
+export async function reapurarCadeia(
+  aPartirDe: string,
+  opcoes: OpcoesApuracao = {},
+): Promise<{ competencia: string; saldoAntes: number; saldoDepois: number }[]> {
+  const { data } = await db
+    .from<{ competencia: string; saldo_a_recolher: number | null; tributo: string }>("fis_apuracao")
+    .select("competencia, saldo_a_recolher, tributo")
+    .gte("competencia", aPartirDe);
+
+  const saldoPorCompetencia = new Map<string, number>();
+  for (const l of data ?? []) {
+    if (l.tributo === "ICMS") continue;
+    saldoPorCompetencia.set(
+      l.competencia,
+      (saldoPorCompetencia.get(l.competencia) ?? 0) + (Number(l.saldo_a_recolher) || 0),
+    );
+  }
+
+  const posteriores = [...saldoPorCompetencia.keys()]
+    .filter((c) => c > aPartirDe)
+    .sort();
+
+  const mudancas: { competencia: string; saldoAntes: number; saldoDepois: number }[] = [];
+  for (const competencia of posteriores) {
+    const antes = saldoPorCompetencia.get(competencia) ?? 0;
+    const r = await apurarCompetencia(competencia, opcoes);
+    await salvarApuracao(r);
+    const depois = r.saldoTotalPisCofins;
+    if (Math.abs(depois - antes) >= 0.01) {
+      mudancas.push({ competencia, saldoAntes: antes, saldoDepois: depois });
+    }
+  }
+  return mudancas;
+}
