@@ -439,30 +439,51 @@ export default function ApuracaoFiscalPage() {
                       <th className="p-2">Regime</th>
                       <th className="p-2">Item</th>
                       <th className="p-2">CFOP</th>
-                      <th className="p-2">CST</th>
+                      <th className="p-2">Pedido</th>
                       <th className="p-2 text-right">Valor</th>
-                      <th className="p-2 text-right">Base creditada</th>
+                      <th className="p-2">CST PIS/COF</th>
+                      <th className="p-2 text-right">Base PIS/COF</th>
+                      <th className="p-2">CST ICMS</th>
+                      <th className="p-2 text-right">Créd. ICMS</th>
                       <th className="p-2">Motivo</th>
                     </tr>
                   </thead>
                   <tbody>
                     {resultado.linhasCredito.map((l, i) => (
-                      <tr key={i} className="border-t border-border/50">
+                      <tr key={i} className="border-t border-border/50 align-top">
                         <td className="p-2">{l.fornecedor}</td>
                         <td className="p-2">
                           <Badge variant="secondary">{l.regime}</Badge>
                         </td>
                         <td className="p-2">{l.produto}</td>
                         <td className="p-2 font-mono text-xs">{l.cfop}</td>
-                        <td className="p-2 font-mono text-xs">{l.cst}</td>
+                        <td className="p-2 text-xs">
+                          {l.temPedidoCompra ? (
+                            <Badge>sim</Badge>
+                          ) : (
+                            <span className="text-muted-foreground">não</span>
+                          )}
+                        </td>
                         <td className="p-2 text-right tabular-nums">
                           {formatCurrency(l.valorProduto)}
                         </td>
+                        <td className="p-2 font-mono text-xs">{l.cstPisCofins ?? "—"}</td>
                         <td className="p-2 text-right tabular-nums">
                           {l.decisao.permitido ? formatCurrency(l.decisao.base) : "—"}
                         </td>
+                        <td className="p-2 font-mono text-xs">{l.cstIcms ?? "—"}</td>
+                        <td className="p-2 text-right tabular-nums">
+                          {l.decisaoIcms.permitido ? formatCurrency(l.decisaoIcms.base) : "—"}
+                        </td>
                         <td className="p-2 text-xs text-muted-foreground">
-                          {l.decisao.motivo}
+                          <p>
+                            <span className="font-medium text-foreground">PIS/COF:</span>{" "}
+                            {l.decisao.motivo}
+                          </p>
+                          <p className="mt-1">
+                            <span className="font-medium text-foreground">ICMS:</span>{" "}
+                            {l.decisaoIcms.motivo}
+                          </p>
                         </td>
                       </tr>
                     ))}

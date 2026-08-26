@@ -79,10 +79,15 @@ function primeiroDiaDoMes(iso: string): string {
  */
 function classificarSituacao(situacao: string | null) {
   const s = (situacao ?? "").toLowerCase();
+  const cancelada = /cancelad/.test(s);
+  const denegada = /denegad/.test(s);
   return {
-    autorizada: /aprovad|autorizad/.test(s),
-    cancelada: /cancelad/.test(s),
-    denegada: /denegad/.test(s),
+    // "Corrigida" é nota autorizada que passou por carta de correção — continua
+    // sendo receita. Tratá-la como não-autorizada subestimava o faturamento
+    // (R$ 11.495,22 só em julho/2026).
+    autorizada: !cancelada && !denegada && /aprovad|autorizad|corrigid/.test(s),
+    cancelada,
+    denegada,
   };
 }
 
@@ -191,12 +196,15 @@ function mapearServico(n: Record<string, unknown>, registro: unknown) {
     valor_pis: num(n.valor_pis),
     valor_cofins: num(n.valor_cofins),
     valor_base_calculo: num(n.valor_base_calculo),
-    pis_retido: flag(n.pis_retido),
-    cofins_retido: flag(n.cofins_retido),
-    csll_retido: flag(n.csll_retido),
-    ir_retido: flag(n.ir_retido),
-    inss_retido: flag(n.inss_retido),
-    iss_retido: flag(n.iss_retido),
+    // O GC devolve pis_retido=1 com aliquota e valor zerados em praticamente
+    // toda NFS-e — é default de cadastro, não retenção. Sem valor, não houve
+    // retenção: só marcamos quando há dinheiro atrás da flag.
+    pis_retido: flag(n.pis_retido) && num(n.valor_pis) > 0,
+    cofins_retido: flag(n.cofins_retido) && num(n.valor_cofins) > 0,
+    csll_retido: flag(n.csll_retido) && num(n.valor_csll) > 0,
+    ir_retido: flag(n.ir_retido) && num(n.valor_ir) > 0,
+    inss_retido: flag(n.inss_retido) && num(n.valor_inss) > 0,
+    iss_retido: flag(n.iss_retido) && num(n.valor_iss) > 0,
     valor_iss: num(n.valor_iss),
     valor_ir: num(n.valor_ir),
     valor_csll: num(n.valor_csll),

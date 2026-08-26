@@ -66,7 +66,29 @@ interface NfSaidaRow {
   valor_produtos: number | null;
   valor_servico: number | null;
   valor_desconto: number | null;
+  valor_total_nf: number | null;
+  valor_ipi: number | null;
   valor_icms: number | null;
+}
+
+interface CompraRow {
+  numero_nfe: string | null;
+}
+
+interface ProdutoTributoRow {
+  gc_produto_id: string;
+  nf_chave: string | null;
+  nome_produto: string | null;
+  sem_credito: boolean | null;
+  excecao_manual: boolean | null;
+  excecao_motivo: string | null;
+  ineligivel_precificacao: boolean | null;
+  ineligivel_motivo: string | null;
+}
+
+/** Chave de ligação com a precificação: a NF de origem mais o nome do item. */
+function chaveCuradoria(nfChave: string | null, nomeProduto: string | null): string {
+  return `${nfChave ?? ""}|${(nomeProduto ?? "").trim().toLowerCase()}`;
 }
 
 interface NfSaidaRetencaoRow {
@@ -91,6 +113,7 @@ interface NfEntradaItemRow {
   valor_desconto: number | null;
   valor_frete: number | null;
   valor_icms: number | null;
+  perc_reducao_bc: number | null;
 }
 
 interface NfEntradaRow {
@@ -137,9 +160,14 @@ export interface LinhaCredito {
   item: number;
   produto: string | null;
   cfop: string | null;
-  cst: string | null;
+  /** CST de PIS/COFINS — não confundir com o de ICMS. */
+  cstPisCofins: string | null;
+  /** CST de ICMS, ou CSOSN quando o emitente é do Simples. */
+  cstIcms: string | null;
   valorProduto: number;
+  temPedidoCompra: boolean;
   decisao: DecisaoCredito;
+  decisaoIcms: DecisaoCredito;
 }
 
 export interface LinhaReceita {
@@ -263,6 +291,8 @@ export async function apurarCompetencia(
         valorProdutos: Number(nf.valor_produtos) || 0,
         valorServico: Number(nf.valor_servico) || 0,
         valorDesconto: Number(nf.valor_desconto) || 0,
+        valorTotalNf: Number(nf.valor_total_nf) || 0,
+        valorIpi: Number(nf.valor_ipi) || 0,
       },
       nf.codigo_cfop ? regras.get(String(nf.codigo_cfop)) ?? null : null,
     );
@@ -303,6 +333,35 @@ export async function apurarCompetencia(
     .eq("competencia", competencia);
   if (erroEntradas) throw new Error(`Falha ao ler notas de entrada: ${erroEntradas.message}`);
 
+  // Pedidos de compra da janela. Nota amarrada a pedido é prova de que o item
+  // foi adquirido para uso na operação — critério de insumo objetivo, em vez
+  // de depender do CST que o fornecedor digitou.
+  const { data: compras } = await db
+    .from<CompraRow>("gc_compras")
+    .select("numero_nfe")
+    .gte("data", competenciaAnterior(competencia))
+    .lte("data", ultimoDiaDoMes(competencia));
+  const semZeros = (s: string) => s.replace(/^0+/, "");
+  const numerosComPedido = new Set(
+    (compras ?? [])
+      .map((c) => (c.numero_nfe ?? "").trim())
+      .filter(Boolean)
+      .map(semZeros),
+  );
+
+  // Decisões já curadas na precificação. Elas mandam: se um humano marcou
+  // sem_credito ou corrigiu a alíquota, a apuração não pode contradizer.
+  const { data: tributos } = await db
+    .from<ProdutoTributoRow>("fin_produto_tributos")
+    .select(
+      "gc_produto_id, nf_chave, nome_produto, sem_credito, " +
+      "excecao_manual, excecao_motivo, ineligivel_precificacao, ineligivel_motivo",
+    );
+  const curadoria = new Map<string, ProdutoTributoRow>();
+  for (const t of tributos ?? []) {
+    curadoria.set(chaveCuradoria(t.nf_chave, t.nome_produto), t);
+  }
+
   const linhasCredito: LinhaCredito[] = [];
   let baseCredito = 0;
   let baseCreditoSimples = 0;
@@ -313,7 +372,12 @@ export async function apurarCompetencia(
 
   for (const nf of entradas ?? []) {
     const regime = (nf.regime_emitente ?? "desconhecido") as RegimeEmitente;
-    const cabecalho = { regimeEmitente: regime, crtEmitente: nf.crt_emitente ?? null };
+    const temPedidoCompra = numerosComPedido.has(semZeros((nf.numero ?? "").trim()));
+    const cabecalho = {
+      regimeEmitente: regime,
+      crtEmitente: nf.crt_emitente ?? null,
+      temPedidoCompra,
+    };
 
     for (const item of nf.fis_nf_entrada_item ?? []) {
       itensEntrada++;
@@ -327,13 +391,39 @@ export async function apurarCompetencia(
         valorDesconto: Number(item.valor_desconto) || 0,
         valorFrete: Number(item.valor_frete) || 0,
         valorIcms: Number(item.valor_icms) || 0,
+        percReducaoBc: Number(item.perc_reducao_bc) || 0,
         ncm: item.ncm,
         nomeProduto: item.nome_produto,
       };
       const regra = item.cfop ? regras.get(String(item.cfop)) ?? null : null;
 
-      const decisao = decidirCreditoPisCofins(itemEntrada, cabecalho, regra, opcoes);
+      let decisao = decidirCreditoPisCofins(itemEntrada, cabecalho, regra, opcoes);
       const decisaoIcms = decidirCreditoIcms(itemEntrada, cabecalho, regra);
+
+      // A precificação tem precedência: se um humano já vetou o item ou o
+      // marcou como inelegível (brinde, bonificação, doação), a apuração
+      // não pode conceder crédito por cima dessa decisão.
+      const curado = curadoria.get(chaveCuradoria(nf.chave, item.nome_produto));
+      if (decisao.permitido && curado?.sem_credito) {
+        decisao = {
+          ...decisao,
+          permitido: false,
+          base: 0,
+          regra: "VETO_PRECIFICACAO",
+          motivo:
+            "Vedado na precificação (sem_credito). " +
+            (curado.excecao_motivo ?? "Sem motivo registrado."),
+        };
+      } else if (decisao.permitido && curado?.ineligivel_precificacao) {
+        decisao = {
+          ...decisao,
+          permitido: false,
+          base: 0,
+          regra: "INELEGIVEL_PRECIFICACAO",
+          motivo:
+            `Marcado como inelegível na precificação: ${curado.ineligivel_motivo ?? "sem motivo"}`,
+        };
+      }
 
       if (decisao.permitido) {
         baseCredito += decisao.base;
@@ -360,9 +450,12 @@ export async function apurarCompetencia(
         item: item.ordem,
         produto: item.nome_produto,
         cfop: item.cfop,
-        cst: item.cst_pis ?? item.cst_cofins,
+        cstPisCofins: item.cst_pis ?? item.cst_cofins,
+        cstIcms: item.cst_icms,
         valorProduto: itemEntrada.valorProduto,
+        temPedidoCompra,
         decisao,
+        decisaoIcms,
       });
     }
   }
