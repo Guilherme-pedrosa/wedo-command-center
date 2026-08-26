@@ -298,3 +298,87 @@ export function getXmlIde(xml: string): { modelo: string; numero: string; serie:
     dataEmissao: (getTag(ide, "dhEmi") || getTag(ide, "dEmi") || "").slice(0, 10),
   };
 }
+
+// ══════════════════════════════════════════════════════════════
+//  NFS-e (ABRASF) — nota de servico municipal
+// ══════════════════════════════════════════════════════════════
+
+/** Reconhece um XML de NFS-e no padrao ABRASF. */
+export function ehNfse(xml: string): boolean {
+  return /<(?:[a-zA-Z0-9]+:)?(InfNfse|CompNfse|Nfse)\b/i.test(xml);
+}
+
+export interface NfseParsed {
+  numero: string;
+  codigoVerificacao: string;
+  dataEmissao: string;
+  prestadorCnpj: string;
+  prestadorNome: string;
+  tomadorCnpj: string;
+  tomadorNome: string;
+  tomadorUf: string;
+  discriminacao: string;
+  itemListaServico: string;
+  valorServicos: number;
+  valorDeducoes: number;
+  valorLiquido: number;
+  baseCalculo: number;
+  aliquotaIss: number;
+  valorIss: number;
+  /** ABRASF: 1 = ISS retido pelo tomador, 2 = nao retido. */
+  issRetido: number;
+  valorPis: number;
+  valorCofins: number;
+  valorInss: number;
+  valorIr: number;
+  valorCsll: number;
+  cancelada: boolean;
+}
+
+export function parseNfse(xml: string): NfseParsed | null {
+  const inf = getBlock(xml, "InfNfse");
+  if (!inf) return null;
+
+  const valoresNfse = getBlock(inf, "ValoresNfse");
+  const servico = getBlock(inf, "Servico");
+  const valoresServico = getBlock(servico, "Valores");
+  const prestador = getBlock(inf, "PrestadorServico");
+  const tomador = getBlock(inf, "TomadorServico");
+
+  const n = (bloco: string, t: string) => parseFloat(getTag(bloco, t)) || 0;
+  // O documento repete valores em ValoresNfse e em Servico/Valores; o de
+  // Servico e o declarado pelo prestador, o de ValoresNfse e o consolidado.
+  const num2 = (t: string) => n(valoresServico, t) || n(valoresNfse, t);
+
+  const cancelada = /<(?:[a-zA-Z0-9]+:)?NfseCancelamento\b/i.test(xml)
+    || /<(?:[a-zA-Z0-9]+:)?Cancelamento\b/i.test(xml);
+
+  return {
+    numero: getTag(inf, "Numero"),
+    codigoVerificacao: getTag(inf, "CodigoVerificacao"),
+    dataEmissao: getTag(inf, "DataEmissao").slice(0, 10),
+    prestadorCnpj: getTag(getBlock(prestador, "IdentificacaoPrestador"), "Cnpj")
+      || getTag(prestador, "Cnpj"),
+    prestadorNome: getTag(prestador, "RazaoSocial"),
+    tomadorCnpj: getTag(getBlock(tomador, "IdentificacaoTomador"), "Cnpj")
+      || getTag(tomador, "Cnpj") || getTag(tomador, "Cpf"),
+    tomadorNome: getTag(tomador, "RazaoSocial"),
+    tomadorUf: getTag(getBlock(tomador, "Endereco"), "Uf"),
+    discriminacao: getTag(servico, "Discriminacao")
+      || getTag(inf, "DescricaoCodigoTributacaoMunicipio"),
+    itemListaServico: getTag(servico, "ItemListaServico"),
+    valorServicos: num2("ValorServicos"),
+    valorDeducoes: num2("ValorDeducoes"),
+    valorLiquido: n(valoresNfse, "ValorLiquidoNfse") || num2("ValorLiquidoNfse"),
+    baseCalculo: n(valoresNfse, "BaseCalculo") || num2("BaseCalculo"),
+    aliquotaIss: n(valoresNfse, "Aliquota") || num2("Aliquota"),
+    valorIss: n(valoresNfse, "ValorIss") || num2("ValorIss"),
+    issRetido: parseInt(getTag(valoresServico, "IssRetido") || getTag(servico, "IssRetido"), 10) || 0,
+    valorPis: num2("ValorPis"),
+    valorCofins: num2("ValorCofins"),
+    valorInss: num2("ValorInss"),
+    valorIr: num2("ValorIr"),
+    valorCsll: num2("ValorCsll"),
+    cancelada,
+  };
+}
