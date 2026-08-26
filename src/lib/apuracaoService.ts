@@ -20,6 +20,7 @@ import {
   type ResultadoTributo,
   type RetencaoRateada,
   type DecisaoCredito,
+  indexarPedidos,
 } from "@/lib/apuracaoFiscal";
 
 /**
@@ -76,6 +77,7 @@ interface CompraRow {
   codigo: string | null;
   data: string | null;
   nome_fornecedor: string | null;
+  cnpj_fornecedor: string | null;
   valor_total: number | null;
   nome_situacao: string | null;
 }
@@ -456,15 +458,22 @@ export async function apurarCompetencia(
   // de depender do CST que o fornecedor digitou.
   const { data: compras } = await db
     .from<CompraRow>("gc_compras")
-    .select("numero_nfe, codigo, data, nome_fornecedor, valor_total, nome_situacao")
+    .select(
+      "numero_nfe, codigo, data, nome_fornecedor, cnpj_fornecedor, valor_total, nome_situacao",
+    )
     .gte("data", competenciaAnterior(competencia))
     .lte("data", ultimoDiaDoMes(competencia));
-  const semZeros = (s: string) => s.replace(/^0+/, "");
-  const numerosComPedido = new Set(
-    (compras ?? [])
-      .map((c) => (c.numero_nfe ?? "").trim())
-      .filter(Boolean)
-      .map(semZeros),
+
+  // Casar pedido com nota exige o par (numero, fornecedor). Numeracao de NF e
+  // por emitente e se repete: so pelo numero, 291 notas herdavam o pedido de
+  // outro fornecedor -- e o alerta de compra sem XML ficava calado em 99,7%
+  // dos casos, porque qualquer nota homonima servia de alibi.
+  const pedidos = indexarPedidos(
+    (compras ?? []).map((c) => ({
+      numeroNfe: c.numero_nfe,
+      cnpjFornecedor: c.cnpj_fornecedor,
+      nomeFornecedor: c.nome_fornecedor,
+    })),
   );
 
   // Decisões já curadas na precificação. Elas mandam: se um humano marcou
@@ -516,7 +525,11 @@ export async function apurarCompetencia(
 
   for (const nf of entradas ?? []) {
     const regime = (nf.regime_emitente ?? "desconhecido") as RegimeEmitente;
-    const temPedidoCompra = numerosComPedido.has(semZeros((nf.numero ?? "").trim()));
+    const temPedidoCompra = pedidos.temPedido({
+      numero: nf.numero,
+      cnpjEmitente: nf.cnpj_emitente,
+      nomeEmitente: nf.nome_emitente,
+    });
     // 11 dígitos = CPF. MEI tem CNPJ (14) e não é pessoa física.
     const doc = String(nf.cnpj_emitente ?? "").replace(/\D/g, "");
     const cabecalho = {
@@ -703,16 +716,39 @@ export async function apurarCompetencia(
   // Se há pedido de compra com número de NF e o XML nunca chegou, o crédito
   // simplesmente não entra na apuração — em silêncio. Em julho/2026 isso
   // escondia R$ 72.509,55 de uma única nota. Aqui vira lista de trabalho.
-  const numerosComXml = new Set(
-    (entradas ?? []).map((e) => semZeros((e.numero ?? "").trim())).filter(Boolean),
+  const daCompetencia = (compras ?? []).filter(
+    (c) => c.data && c.data >= inicio && c.data <= fim,
   );
-  const semXml = (compras ?? []).filter((c) => {
-    const nf = semZeros((c.numero_nfe ?? "").trim());
-    if (!nf) return false;
-    // Só interessa compra da própria competência.
-    if (!c.data || c.data < inicio || c.data > fim) return false;
-    return !numerosComXml.has(nf);
-  });
+  const indice = indexarPedidos(
+    daCompetencia.map((c) => ({
+      numeroNfe: c.numero_nfe,
+      cnpjFornecedor: c.cnpj_fornecedor,
+      nomeFornecedor: c.nome_fornecedor,
+    })),
+  );
+  const faltando = new Set(
+    indice
+      .semNota(
+        (entradas ?? []).map((e) => ({
+          numero: e.numero,
+          cnpjEmitente: e.cnpj_emitente,
+          nomeEmitente: e.nome_emitente,
+        })),
+      )
+      .map((p) => `${p.numeroNfe}|${p.cnpjFornecedor ?? ""}|${p.nomeFornecedor ?? ""}`),
+  );
+  const semXml = daCompetencia.filter((c) =>
+    faltando.has(`${c.numero_nfe}|${c.cnpj_fornecedor ?? ""}|${c.nome_fornecedor ?? ""}`),
+  );
+
+  // Papel declarado manda; sem declaracao, o CNPJ de MEI que o ERP cola no
+  // nome ja denuncia o tecnico autonomo, que so emite nota de servico.
+  const ehPrestador = (c: CompraRow) => {
+    const doc = String(c.cnpj_fornecedor ?? "").replace(/D/g, "");
+    const papel = papeisFornecedor.get(doc);
+    if (papel) return papel.papel === "prestador";
+    return /^d{2}.d{3}.d{3}s/.test(c.nome_fornecedor ?? "");
+  };
 
   let valorSemXml = 0;
   for (const c of semXml) {
@@ -725,9 +761,13 @@ export async function apurarCompetencia(
       referencia: `NF ${c.numero_nfe} · pedido ${c.codigo ?? "?"}`,
       descricao:
         `${c.nome_fornecedor ?? "Fornecedor"} — R$ ${valor.toFixed(2)} (${c.nome_situacao ?? "?"}). ` +
-        `Pedido de compra registrado, XML nunca importado. Crédito potencial de ` +
+        `Pedido de compra registrado, documento nunca importado. Crédito potencial de ` +
         `R$ ${round2((valor * ALIQUOTA_PIS_COFINS) / 100).toFixed(2)} em PIS/COFINS não está ` +
-        `sendo aproveitado. Baixar o XML na SEFAZ e importar.`,
+        `sendo aproveitado. ` +
+        // Prestador emite NFS-e na prefeitura: nao adianta procurar na SEFAZ.
+        (ehPrestador(c)
+          ? "Prestador de serviço: pedir a NFS-e ao emitente (não sai no portal da SEFAZ)."
+          : "Baixar o XML na SEFAZ e importar."),
     });
   }
   if (valorSemXml > 0) {
