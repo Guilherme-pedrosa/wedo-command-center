@@ -73,6 +73,11 @@ interface NfSaidaRow {
 
 interface CompraRow {
   numero_nfe: string | null;
+  codigo: string | null;
+  data: string | null;
+  nome_fornecedor: string | null;
+  valor_total: number | null;
+  nome_situacao: string | null;
 }
 
 interface ProdutoTributoRow {
@@ -84,6 +89,39 @@ interface ProdutoTributoRow {
   excecao_motivo: string | null;
   ineligivel_precificacao: boolean | null;
   ineligivel_motivo: string | null;
+}
+
+interface ServicoRegraRow {
+  padrao: string;
+  credita: boolean;
+  categoria: string;
+  fundamento: string;
+  prioridade: number;
+  ativo: boolean;
+}
+
+/** CFOP de serviço tributado pelo ISSQN (x933 na saída do prestador). */
+function ehCfopServico(cfop: string | null): boolean {
+  return !!cfop && /^[1256]933$/.test(cfop);
+}
+
+/**
+ * Classifica um serviço tomado contra fis_servico_regra. Menor prioridade é
+ * avaliada primeiro, para que uma vedação (almoço) vença uma palavra que
+ * pareça insumo na mesma descrição.
+ */
+function classificarServico(descricao: string | null, regras: ServicoRegraRow[]) {
+  const texto = descricao ?? "";
+  for (const r of regras) {
+    try {
+      if (new RegExp(r.padrao, "i").test(texto)) {
+        return { insumo: r.credita, categoria: r.categoria, fundamento: r.fundamento };
+      }
+    } catch {
+      // Padrão inválido cadastrado por engano não pode derrubar a apuração.
+    }
+  }
+  return { insumo: null as boolean | null, categoria: null, fundamento: null };
 }
 
 /** Chave de ligação com a precificação: a NF de origem mais o nome do item. */
@@ -120,6 +158,7 @@ interface NfEntradaRow {
   chave: string;
   numero: string | null;
   nome_emitente: string | null;
+  cnpj_emitente: string | null;
   crt_emitente: number | null;
   regime_emitente: RegimeEmitente | null;
   fis_nf_entrada_item: NfEntradaItemRow[] | null;
@@ -362,6 +401,14 @@ export async function apurarCompetencia(
     curadoria.set(chaveCuradoria(t.nf_chave, t.nome_produto), t);
   }
 
+  const { data: regrasServicoRaw } = await db
+    .from<ServicoRegraRow>("fis_servico_regra")
+    .select("padrao, credita, categoria, fundamento, prioridade, ativo")
+    .eq("ativo", true);
+  const regrasServico = (regrasServicoRaw ?? []).sort(
+    (a, b) => (a.prioridade ?? 100) - (b.prioridade ?? 100),
+  );
+
   const linhasCredito: LinhaCredito[] = [];
   let baseCredito = 0;
   let baseCreditoSimples = 0;
@@ -373,10 +420,13 @@ export async function apurarCompetencia(
   for (const nf of entradas ?? []) {
     const regime = (nf.regime_emitente ?? "desconhecido") as RegimeEmitente;
     const temPedidoCompra = numerosComPedido.has(semZeros((nf.numero ?? "").trim()));
+    // 11 dígitos = CPF. MEI tem CNPJ (14) e não é pessoa física.
+    const doc = String(nf.cnpj_emitente ?? "").replace(/\D/g, "");
     const cabecalho = {
       regimeEmitente: regime,
       crtEmitente: nf.crt_emitente ?? null,
       temPedidoCompra,
+      emitentePessoaFisica: doc.length === 11,
     };
 
     for (const item of nf.fis_nf_entrada_item ?? []) {
@@ -394,6 +444,16 @@ export async function apurarCompetencia(
         percReducaoBc: Number(item.perc_reducao_bc) || 0,
         ncm: item.ncm,
         nomeProduto: item.nome_produto,
+        ehServico: ehCfopServico(item.cfop),
+        ...(() => {
+          if (!ehCfopServico(item.cfop)) return {};
+          const c = classificarServico(item.nome_produto, regrasServico);
+          return {
+            servicoEhInsumo: c.insumo,
+            servicoCategoria: c.categoria,
+            servicoFundamento: c.fundamento,
+          };
+        })(),
       };
       const regra = item.cfop ? regras.get(String(item.cfop)) ?? null : null;
 
