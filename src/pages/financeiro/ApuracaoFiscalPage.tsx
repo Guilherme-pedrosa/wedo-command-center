@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,8 @@ import {
   Stethoscope,
   Save,
   Upload,
+  History,
+  Lock,
 } from "lucide-react";
 import {
   apurarCompetencia,
@@ -24,6 +26,9 @@ import {
   type LinhaCredito,
   decidirItemManualmente,
   voltarParaRegraAutomatica,
+  listarApuracoes,
+  fecharCompetencia,
+  type ApuracaoHistorico,
 } from "@/lib/apuracaoService";
 import { importarXmlFiscal, type ResultadoImportacao } from "@/lib/importarXmlFiscal";
 
@@ -73,6 +78,7 @@ export default function ApuracaoFiscalPage() {
   const [importacao, setImportacao] = useState<ResultadoImportacao | null>(null);
   const [progressoImport, setProgressoImport] = useState("");
   const [alternando, setAlternando] = useState<string | null>(null);
+  const [historico, setHistorico] = useState<ApuracaoHistorico[]>([]);
 
   const competenciaIso = `${competencia}-01`;
 
@@ -109,14 +115,45 @@ export default function ApuracaoFiscalPage() {
       "Processar XMLs de entrada",
     );
 
+  async function carregarHistorico() {
+    try {
+      setHistorico(await listarApuracoes());
+    } catch {
+      // Histórico é informativo; falhar aqui não pode derrubar a apuração.
+    }
+  }
+
+  useEffect(() => {
+    void carregarHistorico();
+  }, []);
+
   async function apurar() {
     setCarregando("Apurando");
     try {
       const r = await apurarCompetencia(competenciaIso);
       setResultado(r);
-      toast.success("Apuração calculada.");
+      // Grava sozinho: apuração que não fica registrada não serve de nada
+      // quando alguém perguntar, meses depois, de onde saiu o número.
+      await salvarApuracao(r);
+      await carregarHistorico();
+      toast.success("Apuração calculada e registrada.");
     } catch (e) {
       toast.error(`Apuração falhou: ${(e as Error)?.message ?? e}`);
+    } finally {
+      setCarregando(null);
+    }
+  }
+
+  async function fechar() {
+    if (!resultado) return;
+    setCarregando("Fechando");
+    try {
+      const { data: sessao } = await supabase.auth.getUser();
+      await fecharCompetencia(competenciaIso, sessao?.user?.email ?? "usuário");
+      await carregarHistorico();
+      toast.success(`Competência ${competencia} fechada.`);
+    } catch (e) {
+      toast.error(`Falha ao fechar: ${(e as Error)?.message ?? e}`);
     } finally {
       setCarregando(null);
     }
@@ -273,6 +310,81 @@ export default function ApuracaoFiscalPage() {
           </Button>
         </div>
       </header>
+
+      {/* Histórico: toda apuração calculada fica registrada, com data. */}
+      {historico.length > 0 && (
+        <section className="rounded-lg border border-border">
+          <h2 className="flex items-center gap-2 border-b border-border px-4 py-3 font-semibold">
+            <History className="h-4 w-4" />
+            Apurações registradas
+            <span className="text-sm font-normal text-muted-foreground">
+              ({historico.length} competência{historico.length > 1 ? "s" : ""})
+            </span>
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-left">
+                <tr>
+                  <th className="p-2">Competência</th>
+                  <th className="p-2">Situação</th>
+                  <th className="p-2 text-right">Receita</th>
+                  <th className="p-2 text-right">Débito</th>
+                  <th className="p-2 text-right">Crédito</th>
+                  <th className="p-2 text-right">PIS/COFINS</th>
+                  <th className="p-2 text-right">ICMS</th>
+                  <th className="p-2">Calculado em</th>
+                  <th className="p-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {historico.map((h) => (
+                  <tr
+                    key={h.competencia}
+                    className={`border-t border-border/50 ${
+                      h.competencia === competenciaIso ? "bg-muted/30" : ""
+                    }`}
+                  >
+                    <td className="p-2 font-medium">{h.competencia.slice(0, 7)}</td>
+                    <td className="p-2">
+                      {h.status === "fechada" ? (
+                        <Badge>fechada</Badge>
+                      ) : (
+                        <Badge variant="secondary">rascunho</Badge>
+                      )}
+                    </td>
+                    <td className="p-2 text-right tabular-nums">{formatCurrency(h.receitaBruta)}</td>
+                    <td className="p-2 text-right tabular-nums">{formatCurrency(h.debitoPisCofins)}</td>
+                    <td className="p-2 text-right tabular-nums">{formatCurrency(h.creditoPisCofins)}</td>
+                    <td className="p-2 text-right font-semibold tabular-nums">
+                      {formatCurrency(h.saldoPisCofins)}
+                    </td>
+                    <td className="p-2 text-right tabular-nums">{formatCurrency(h.saldoIcms)}</td>
+                    <td className="p-2 text-xs text-muted-foreground">
+                      {h.calculadoEm ? new Date(h.calculadoEm).toLocaleString("pt-BR") : "—"}
+                      {h.fechadaEm && (
+                        <p className="mt-0.5">
+                          Fechada por {h.fechadaPor} em{" "}
+                          {new Date(h.fechadaEm).toLocaleDateString("pt-BR")}
+                        </p>
+                      )}
+                    </td>
+                    <td className="p-2 text-right">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setCompetencia(h.competencia.slice(0, 7))}
+                        disabled={h.competencia === competenciaIso}
+                      >
+                        abrir
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* Importação direta de XML — o caminho que não depende do GestãoClick. */}
       <section className="rounded-lg border-2 border-dashed border-border p-6">
@@ -513,7 +625,11 @@ export default function ApuracaoFiscalPage() {
           <div className="flex flex-wrap items-center gap-3">
             <Button onClick={salvar} disabled={!!carregando} variant="outline">
               <Save className="mr-2 h-4 w-4" />
-              Gravar rascunho
+              Regravar
+            </Button>
+            <Button onClick={fechar} disabled={!!carregando} variant="outline">
+              <Lock className="mr-2 h-4 w-4" />
+              Fechar competência
             </Button>
             <Button onClick={exportar} variant="outline">
               <FileDown className="mr-2 h-4 w-4" />

@@ -920,3 +920,98 @@ export async function voltarParaRegraAutomatica(nfEntradaItemId: string): Promis
   const { error } = await alvo.delete().eq("nf_entrada_item_id", nfEntradaItemId);
   if (error) throw new Error(`Falha ao remover decisão manual: ${error.message}`);
 }
+
+export interface ApuracaoHistorico {
+  competencia: string;
+  status: "rascunho" | "fechada";
+  calculadoEm: string | null;
+  fechadaEm: string | null;
+  fechadaPor: string | null;
+  receitaBruta: number;
+  debitoPisCofins: number;
+  creditoPisCofins: number;
+  retencoes: number;
+  saldoPisCofins: number;
+  debitoIcms: number;
+  creditoIcms: number;
+  saldoIcms: number;
+}
+
+interface ApuracaoLinhaRow {
+  competencia: string;
+  tributo: string;
+  status: string;
+  calculado_em: string | null;
+  fechada_em: string | null;
+  fechada_por: string | null;
+  receita_bruta: number | null;
+  valor_debito: number | null;
+  valor_credito: number | null;
+  valor_retencoes: number | null;
+  saldo_a_recolher: number | null;
+}
+
+/**
+ * Histórico das apurações já calculadas, uma linha por competência.
+ *
+ * A tabela guarda uma linha por tributo; aqui elas viram um mês só, que é
+ * como se olha o fechamento. Existe para que ninguém precise reapurar para
+ * lembrar quanto deu — e para que dê para ver se um mês foi recalculado
+ * depois de fechado.
+ */
+export async function listarApuracoes(): Promise<ApuracaoHistorico[]> {
+  const { data, error } = await db
+    .from<ApuracaoLinhaRow>("fis_apuracao")
+    .select(
+      "competencia, tributo, status, calculado_em, fechada_em, fechada_por, " +
+      "receita_bruta, valor_debito, valor_credito, valor_retencoes, saldo_a_recolher",
+    );
+  if (error) throw new Error(`Falha ao ler histórico: ${error.message}`);
+
+  const porCompetencia = new Map<string, ApuracaoHistorico>();
+  for (const l of data ?? []) {
+    const atual = porCompetencia.get(l.competencia) ?? {
+      competencia: l.competencia,
+      status: "rascunho" as const,
+      calculadoEm: l.calculado_em,
+      fechadaEm: l.fechada_em,
+      fechadaPor: l.fechada_por,
+      receitaBruta: 0,
+      debitoPisCofins: 0, creditoPisCofins: 0, retencoes: 0, saldoPisCofins: 0,
+      debitoIcms: 0, creditoIcms: 0, saldoIcms: 0,
+    };
+
+    if (l.tributo === "ICMS") {
+      atual.debitoIcms = Number(l.valor_debito) || 0;
+      atual.creditoIcms = Number(l.valor_credito) || 0;
+      atual.saldoIcms = Number(l.saldo_a_recolher) || 0;
+    } else {
+      atual.receitaBruta = Number(l.receita_bruta) || atual.receitaBruta;
+      atual.debitoPisCofins += Number(l.valor_debito) || 0;
+      atual.creditoPisCofins += Number(l.valor_credito) || 0;
+      atual.retencoes += Number(l.valor_retencoes) || 0;
+      atual.saldoPisCofins += Number(l.saldo_a_recolher) || 0;
+    }
+    // Fechada só quando todos os tributos do mês estão fechados.
+    if (l.status === "fechada" && atual.status === "rascunho" && porCompetencia.has(l.competencia)) {
+      atual.status = "fechada";
+    } else if (l.status !== "fechada") {
+      atual.status = "rascunho";
+    }
+    atual.calculadoEm = l.calculado_em ?? atual.calculadoEm;
+    porCompetencia.set(l.competencia, atual);
+  }
+
+  return [...porCompetencia.values()].sort((a, b) => b.competencia.localeCompare(a.competencia));
+}
+
+/** Marca a competência como fechada, congelando o que foi apurado. */
+export async function fecharCompetencia(competencia: string, quem: string): Promise<void> {
+  const alvo = db.from<ApuracaoLinhaRow>("fis_apuracao") as unknown as {
+    update(v: unknown): { eq(c: string, x: string): Promise<{ error: { message: string } | null }> };
+  };
+  const { error } = await alvo
+    .update({ status: "fechada", fechada_em: new Date().toISOString(), fechada_por: quem })
+    .eq("competencia", competencia);
+  if (error) throw new Error(`Falha ao fechar competência: ${error.message}`);
+}
