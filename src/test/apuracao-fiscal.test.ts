@@ -4,6 +4,7 @@ import {
   decidirCreditoIcms,
   decidirReceitaSaida,
   apurarPisCofins,
+  indexarPedidos,
   apurarIcms,
   ratearRetencoes,
   round2,
@@ -590,5 +591,75 @@ describe("saldo credor: PIS e COFINS não se comunicam", () => {
     expect(r.cofins.saldoARecolher).toBe(0);
     expect(r.pis.saldoCredorProximo).toBe(3_300); // 1,65% de 200k
     expect(r.cofins.saldoCredorProximo).toBe(15_200); // 7,6% de 200k
+  });
+});
+
+describe("amarração pedido de compra ↔ nota fiscal", () => {
+  // Casos tirados da base real da WeDo. Casar só pelo número da NF dava 291
+  // notas (R$ 387 mil) herdando pedido de outro fornecedor, e calava o alerta
+  // de compra sem XML em 99,7% dos casos.
+  const nota = (numero: string, cnpj: string, nome: string) => ({
+    numero,
+    cnpjEmitente: cnpj,
+    nomeEmitente: nome,
+  });
+  const pedido = (numeroNfe: string, cnpj: string | null, nome: string) => ({
+    numeroNfe,
+    cnpjFornecedor: cnpj,
+    nomeFornecedor: nome,
+  });
+
+  it("não deixa uma nota herdar o pedido de outro fornecedor", () => {
+    const ix = indexarPedidos([pedido("20", "56914804000150", "FRED JORGE DANTAS")]);
+    expect(ix.temPedido(nota("20", "64350009000105", "Wilton Rosa Silva"))).toBe(false);
+  });
+
+  it("casa pelo CNPJ mesmo com zeros à esquerda de um lado só", () => {
+    const ix = indexarPedidos([pedido("000020", "64350009000105", "Wilton Rosa Silva")]);
+    expect(ix.temPedido(nota("20", "64350009000105", "WILTON ROSA SILVA"))).toBe(true);
+  });
+
+  it("casa matriz com filial pela raiz do CNPJ", () => {
+    // O pedido fica no CNPJ da matriz e a nota sai da filial. É o mesmo
+    // fornecedor -- comparar os 14 dígitos separava um só.
+    const ix = indexarPedidos([pedido("60837", "12345678000199", "Nova Milenio")]);
+    expect(ix.temPedido(nota("60837", "12345678000288", "Nova Milenio"))).toBe(true);
+  });
+
+  it("aceita o CNPJ que o ERP cola na frente do nome quando o campo vem vazio", () => {
+    // 10,6% dos pedidos do Gestão Click não têm cnpj_fornecedor preenchido,
+    // mas trazem "62.197.586 AYRTON EULER..." na razão social.
+    const ix = indexarPedidos([pedido("62", null, "62.197.586 AYRTON EULER DOS SANTOS")]);
+    expect(ix.temPedido(nota("62", "62197586000183", "AYRTON EULER DOS SANTOS CARVALHO"))).toBe(
+      true,
+    );
+  });
+
+  it("casa por nome quando nenhum dos dois lados tem CNPJ utilizável", () => {
+    const ix = indexarPedidos([pedido("777", null, "Paulinélis Transportes Ltda")]);
+    expect(ix.temPedido(nota("777", "", "PAULINELIS TRANSPORTES LTDA"))).toBe(true);
+  });
+
+  it("não casa quando o cadastro diverge de verdade", () => {
+    // "PAULINELIS" na nota, "PAULINERIS" no pedido: erro de digitação real.
+    // Preferimos deixar sem casar a inventar equivalência por semelhança.
+    const ix = indexarPedidos([pedido("680217", null, "PAULINERIS TRANSPORTES")]);
+    expect(ix.temPedido(nota("680217", "11222333000144", "PAULINELIS TRANSPORTES"))).toBe(false);
+  });
+
+  it("lista como sem XML só o pedido cuja própria nota falta", () => {
+    const ix = indexarPedidos([
+      pedido("100", "11111111000191", "Fornecedor A"),
+      pedido("100", "22222222000172", "Fornecedor B"),
+    ]);
+    // Chegou o XML do A. O do B continua faltando -- e antes o XML do A
+    // servia de álibi para os dois, porque o número era o mesmo.
+    const faltam = ix.semNota([nota("100", "11111111000191", "Fornecedor A")]);
+    expect(faltam.map((p) => p.nomeFornecedor)).toEqual(["Fornecedor B"]);
+  });
+
+  it("ignora pedido sem número de nota informado", () => {
+    const ix = indexarPedidos([pedido("", "11111111000191", "Fornecedor A")]);
+    expect(ix.semNota([])).toEqual([]);
   });
 });

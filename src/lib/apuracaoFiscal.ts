@@ -777,3 +777,110 @@ export function apurarIcms(e: EntradasIcms): ResultadoTributo {
     saldoCredorProximo: liquido < 0 ? round2(-liquido) : 0,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Amarração entre pedido de compra e nota fiscal
+// ---------------------------------------------------------------------------
+
+/**
+ * Número de NF sem os zeros à esquerda. O ERP grava "000123", o XML grava
+ * "123", e os dois são a mesma nota.
+ */
+export function numeroNf(s: string | null | undefined): string {
+  return (s ?? "").trim().replace(/^0+/, "");
+}
+
+/**
+ * Raiz do CNPJ — os 8 primeiros dígitos, que identificam a empresa.
+ *
+ * Matriz e filial só diferem no sufixo. O pedido costuma ficar no CNPJ da
+ * matriz enquanto a nota sai da filial, e comparar os 14 dígitos separa duas
+ * coisas que são o mesmo fornecedor.
+ */
+export function raizCnpj(s: string | null | undefined): string {
+  return (s ?? "").replace(/\D/g, "").slice(0, 8);
+}
+
+/**
+ * Nome de fornecedor reduzido a letras e números comparáveis.
+ *
+ * O Gestão Click cola o CNPJ na frente da razão social — "62.197.586 AYRTON
+ * EULER..." — então o prefixo numérico sai antes de qualquer coisa. Acentos e
+ * pontuação também, porque o mesmo fornecedor aparece com e sem eles.
+ */
+export function normalizarNomeFornecedor(s: string | null | undefined): string {
+  return (s ?? "")
+    .replace(/^[\d.\-/\s]+/, "")
+    .normalize("NFD")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+export interface PedidoCompra {
+  numeroNfe: string | null;
+  cnpjFornecedor: string | null;
+  nomeFornecedor: string | null;
+}
+
+export interface NotaParaCasar {
+  numero: string | null;
+  cnpjEmitente: string | null;
+  nomeEmitente: string | null;
+}
+
+/**
+ * Índice de pedidos de compra para perguntar "esta nota tem pedido?".
+ *
+ * Casar só pelo número da nota não funciona: numeração de NF é por emitente e
+ * se repete o tempo todo. Na base da WeDo isso dava 291 notas (R$ 387 mil)
+ * herdando o pedido de outro fornecedor — e, do outro lado, calava o alerta de
+ * compra sem XML em 99,7% dos casos, porque qualquer nota com o mesmo número
+ * servia de álibi.
+ *
+ * Então o par (número, identidade do fornecedor) é a chave, e a identidade
+ * aceita três provas, em ordem de força:
+ *   1. raiz do CNPJ do pedido bate com a do emitente;
+ *   2. o CNPJ que o ERP colou no começo do nome bate com a do emitente
+ *      (10,6% dos pedidos vêm sem o campo de CNPJ preenchido);
+ *   3. o nome normalizado é idêntico.
+ *
+ * Sobram 38 notas sem casar, quase todas por divergência de cadastro
+ * ("PAULINELIS" na nota, "PAULINERIS" no pedido).
+ */
+export function indexarPedidos(pedidos: PedidoCompra[]): {
+  temPedido: (nota: NotaParaCasar) => boolean;
+  /** Pedidos cuja nota não foi encontrada — a lista de XML que falta baixar. */
+  semNota: (notas: NotaParaCasar[]) => PedidoCompra[];
+} {
+  const porNumero = new Map<string, PedidoCompra[]>();
+  for (const p of pedidos) {
+    const num = numeroNf(p.numeroNfe);
+    if (!num) continue;
+    const lista = porNumero.get(num);
+    if (lista) lista.push(p);
+    else porNumero.set(num, [p]);
+  }
+
+  const casa = (p: PedidoCompra, nota: NotaParaCasar): boolean => {
+    const raizNota = raizCnpj(nota.cnpjEmitente);
+    if (raizNota) {
+      if (raizCnpj(p.cnpjFornecedor) === raizNota) return true;
+      // O ERP prefixa o CNPJ no nome quando o campo próprio vem vazio.
+      const prefixo = (p.nomeFornecedor ?? "").match(/^[\d.\-/\s]+/)?.[0] ?? "";
+      if (raizCnpj(prefixo) === raizNota) return true;
+    }
+    const nome = normalizarNomeFornecedor(p.nomeFornecedor);
+    return nome !== "" && nome === normalizarNomeFornecedor(nota.nomeEmitente);
+  };
+
+  const temPedido = (nota: NotaParaCasar): boolean =>
+    (porNumero.get(numeroNf(nota.numero)) ?? []).some((p) => casa(p, nota));
+
+  const semNota = (notas: NotaParaCasar[]): PedidoCompra[] =>
+    pedidos.filter((p) => {
+      if (!numeroNf(p.numeroNfe)) return false;
+      return !notas.some((n) => numeroNf(n.numero) === numeroNf(p.numeroNfe) && casa(p, n));
+    });
+
+  return { temPedido, semNota };
+}
