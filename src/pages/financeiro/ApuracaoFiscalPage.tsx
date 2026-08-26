@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   Stethoscope,
   Save,
+  Upload,
 } from "lucide-react";
 import {
   apurarCompetencia,
@@ -21,6 +22,7 @@ import {
   type ResultadoApuracao,
   type DiagnosticoEndpoint,
 } from "@/lib/apuracaoService";
+import { importarXmlFiscal, type ResultadoImportacao } from "@/lib/importarXmlFiscal";
 
 function ultimoDiaDoMes(competencia: string): string {
   const [ano, mes] = competencia.split("-").map(Number);
@@ -65,6 +67,8 @@ export default function ApuracaoFiscalPage() {
   const [resultado, setResultado] = useState<ResultadoApuracao | null>(null);
   const [carregando, setCarregando] = useState<string | null>(null);
   const [diagnostico, setDiagnostico] = useState<DiagnosticoEndpoint[] | null>(null);
+  const [importacao, setImportacao] = useState<ResultadoImportacao | null>(null);
+  const [progressoImport, setProgressoImport] = useState("");
 
   const competenciaIso = `${competencia}-01`;
 
@@ -124,6 +128,36 @@ export default function ApuracaoFiscalPage() {
       toast.error(`Falha ao gravar: ${(e as Error)?.message ?? e}`);
     } finally {
       setCarregando(null);
+    }
+  }
+
+  async function handleImportarXml(e: React.ChangeEvent<HTMLInputElement>) {
+    const arquivos = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (!arquivos.length) return;
+
+    setCarregando("Importando XMLs");
+    setImportacao(null);
+    try {
+      const r = await importarXmlFiscal(arquivos, { onProgresso: setProgressoImport });
+      setImportacao(r);
+      if (r.erros.length) {
+        toast.warning(
+          `${r.xmlsEncontrados} XMLs lidos, ${r.erros.length} com erro. Veja o detalhe abaixo.`,
+          { duration: 8000 },
+        );
+      } else {
+        toast.success(
+          `${r.xmlsEncontrados} XMLs importados: ${r.nfeEntrada} entradas, ` +
+          `${r.nfeSaida + r.nfseSaida} saídas.`,
+        );
+      }
+      if (r.competencias.length === 1) setCompetencia(r.competencias[0].slice(0, 7));
+    } catch (err) {
+      toast.error(`Importação falhou: ${(err as Error)?.message ?? err}`);
+    } finally {
+      setCarregando(null);
+      setProgressoImport("");
     }
   }
 
@@ -204,6 +238,89 @@ export default function ApuracaoFiscalPage() {
           </Button>
         </div>
       </header>
+
+      {/* Importação direta de XML — o caminho que não depende do GestãoClick. */}
+      <section className="rounded-lg border-2 border-dashed border-border p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-2xl">
+            <h2 className="flex items-center gap-2 font-semibold">
+              <Upload className="h-4 w-4" />
+              Importar XMLs
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Suba o .zip da SEFAZ (aceita zip dentro de zip) ou XMLs soltos. O sistema
+              identifica sozinho o que é entrada, saída e nota de serviço, comparando o
+              CNPJ do emitente com o da empresa — sem consultar o GestãoClick.
+            </p>
+          </div>
+          <label className="shrink-0">
+            <input
+              type="file"
+              accept=".xml,.zip"
+              multiple
+              className="hidden"
+              onChange={handleImportarXml}
+              disabled={!!carregando}
+            />
+            <span
+              className={`inline-flex cursor-pointer items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground ${
+                carregando ? "pointer-events-none opacity-50" : ""
+              }`}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Escolher arquivos
+            </span>
+          </label>
+        </div>
+
+        {progressoImport && (
+          <p className="mt-3 text-sm text-muted-foreground">{progressoImport}</p>
+        )}
+
+        {importacao && (
+          <div className="mt-4 space-y-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                { rotulo: "XMLs lidos", valor: importacao.xmlsEncontrados },
+                { rotulo: "NF-e de entrada", valor: importacao.nfeEntrada },
+                { rotulo: "Saídas (NF-e + NFS-e)", valor: importacao.nfeSaida + importacao.nfseSaida },
+                { rotulo: "Itens gravados", valor: importacao.itensGravados },
+              ].map((c) => (
+                <div key={c.rotulo} className="rounded border border-border/60 p-3">
+                  <p className="text-2xl font-semibold tabular-nums">{c.valor}</p>
+                  <p className="text-xs text-muted-foreground">{c.rotulo}</p>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-sm text-muted-foreground">
+              {importacao.zipsAninhados > 0 && `${importacao.zipsAninhados} zip(s) aninhado(s). `}
+              {importacao.jaExistiam > 0 &&
+                `${importacao.jaExistiam} nota(s) já estavam na base e foram atualizadas em vez de duplicadas. `}
+              {importacao.nfseEntrada > 0 &&
+                `${importacao.nfseEntrada} NFS-e recebida(s) de terceiro ignorada(s). `}
+              {importacao.ignorados > 0 && `${importacao.ignorados} arquivo(s) não reconhecido(s). `}
+              {importacao.competencias.length > 0 &&
+                `Competência(s): ${importacao.competencias.map((c) => c.slice(0, 7)).join(", ")}.`}
+            </p>
+
+            {importacao.erros.length > 0 && (
+              <details className="rounded border border-destructive/50 bg-destructive/10 p-3">
+                <summary className="cursor-pointer text-sm font-medium text-destructive">
+                  {importacao.erros.length} arquivo(s) com erro
+                </summary>
+                <ul className="mt-2 space-y-1 text-xs">
+                  {importacao.erros.slice(0, 30).map((e, i) => (
+                    <li key={i} className="font-mono">
+                      {e.arquivo}: {e.motivo}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* Diagnóstico: confirma que a API do GC entrega os campos assumidos. */}
       <details className="rounded-lg border border-border">
