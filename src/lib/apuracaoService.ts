@@ -217,10 +217,22 @@ export interface AnomaliaApuracao {
 }
 
 interface DecisaoManualRow {
-  nf_entrada_item_id: string;
+  chave_nf: string;
+  ordem_item: number;
   incluir: boolean;
   motivo: string | null;
   decidido_por: string | null;
+}
+
+/**
+ * Chave da decisao manual: (chave da NF, ordem do item).
+ *
+ * Nao usar o id do item de proposito -- reimportar o XML apaga e recria os
+ * itens, e a escolha da pessoa iria junto. A chave da nota mais o numero do
+ * item sobrevivem a qualquer reimportacao.
+ */
+function chaveDecisao(chaveNf: string, ordem: number): string {
+  return chaveNf + "#" + ordem;
 }
 
 export interface LinhaCredito {
@@ -449,9 +461,11 @@ export async function apurarCompetencia(
   // marca ou desmarca um item na tela, a palavra dele é a final.
   const { data: manuaisRaw } = await db
     .from<DecisaoManualRow>("fis_item_decisao_manual")
-    .select("nf_entrada_item_id, incluir, motivo, decidido_por");
+    .select("chave_nf, ordem_item, incluir, motivo, decidido_por");
   const decisoesManuais = new Map<string, DecisaoManualRow>();
-  for (const m of manuaisRaw ?? []) decisoesManuais.set(m.nf_entrada_item_id, m);
+  for (const m of manuaisRaw ?? []) {
+    decisoesManuais.set(chaveDecisao(m.chave_nf, m.ordem_item), m);
+  }
 
   const { data: papeisRaw } = await db
     .from<FornecedorPapelRow>("fis_fornecedor_papel")
@@ -571,7 +585,7 @@ export async function apurarCompetencia(
 
       // Decisão manual vence a regra — nos dois sentidos. Fica registrado no
       // motivo de quem decidiu, para o relatório não parecer automático.
-      const manual = decisoesManuais.get(item.id);
+      const manual = decisoesManuais.get(chaveDecisao(nf.chave, item.ordem));
       if (manual) {
         decisao = {
           ...decisao,
@@ -894,30 +908,32 @@ export async function diagnosticarEndpointsGC(
  * tomado por escolha humana precisa mostrar quem escolheu.
  */
 export async function decidirItemManualmente(
-  nfEntradaItemId: string,
+  chaveNf: string,
+  ordemItem: number,
   incluir: boolean,
   quem: string,
   motivo?: string,
 ): Promise<void> {
   const { error } = await db.from<DecisaoManualRow>("fis_item_decisao_manual").upsert(
     {
-      nf_entrada_item_id: nfEntradaItemId,
+      chave_nf: chaveNf,
+      ordem_item: ordemItem,
       incluir,
       motivo: motivo ?? null,
       decidido_por: quem,
       decidido_em: new Date().toISOString(),
     },
-    { onConflict: "nf_entrada_item_id" },
+    { onConflict: "chave_nf,ordem_item" },
   );
   if (error) throw new Error(`Falha ao gravar decisão manual: ${error.message}`);
 }
 
 /** Desfaz a decisão manual e devolve o item ao que a regra automática disser. */
-export async function voltarParaRegraAutomatica(nfEntradaItemId: string): Promise<void> {
+export async function voltarParaRegraAutomatica(chaveNf: string, ordemItem: number): Promise<void> {
   const alvo = db.from<DecisaoManualRow>("fis_item_decisao_manual") as unknown as {
-    delete(): { eq(c: string, v: string): Promise<{ error: { message: string } | null }> };
+    delete(): { eq(c: string, v: unknown): { eq(c: string, v: unknown): Promise<{ error: { message: string } | null }> } };
   };
-  const { error } = await alvo.delete().eq("nf_entrada_item_id", nfEntradaItemId);
+  const { error } = await alvo.delete().eq("chave_nf", chaveNf).eq("ordem_item", ordemItem);
   if (error) throw new Error(`Falha ao remover decisão manual: ${error.message}`);
 }
 
