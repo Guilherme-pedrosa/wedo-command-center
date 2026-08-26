@@ -86,6 +86,12 @@ export interface ItemEntrada {
   /** Aquisição de serviço (CFOP x933): o crédito depende da natureza dele. */
   ehServico?: boolean;
   /**
+   * Combustível ou lubrificante consumido na prestação (NCM 2710, ou descrição
+   * de gasolina/diesel/etanol/arla). Afasta a vedação do monofásico, que só
+   * alcança aquisição para revenda.
+   */
+  ehCombustivelInsumo?: boolean;
+  /**
    * Classificação do serviço em fis_servico_regra. true = insumo,
    * false = não insumo, null = nenhuma regra reconheceu a descrição.
    */
@@ -195,6 +201,20 @@ export function decidirCreditoPisCofins(
   // Único ponto onde o CST do fornecedor decide sozinho, porque monofásico e
   // ST são regime de tributação, não preenchimento de nota.
   if (cst && CST_VEDACAO_ABSOLUTA.has(cst)) {
+    // Exceção: combustível e lubrificante CONSUMIDOS na prestação.
+    // A vedação do monofásico está no art. 3º, I, "b" e alcança bem adquirido
+    // para REVENDA. O art. 3º, II, que trata de insumo, diz o oposto — lista
+    // "inclusive combustíveis e lubrificantes" como creditável. Quem abastece
+    // a frota que atende o cliente não está revendendo combustível.
+    if (item.ehCombustivelInsumo) {
+      return permitir(
+        `Combustível/lubrificante consumido na prestação do serviço. A vedação do ` +
+        `monofásico (art. 3º, I, "b") alcança aquisição para revenda; o art. 3º, II ` +
+        `admite expressamente "combustíveis e lubrificantes" como insumo.`,
+        "COMBUSTIVEL_INSUMO",
+        { revisar: true },
+      );
+    }
     return negar(
       `CST ${cst} — ${cst === "04" ? "tributação monofásica" : "substituição tributária"}: ` +
       `contribuição recolhida em etapa anterior (Lei 10.833/2003, art. 3º, §2º, II). ` +

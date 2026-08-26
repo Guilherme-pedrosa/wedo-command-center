@@ -91,6 +91,13 @@ interface ProdutoTributoRow {
   ineligivel_motivo: string | null;
 }
 
+interface FornecedorPapelRow {
+  cnpj: string;
+  papel: string;
+  credita: boolean;
+  justificativa: string;
+}
+
 interface ServicoRegraRow {
   padrao: string;
   credita: boolean;
@@ -98,6 +105,18 @@ interface ServicoRegraRow {
   fundamento: string;
   prioridade: number;
   ativo: boolean;
+}
+
+/**
+ * Combustível e lubrificante: NCM do capítulo 2710 ou descrição explícita.
+ * Só vale como insumo se houver pedido de compra amarrado — sem isso não há
+ * evidência de que foi consumido na operação.
+ */
+function ehCombustivel(ncm: string | null, descricao: string | null): boolean {
+  const porNcm = /^2710/.test((ncm ?? "").replace(/\D/g, ""));
+  const porDescricao = /gasolina|diesel|[óo]leo diesel|etanol|arla|lubrificante|combust/i
+    .test(descricao ?? "");
+  return porNcm || porDescricao;
 }
 
 /** CFOP de serviço tributado pelo ISSQN (x933 na saída do prestador). */
@@ -409,6 +428,14 @@ export async function apurarCompetencia(
     (a, b) => (a.prioridade ?? 100) - (b.prioridade ?? 100),
   );
 
+  const { data: papeisRaw } = await db
+    .from<FornecedorPapelRow>("fis_fornecedor_papel")
+    .select("cnpj, papel, credita, justificativa");
+  const papeisFornecedor = new Map<string, FornecedorPapelRow>();
+  for (const p of papeisRaw ?? []) {
+    papeisFornecedor.set(String(p.cnpj ?? "").replace(/\D/g, ""), p);
+  }
+
   const linhasCredito: LinhaCredito[] = [];
   let baseCredito = 0;
   let baseCreditoSimples = 0;
@@ -445,8 +472,22 @@ export async function apurarCompetencia(
         ncm: item.ncm,
         nomeProduto: item.nome_produto,
         ehServico: ehCfopServico(item.cfop),
+        ehCombustivelInsumo:
+          temPedidoCompra && ehCombustivel(item.ncm, item.nome_produto),
         ...(() => {
           if (!ehCfopServico(item.cfop)) return {};
+          // O papel declarado do prestador manda sobre a descrição da linha:
+          // quando o fornecedor executa em cliente, "alimentação" e "premiação"
+          // são como o MEI discrimina o próprio preço, não despesa de pessoal
+          // do tomador.
+          const papel = papeisFornecedor.get(String(nf.cnpj_emitente ?? "").replace(/\D/g, ""));
+          if (papel) {
+            return {
+              servicoEhInsumo: papel.credita,
+              servicoCategoria: papel.papel,
+              servicoFundamento: papel.justificativa,
+            };
+          }
           const c = classificarServico(item.nome_produto, regrasServico);
           return {
             servicoEhInsumo: c.insumo,
