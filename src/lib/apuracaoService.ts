@@ -1009,9 +1009,15 @@ export interface ApuracaoHistorico {
   creditoPisCofins: number;
   retencoes: number;
   saldoPisCofins: number;
+  /** Credito que sobrou e passa para o mes seguinte. Sem isso na tela, um mes
+   *  com credito maior que debito parece que zerou por bug. */
+  credorPisCofins: number;
   debitoIcms: number;
   creditoIcms: number;
   saldoIcms: number;
+  credorIcms: number;
+  /** Credito trazido do mes anterior e consumido nesta apuracao. */
+  usouCredorAnterior: number;
 }
 
 interface ApuracaoLinhaRow {
@@ -1026,6 +1032,8 @@ interface ApuracaoLinhaRow {
   valor_credito: number | null;
   valor_retencoes: number | null;
   saldo_a_recolher: number | null;
+  saldo_credor_proximo: number | null;
+  saldo_credor_anterior: number | null;
 }
 
 /**
@@ -1041,7 +1049,8 @@ export async function listarApuracoes(): Promise<ApuracaoHistorico[]> {
     .from<ApuracaoLinhaRow>("fis_apuracao")
     .select(
       "competencia, tributo, status, calculado_em, fechada_em, fechada_por, " +
-      "receita_bruta, valor_debito, valor_credito, valor_retencoes, saldo_a_recolher",
+      "receita_bruta, valor_debito, valor_credito, valor_retencoes, saldo_a_recolher, " +
+      "saldo_credor_proximo, saldo_credor_anterior",
     );
   if (error) throw new Error(`Falha ao ler histórico: ${error.message}`);
 
@@ -1055,19 +1064,23 @@ export async function listarApuracoes(): Promise<ApuracaoHistorico[]> {
       fechadaPor: l.fechada_por,
       receitaBruta: 0,
       debitoPisCofins: 0, creditoPisCofins: 0, retencoes: 0, saldoPisCofins: 0,
-      debitoIcms: 0, creditoIcms: 0, saldoIcms: 0,
+      credorPisCofins: 0, debitoIcms: 0, creditoIcms: 0, saldoIcms: 0,
+      credorIcms: 0, usouCredorAnterior: 0,
     };
 
     if (l.tributo === "ICMS") {
       atual.debitoIcms = Number(l.valor_debito) || 0;
       atual.creditoIcms = Number(l.valor_credito) || 0;
       atual.saldoIcms = Number(l.saldo_a_recolher) || 0;
+      atual.credorIcms = Number(l.saldo_credor_proximo) || 0;
     } else {
       atual.receitaBruta = Number(l.receita_bruta) || atual.receitaBruta;
       atual.debitoPisCofins += Number(l.valor_debito) || 0;
       atual.creditoPisCofins += Number(l.valor_credito) || 0;
       atual.retencoes += Number(l.valor_retencoes) || 0;
       atual.saldoPisCofins += Number(l.saldo_a_recolher) || 0;
+      atual.credorPisCofins += Number(l.saldo_credor_proximo) || 0;
+      atual.usouCredorAnterior += Number(l.saldo_credor_anterior) || 0;
     }
     // Fechada só quando todos os tributos do mês estão fechados.
     if (l.status === "fechada" && atual.status === "rascunho" && porCompetencia.has(l.competencia)) {
