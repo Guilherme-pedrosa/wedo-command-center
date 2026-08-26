@@ -1,0 +1,561 @@
+import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { formatCurrency } from "@/lib/format";
+import { toast } from "sonner";
+import {
+  Calculator,
+  RefreshCw,
+  FileDown,
+  AlertTriangle,
+  Stethoscope,
+  Save,
+} from "lucide-react";
+import {
+  apurarCompetencia,
+  salvarApuracao,
+  diagnosticarEndpointsGC,
+  type ResultadoApuracao,
+  type DiagnosticoEndpoint,
+} from "@/lib/apuracaoService";
+
+function ultimoDiaDoMes(competencia: string): string {
+  const [ano, mes] = competencia.split("-").map(Number);
+  return new Date(Date.UTC(ano, mes, 0)).toISOString().slice(0, 10);
+}
+
+function mesAtual(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+/** Linha do bloco de resultado, no formato exigido pelo fechamento. */
+function Linha({
+  rotulo,
+  valor,
+  destaque,
+  nota,
+}: {
+  rotulo: string;
+  valor: number;
+  destaque?: boolean;
+  nota?: string;
+}) {
+  return (
+    <div
+      className={`flex items-baseline justify-between gap-4 px-4 py-3 ${
+        destaque ? "border-t-2 border-border bg-muted/40 font-bold" : "border-t border-border/50"
+      }`}
+    >
+      <div className="min-w-0">
+        <span className={destaque ? "text-foreground" : "text-muted-foreground"}>{rotulo}</span>
+        {nota && <p className="mt-0.5 text-xs text-muted-foreground">{nota}</p>}
+      </div>
+      <span className={`shrink-0 tabular-nums ${destaque ? "text-lg" : ""}`}>
+        {formatCurrency(valor)}
+      </span>
+    </div>
+  );
+}
+
+export default function ApuracaoFiscalPage() {
+  const [competencia, setCompetencia] = useState(mesAtual());
+  const [resultado, setResultado] = useState<ResultadoApuracao | null>(null);
+  const [carregando, setCarregando] = useState<string | null>(null);
+  const [diagnostico, setDiagnostico] = useState<DiagnosticoEndpoint[] | null>(null);
+
+  const competenciaIso = `${competencia}-01`;
+
+  async function invocar(fn: string, body: Record<string, unknown>, rotulo: string) {
+    setCarregando(rotulo);
+    try {
+      const { data, error } = await supabase.functions.invoke(fn, { body });
+      if (error) throw error;
+      if (data?.incompleto) {
+        toast.warning(`${rotulo}: ${data.mensagem}`, { duration: 8000 });
+      } else {
+        toast.success(`${rotulo} concluído.`);
+      }
+      return data;
+    } catch (e) {
+      toast.error(`${rotulo} falhou: ${(e as Error)?.message ?? e}`);
+      return null;
+    } finally {
+      setCarregando(null);
+    }
+  }
+
+  const sincronizarSaidas = () =>
+    invocar(
+      "fis-sync-saida",
+      { data_inicio: competenciaIso, data_fim: ultimoDiaDoMes(competencia) },
+      "Sincronizar saídas",
+    );
+
+  const processarEntradas = () =>
+    invocar(
+      "fis-parse-entrada",
+      { data_inicio: competenciaIso, data_fim: ultimoDiaDoMes(competencia) },
+      "Processar XMLs de entrada",
+    );
+
+  async function apurar() {
+    setCarregando("Apurando");
+    try {
+      const r = await apurarCompetencia(competenciaIso);
+      setResultado(r);
+      toast.success("Apuração calculada.");
+    } catch (e) {
+      toast.error(`Apuração falhou: ${(e as Error)?.message ?? e}`);
+    } finally {
+      setCarregando(null);
+    }
+  }
+
+  async function salvar() {
+    if (!resultado) return;
+    setCarregando("Salvando");
+    try {
+      await salvarApuracao(resultado);
+      toast.success("Apuração gravada como rascunho.");
+    } catch (e) {
+      toast.error(`Falha ao gravar: ${(e as Error)?.message ?? e}`);
+    } finally {
+      setCarregando(null);
+    }
+  }
+
+  async function diagnosticar() {
+    setCarregando("Diagnóstico");
+    try {
+      const r = await diagnosticarEndpointsGC(competenciaIso, ultimoDiaDoMes(competencia));
+      setDiagnostico(r);
+    } catch (e) {
+      toast.error(`Diagnóstico falhou: ${(e as Error)?.message ?? e}`);
+    } finally {
+      setCarregando(null);
+    }
+  }
+
+  function exportar() {
+    if (!resultado) return;
+    const linhas = [
+      ["Competência", resultado.competencia],
+      ["Receita Bruta Tributável", resultado.receitaBruta],
+      ["Débito PIS", resultado.pis.valorDebito],
+      ["Débito COFINS", resultado.cofins.valorDebito],
+      ["Base de Crédito de Insumos", resultado.baseCredito],
+      ["Base de Crédito resgatada do Simples", resultado.baseCreditoSimples],
+      ["Crédito PIS", resultado.pis.valorCredito],
+      ["Crédito COFINS", resultado.cofins.valorCredito],
+      ["Retenção PIS (caixa)", resultado.totalRetencaoPis],
+      ["Retenção COFINS (caixa)", resultado.totalRetencaoCofins],
+      ["Saldo PIS a recolher", resultado.pis.saldoARecolher],
+      ["Saldo COFINS a recolher", resultado.cofins.saldoARecolher],
+      ["Total PIS/COFINS (DARF)", resultado.saldoTotalPisCofins],
+      ["Débito ICMS", resultado.icms.valorDebito],
+      ["Crédito ICMS", resultado.icms.valorCredito],
+      ["Saldo ICMS a recolher", resultado.icms.saldoARecolher],
+    ];
+    const csv = linhas.map((l) => l.join(";")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `apuracao-${resultado.competencia}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const criticas = resultado?.anomalias.filter((a) => a.severidade === "critico") ?? [];
+
+  return (
+    <div className="space-y-6 p-6">
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold">
+            <Calculator className="h-6 w-6" />
+            Apuração Fiscal
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            PIS/COFINS não-cumulativo (Lucro Real) e ICMS. Os números são para conferência
+            da contabilidade — o sistema não emite nem transmite guia.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Input
+            type="month"
+            value={competencia}
+            onChange={(e) => setCompetencia(e.target.value)}
+            className="w-40"
+          />
+          <Button variant="outline" onClick={sincronizarSaidas} disabled={!!carregando}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Saídas
+          </Button>
+          <Button variant="outline" onClick={processarEntradas} disabled={!!carregando}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Entradas
+          </Button>
+          <Button onClick={apurar} disabled={!!carregando}>
+            <Calculator className="mr-2 h-4 w-4" />
+            {carregando ?? "Apurar"}
+          </Button>
+        </div>
+      </header>
+
+      {/* Diagnóstico: confirma que a API do GC entrega os campos assumidos. */}
+      <details className="rounded-lg border border-border">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
+          <Stethoscope className="mr-2 inline h-4 w-4" />
+          Diagnóstico da API do GestãoClick
+          <span className="ml-2 font-normal text-muted-foreground">
+            — rode antes do primeiro fechamento
+          </span>
+        </summary>
+        <div className="space-y-3 border-t border-border p-4">
+          <Button size="sm" variant="outline" onClick={diagnosticar} disabled={!!carregando}>
+            Testar endpoints fiscais
+          </Button>
+          {diagnostico?.map((d) => (
+            <div key={d.endpoint} className="rounded border border-border/60 p-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{d.nome}</span>
+                {d.erro ? (
+                  <Badge variant="destructive">erro</Badge>
+                ) : d.camposFaltando.length === 0 ? (
+                  <Badge>ok — {d.totalRegistros} registros</Badge>
+                ) : (
+                  <Badge variant="destructive">
+                    faltam {d.camposFaltando.length} campo(s)
+                  </Badge>
+                )}
+              </div>
+              <p className="mt-1 font-mono text-xs text-muted-foreground">{d.endpoint}</p>
+              {d.erro && <p className="mt-1 text-xs text-destructive">{d.erro}</p>}
+              {d.camposFaltando.length > 0 && !d.erro && (
+                <p className="mt-1 text-xs text-destructive">
+                  Ausentes na resposta: {d.camposFaltando.join(", ")} — a apuração depende
+                  destes campos.
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </details>
+
+      {!resultado && (
+        <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+          Escolha a competência, sincronize saídas e entradas, depois clique em Apurar.
+        </div>
+      )}
+
+      {resultado && (
+        <>
+          {criticas.length > 0 && (
+            <div className="flex items-start gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+              <div className="text-sm">
+                <p className="font-semibold text-destructive">
+                  {criticas.length} pendência(s) crítica(s) — não feche a competência assim.
+                </p>
+                <p className="text-muted-foreground">
+                  Itens sem CST, sem CFOP ou com regime do fornecedor indefinido ficaram
+                  FORA do crédito. O saldo abaixo está subestimado até que sejam resolvidos.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <section className="rounded-lg border border-border">
+              <h2 className="border-b border-border px-4 py-3 font-semibold">
+                PIS/COFINS — competência {resultado.competencia.slice(0, 7)}
+              </h2>
+              <Linha rotulo="Receita Bruta Tributável" valor={resultado.receitaBruta} />
+              <Linha
+                rotulo="Débito Apurado (PIS/COFINS)"
+                valor={resultado.pis.valorDebito + resultado.cofins.valorDebito}
+                nota={`PIS ${formatCurrency(resultado.pis.valorDebito)} + COFINS ${formatCurrency(resultado.cofins.valorDebito)}`}
+              />
+              <Linha
+                rotulo="Base de Crédito de Insumos Válida"
+                valor={resultado.baseCredito}
+                nota={
+                  resultado.baseCreditoSimples > 0
+                    ? `Inclui ${formatCurrency(resultado.baseCreditoSimples)} resgatados do Simples Nacional (Regra 2.4)`
+                    : "Nenhuma fração resgatada do Simples Nacional"
+                }
+              />
+              <Linha
+                rotulo="Crédito Apurado (PIS/COFINS)"
+                valor={resultado.pis.valorCredito + resultado.cofins.valorCredito}
+                nota={`PIS ${formatCurrency(resultado.pis.valorCredito)} + COFINS ${formatCurrency(resultado.cofins.valorCredito)}`}
+              />
+              <Linha
+                rotulo="Retenções na Fonte (Caixa)"
+                valor={resultado.totalRetencaoPis + resultado.totalRetencaoCofins}
+                nota={`${resultado.retencoes.length} liquidação(ões) no mês`}
+              />
+              {(resultado.pis.saldoCredorAnterior > 0 ||
+                resultado.cofins.saldoCredorAnterior > 0) && (
+                <Linha
+                  rotulo="Saldo credor do mês anterior"
+                  valor={
+                    resultado.pis.saldoCredorAnterior + resultado.cofins.saldoCredorAnterior
+                  }
+                />
+              )}
+              <Linha
+                rotulo="SALDO FINAL A RECOLHER (DARF)"
+                valor={resultado.saldoTotalPisCofins}
+                destaque
+              />
+              {(resultado.pis.saldoCredorProximo > 0 ||
+                resultado.cofins.saldoCredorProximo > 0) && (
+                <Linha
+                  rotulo="Saldo credor a transportar"
+                  valor={
+                    resultado.pis.saldoCredorProximo + resultado.cofins.saldoCredorProximo
+                  }
+                  nota="Crédito excedeu o débito — nada a recolher neste mês"
+                />
+              )}
+            </section>
+
+            <section className="rounded-lg border border-border">
+              <h2 className="border-b border-border px-4 py-3 font-semibold">ICMS</h2>
+              <Linha
+                rotulo="Débito destacado nas saídas"
+                valor={resultado.icms.valorDebito}
+                nota="Soma do ICMS das notas autorizadas"
+              />
+              <Linha
+                rotulo="Crédito destacado nas entradas"
+                valor={resultado.icms.valorCredito}
+                nota="Fornecedor do Simples não transfere crédito de ICMS"
+              />
+              {resultado.icms.saldoCredorAnterior > 0 && (
+                <Linha
+                  rotulo="Saldo credor anterior"
+                  valor={resultado.icms.saldoCredorAnterior}
+                />
+              )}
+              <Linha rotulo="SALDO DE ICMS A RECOLHER" valor={resultado.icms.saldoARecolher} destaque />
+              {resultado.icms.saldoCredorProximo > 0 && (
+                <Linha
+                  rotulo="Saldo credor a transportar"
+                  valor={resultado.icms.saldoCredorProximo}
+                />
+              )}
+              <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
+                ICMS é apurado por confronto do que foi efetivamente destacado, não por
+                alíquota única — cada item varia conforme UF de destino e NCM. DIFAL e
+                ICMS-ST são capturados por item mas não entram neste confronto: têm guia
+                própria.
+              </div>
+            </section>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Button onClick={salvar} disabled={!!carregando} variant="outline">
+              <Save className="mr-2 h-4 w-4" />
+              Gravar rascunho
+            </Button>
+            <Button onClick={exportar} variant="outline">
+              <FileDown className="mr-2 h-4 w-4" />
+              Exportar CSV
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              {resultado.contadores.notasSaidaNaBase}/{resultado.contadores.notasSaida} notas de
+              saída na base · {resultado.contadores.itensComCredito}/
+              {resultado.contadores.itensEntrada} itens de entrada com crédito
+              {resultado.contadores.itensParaRevisao > 0 &&
+                ` · ${resultado.contadores.itensParaRevisao} para revisão`}
+            </span>
+          </div>
+
+          <Tabs defaultValue="anomalias">
+            <TabsList>
+              <TabsTrigger value="anomalias">
+                Anomalias ({resultado.anomalias.length})
+              </TabsTrigger>
+              <TabsTrigger value="creditos">
+                Créditos ({resultado.linhasCredito.length})
+              </TabsTrigger>
+              <TabsTrigger value="receita">
+                Receita ({resultado.linhasReceita.length})
+              </TabsTrigger>
+              <TabsTrigger value="retencoes">
+                Retenções ({resultado.retencoes.length})
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="anomalias">
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-left">
+                    <tr>
+                      <th className="p-2">Severidade</th>
+                      <th className="p-2">Tipo</th>
+                      <th className="p-2">Referência</th>
+                      <th className="p-2">Descrição</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resultado.anomalias.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="p-4 text-center text-muted-foreground">
+                          Nenhuma anomalia nesta competência.
+                        </td>
+                      </tr>
+                    )}
+                    {resultado.anomalias.map((a, i) => (
+                      <tr key={i} className="border-t border-border/50">
+                        <td className="p-2">
+                          <Badge
+                            variant={a.severidade === "critico" ? "destructive" : "secondary"}
+                          >
+                            {a.severidade}
+                          </Badge>
+                        </td>
+                        <td className="p-2 font-mono text-xs">{a.tipo}</td>
+                        <td className="p-2 font-mono text-xs">{a.referencia}</td>
+                        <td className="p-2">{a.descricao}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="creditos">
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-left">
+                    <tr>
+                      <th className="p-2">Fornecedor</th>
+                      <th className="p-2">Regime</th>
+                      <th className="p-2">Item</th>
+                      <th className="p-2">CFOP</th>
+                      <th className="p-2">CST</th>
+                      <th className="p-2 text-right">Valor</th>
+                      <th className="p-2 text-right">Base creditada</th>
+                      <th className="p-2">Motivo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resultado.linhasCredito.map((l, i) => (
+                      <tr key={i} className="border-t border-border/50">
+                        <td className="p-2">{l.fornecedor}</td>
+                        <td className="p-2">
+                          <Badge variant="secondary">{l.regime}</Badge>
+                        </td>
+                        <td className="p-2">{l.produto}</td>
+                        <td className="p-2 font-mono text-xs">{l.cfop}</td>
+                        <td className="p-2 font-mono text-xs">{l.cst}</td>
+                        <td className="p-2 text-right tabular-nums">
+                          {formatCurrency(l.valorProduto)}
+                        </td>
+                        <td className="p-2 text-right tabular-nums">
+                          {l.decisao.permitido ? formatCurrency(l.decisao.base) : "—"}
+                        </td>
+                        <td className="p-2 text-xs text-muted-foreground">
+                          {l.decisao.motivo}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="receita">
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-left">
+                    <tr>
+                      <th className="p-2">Modelo</th>
+                      <th className="p-2">Número</th>
+                      <th className="p-2">Cliente</th>
+                      <th className="p-2">CFOP</th>
+                      <th className="p-2 text-right">Valor</th>
+                      <th className="p-2">Na base?</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resultado.linhasReceita.map((l, i) => (
+                      <tr key={i} className="border-t border-border/50">
+                        <td className="p-2">{l.modelo}</td>
+                        <td className="p-2">{l.numero}</td>
+                        <td className="p-2">{l.cliente}</td>
+                        <td className="p-2 font-mono text-xs">{l.cfop ?? l.natureza}</td>
+                        <td className="p-2 text-right tabular-nums">
+                          {formatCurrency(l.valor)}
+                        </td>
+                        <td className="p-2 text-xs">
+                          {l.compoe ? (
+                            <Badge>sim</Badge>
+                          ) : (
+                            <span className="text-muted-foreground">{l.motivo}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="retencoes">
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-left">
+                    <tr>
+                      <th className="p-2">NFS-e</th>
+                      <th className="p-2">Cliente</th>
+                      <th className="p-2">Liquidação</th>
+                      <th className="p-2 text-right">Valor recebido</th>
+                      <th className="p-2 text-right">% da nota</th>
+                      <th className="p-2 text-right">PIS retido</th>
+                      <th className="p-2 text-right">COFINS retido</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resultado.retencoes.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="p-4 text-center text-muted-foreground">
+                          Nenhuma retenção liquidada nesta competência.
+                        </td>
+                      </tr>
+                    )}
+                    {resultado.retencoes.map((r, i) => (
+                      <tr key={i} className="border-t border-border/50">
+                        <td className="p-2">{r.nfNumero}</td>
+                        <td className="p-2">{r.nomeCliente}</td>
+                        <td className="p-2">{r.dataLiquidacao}</td>
+                        <td className="p-2 text-right tabular-nums">
+                          {formatCurrency(r.valorBase)}
+                        </td>
+                        <td className="p-2 text-right tabular-nums">
+                          {(r.proporcao * 100).toFixed(1)}%
+                        </td>
+                        <td className="p-2 text-right tabular-nums">
+                          {formatCurrency(r.valorPisRetido)}
+                        </td>
+                        <td className="p-2 text-right tabular-nums">
+                          {formatCurrency(r.valorCofinsRetido)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </>
+      )}
+    </div>
+  );
+}

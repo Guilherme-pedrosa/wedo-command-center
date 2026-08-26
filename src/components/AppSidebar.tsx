@@ -61,6 +61,7 @@ const finRelatorios = [
   { title: "🌐 Controle Global", url: "/financeiro/controle-global", icon: BarChart3 },
   { title: "🧮 Precificação", url: "/financeiro/precificacao", icon: BarChart3 },
   { title: "⚙️ Políticas de Margem", url: "/financeiro/precificacao/politicas", icon: BarChart3 },
+  { title: "🧾 Apuração Fiscal", url: "/financeiro/apuracao-fiscal", icon: FileText },
 ];
 
 const finAdmin = [
