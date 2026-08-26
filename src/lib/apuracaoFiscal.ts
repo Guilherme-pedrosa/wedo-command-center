@@ -92,6 +92,11 @@ export interface ItemEntrada {
    */
   ehCombustivelInsumo?: boolean;
   /**
+   * Bem monofásico/ST adquirido para uso na atividade, não para revenda —
+   * evidenciado por pedido de compra vinculado e CFOP de aquisição.
+   */
+  ehMonofasicoInsumo?: boolean;
+  /**
    * Classificação do serviço em fis_servico_regra. true = insumo,
    * false = não insumo, null = nenhuma regra reconheceu a descrição.
    */
@@ -201,24 +206,41 @@ export function decidirCreditoPisCofins(
   // Único ponto onde o CST do fornecedor decide sozinho, porque monofásico e
   // ST são regime de tributação, não preenchimento de nota.
   if (cst && CST_VEDACAO_ABSOLUTA.has(cst)) {
-    // Exceção: combustível e lubrificante CONSUMIDOS na prestação.
-    // A vedação do monofásico está no art. 3º, I, "b" e alcança bem adquirido
-    // para REVENDA. O art. 3º, II, que trata de insumo, diz o oposto — lista
-    // "inclusive combustíveis e lubrificantes" como creditável. Quem abastece
-    // a frota que atende o cliente não está revendendo combustível.
+    // A vedação do monofásico está no art. 3º, I, "b" e alcança a aquisição
+    // PARA REVENDA. O art. 3º, II, que trata de insumo, não a repete — ao
+    // contrário, nomeia "inclusive combustíveis e lubrificantes".
+    //
+    // Então a linha não é o CST, é a destinação: monofásico para revender não
+    // credita; monofásico consumido na atividade credita. Quem abastece a
+    // frota que atende cliente não está revendendo gasolina, e quem aplica a
+    // peça no equipamento do cliente não está revendendo autopeça.
+    //
+    // Combustível tem apoio literal no inciso II. Os demais monofásicos como
+    // insumo são posição defensável mas discutida pela Receita — por isso
+    // creditam com marca de conferência, não em silêncio.
     if (item.ehCombustivelInsumo) {
       return permitir(
         `Combustível/lubrificante consumido na prestação do serviço. A vedação do ` +
         `monofásico (art. 3º, I, "b") alcança aquisição para revenda; o art. 3º, II ` +
         `admite expressamente "combustíveis e lubrificantes" como insumo.`,
         "COMBUSTIVEL_INSUMO",
+      );
+    }
+    if (item.ehMonofasicoInsumo) {
+      return permitir(
+        `CST ${cst} (${cst === "04" ? "monofásico" : "ST"}), mas o item foi adquirido ` +
+        `para uso na atividade, não para revenda — há pedido de compra vinculado. ` +
+        `A vedação do art. 3º, I, "b" alcança aquisição para revenda; como insumo ` +
+        `aplica-se o art. 3º, II. Posição defensável, discutida pela Receita: ` +
+        `confirmar com a contabilidade antes de fechar.`,
+        "MONOFASICO_COMO_INSUMO",
         { revisar: true },
       );
     }
     return negar(
       `CST ${cst} — ${cst === "04" ? "tributação monofásica" : "substituição tributária"}: ` +
-      `contribuição recolhida em etapa anterior (Lei 10.833/2003, art. 3º, §2º, II). ` +
-      `Vedação alcança inclusive fornecedor do Simples.`,
+      `contribuição recolhida em etapa anterior e não há evidência de uso na ` +
+      `atividade (sem pedido de compra vinculado). Lei 10.833/2003, art. 3º, I, "b".`,
       "CST_MONOFASICO_ST",
     );
   }
