@@ -3217,35 +3217,30 @@ export type Database = {
       }
       fis_item_decisao_manual: {
         Row: {
+          chave_nf: string
           decidido_em: string
           decidido_por: string | null
           incluir: boolean
           motivo: string | null
-          nf_entrada_item_id: string
+          ordem_item: number
         }
         Insert: {
+          chave_nf: string
           decidido_em?: string
           decidido_por?: string | null
           incluir: boolean
           motivo?: string | null
-          nf_entrada_item_id: string
+          ordem_item: number
         }
         Update: {
+          chave_nf?: string
           decidido_em?: string
           decidido_por?: string | null
           incluir?: boolean
           motivo?: string | null
-          nf_entrada_item_id?: string
+          ordem_item?: number
         }
-        Relationships: [
-          {
-            foreignKeyName: "fis_item_decisao_manual_nf_entrada_item_id_fkey"
-            columns: ["nf_entrada_item_id"]
-            isOneToOne: true
-            referencedRelation: "fis_nf_entrada_item"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       fis_nf_entrada: {
         Row: {
@@ -3493,6 +3488,7 @@ export type Database = {
           protocolo: string | null
           serie: string | null
           situacao_nf: string | null
+          storage_path: string | null
           valor_base_calculo: number | null
           valor_cofins: number | null
           valor_csll: number | null
@@ -3544,6 +3540,7 @@ export type Database = {
           protocolo?: string | null
           serie?: string | null
           situacao_nf?: string | null
+          storage_path?: string | null
           valor_base_calculo?: number | null
           valor_cofins?: number | null
           valor_csll?: number | null
@@ -3595,6 +3592,7 @@ export type Database = {
           protocolo?: string | null
           serie?: string | null
           situacao_nf?: string | null
+          storage_path?: string | null
           valor_base_calculo?: number | null
           valor_cofins?: number | null
           valor_csll?: number | null

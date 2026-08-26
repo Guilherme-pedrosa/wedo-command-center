@@ -200,7 +200,7 @@ async function gravarNfeEntrada(xml: string, storagePath: string) {
  * antes de inserir — se já existe, atualizamos aquela linha em vez de criar
  * outra com gc_id diferente.
  */
-async function gravarNfeSaida(xml: string) {
+async function gravarNfeSaida(xml: string, storagePath: string) {
   const itens = parseXmlItems(xml);
   const meta = getXmlMeta(xml);
   const ide = getXmlIde(xml);
@@ -239,6 +239,7 @@ async function gravarNfeSaida(xml: string) {
     valor_ipi: totais.vIPI,
     valor_icms: totais.vICMS,
     valor_icms_st: totais.vST,
+    storage_path: storagePath || null,
     last_synced_at: new Date().toISOString(),
   };
 
@@ -277,7 +278,7 @@ async function gravarNfeSaida(xml: string) {
 }
 
 /** NFS-e emitida por nós: receita de serviço, com as retenções declaradas. */
-async function gravarNfseSaida(xml: string) {
+async function gravarNfseSaida(xml: string, storagePath: string) {
   const n = parseNfse(xml);
   if (!n || !n.dataEmissao) throw new Error("NFS-e sem data de emissão");
 
@@ -312,6 +313,7 @@ async function gravarNfseSaida(xml: string) {
     valor_ir: n.valorIr,
     valor_csll: n.valorCsll,
     valor_inss: n.valorInss,
+    storage_path: storagePath || null,
     last_synced_at: new Date().toISOString(),
   };
 
@@ -365,9 +367,20 @@ export async function importarXmlFiscal(
 
         if (tipo === "ignorado") { r.ignorados++; continue; }
 
-        // Entrada de NF-e vai para o Storage: o documento precisa ficar
-        // arquivado, é ele que sustenta o crédito numa fiscalização.
+        // TODO documento fiscal fica arquivado, entrada ou saida. A entrada
+        // sustenta o credito; a saida prova a receita e o imposto destacado.
+        // Sem o arquivo, uma fiscalizacao encontra numero sem lastro.
         let storagePath = "";
+        if (tipo === "nfe_saida" || tipo === "nfse_saida") {
+          const identificador =
+            tipo === "nfe_saida"
+              ? getXmlMeta(xml).chave
+              : (parseNfse(xml)?.codigoVerificacao ?? parseNfse(xml)?.numero ?? "");
+          storagePath = `saida/${identificador || item.nome}.xml`;
+          await supabase.storage.from(BUCKET).upload(storagePath, item.blob, {
+            upsert: true, contentType: "application/xml",
+          });
+        }
         if (tipo === "nfe_entrada") {
           const meta = getXmlMeta(xml);
           storagePath = `importacao/${meta.chave || item.nome}.xml`;
@@ -400,11 +413,11 @@ export async function importarXmlFiscal(
           saida = await gravarNfeEntrada(xml, storagePath);
           r.nfeEntrada++;
         } else if (tipo === "nfe_saida") {
-          saida = await gravarNfeSaida(xml);
+          saida = await gravarNfeSaida(xml, storagePath);
           r.nfeSaida++;
           if (saida.jaExistia) r.jaExistiam++;
         } else if (tipo === "nfse_saida") {
-          saida = await gravarNfseSaida(xml);
+          saida = await gravarNfseSaida(xml, storagePath);
           r.nfseSaida++;
           if (saida.jaExistia) r.jaExistiam++;
         } else {

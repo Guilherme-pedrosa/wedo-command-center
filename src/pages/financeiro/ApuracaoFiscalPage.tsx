@@ -252,15 +252,15 @@ export default function ApuracaoFiscalPage() {
   });
 
   async function alternarItem(linha: LinhaCredito, incluir: boolean) {
-    setAlternando(linha.itemId);
+    setAlternando(linha.chave + "#" + linha.item);
     try {
       const { data: sessao } = await supabase.auth.getUser();
       const quem = sessao?.user?.email ?? "usuário";
 
       if (linha.decidoManualmente && incluir === linha.decisao.permitido) {
-        await voltarParaRegraAutomatica(linha.itemId);
+        await voltarParaRegraAutomatica(linha.chave, linha.item);
       } else {
-        await decidirItemManualmente(linha.itemId, incluir, quem);
+        await decidirItemManualmente(linha.chave, linha.item, incluir, quem);
       }
 
       // Recalcula tudo: mexer num item muda base, crédito e saldo.
@@ -720,7 +720,7 @@ export default function ApuracaoFiscalPage() {
                   <tbody>
                     {creditosOrdenados.map((l, i) => (
                       <tr
-                        key={l.itemId ?? i}
+                        key={l.chave + "#" + l.item}
                         className={`border-t border-border/50 align-top ${
                           l.decisao.permitido ? "" : "bg-muted/30"
                         }`}
@@ -730,7 +730,7 @@ export default function ApuracaoFiscalPage() {
                             type="checkbox"
                             className="h-4 w-4 cursor-pointer accent-primary"
                             checked={l.decisao.permitido}
-                            disabled={alternando === l.itemId}
+                            disabled={alternando === l.chave + "#" + l.item}
                             onChange={(ev) => alternarItem(l, ev.target.checked)}
                             title={
                               l.decidoManualmente
