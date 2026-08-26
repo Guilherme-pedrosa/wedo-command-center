@@ -244,11 +244,30 @@ async function gravarNfeSaida(xml: string, storagePath: string) {
   };
 
   const { data: existente } = await db
-    .from("fis_nf_saida").select("id").eq("chave", meta.chave).maybeSingle();
+    .from("fis_nf_saida")
+    .select("id, cancelada, denegada, situacao_nf")
+    .eq("chave", meta.chave)
+    .maybeSingle();
 
   let id: string;
   if (existente?.id) {
-    const { error } = await db.from("fis_nf_saida").update(registro).eq("id", existente.id);
+    // Nunca rebaixar o status. O XML avulso da NF-e nao carrega o evento de
+    // cancelamento -- ele vem num XML de evento separado. Interpretar a
+    // ausencia do evento como "nao cancelada" ressuscitava nota cancelada
+    // para dentro da receita, apagando o que o GestaoClick sabia.
+    const jaCancelada = (existente as unknown as { cancelada?: boolean }).cancelada === true;
+    const jaDenegada = (existente as unknown as { denegada?: boolean }).denegada === true;
+    const preservado = jaCancelada || jaDenegada
+      ? {
+          ...registro,
+          cancelada: jaCancelada,
+          denegada: jaDenegada,
+          autorizada: false,
+          situacao_nf:
+            (existente as unknown as { situacao_nf?: string }).situacao_nf ?? registro.situacao_nf,
+        }
+      : registro;
+    const { error } = await db.from("fis_nf_saida").update(preservado).eq("id", existente.id);
     if (error) throw new Error(error.message);
     id = existente.id;
   } else {
