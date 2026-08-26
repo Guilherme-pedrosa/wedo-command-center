@@ -191,6 +191,7 @@ interface NfEntradaItemRow {
 }
 
 interface NfEntradaRow {
+  id: string;
   chave: string;
   numero: string | null;
   serie: string | null;

@@ -550,6 +550,7 @@ describe("saldo credor: PIS e COFINS não se comunicam", () => {
   // abate COFINS: são códigos de receita diferentes no DARF. A tela chegou a
   // somar os dois numa coluna só, o que escondia exatamente isso.
   const base = {
+    receitaBruta: 100_000,
     baseDebito: 100_000,
     baseCredito: 0,
     baseCreditoSimples: 0,
