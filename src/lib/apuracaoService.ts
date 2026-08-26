@@ -543,8 +543,13 @@ export async function apurarCompetencia(
         ncm: item.ncm,
         nomeProduto: item.nome_produto,
         ehServico: ehCfopServico(item.cfop),
+        // Combustivel nao precisa de pedido de compra: gasolina de bomba se
+        // paga no cartao e nunca gera pedido no ERP. O proprio CFOP de
+        // aquisicao ja diz que e para consumo, e o art. 3o, II nomeia
+        // "combustiveis e lubrificantes". Exigir pedido matava justamente o
+        // credito que a lei da de graca.
         ehCombustivelInsumo:
-          temPedidoCompra && ehCombustivel(item.ncm, item.nome_produto),
+          ehCombustivel(item.ncm, item.nome_produto) && !!regra?.geraCreditoPisCofins,
         // Monofásico/ST comprado com pedido e por CFOP de aquisição foi para
         // uso na atividade, não para revenda — é a destinação que decide.
         ehMonofasicoInsumo: temPedidoCompra && !!regra?.geraCreditoPisCofins,
