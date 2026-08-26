@@ -230,6 +230,11 @@ export default function ApuracaoFiscalPage() {
 
   const criticas = resultado?.anomalias.filter((a) => a.severidade === "critico") ?? [];
 
+  // NF-e e NFS-e sao livros fiscais diferentes: mercadoria tem CFOP e ICMS,
+  // servico tem ISS municipal. Misturar numa lista so atrapalha a conferencia.
+  const vendasProduto = (resultado?.linhasReceita ?? []).filter((l) => l.modelo !== "NFSE");
+  const vendasServico = (resultado?.linhasReceita ?? []).filter((l) => l.modelo === "NFSE");
+
   /** Fora da base primeiro: é o que precisa de decisão, não o que já passou. */
   const creditosOrdenados = [...(resultado?.linhasCredito ?? [])].sort((a, b) => {
     if (a.decisao.permitido !== b.decisao.permitido) return a.decisao.permitido ? 1 : -1;
@@ -638,7 +643,10 @@ export default function ApuracaoFiscalPage() {
                 Créditos ({resultado.linhasCredito.length})
               </TabsTrigger>
               <TabsTrigger value="receita">
-                Receita ({resultado.linhasReceita.length})
+                Vendas NF-e ({vendasProduto.length})
+              </TabsTrigger>
+              <TabsTrigger value="servicos">
+                Serviços NFS-e ({vendasServico.length})
               </TabsTrigger>
               <TabsTrigger value="retencoes">
                 Retenções ({resultado.retencoes.length})
@@ -788,12 +796,47 @@ export default function ApuracaoFiscalPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {resultado.linhasReceita.map((l, i) => (
+                    {vendasProduto.map((l, i) => (
                       <tr key={i} className="border-t border-border/50">
                         <td className="p-2">{l.modelo}</td>
                         <td className="p-2">{l.numero}</td>
                         <td className="p-2">{l.cliente}</td>
                         <td className="p-2 font-mono text-xs">{l.cfop ?? l.natureza}</td>
+                        <td className="p-2 text-right tabular-nums">
+                          {formatCurrency(l.valor)}
+                        </td>
+                        <td className="p-2 text-xs">
+                          {l.compoe ? (
+                            <Badge>sim</Badge>
+                          ) : (
+                            <span className="text-muted-foreground">{l.motivo}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="servicos">
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-left">
+                    <tr>
+                      <th className="p-2">NFS-e</th>
+                      <th className="p-2">Tomador</th>
+                      <th className="p-2">Discriminação</th>
+                      <th className="p-2 text-right">Valor do serviço</th>
+                      <th className="p-2">Na base?</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vendasServico.map((l, i) => (
+                      <tr key={i} className="border-t border-border/50">
+                        <td className="p-2">{l.numero}</td>
+                        <td className="p-2">{l.cliente}</td>
+                        <td className="p-2 text-xs text-muted-foreground">{l.natureza}</td>
                         <td className="p-2 text-right tabular-nums">
                           {formatCurrency(l.valor)}
                         </td>
