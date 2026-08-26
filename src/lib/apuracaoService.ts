@@ -482,6 +482,21 @@ export async function apurarCompetencia(
           // do tomador.
           const papel = papeisFornecedor.get(String(nf.cnpj_emitente ?? "").replace(/\D/g, ""));
           if (papel) {
+            // Linha com a palavra "comissão" vinda de prestador de campo:
+            // credita, porque a substância é remuneração variável do técnico
+            // pela entrega — mas fica marcada. A descrição na NFS-e diz
+            // "comissão de venda" com número de venda, e é isso que o auditor
+            // lê. O caminho de defesa é o prestador descrever o que entregou.
+            if (papel.credita && /comiss[ãa]o/i.test(item.nome_produto ?? "")) {
+              return {
+                servicoEhInsumo: true,
+                servicoCategoria: "bonus_entrega",
+                servicoFundamento:
+                  "Prestador de campo. Declarado como bônus por foco em entrega, não " +
+                  "comissão de venda. ATENÇÃO: a descrição na nota diz 'comissão de venda' — " +
+                  "orientar o prestador a descrever o serviço entregue.",
+              };
+            }
             return {
               servicoEhInsumo: papel.credita,
               servicoCategoria: papel.papel,
