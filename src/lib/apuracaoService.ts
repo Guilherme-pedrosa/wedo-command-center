@@ -998,6 +998,30 @@ export async function voltarParaRegraAutomatica(chaveNf: string, ordemItem: numb
   if (error) throw new Error(`Falha ao remover decisão manual: ${error.message}`);
 }
 
+/**
+ * Apuração de UM tributo num mês.
+ *
+ * PIS e COFINS são contribuições distintas: alíquotas diferentes (1,65% e
+ * 7,6%), códigos de receita diferentes no DARF e — o que mais importa aqui —
+ * saldos credores que NÃO se comunicam. Crédito de PIS não abate COFINS.
+ * Somar os dois numa linha só esconde exatamente o que precisa ser conferido.
+ */
+export interface SaldoTributo {
+  debito: number;
+  credito: number;
+  retencoes: number;
+  /** Credito trazido do mes anterior e consumido nesta apuracao. */
+  usouCredorAnterior: number;
+  saldo: number;
+  /** Credito que sobrou e passa para o mes seguinte. Sem isso na tela, um mes
+   *  com credito maior que debito parece que zerou por bug. */
+  credor: number;
+}
+
+function saldoZerado(): SaldoTributo {
+  return { debito: 0, credito: 0, retencoes: 0, usouCredorAnterior: 0, saldo: 0, credor: 0 };
+}
+
 export interface ApuracaoHistorico {
   competencia: string;
   status: "rascunho" | "fechada";
@@ -1005,19 +1029,9 @@ export interface ApuracaoHistorico {
   fechadaEm: string | null;
   fechadaPor: string | null;
   receitaBruta: number;
-  debitoPisCofins: number;
-  creditoPisCofins: number;
-  retencoes: number;
-  saldoPisCofins: number;
-  /** Credito que sobrou e passa para o mes seguinte. Sem isso na tela, um mes
-   *  com credito maior que debito parece que zerou por bug. */
-  credorPisCofins: number;
-  debitoIcms: number;
-  creditoIcms: number;
-  saldoIcms: number;
-  credorIcms: number;
-  /** Credito trazido do mes anterior e consumido nesta apuracao. */
-  usouCredorAnterior: number;
+  pis: SaldoTributo;
+  cofins: SaldoTributo;
+  icms: SaldoTributo;
 }
 
 interface ApuracaoLinhaRow {
@@ -1063,24 +1077,21 @@ export async function listarApuracoes(): Promise<ApuracaoHistorico[]> {
       fechadaEm: l.fechada_em,
       fechadaPor: l.fechada_por,
       receitaBruta: 0,
-      debitoPisCofins: 0, creditoPisCofins: 0, retencoes: 0, saldoPisCofins: 0,
-      credorPisCofins: 0, debitoIcms: 0, creditoIcms: 0, saldoIcms: 0,
-      credorIcms: 0, usouCredorAnterior: 0,
+      pis: saldoZerado(), cofins: saldoZerado(), icms: saldoZerado(),
     };
 
-    if (l.tributo === "ICMS") {
-      atual.debitoIcms = Number(l.valor_debito) || 0;
-      atual.creditoIcms = Number(l.valor_credito) || 0;
-      atual.saldoIcms = Number(l.saldo_a_recolher) || 0;
-      atual.credorIcms = Number(l.saldo_credor_proximo) || 0;
-    } else {
+    // Uma linha por tributo, e cada uma fica na sua. Somar PIS com COFINS
+    // aqui era o que escondia o saldo credor de cada contribuicao.
+    const alvo =
+      l.tributo === "ICMS" ? atual.icms : l.tributo === "PIS" ? atual.pis : atual.cofins;
+    alvo.debito = Number(l.valor_debito) || 0;
+    alvo.credito = Number(l.valor_credito) || 0;
+    alvo.retencoes = Number(l.valor_retencoes) || 0;
+    alvo.usouCredorAnterior = Number(l.saldo_credor_anterior) || 0;
+    alvo.saldo = Number(l.saldo_a_recolher) || 0;
+    alvo.credor = Number(l.saldo_credor_proximo) || 0;
+    if (l.tributo !== "ICMS") {
       atual.receitaBruta = Number(l.receita_bruta) || atual.receitaBruta;
-      atual.debitoPisCofins += Number(l.valor_debito) || 0;
-      atual.creditoPisCofins += Number(l.valor_credito) || 0;
-      atual.retencoes += Number(l.valor_retencoes) || 0;
-      atual.saldoPisCofins += Number(l.saldo_a_recolher) || 0;
-      atual.credorPisCofins += Number(l.saldo_credor_proximo) || 0;
-      atual.usouCredorAnterior += Number(l.saldo_credor_anterior) || 0;
     }
     // Fechada só quando todos os tributos do mês estão fechados.
     if (l.status === "fechada" && atual.status === "rascunho" && porCompetencia.has(l.competencia)) {
@@ -1104,4 +1115,65 @@ export async function fecharCompetencia(competencia: string, quem: string): Prom
     .update({ status: "fechada", fechada_em: new Date().toISOString(), fechada_por: quem })
     .eq("competencia", competencia);
   if (error) throw new Error(`Falha ao fechar competência: ${error.message}`);
+}
+
+/**
+ * Reapura as competências POSTERIORES a uma que acabou de mudar.
+ *
+ * O saldo credor encadeia: o que sobra num mês abate o seguinte. Cada
+ * apuração lê o saldo do mês anterior no instante em que roda, então
+ * recalcular um mês antigo — ou apurar fora de ordem — deixa a cadeia
+ * desalinhada em silêncio.
+ *
+ * Aconteceu de verdade: maio/2026 foi apurado antes de abril e ignorou
+ * R$ 3.247,02 de crédito que abril havia gerado, inflando o DARF de junho no
+ * mesmo valor. Ninguém veria, porque cada mês isolado fecha certo.
+ *
+ * Devolve as competências que mudaram de saldo.
+ */
+export interface MudancaCadeia {
+  competencia: string;
+  tributo: "PIS" | "COFINS" | "ICMS";
+  saldoAntes: number;
+  saldoDepois: number;
+}
+
+export async function reapurarCadeia(
+  aPartirDe: string,
+  opcoes: OpcoesApuracao = {},
+): Promise<MudancaCadeia[]> {
+  const { data } = await db
+    .from<{ competencia: string; saldo_a_recolher: number | null; tributo: string }>("fis_apuracao")
+    .select("competencia, saldo_a_recolher, tributo")
+    .gte("competencia", aPartirDe);
+
+  // Guarda o saldo de cada tributo separado: e por tributo que a cadeia anda,
+  // e e por tributo que a diferenca precisa aparecer.
+  const antesPorCompetencia = new Map<string, Map<string, number>>();
+  for (const l of data ?? []) {
+    const m = antesPorCompetencia.get(l.competencia) ?? new Map<string, number>();
+    m.set(l.tributo, Number(l.saldo_a_recolher) || 0);
+    antesPorCompetencia.set(l.competencia, m);
+  }
+
+  const posteriores = [...antesPorCompetencia.keys()].filter((c) => c > aPartirDe).sort();
+
+  const mudancas: MudancaCadeia[] = [];
+  for (const competencia of posteriores) {
+    const antes = antesPorCompetencia.get(competencia) ?? new Map<string, number>();
+    const r = await apurarCompetencia(competencia, opcoes);
+    await salvarApuracao(r);
+
+    for (const [tributo, depois] of [
+      ["PIS", r.pis.saldoARecolher],
+      ["COFINS", r.cofins.saldoARecolher],
+      ["ICMS", r.icms.saldoARecolher],
+    ] as const) {
+      const valorAntes = antes.get(tributo) ?? 0;
+      if (Math.abs(depois - valorAntes) >= 0.01) {
+        mudancas.push({ competencia, tributo, saldoAntes: valorAntes, saldoDepois: depois });
+      }
+    }
+  }
+  return mudancas;
 }
