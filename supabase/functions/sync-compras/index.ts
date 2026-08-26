@@ -181,8 +181,15 @@ serve(async (req) => {
             if (match) cadastradoEm = match[1];
           }
 
+          // O GC manda numero_nfe no payload da compra (185 de 195 em
+          // julho/2026), mas ele nunca era extraído para a coluna. É esse
+          // campo que amarra o pedido de compra à NF de entrada e prova que
+          // o item foi adquirido para uso na operação.
+          const numeroNfe = String(c.numero_nfe ?? c.numero_nf ?? "").trim();
+
           batch.push({
             gc_id: gcId,
+            numero_nfe: numeroNfe || null,
             codigo: String(c.codigo || c.numero || ""),
             nome_fornecedor: String(c.nome_fornecedor || c.fornecedor_nome || "") || null,
             fornecedor_id: String(c.fornecedor_id || "") || null,
