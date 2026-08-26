@@ -542,3 +542,53 @@ describe("MEI e pessoa física", () => {
     expect(d.regra).toBe("PESSOA_FISICA");
   });
 });
+
+describe("saldo credor: PIS e COFINS não se comunicam", () => {
+  // Lei 10.833/2003 art. 3º, §4º deixa o crédito não aproveitado passar para os
+  // meses seguintes -- mas cada contribuição tem o seu. Crédito de PIS não
+  // abate COFINS: são códigos de receita diferentes no DARF. A tela chegou a
+  // somar os dois numa coluna só, o que escondia exatamente isso.
+  const base = {
+    baseDebito: 100_000,
+    baseCredito: 0,
+    baseCreditoSimples: 0,
+    retencaoPis: 0,
+    retencaoCofins: 0,
+    saldoCredorAnteriorPis: 0,
+    saldoCredorAnteriorCofins: 0,
+  };
+
+  it("credor sobrando no PIS não reduz o débito de COFINS", () => {
+    const r = apurarPisCofins({ ...base, saldoCredorAnteriorPis: 50_000 });
+
+    // PIS: 1,65% de 100k = 1.650, contra 50.000 de credor -> zera e sobra.
+    expect(r.pis.saldoARecolher).toBe(0);
+    expect(r.pis.saldoCredorProximo).toBe(48_350);
+
+    // COFINS: 7,6% de 100k = 7.600, intocado pelo credor de PIS.
+    expect(r.cofins.saldoARecolher).toBe(7_600);
+    expect(r.cofins.saldoCredorProximo).toBe(0);
+  });
+
+  it("cada contribuição consome só o seu saldo do mês anterior", () => {
+    const r = apurarPisCofins({
+      ...base,
+      saldoCredorAnteriorPis: 1_000,
+      saldoCredorAnteriorCofins: 2_000,
+    });
+
+    expect(r.pis.saldoARecolher).toBe(650); // 1.650 - 1.000
+    expect(r.cofins.saldoARecolher).toBe(5_600); // 7.600 - 2.000
+    expect(r.saldoTotalARecolher).toBe(6_250);
+  });
+
+  it("crédito não aproveitado é transportado, não perdido", () => {
+    const r = apurarPisCofins({ ...base, baseCredito: 300_000 });
+
+    // Crédito de 300k contra débito de 100k: sobra base de 200k em cada.
+    expect(r.pis.saldoARecolher).toBe(0);
+    expect(r.cofins.saldoARecolher).toBe(0);
+    expect(r.pis.saldoCredorProximo).toBe(3_300); // 1,65% de 200k
+    expect(r.cofins.saldoCredorProximo).toBe(15_200); // 7,6% de 200k
+  });
+});

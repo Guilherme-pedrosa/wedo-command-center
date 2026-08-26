@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -145,12 +145,23 @@ export default function ApuracaoFiscalPage() {
       await carregarHistorico();
 
       if (mudancas.length) {
-        toast.success(
-          "Apuração registrada. " +
-            mudancas.length +
-            " competência(s) seguinte(s) mudaram de saldo pelo encadeamento do crédito.",
-          { duration: 9000 },
-        );
+        // Diz QUAL mes e QUAL tributo mudou: "3 competencias mudaram" nao
+        // ajuda ninguem a conferir nem a refazer uma guia ja paga.
+        const detalhe = mudancas
+          .map(
+            (m) =>
+              m.competencia.slice(0, 7) +
+              " " +
+              m.tributo +
+              ": " +
+              formatCurrency(m.saldoAntes) +
+              " → " +
+              formatCurrency(m.saldoDepois),
+          )
+          .join(" · ");
+        toast.success("Apuração registrada. Meses seguintes recalculados — " + detalhe, {
+          duration: 15000,
+        });
       } else {
         toast.success("Apuração calculada e registrada.");
       }
@@ -330,14 +341,32 @@ export default function ApuracaoFiscalPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-left">
+                <tr className="text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="p-2" colSpan={3}></th>
+                  <th className="border-l border-border p-2 text-center" colSpan={3}>
+                    PIS 1,65%
+                  </th>
+                  <th className="border-l border-border p-2 text-center" colSpan={3}>
+                    COFINS 7,6%
+                  </th>
+                  <th className="border-l border-border p-2 text-center" colSpan={3}>
+                    ICMS
+                  </th>
+                  <th className="p-2" colSpan={2}></th>
+                </tr>
                 <tr>
                   <th className="p-2">Competência</th>
                   <th className="p-2">Situação</th>
                   <th className="p-2 text-right">Receita</th>
-                  <th className="p-2 text-right">Débito</th>
+                  <th className="border-l border-border p-2 text-right">Débito</th>
                   <th className="p-2 text-right">Crédito</th>
-                  <th className="p-2 text-right">PIS/COFINS</th>
-                  <th className="p-2 text-right">ICMS</th>
+                  <th className="p-2 text-right">Saldo</th>
+                  <th className="border-l border-border p-2 text-right">Débito</th>
+                  <th className="p-2 text-right">Crédito</th>
+                  <th className="p-2 text-right">Saldo</th>
+                  <th className="border-l border-border p-2 text-right">Débito</th>
+                  <th className="p-2 text-right">Crédito</th>
+                  <th className="p-2 text-right">Saldo</th>
                   <th className="p-2">Calculado em</th>
                   <th className="p-2"></th>
                 </tr>
@@ -359,30 +388,28 @@ export default function ApuracaoFiscalPage() {
                       )}
                     </td>
                     <td className="p-2 text-right tabular-nums">{formatCurrency(h.receitaBruta)}</td>
-                    <td className="p-2 text-right tabular-nums">{formatCurrency(h.debitoPisCofins)}</td>
-                    <td className="p-2 text-right tabular-nums">{formatCurrency(h.creditoPisCofins)}</td>
-                    <td className="p-2 text-right font-semibold tabular-nums">
-                      {h.saldoPisCofins > 0 ? (
-                        formatCurrency(h.saldoPisCofins)
-                      ) : h.credorPisCofins > 0 ? (
-                        <span className="font-normal text-emerald-500">
-                          credor {formatCurrency(h.credorPisCofins)}
-                        </span>
-                      ) : (
-                        formatCurrency(0)
-                      )}
-                    </td>
-                    <td className="p-2 text-right tabular-nums">
-                      {h.saldoIcms > 0 ? (
-                        formatCurrency(h.saldoIcms)
-                      ) : h.credorIcms > 0 ? (
-                        <span className="text-emerald-500">
-                          credor {formatCurrency(h.credorIcms)}
-                        </span>
-                      ) : (
-                        formatCurrency(0)
-                      )}
-                    </td>
+                    {([h.pis, h.cofins, h.icms] as const).map((t, i) => (
+                      <Fragment key={i}>
+                        <td className="border-l border-border p-2 text-right tabular-nums">
+                          {formatCurrency(t.debito)}
+                        </td>
+                        <td className="p-2 text-right tabular-nums">{formatCurrency(t.credito)}</td>
+                        <td className="p-2 text-right font-semibold tabular-nums">
+                          {t.saldo > 0 ? (
+                            formatCurrency(t.saldo)
+                          ) : t.credor > 0 ? (
+                            <span
+                              className="font-normal text-emerald-500"
+                              title="Crédito não aproveitado. Abate os meses seguintes (Lei 10.833/2003, art. 3º, § 4º)."
+                            >
+                              credor {formatCurrency(t.credor)}
+                            </span>
+                          ) : (
+                            formatCurrency(0)
+                          )}
+                        </td>
+                      </Fragment>
+                    ))}
                     <td className="p-2 text-xs text-muted-foreground">
                       {h.calculadoEm ? new Date(h.calculadoEm).toLocaleString("pt-BR") : "—"}
                       {h.fechadaEm && (
