@@ -346,9 +346,27 @@ export default function ApuracaoFiscalPage() {
                     <td className="p-2 text-right tabular-nums">{formatCurrency(h.debitoPisCofins)}</td>
                     <td className="p-2 text-right tabular-nums">{formatCurrency(h.creditoPisCofins)}</td>
                     <td className="p-2 text-right font-semibold tabular-nums">
-                      {formatCurrency(h.saldoPisCofins)}
+                      {h.saldoPisCofins > 0 ? (
+                        formatCurrency(h.saldoPisCofins)
+                      ) : h.credorPisCofins > 0 ? (
+                        <span className="font-normal text-emerald-500">
+                          credor {formatCurrency(h.credorPisCofins)}
+                        </span>
+                      ) : (
+                        formatCurrency(0)
+                      )}
                     </td>
-                    <td className="p-2 text-right tabular-nums">{formatCurrency(h.saldoIcms)}</td>
+                    <td className="p-2 text-right tabular-nums">
+                      {h.saldoIcms > 0 ? (
+                        formatCurrency(h.saldoIcms)
+                      ) : h.credorIcms > 0 ? (
+                        <span className="text-emerald-500">
+                          credor {formatCurrency(h.credorIcms)}
+                        </span>
+                      ) : (
+                        formatCurrency(0)
+                      )}
+                    </td>
                     <td className="p-2 text-xs text-muted-foreground">
                       {h.calculadoEm ? new Date(h.calculadoEm).toLocaleString("pt-BR") : "—"}
                       {h.fechadaEm && (
@@ -373,6 +391,11 @@ export default function ApuracaoFiscalPage() {
               </tbody>
             </table>
           </div>
+          <p className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
+            "Credor" não é zero: é crédito que sobrou porque as entradas superaram
+            as saídas no mês. Ele não se perde — abate o saldo da competência
+            seguinte automaticamente.
+          </p>
         </section>
       )}
 
