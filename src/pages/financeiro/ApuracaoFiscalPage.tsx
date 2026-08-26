@@ -31,6 +31,7 @@ import {
   type ApuracaoHistorico,
 } from "@/lib/apuracaoService";
 import { importarXmlFiscal, type ResultadoImportacao } from "@/lib/importarXmlFiscal";
+import { exportarApuracaoXlsx } from "@/lib/exportarApuracao";
 
 function ultimoDiaDoMes(competencia: string): string {
   const [ano, mes] = competencia.split("-").map(Number);
@@ -214,33 +215,17 @@ export default function ApuracaoFiscalPage() {
     }
   }
 
-  function exportar() {
+  async function exportar() {
     if (!resultado) return;
-    const linhas = [
-      ["Competência", resultado.competencia],
-      ["Receita Bruta Tributável", resultado.receitaBruta],
-      ["Débito PIS", resultado.pis.valorDebito],
-      ["Débito COFINS", resultado.cofins.valorDebito],
-      ["Base de Crédito de Insumos", resultado.baseCredito],
-      ["Base de Crédito resgatada do Simples", resultado.baseCreditoSimples],
-      ["Crédito PIS", resultado.pis.valorCredito],
-      ["Crédito COFINS", resultado.cofins.valorCredito],
-      ["Retenção PIS (caixa)", resultado.totalRetencaoPis],
-      ["Retenção COFINS (caixa)", resultado.totalRetencaoCofins],
-      ["Saldo PIS a recolher", resultado.pis.saldoARecolher],
-      ["Saldo COFINS a recolher", resultado.cofins.saldoARecolher],
-      ["Total PIS/COFINS (DARF)", resultado.saldoTotalPisCofins],
-      ["Débito ICMS", resultado.icms.valorDebito],
-      ["Crédito ICMS", resultado.icms.valorCredito],
-      ["Saldo ICMS a recolher", resultado.icms.saldoARecolher],
-    ];
-    const csv = linhas.map((l) => l.join(";")).join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `apuracao-${resultado.competencia}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    setCarregando("Exportando");
+    try {
+      await exportarApuracaoXlsx(resultado);
+      toast.success("Planilha gerada.");
+    } catch (e) {
+      toast.error(`Falha ao exportar: ${(e as Error)?.message ?? e}`);
+    } finally {
+      setCarregando(null);
+    }
   }
 
   const criticas = resultado?.anomalias.filter((a) => a.severidade === "critico") ?? [];
@@ -633,7 +618,7 @@ export default function ApuracaoFiscalPage() {
             </Button>
             <Button onClick={exportar} variant="outline">
               <FileDown className="mr-2 h-4 w-4" />
-              Exportar CSV
+              Exportar planilha
             </Button>
             <span className="text-sm text-muted-foreground">
               {resultado.contadores.notasSaidaNaBase}/{resultado.contadores.notasSaida} notas de
