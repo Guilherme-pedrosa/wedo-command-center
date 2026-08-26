@@ -698,6 +698,8 @@ export default function ApuracaoFiscalPage() {
                     <tr>
                       <th className="p-2 text-center">Na base</th>
                       <th className="p-2">Fornecedor</th>
+                      <th className="p-2">NF</th>
+                      <th className="p-2">Emissão</th>
                       <th className="p-2">Regime</th>
                       <th className="p-2">Item</th>
                       <th className="p-2">CFOP</th>
@@ -709,6 +711,7 @@ export default function ApuracaoFiscalPage() {
                       <th className="p-2">CST ICMS</th>
                       <th className="p-2 text-right">Créd. ICMS</th>
                       <th className="p-2">Motivo</th>
+                      <th className="p-2">Chave de Acesso</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -739,6 +742,15 @@ export default function ApuracaoFiscalPage() {
                           )}
                         </td>
                         <td className="p-2">{l.fornecedor}</td>
+                        <td className="p-2 whitespace-nowrap font-mono text-xs">
+                          {l.numero ?? "—"}
+                          {l.serie ? <span className="text-muted-foreground">/{l.serie}</span> : null}
+                        </td>
+                        <td className="p-2 whitespace-nowrap text-xs">
+                          {l.dataEmissao
+                            ? l.dataEmissao.slice(0, 10).split("-").reverse().join("/")
+                            : "—"}
+                        </td>
                         <td className="p-2">
                           <Badge variant="secondary">{l.regime}</Badge>
                         </td>
@@ -774,6 +786,9 @@ export default function ApuracaoFiscalPage() {
                             <span className="font-medium text-foreground">ICMS:</span>{" "}
                             {l.decisaoIcms.motivo}
                           </p>
+                        </td>
+                        <td className="p-2 font-mono text-[10px] leading-tight text-muted-foreground">
+                          {l.chave}
                         </td>
                       </tr>
                     ))}
