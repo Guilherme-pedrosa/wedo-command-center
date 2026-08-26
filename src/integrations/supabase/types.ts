@@ -3182,6 +3182,39 @@ export type Database = {
         }
         Relationships: []
       }
+      fis_fornecedor_papel: {
+        Row: {
+          cnpj: string
+          credita: boolean
+          declarado_em: string | null
+          declarado_por: string | null
+          justificativa: string
+          nome: string | null
+          origem: string
+          papel: string
+        }
+        Insert: {
+          cnpj: string
+          credita: boolean
+          declarado_em?: string | null
+          declarado_por?: string | null
+          justificativa: string
+          nome?: string | null
+          origem?: string
+          papel: string
+        }
+        Update: {
+          cnpj?: string
+          credita?: boolean
+          declarado_em?: string | null
+          declarado_por?: string | null
+          justificativa?: string
+          nome?: string | null
+          origem?: string
+          papel?: string
+        }
+        Relationships: []
+      }
       fis_nf_entrada: {
         Row: {
           chave: string
