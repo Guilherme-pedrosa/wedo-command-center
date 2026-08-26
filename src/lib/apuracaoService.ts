@@ -191,6 +191,7 @@ interface NfEntradaItemRow {
 }
 
 interface NfEntradaRow {
+  id: string;
   chave: string;
   numero: string | null;
   serie: string | null;
@@ -269,6 +270,10 @@ export interface LinhaCredito {
   valorIpi: number;
   /** Id do item — chave para gravar a decisão manual. */
   itemId: string;
+  /** Id da nota. É NOT NULL na tabela, então o upsert da decisão precisa dele. */
+  nfEntradaId: string;
+  /** Posição do item na nota, como veio no XML. */
+  ordem: number;
   /** true quando uma pessoa decidiu manualmente, contra ou a favor da regra. */
   decidoManualmente: boolean;
   chave: string;
@@ -693,6 +698,8 @@ export async function apurarCompetencia(
         valorIcmsSt: Number(item.valor_icms_st) || 0,
         valorIpi: Number(item.valor_ipi) || 0,
         itemId: item.id,
+        nfEntradaId: nf.id,
+        ordem: Number(item.ordem) || 0,
         decidoManualmente: !!manual,
         chave: nf.chave,
         fornecedor: nf.nome_emitente ?? "",
@@ -919,6 +926,67 @@ export async function salvarApuracao(r: ResultadoApuracao): Promise<void> {
     .from<ApuracaoSaldoRow>("fis_apuracao")
     .upsert(linhas, { onConflict: "competencia,tributo" });
   if (error) throw new Error(`Falha ao gravar apuração: ${error.message}`);
+
+  await gravarDecisoesDosItens(r.linhasCredito);
+}
+
+interface DecisaoItemRow {
+  id: string;
+  nf_entrada_id: string;
+  ordem: number;
+  credito_piscofins_permitido: boolean;
+  credito_piscofins_base: number;
+  credito_icms_permitido: boolean;
+  credito_icms_valor: number;
+  motivo_decisao: string;
+  regra_aplicada: string;
+}
+
+/**
+ * Grava, item a item, o que a apuração decidiu e por quê.
+ *
+ * As colunas existiam desde a importação e nasciam em `false / 0`, e ninguém
+ * escrevia por cima: o banco dizia que nada creditava enquanto a apuração
+ * creditava quase dois milhões de base. Quem abrisse a tabela seis meses
+ * depois — a contabilidade, uma fiscalização, ou nós mesmos — não teria como
+ * reconstruir o número nem descobrir o motivo de cada recusa.
+ *
+ * Falha aqui não derruba a apuração: o saldo já está gravado, e perder o
+ * detalhamento é ruim, mas perder o fechamento é pior.
+ */
+async function gravarDecisoesDosItens(linhas: LinhaCredito[]): Promise<void> {
+  const registros: DecisaoItemRow[] = linhas
+    .filter((l) => l.itemId)
+    .map((l) => ({
+      id: l.itemId,
+      // NOT NULL sem default: o INSERT do "on conflict" e validado antes da
+      // resolucao do conflito, entao os dois precisam ir no payload.
+      nf_entrada_id: l.nfEntradaId,
+      ordem: l.ordem,
+      credito_piscofins_permitido: l.decisao.permitido,
+      credito_piscofins_base: l.decisao.permitido ? round2(l.decisao.base) : 0,
+      credito_icms_permitido: l.decisaoIcms.permitido,
+      credito_icms_valor: l.decisaoIcms.permitido ? round2(l.decisaoIcms.base) : 0,
+      // O motivo e a regra sao o que torna a decisao defensavel depois.
+      motivo_decisao: l.decidoManualmente
+        ? `[decisão manual] ${l.decisao.motivo}`
+        : l.decisao.motivo,
+      regra_aplicada: l.decisao.regra,
+    }));
+  if (!registros.length) return;
+
+  // Em lotes: uma competencia passa de trezentos itens e o upsert unico
+  // estoura o limite de payload do PostgREST.
+  const LOTE = 200;
+  for (let i = 0; i < registros.length; i += LOTE) {
+    const { error } = await db
+      .from<DecisaoItemRow>("fis_nf_entrada_item")
+      .upsert(registros.slice(i, i + LOTE), { onConflict: "id" });
+    if (error) {
+      console.error("Falha ao gravar decisões dos itens:", error.message);
+      return;
+    }
+  }
 }
 
 /**
