@@ -695,6 +695,7 @@ export default function ApuracaoFiscalPage() {
                       <th className="p-2">CFOP</th>
                       <th className="p-2">Pedido</th>
                       <th className="p-2 text-right">Valor</th>
+                      <th className="p-2 text-right">Desconto</th>
                       <th className="p-2">CST PIS/COF</th>
                       <th className="p-2 text-right">Base PIS/COF</th>
                       <th className="p-2">CST ICMS</th>
@@ -744,6 +745,9 @@ export default function ApuracaoFiscalPage() {
                         </td>
                         <td className="p-2 text-right tabular-nums">
                           {formatCurrency(l.valorProduto)}
+                        </td>
+                        <td className="p-2 text-right tabular-nums text-muted-foreground">
+                          {l.valorDesconto > 0 ? "-" + formatCurrency(l.valorDesconto) : "—"}
                         </td>
                         <td className="p-2 font-mono text-xs">{l.cstPisCofins ?? "—"}</td>
                         <td className="p-2 text-right tabular-nums">

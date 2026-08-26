@@ -35,6 +35,8 @@ function linhaEntrada(l: LinhaCredito) {
     "Unidade": l.unidade ?? "",
     "Quantidade": l.quantidade,
     "Valor do Item": l.valorProduto,
+    "Desconto": l.valorDesconto,
+    "Valor Líquido": +(l.valorProduto - l.valorDesconto).toFixed(2),
     "CST PIS/COFINS": l.cstPisCofins ?? "",
     "Base PIS": l.basePis,
     "Valor PIS Destacado": l.valorPisDestacado,
