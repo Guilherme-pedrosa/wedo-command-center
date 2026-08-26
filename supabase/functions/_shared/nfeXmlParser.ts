@@ -303,6 +303,23 @@ export function getXmlIde(xml: string): { modelo: string; numero: string; serie:
 //  NFS-e (ABRASF) — nota de servico municipal
 // ══════════════════════════════════════════════════════════════
 
+/**
+ * Igual a getBlock, mas com o nome da tag ANCORADO.
+ *
+ * getBlock("Prestador") casa com <PrestadorServico>, porque o [^>]* engole o
+ * resto do nome. Na NFS-e isso importa: <Prestador> guarda o CNPJ e
+ * <PrestadorServico> guarda razao social e endereco, sao blocos diferentes.
+ * O parser de NF-e continua usando getBlock para nao mudar comportamento em
+ * producao.
+ */
+export function getBlockExato(xml: string, tag: string): string {
+  const re = new RegExp(
+    `<(?:[a-zA-Z0-9]+:)?${tag}(?=[\\s/>])[^>]*>([\\s\\S]*?)<\\/(?:[a-zA-Z0-9]+:)?${tag}>`,
+    "i",
+  );
+  return xml.match(re)?.[1] ?? "";
+}
+
 /** Reconhece um XML de NFS-e no padrao ABRASF. */
 export function ehNfse(xml: string): boolean {
   return /<(?:[a-zA-Z0-9]+:)?(InfNfse|CompNfse|Nfse)\b/i.test(xml);
@@ -357,8 +374,12 @@ export function parseNfse(xml: string): NfseParsed | null {
     numero: getTag(inf, "Numero"),
     codigoVerificacao: getTag(inf, "CodigoVerificacao"),
     dataEmissao: getTag(inf, "DataEmissao").slice(0, 10),
-    prestadorCnpj: getTag(getBlock(prestador, "IdentificacaoPrestador"), "Cnpj")
-      || getTag(prestador, "Cnpj"),
+    // O CNPJ do prestador mora em <Prestador><CpfCnpj><Cnpj>, um bloco
+    // diferente de <PrestadorServico>, que so tem razao social e endereco.
+    prestadorCnpj:
+      getTag(getBlockExato(inf, "Prestador"), "Cnpj")
+      || getTag(getBlockExato(inf, "IdentificacaoPrestador"), "Cnpj")
+      || getTag(getBlockExato(prestador, "CpfCnpj"), "Cnpj"),
     prestadorNome: getTag(prestador, "RazaoSocial"),
     tomadorCnpj: getTag(getBlock(tomador, "IdentificacaoTomador"), "Cnpj")
       || getTag(tomador, "Cnpj") || getTag(tomador, "Cpf"),
