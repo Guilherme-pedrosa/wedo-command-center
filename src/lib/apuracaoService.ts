@@ -166,6 +166,15 @@ interface NfSaidaRetencaoRow {
 interface NfEntradaItemRow {
   id: string;
   ordem: number;
+  unidade: string | null;
+  quantidade: number | null;
+  valor_ipi: number | null;
+  valor_icms_st: number | null;
+  base_pis: number | null;
+  valor_pis: number | null;
+  base_cofins: number | null;
+  valor_cofins: number | null;
+  base_icms: number | null;
   cfop: string | null;
   cst_pis: string | null;
   cst_cofins: string | null;
@@ -182,6 +191,9 @@ interface NfEntradaItemRow {
 interface NfEntradaRow {
   chave: string;
   numero: string | null;
+  serie: string | null;
+  modelo: string | null;
+  data_emissao: string | null;
   nome_emitente: string | null;
   cnpj_emitente: string | null;
   crt_emitente: number | null;
@@ -236,6 +248,23 @@ function chaveDecisao(chaveNf: string, ordem: number): string {
 }
 
 export interface LinhaCredito {
+  /** Campos do livro de entradas — o export precisa deles. */
+  cnpjEmitente: string | null;
+  dataEmissao: string | null;
+  modelo: string | null;
+  serie: string | null;
+  ncm: string | null;
+  unidade: string | null;
+  quantidade: number;
+  basePis: number;
+  valorPisDestacado: number;
+  baseCofins: number;
+  valorCofinsDestacado: number;
+  baseIcms: number;
+  valorIcmsDestacado: number;
+  percReducaoBc: number;
+  valorIcmsSt: number;
+  valorIpi: number;
   /** Id do item — chave para gravar a decisão manual. */
   itemId: string;
   /** true quando uma pessoa decidiu manualmente, contra ou a favor da regra. */
@@ -619,6 +648,22 @@ export async function apurarCompetencia(
       }
 
       linhasCredito.push({
+        cnpjEmitente: nf.cnpj_emitente,
+        dataEmissao: nf.data_emissao,
+        modelo: nf.modelo,
+        serie: nf.serie,
+        ncm: item.ncm,
+        unidade: item.unidade,
+        quantidade: Number(item.quantidade) || 0,
+        basePis: Number(item.base_pis) || 0,
+        valorPisDestacado: Number(item.valor_pis) || 0,
+        baseCofins: Number(item.base_cofins) || 0,
+        valorCofinsDestacado: Number(item.valor_cofins) || 0,
+        baseIcms: Number(item.base_icms) || 0,
+        valorIcmsDestacado: Number(item.valor_icms) || 0,
+        percReducaoBc: Number(item.perc_reducao_bc) || 0,
+        valorIcmsSt: Number(item.valor_icms_st) || 0,
+        valorIpi: Number(item.valor_ipi) || 0,
         itemId: item.id,
         decidoManualmente: !!manual,
         chave: nf.chave,
