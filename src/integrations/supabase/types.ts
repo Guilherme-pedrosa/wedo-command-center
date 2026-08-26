@@ -3215,6 +3215,38 @@ export type Database = {
         }
         Relationships: []
       }
+      fis_item_decisao_manual: {
+        Row: {
+          decidido_em: string
+          decidido_por: string | null
+          incluir: boolean
+          motivo: string | null
+          nf_entrada_item_id: string
+        }
+        Insert: {
+          decidido_em?: string
+          decidido_por?: string | null
+          incluir: boolean
+          motivo?: string | null
+          nf_entrada_item_id: string
+        }
+        Update: {
+          decidido_em?: string
+          decidido_por?: string | null
+          incluir?: boolean
+          motivo?: string | null
+          nf_entrada_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fis_item_decisao_manual_nf_entrada_item_id_fkey"
+            columns: ["nf_entrada_item_id"]
+            isOneToOne: true
+            referencedRelation: "fis_nf_entrada_item"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fis_nf_entrada: {
         Row: {
           chave: string

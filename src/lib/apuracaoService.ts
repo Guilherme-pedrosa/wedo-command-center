@@ -143,6 +143,11 @@ function classificarServico(descricao: string | null, regras: ServicoRegraRow[])
   return { insumo: null as boolean | null, categoria: null, fundamento: null };
 }
 
+/** Base do item quando a inclusão é decidida à mão: valor líquido de desconto. */
+function baseDoItemManual(item: { valorProduto: number; valorDesconto?: number }): number {
+  return round2((item.valorProduto ?? 0) - (item.valorDesconto ?? 0));
+}
+
 /** Chave de ligação com a precificação: a NF de origem mais o nome do item. */
 function chaveCuradoria(nfChave: string | null, nomeProduto: string | null): string {
   return `${nfChave ?? ""}|${(nomeProduto ?? "").trim().toLowerCase()}`;
@@ -159,6 +164,7 @@ interface NfSaidaRetencaoRow {
 }
 
 interface NfEntradaItemRow {
+  id: string;
   ordem: number;
   cfop: string | null;
   cst_pis: string | null;
@@ -210,7 +216,18 @@ export interface AnomaliaApuracao {
   descricao: string;
 }
 
+interface DecisaoManualRow {
+  nf_entrada_item_id: string;
+  incluir: boolean;
+  motivo: string | null;
+  decidido_por: string | null;
+}
+
 export interface LinhaCredito {
+  /** Id do item — chave para gravar a decisão manual. */
+  itemId: string;
+  /** true quando uma pessoa decidiu manualmente, contra ou a favor da regra. */
+  decidoManualmente: boolean;
   chave: string;
   fornecedor: string;
   regime: RegimeEmitente;
@@ -428,6 +445,14 @@ export async function apurarCompetencia(
     (a, b) => (a.prioridade ?? 100) - (b.prioridade ?? 100),
   );
 
+  // Decisões manuais: a regra continua decidindo sozinha, mas quando alguém
+  // marca ou desmarca um item na tela, a palavra dele é a final.
+  const { data: manuaisRaw } = await db
+    .from<DecisaoManualRow>("fis_item_decisao_manual")
+    .select("nf_entrada_item_id, incluir, motivo, decidido_por");
+  const decisoesManuais = new Map<string, DecisaoManualRow>();
+  for (const m of manuaisRaw ?? []) decisoesManuais.set(m.nf_entrada_item_id, m);
+
   const { data: papeisRaw } = await db
     .from<FornecedorPapelRow>("fis_fornecedor_papel")
     .select("cnpj, papel, credita, justificativa");
@@ -544,6 +569,24 @@ export async function apurarCompetencia(
         };
       }
 
+      // Decisão manual vence a regra — nos dois sentidos. Fica registrado no
+      // motivo de quem decidiu, para o relatório não parecer automático.
+      const manual = decisoesManuais.get(item.id);
+      if (manual) {
+        decisao = {
+          ...decisao,
+          permitido: manual.incluir,
+          base: manual.incluir ? baseDoItemManual(itemEntrada) : 0,
+          regra: manual.incluir ? "MANUAL_INCLUIDO" : "MANUAL_EXCLUIDO",
+          requerRevisao: false,
+          motivo:
+            `Decisão manual de ${manual.decidido_por ?? "usuário"}: ` +
+            `${manual.incluir ? "incluído" : "excluído"} da base. ` +
+            (manual.motivo ? `${manual.motivo} ` : "") +
+            `(Regra automática dizia: ${decisao.permitido ? "creditar" : "não creditar"} — ${decisao.motivo})`,
+        };
+      }
+
       if (decisao.permitido) {
         baseCredito += decisao.base;
         itensComCredito++;
@@ -562,6 +605,8 @@ export async function apurarCompetencia(
       }
 
       linhasCredito.push({
+        itemId: item.id,
+        decidoManualmente: !!manual,
         chave: nf.chave,
         fornecedor: nf.nome_emitente ?? "",
         regime,
@@ -839,4 +884,39 @@ export async function diagnosticarEndpointsGC(
     }
   }
   return resultados;
+}
+
+/**
+ * Grava a decisão manual de incluir ou excluir um item da base de crédito.
+ *
+ * A regra automática continua rodando e continua registrada no motivo — a
+ * decisão manual não a apaga, se sobrepõe a ela. Em fiscalização, crédito
+ * tomado por escolha humana precisa mostrar quem escolheu.
+ */
+export async function decidirItemManualmente(
+  nfEntradaItemId: string,
+  incluir: boolean,
+  quem: string,
+  motivo?: string,
+): Promise<void> {
+  const { error } = await db.from<DecisaoManualRow>("fis_item_decisao_manual").upsert(
+    {
+      nf_entrada_item_id: nfEntradaItemId,
+      incluir,
+      motivo: motivo ?? null,
+      decidido_por: quem,
+      decidido_em: new Date().toISOString(),
+    },
+    { onConflict: "nf_entrada_item_id" },
+  );
+  if (error) throw new Error(`Falha ao gravar decisão manual: ${error.message}`);
+}
+
+/** Desfaz a decisão manual e devolve o item ao que a regra automática disser. */
+export async function voltarParaRegraAutomatica(nfEntradaItemId: string): Promise<void> {
+  const alvo = db.from<DecisaoManualRow>("fis_item_decisao_manual") as unknown as {
+    delete(): { eq(c: string, v: string): Promise<{ error: { message: string } | null }> };
+  };
+  const { error } = await alvo.delete().eq("nf_entrada_item_id", nfEntradaItemId);
+  if (error) throw new Error(`Falha ao remover decisão manual: ${error.message}`);
 }

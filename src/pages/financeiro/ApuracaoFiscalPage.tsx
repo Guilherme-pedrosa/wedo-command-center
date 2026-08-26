@@ -21,6 +21,9 @@ import {
   diagnosticarEndpointsGC,
   type ResultadoApuracao,
   type DiagnosticoEndpoint,
+  type LinhaCredito,
+  decidirItemManualmente,
+  voltarParaRegraAutomatica,
 } from "@/lib/apuracaoService";
 import { importarXmlFiscal, type ResultadoImportacao } from "@/lib/importarXmlFiscal";
 
@@ -69,6 +72,7 @@ export default function ApuracaoFiscalPage() {
   const [diagnostico, setDiagnostico] = useState<DiagnosticoEndpoint[] | null>(null);
   const [importacao, setImportacao] = useState<ResultadoImportacao | null>(null);
   const [progressoImport, setProgressoImport] = useState("");
+  const [alternando, setAlternando] = useState<string | null>(null);
 
   const competenciaIso = `${competencia}-01`;
 
@@ -203,6 +207,37 @@ export default function ApuracaoFiscalPage() {
   }
 
   const criticas = resultado?.anomalias.filter((a) => a.severidade === "critico") ?? [];
+
+  /** Fora da base primeiro: é o que precisa de decisão, não o que já passou. */
+  const creditosOrdenados = [...(resultado?.linhasCredito ?? [])].sort((a, b) => {
+    if (a.decisao.permitido !== b.decisao.permitido) return a.decisao.permitido ? 1 : -1;
+    return b.valorProduto - a.valorProduto;
+  });
+
+  async function alternarItem(linha: LinhaCredito, incluir: boolean) {
+    setAlternando(linha.itemId);
+    try {
+      const { data: sessao } = await supabase.auth.getUser();
+      const quem = sessao?.user?.email ?? "usuário";
+
+      if (linha.decidoManualmente && incluir === linha.decisao.permitido) {
+        await voltarParaRegraAutomatica(linha.itemId);
+      } else {
+        await decidirItemManualmente(linha.itemId, incluir, quem);
+      }
+
+      // Recalcula tudo: mexer num item muda base, crédito e saldo.
+      const r = await apurarCompetencia(competenciaIso);
+      setResultado(r);
+      toast.success(
+        `${linha.produto ?? "Item"} ${incluir ? "incluído na" : "removido da"} base.`,
+      );
+    } catch (e) {
+      toast.error(`Não foi possível alterar: ${(e as Error)?.message ?? e}`);
+    } finally {
+      setAlternando(null);
+    }
+  }
 
   return (
     <div className="space-y-6 p-6">
@@ -552,6 +587,7 @@ export default function ApuracaoFiscalPage() {
                 <table className="w-full text-sm">
                   <thead className="bg-muted/50 text-left">
                     <tr>
+                      <th className="p-2 text-center">Na base</th>
                       <th className="p-2">Fornecedor</th>
                       <th className="p-2">Regime</th>
                       <th className="p-2">Item</th>
@@ -566,8 +602,32 @@ export default function ApuracaoFiscalPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {resultado.linhasCredito.map((l, i) => (
-                      <tr key={i} className="border-t border-border/50 align-top">
+                    {creditosOrdenados.map((l, i) => (
+                      <tr
+                        key={l.itemId ?? i}
+                        className={`border-t border-border/50 align-top ${
+                          l.decisao.permitido ? "" : "bg-muted/30"
+                        }`}
+                      >
+                        <td className="p-2 text-center">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 cursor-pointer accent-primary"
+                            checked={l.decisao.permitido}
+                            disabled={alternando === l.itemId}
+                            onChange={(ev) => alternarItem(l, ev.target.checked)}
+                            title={
+                              l.decidoManualmente
+                                ? "Decidido manualmente — desmarcar volta para a regra"
+                                : "Marque para incluir na base de crédito"
+                            }
+                          />
+                          {l.decidoManualmente && (
+                            <p className="mt-1 text-[10px] leading-tight text-muted-foreground">
+                              manual
+                            </p>
+                          )}
+                        </td>
                         <td className="p-2">{l.fornecedor}</td>
                         <td className="p-2">
                           <Badge variant="secondary">{l.regime}</Badge>
