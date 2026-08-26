@@ -281,6 +281,8 @@ export interface LinhaCredito {
   /** CST de ICMS, ou CSOSN quando o emitente é do Simples. */
   cstIcms: string | null;
   valorProduto: number;
+  /** Desconto do item. Sem ele visivel, o valor bruto engana. */
+  valorDesconto: number;
   temPedidoCompra: boolean;
   decisao: DecisaoCredito;
   decisaoIcms: DecisaoCredito;
@@ -676,6 +678,7 @@ export async function apurarCompetencia(
         cstPisCofins: item.cst_pis ?? item.cst_cofins,
         cstIcms: item.cst_icms,
         valorProduto: itemEntrada.valorProduto,
+        valorDesconto: itemEntrada.valorDesconto ?? 0,
         temPedidoCompra,
         decisao,
         decisaoIcms,
