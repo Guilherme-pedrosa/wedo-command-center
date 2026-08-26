@@ -482,3 +482,63 @@ describe("Regra 3 — rateio de retenções por liquidação", () => {
     expect(r.avisos[0].tipo).toBe("NFSE_SEM_VALOR");
   });
 });
+
+describe("serviço tomado — insumo depende da natureza, não do CFOP", () => {
+  const servico = (over: Partial<ItemEntrada> = {}): ItemEntrada =>
+    item({ cfop: "5933", ehServico: true, cstPis: "01", cstCofins: "01", ...over });
+  const CFOP_5933: RegraCfop = {
+    cfop: "5933", sentido: "saida", compoeReceita: true,
+    geraCreditoPisCofins: true, geraCreditoIcms: false,
+  };
+
+  it("manutenção de equipamento credita", () => {
+    const d = decidirCreditoPisCofins(
+      servico({ servicoEhInsumo: true, servicoCategoria: "manutencao" }), NORMAL, CFOP_5933,
+    );
+    expect(d.permitido).toBe(true);
+    expect(d.regra).toBe("SERVICO_INSUMO");
+  });
+
+  it("alimentação NÃO credita mesmo com CST 01 e fornecedor do Simples", () => {
+    const d = decidirCreditoPisCofins(
+      servico({ servicoEhInsumo: false, servicoCategoria: "alimentacao" }),
+      { ...SIMPLES, temPedidoCompra: true },
+      CFOP_5933,
+    );
+    expect(d.permitido).toBe(false);
+    expect(d.regra).toBe("SERVICO_NAO_INSUMO");
+  });
+
+  it("comissão de venda não credita nem com pedido de compra", () => {
+    const d = decidirCreditoPisCofins(
+      servico({ servicoEhInsumo: false, servicoCategoria: "comissao_venda" }),
+      COM_PEDIDO, CFOP_5933,
+    );
+    expect(d.permitido).toBe(false);
+  });
+
+  it("serviço sem descrição classificável não credita e pede revisão", () => {
+    const d = decidirCreditoPisCofins(
+      servico({ servicoEhInsumo: null, nomeProduto: "mensal" }), COM_PEDIDO, CFOP_5933,
+    );
+    expect(d.permitido).toBe(false);
+    expect(d.regra).toBe("SERVICO_INDECIDIVEL");
+    expect(d.requerRevisao).toBe(true);
+  });
+});
+
+describe("MEI e pessoa física", () => {
+  it("MEI tem CNPJ, é pessoa jurídica, e credita como o Simples", () => {
+    const d = decidirCreditoPisCofins(item({ cstPis: "49" }), MEI, CFOP_1102);
+    expect(d.permitido).toBe(true);
+    expect(d.viaResgateSimples).toBe(true);
+  });
+
+  it("emitente pessoa física (CPF) não gera crédito", () => {
+    const d = decidirCreditoPisCofins(
+      item(), { ...NORMAL, emitentePessoaFisica: true }, CFOP_1102,
+    );
+    expect(d.permitido).toBe(false);
+    expect(d.regra).toBe("PESSOA_FISICA");
+  });
+});

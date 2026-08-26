@@ -83,6 +83,16 @@ export interface ItemEntrada {
   percReducaoBc?: number;
   ncm?: string | null;
   nomeProduto?: string | null;
+  /** Aquisição de serviço (CFOP x933): o crédito depende da natureza dele. */
+  ehServico?: boolean;
+  /**
+   * Classificação do serviço em fis_servico_regra. true = insumo,
+   * false = não insumo, null = nenhuma regra reconheceu a descrição.
+   */
+  servicoEhInsumo?: boolean | null;
+  /** Categoria e fundamento da regra que classificou, para o rastro. */
+  servicoCategoria?: string | null;
+  servicoFundamento?: string | null;
 }
 
 export interface NotaEntrada {
@@ -145,6 +155,11 @@ export function decidirCreditoPisCofins(
   nota: Pick<NotaEntrada, "regimeEmitente" | "crtEmitente"> & {
     /** A nota está amarrada a um pedido de compra? Prova de uso operacional. */
     temPedidoCompra?: boolean;
+    /**
+     * Emitente é pessoa física (CPF). MEI NÃO entra aqui: MEI tem CNPJ, é
+     * pessoa jurídica, e credita normalmente.
+     */
+    emitentePessoaFisica?: boolean;
   },
   regra: RegraCfop | null,
   opcoes: OpcoesCredito = {},
@@ -163,6 +178,18 @@ export function decidirCreditoPisCofins(
     permitido: true, base, motivo, regra: regraId,
     viaResgateSimples: simples, requerRevisao: revisar,
   });
+
+  // ── 0. Emitente pessoa física ──────────────────────────────────────────
+  // Lei 10.833/2003 art. 3º, §2º, I e §3º, I: crédito exige aquisição de
+  // pessoa jurídica domiciliada no País. MEI tem CNPJ e é pessoa jurídica,
+  // então NÃO cai aqui — credita como qualquer outro optante do Simples.
+  if (nota.emitentePessoaFisica) {
+    return negar(
+      "Emitente é pessoa física (CPF). Mão de obra paga a pessoa física não gera " +
+      "crédito (Lei 10.833/2003, art. 3º, §2º, I).",
+      "PESSOA_FISICA",
+    );
+  }
 
   // ── 1. Veto absoluto: a contribuição já foi paga concentrada ────────────
   // Único ponto onde o CST do fornecedor decide sozinho, porque monofásico e
@@ -191,6 +218,35 @@ export function decidirCreditoPisCofins(
     return negar(
       `CFOP ${item.cfop} não é aquisição (remessa/conserto/garantia) — nada a creditar`,
       "CFOP_NAO_AQUISICAO",
+    );
+  }
+
+  // ── 2b. Serviço tomado: o CFOP prova que houve serviço, não que é insumo ─
+  // O direito depende de essencialidade e relevância para a atividade
+  // (Lei 10.833/2003, art. 3º, II; STJ REsp 1.221.170/PR). Alimentação,
+  // comissão de venda, treinamento comercial e viagem não passam nesse teste,
+  // venham de quem vierem — inclusive de fornecedor do Simples ou MEI.
+  if (item.ehServico) {
+    if (item.servicoEhInsumo === true) {
+      return permitir(
+        `Serviço classificado como ${item.servicoCategoria ?? "insumo"} — ` +
+        `${item.servicoFundamento ?? "insumo da atividade"}`,
+        "SERVICO_INSUMO",
+        { simples: nota.regimeEmitente === "simples_nacional" || nota.regimeEmitente === "mei" },
+      );
+    }
+    if (item.servicoEhInsumo === false) {
+      return negar(
+        `Serviço classificado como ${item.servicoCategoria ?? "não insumo"} — ` +
+        `${item.servicoFundamento ?? "não integra o processo produtivo"}`,
+        "SERVICO_NAO_INSUMO",
+      );
+    }
+    return negar(
+      `Serviço sem descrição que permita classificar ("${item.nomeProduto ?? ""}"). ` +
+      `Cobrar descrição do prestador ou cadastrar a regra em fis_servico_regra.`,
+      "SERVICO_INDECIDIVEL",
+      true,
     );
   }
 
