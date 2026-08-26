@@ -458,6 +458,7 @@ export async function apurarCompetencia(
 
     for (const item of nf.fis_nf_entrada_item ?? []) {
       itensEntrada++;
+      const regra = item.cfop ? regras.get(String(item.cfop)) ?? null : null;
       const itemEntrada = {
         ordem: item.ordem,
         cfop: item.cfop,
@@ -474,6 +475,9 @@ export async function apurarCompetencia(
         ehServico: ehCfopServico(item.cfop),
         ehCombustivelInsumo:
           temPedidoCompra && ehCombustivel(item.ncm, item.nome_produto),
+        // Monofásico/ST comprado com pedido e por CFOP de aquisição foi para
+        // uso na atividade, não para revenda — é a destinação que decide.
+        ehMonofasicoInsumo: temPedidoCompra && !!regra?.geraCreditoPisCofins,
         ...(() => {
           if (!ehCfopServico(item.cfop)) return {};
           // O papel declarado do prestador manda sobre a descrição da linha:
@@ -511,7 +515,6 @@ export async function apurarCompetencia(
           };
         })(),
       };
-      const regra = item.cfop ? regras.get(String(item.cfop)) ?? null : null;
 
       let decisao = decidirCreditoPisCofins(itemEntrada, cabecalho, regra, opcoes);
       const decisaoIcms = decidirCreditoIcms(itemEntrada, cabecalho, regra);
