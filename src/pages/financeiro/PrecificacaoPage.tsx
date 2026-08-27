@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect, Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { custoComDescontoDaNf } from "@/lib/custoCompra";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -76,6 +77,10 @@ interface ProdutoTributo {
   unidade_tributavel_nf?: string | null;
   q_com?: number | null;
   v_un_com?: number | null;
+  /** vDesc do item na NF. O pedido de compra do GC nunca traz desconto. */
+  v_desc?: number | null;
+  /** Pedido a que esta NF se refere — para nao cruzar desconto de outra compra. */
+  compra_gc_id?: string | null;
   q_trib?: number | null;
   v_un_trib?: number | null;
   fator_conversao?: number | null;
@@ -1515,7 +1520,14 @@ export default function PrecificacaoPage() {
       const ultimaCompra = ultimaCompraMap.get(p.id);
       const tributoRaw = tributosMap.get(p.id);
       const excecao = !!tributoRaw?.excecao_manual;
-      const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+      // O pedido de compra guarda o preco de tabela: o desconto e dado na
+      // nota (vDesc) e nunca volta para o pedido. Sem isto a precificacao
+      // usava custo ate 63,9% acima do real.
+      const custoUltimaCompra = custoComDescontoDaNf(
+        ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0,
+        tributoRaw,
+        ultimaCompra,
+      );
       // Exceção manual: ignora NF e última compra (provavelmente unidade divergente);
       // usa exclusivamente o custo cadastrado no GC.
       const custoOverride = tributoRaw?.excecao_custo_unitario;
@@ -1600,7 +1612,14 @@ export default function PrecificacaoPage() {
       const ultimaCompra = ultimaCompraMap.get(p.id);
       const tributoRaw = tributosMap.get(p.id);
       const excecao = !!tributoRaw?.excecao_manual;
-      const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+      // O pedido de compra guarda o preco de tabela: o desconto e dado na
+      // nota (vDesc) e nunca volta para o pedido. Sem isto a precificacao
+      // usava custo ate 63,9% acima do real.
+      const custoUltimaCompra = custoComDescontoDaNf(
+        ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0,
+        tributoRaw,
+        ultimaCompra,
+      );
       const custoOverride = tributoRaw?.excecao_custo_unitario;
       const custoBruto = excecao
         ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
@@ -1668,7 +1687,14 @@ export default function PrecificacaoPage() {
         const ultimaCompra = ultimaCompraMap.get(p.id);
         const tributoRaw = tributosMap.get(p.id);
         const excecao = !!tributoRaw?.excecao_manual;
-        const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+        // O pedido de compra guarda o preco de tabela: o desconto e dado na
+        // nota (vDesc) e nunca volta para o pedido. Sem isto a precificacao
+        // usava custo ate 63,9% acima do real.
+        const custoUltimaCompra = custoComDescontoDaNf(
+          ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0,
+          tributoRaw,
+          ultimaCompra,
+        );
         const custoOverride = tributoRaw?.excecao_custo_unitario;
         const custo = excecao
           ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (Number(p.valor_custo) || 0))
@@ -1688,8 +1714,18 @@ export default function PrecificacaoPage() {
       const estoqueB = Number(b.estoque) || 0;
       const ultimaCompraA = ultimaCompraMap.get(a.id);
       const ultimaCompraB = ultimaCompraMap.get(b.id);
-      const custoUltimaCompraA = ultimaCompraA?.valor_custo && ultimaCompraA.valor_custo > 0 ? ultimaCompraA.valor_custo : 0;
-      const custoUltimaCompraB = ultimaCompraB?.valor_custo && ultimaCompraB.valor_custo > 0 ? ultimaCompraB.valor_custo : 0;
+      // Ordenar por valor de estoque com custo bruto jogava para o topo os
+      // itens que tiveram desconto grande na nota.
+      const custoUltimaCompraA = custoComDescontoDaNf(
+        ultimaCompraA?.valor_custo && ultimaCompraA.valor_custo > 0 ? ultimaCompraA.valor_custo : 0,
+        tributosMap.get(a.id),
+        ultimaCompraA,
+      );
+      const custoUltimaCompraB = custoComDescontoDaNf(
+        ultimaCompraB?.valor_custo && ultimaCompraB.valor_custo > 0 ? ultimaCompraB.valor_custo : 0,
+        tributosMap.get(b.id),
+        ultimaCompraB,
+      );
       const custoA = custoUltimaCompraA > 0 ? custoUltimaCompraA : (custoCanonicoMap.get(a.id)?.custo || Number(a.valor_custo) || 0);
       const custoB = custoUltimaCompraB > 0 ? custoUltimaCompraB : (custoCanonicoMap.get(b.id)?.custo || Number(b.valor_custo) || 0);
       const valorEstoqueA = estoqueA * custoA;
@@ -2382,7 +2418,14 @@ export default function PrecificacaoPage() {
       const ultimaCompra = ultimaCompraMap.get(p.id);
       const tributoRaw = tributosMap.get(p.id);
       const excecao = !!tributoRaw?.excecao_manual;
-      const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0;
+      // O pedido de compra guarda o preco de tabela: o desconto e dado na
+      // nota (vDesc) e nunca volta para o pedido. Sem isto a precificacao
+      // usava custo ate 63,9% acima do real.
+      const custoUltimaCompra = custoComDescontoDaNf(
+        ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0 ? ultimaCompra.valor_custo : 0,
+        tributoRaw,
+        ultimaCompra,
+      );
       const custoOverride = tributoRaw?.excecao_custo_unitario;
       const custoBruto = excecao
         ? (custoOverride && custoOverride > 0 ? Number(custoOverride) : (parseFloat(p.valor_custo) || 0))
@@ -3093,9 +3136,14 @@ export default function PrecificacaoPage() {
                     const ultimaCompra = ultimaCompraMap.get(p.id);
                     const excecao = !!tributoRaw?.excecao_manual;
                     // Prioriza valor do ÚLTIMO pedido de compras (mais recente) sobre o cache do GC
-                    const custoUltimaCompra = ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0
-                      ? ultimaCompra.valor_custo
-                      : 0;
+                    // Desconto da nota nao chega ao pedido de compra — aplicar aqui.
+                    const custoUltimaCompra = custoComDescontoDaNf(
+                      ultimaCompra?.valor_custo && ultimaCompra.valor_custo > 0
+                        ? ultimaCompra.valor_custo
+                        : 0,
+                      tributoRaw,
+                      ultimaCompra,
+                    );
                     const tributoCompat = isTributoCompativelComProduto(p, tributoRaw) ? tributoRaw : undefined;
                     const tributoParaCalculo = tributoCompat;
                     const kitRatio = detectKitRatio(tributoParaCalculo, custoUltimaCompra || custoCache);
