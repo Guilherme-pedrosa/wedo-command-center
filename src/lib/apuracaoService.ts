@@ -672,11 +672,20 @@ export async function apurarCompetencia(
 
       if (decisao.requerRevisao) {
         itensParaRevisao++;
+        // Revisar nao e sinonimo de recusar. A maior parte destes ENTROU na
+        // base -- CST 49/99 de fornecedor do Simples, combustivel monofasico --
+        // e so pede confirmacao antes do fechamento. Marcar tudo como critico
+        // fazia a tela dizer que o saldo estava subestimado quando o credito
+        // ja estava dentro dele.
         anomalias.push({
           tipo: decisao.regra,
-          severidade: "critico",
+          severidade: decisao.permitido ? "aviso" : "critico",
           referencia: `${nf.chave} item ${item.ordem}`,
-          descricao: `${item.nome_produto ?? "item"}: ${decisao.motivo}`,
+          descricao:
+            `${item.nome_produto ?? "item"}: ${decisao.motivo} ` +
+            (decisao.permitido
+              ? `Creditado (base R$ ${round2(decisao.base).toFixed(2)}) — confirmar antes de fechar.`
+              : "Fora da base de crédito."),
         });
       }
 
