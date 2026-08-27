@@ -255,7 +255,11 @@ export default function ApuracaoFiscalPage() {
     }
   }
 
+  // Critico = ficou FORA do credito, entao o saldo esta mesmo subestimado.
+  // Aviso = entrou na base e so pede conferencia. Sao coisas diferentes e a
+  // tela dizia a mesma frase para as duas.
   const criticas = resultado?.anomalias.filter((a) => a.severidade === "critico") ?? [];
+  const paraConferir = resultado?.anomalias.filter((a) => a.severidade === "aviso") ?? [];
 
   // NF-e e NFS-e sao livros fiscais diferentes: mercadoria tem CFOP e ICMS,
   // servico tem ISS municipal. Misturar numa lista so atrapalha a conferencia.
@@ -581,8 +585,26 @@ export default function ApuracaoFiscalPage() {
                   {criticas.length} pendência(s) crítica(s) — não feche a competência assim.
                 </p>
                 <p className="text-muted-foreground">
-                  Itens sem CST, sem CFOP ou com regime do fornecedor indefinido ficaram
-                  FORA do crédito. O saldo abaixo está subestimado até que sejam resolvidos.
+                  São documentos ou itens que ficaram <strong>fora</strong> da base de
+                  crédito: compra sem XML importado, nota de saída não autorizada, CFOP
+                  sem regra cadastrada. O saldo abaixo está subestimado até resolver.
+                  Detalhe de cada um na aba Anomalias.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {paraConferir.length > 0 && (
+            <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+              <div className="text-sm">
+                <p className="font-semibold text-amber-600 dark:text-amber-400">
+                  {paraConferir.length} item(ns) creditado(s) que pedem conferência.
+                </p>
+                <p className="text-muted-foreground">
+                  Já <strong>estão</strong> na base — o saldo abaixo os inclui. Entraram
+                  por evidência de insumo (pedido de compra, regime do fornecedor) e não
+                  pelo CST que o emitente escreveu, então vale confirmar antes de fechar.
                 </p>
               </div>
             </div>
