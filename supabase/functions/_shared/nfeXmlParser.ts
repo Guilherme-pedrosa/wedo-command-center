@@ -175,6 +175,13 @@ export function getXmlFrete(xml: string): number {
   return parseFloat(getTag(icmsTot, "vFrete")) || 0;
 }
 
+export function getXmlDescontoTotal(xml: string): number {
+  const infNFe = getBlock(xml, "infNFe") || xml;
+  const total = getBlock(infNFe, "total");
+  const icmsTot = getBlock(total, "ICMSTot");
+  return parseFloat(getTag(icmsTot, "vDesc")) || 0;
+}
+
 export function getXmlMeta(xml: string): { chave: string; numero_nf: string; data_emissao: string; nome_emitente: string; nat_op: string; inf_cpl: string } {
   const infNFe = getBlock(xml, "infNFe") || xml;
   const ide = getBlock(infNFe, "ide");
