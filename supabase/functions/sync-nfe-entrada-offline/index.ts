@@ -225,6 +225,13 @@ function getXmlFrete(xml: string): number {
   return parseFloat(getTag(icmsTot, "vFrete")) || 0;
 }
 
+function getXmlDescontoTotal(xml: string): number {
+  const infNFe = getBlock(xml, "infNFe") || xml;
+  const total = getBlock(infNFe, "total");
+  const icmsTot = getBlock(total, "ICMSTot");
+  return parseFloat(getTag(icmsTot, "vDesc")) || 0;
+}
+
 function isXmlSimplesNacional(xml: string, xmlItems?: XmlItemTax[]): boolean {
   const emit = getBlock(xml, "emit");
   const crt = getTag(emit, "CRT");
@@ -440,8 +447,13 @@ serve(async (req) => {
       // ── Parse XML and match products ──
       const xmlItems = parseXmlItems(xmlContent);
       const xmlFrete = getXmlFrete(xmlContent);
+      const descontoItens = xmlItems.reduce((s, i) => s + (i.vDesc || 0), 0);
+      const descontoCabecalhoRatear = Math.max(0, getXmlDescontoTotal(xmlContent) - descontoItens);
+      const totalVProdBruto = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd), 0);
+      const descontoEfetivo = (item: XmlItemTax) =>
+        (item.vDesc || 0) + (totalVProdBruto > 0 ? descontoCabecalhoRatear * Math.max(0, item.vProd) / totalVProdBruto : 0);
       const isSN = isXmlSimplesNacional(xmlContent, xmlItems);
-      const totalVProd = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd - (i.vDesc || 0)), 0);
+      const totalVProd = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd - descontoEfetivo(i)), 0);
       const usedXmlIndices = new Set<number>();
       const r = (v: number) => Math.round(v * 100) / 100;
 
@@ -509,7 +521,7 @@ serve(async (req) => {
           usedXmlIndices.add(bestIdx);
 
           const qtd = xmlItem.qCom || 1;
-          const vProdLiquido = Math.max(0, xmlItem.vProd - (xmlItem.vDesc || 0));
+          const vProdLiquido = Math.max(0, xmlItem.vProd - descontoEfetivo(xmlItem));
           const valorUnit = vProdLiquido / qtd;
           const proporcao = totalVProd > 0 ? vProdLiquido / totalVProd : 0;
           const freteUnit = qtd > 0 ? (xmlFrete * proporcao) / qtd : 0;

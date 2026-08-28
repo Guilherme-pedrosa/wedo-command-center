@@ -10,6 +10,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   parseXmlItems,
   getXmlFrete,
+  getXmlDescontoTotal,
   getXmlMeta,
   isXmlSimplesNacional,
   type XmlItemTax,
@@ -1027,8 +1028,13 @@ function processarXml(
   const r = (v: number) => Math.round(v * 100) / 100;
   const xmlItems = parseXmlItems(xml);
   const xmlFrete = getXmlFrete(xml);
+  const descontoItens = xmlItems.reduce((s, i) => s + (i.vDesc || 0), 0);
+  const descontoCabecalhoRatear = Math.max(0, getXmlDescontoTotal(xml) - descontoItens);
+  const totalVProdBruto = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd), 0);
+  const descontoEfetivo = (item: XmlItemTax) =>
+    (item.vDesc || 0) + (totalVProdBruto > 0 ? descontoCabecalhoRatear * Math.max(0, item.vProd) / totalVProdBruto : 0);
   const isSN = isXmlSimplesNacional(xml, xmlItems);
-  const totalVProd = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd - (i.vDesc || 0)), 0);
+  const totalVProd = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd - descontoEfetivo(i)), 0);
   const meta = getXmlMeta(xml);
   const nfIneligivelMotivo = detectIneligivelPrecificacao(meta.nat_op, meta.inf_cpl);
 
@@ -1356,7 +1362,7 @@ function processarXml(
     let qtd = qComRaw;
     let packRuleTag = "";
     if (compraQtd > 0 && qComRaw > 0) {
-      const totalNF = Math.max(0, xi.vProd - (xi.vDesc || 0));
+      const totalNF = Math.max(0, xi.vProd - descontoEfetivo(xi));
       const totalPedido = item.valor_total || (item.valor_custo * compraQtd);
       const ratio = compraQtd / qComRaw;
       const totaisBatem = totalPedido > 0 &&
@@ -1369,7 +1375,8 @@ function processarXml(
       }
     }
 
-    const vProdLiquido = Math.max(0, xi.vProd - (xi.vDesc || 0));
+    const descontoItemEfetivo = descontoEfetivo(xi);
+    const vProdLiquido = Math.max(0, xi.vProd - descontoItemEfetivo);
     const valorUnit = vProdLiquido / qtd;
     const proporcao = totalVProd > 0 ? vProdLiquido / totalVProd : 0;
     const freteUnit = qtd > 0 ? (xmlFrete * proporcao) / qtd : 0;
@@ -1435,7 +1442,7 @@ function processarXml(
       fator_embalagem: fatorEmbalagem,
       v_seg: r(xi.vSeg),
       v_outro: r(xi.vOutro),
-      v_desc: r(xi.vDesc),
+      v_desc: r(descontoItemEfetivo),
       v_icms_st: r(xi.icms_vICMSST),
       v_fcp_st: r(xi.icms_vFCPST),
       v_icms_uf_dest: r(xi.icms_vICMSUFDest),
