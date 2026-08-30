@@ -98,6 +98,18 @@ interface ProductTaxRecord {
 //  XML PARSER — extrai impostos POR ITEM do XML real da NF-e
 // ══════════════════════════════════════════════════════════════
 
+// GTIN do XML (cEAN/cEANTrib). Códigos como "SEM GTIN" ou zeros não são GTIN.
+function gtinValido(raw: unknown): string | null {
+  const d = String(raw ?? "").replace(/\D/g, "");
+  if (![8, 12, 13, 14].includes(d.length)) return null;
+  if (/^0+$/.test(d)) return null;
+  return d;
+}
+
+function gtinDoXmlItem(xi: { cEAN?: string; cEANTrib?: string }): string | null {
+  return gtinValido(xi.cEAN) ?? gtinValido(xi.cEANTrib);
+}
+
 function getTag(xml: string, tag: string): string {
   const patterns = [
     new RegExp(`<(?:[a-zA-Z0-9]+:)?${tag}[^>]*>([^<]*)<\\/(?:[a-zA-Z0-9]+:)?${tag}>`, "i"),
@@ -547,6 +559,7 @@ serve(async (req) => {
             gc_produto_id: gcProdId,
             nome_produto: xmlItem.xProd || compraProd.nome_produto || "",
             ncm: xmlItem.NCM || "",
+            gtin: gtinDoXmlItem(xmlItem),
             origem: normalizeOrigemXml(xmlItem.icms_orig),
             cfop: xmlItem.CFOP || "",
             nf_gc_id: matchedChave,
