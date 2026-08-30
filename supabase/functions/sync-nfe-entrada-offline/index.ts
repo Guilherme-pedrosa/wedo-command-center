@@ -618,6 +618,8 @@ serve(async (req) => {
             gc_produto_id: gcProdId,
             nome_produto: compraProd.nome_produto || "",
             ncm: xmlItems[0]?.NCM || "",
+            // Rateio não casa item a item: GTIN do primeiro item seria chute.
+            gtin: null,
             // Rateio não tem vínculo item a item. Só grava origem quando todos
             // os itens da NF concordam; nunca presume pelo primeiro item.
             origem: origemUnicaDosItens(xmlItems),
