@@ -634,10 +634,11 @@ function GtinCell({
         </span>
         <span
           className={`text-[9px] font-mono ${divergente ? "text-red-400" : nfGtin ? "text-blue-400" : "text-amber-400"}`}
-          title="GTIN (cEAN/cEANTrib) do XML da última NF de entrada"
+          title="GTIN (cEAN/cEANTrib) do XML da última NF de entrada. Muitos fabricantes (ex.: Rational) emitem a tag com o literal 'SEM GTIN' — nesse caso não existe código de barras na nota e o cadastro precisa ser preenchido manualmente."
         >
-          NF: {nfGtin || "não identificado no XML sincronizado"}
+          NF: {nfGtin || "nota sem GTIN informado"}
         </span>
+
       </div>
       {manual ? (
         <div className="flex flex-col gap-1">
