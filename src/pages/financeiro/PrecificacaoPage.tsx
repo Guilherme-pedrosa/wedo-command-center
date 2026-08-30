@@ -632,14 +632,12 @@ function GtinCell({
         <span className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ${gcGtin ? "border-border bg-secondary" : "border-amber-500/50 text-amber-400 bg-amber-500/5"}`}>
           {gcGtin || "Sem GTIN no GC"}
         </span>
-        {!!nfGtin && (
-          <span
-            className={`text-[9px] font-mono ${divergente ? "text-red-400" : "text-blue-400"}`}
-            title="GTIN (cEAN/cEANTrib) do XML da última NF de entrada"
-          >
-            NF: {nfGtin}
-          </span>
-        )}
+        <span
+          className={`text-[9px] font-mono ${divergente ? "text-red-400" : nfGtin ? "text-blue-400" : "text-amber-400"}`}
+          title="GTIN (cEAN/cEANTrib) do XML da última NF de entrada"
+        >
+          NF: {nfGtin || "não identificado no XML sincronizado"}
+        </span>
       </div>
       {manual ? (
         <div className="flex flex-col gap-1">
