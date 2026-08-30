@@ -95,6 +95,7 @@ interface ProductTaxRecord {
   gc_produto_id: string;
   nome_produto: string;
   ncm: string;
+  gtin: string | null;
   cfop: string;
   nf_gc_id: string;
   nf_numero: string;
