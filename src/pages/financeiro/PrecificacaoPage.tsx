@@ -3342,7 +3342,7 @@ export default function PrecificacaoPage() {
                     />
                   </TableHead>
                   <TableHead className="text-xs" rowSpan={2}>Produto</TableHead>
-                  <TableHead className="text-xs" rowSpan={2}>NCM / Origem</TableHead>
+                  <TableHead className="text-xs" rowSpan={2}>NCM / Origem / GTIN</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Estoque</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2} title="Custo cadastrado no GestãoClick (gc_produtos_cache.valor_custo)">Custo GC</TableHead>
