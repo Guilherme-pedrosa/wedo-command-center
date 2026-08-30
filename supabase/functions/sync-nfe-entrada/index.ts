@@ -95,6 +95,7 @@ interface ProductTaxRecord {
   gc_produto_id: string;
   nome_produto: string;
   ncm: string;
+  gtin: string | null;
   cfop: string;
   nf_gc_id: string;
   nf_numero: string;
@@ -196,6 +197,18 @@ function codigoComparavel(raw: string | null | undefined): string[] {
   if (!norm || /^0+$/.test(norm)) return [];
   const out = new Set<string>([norm, stripLeadingZerosCode(norm)]);
   return [...out].filter((c) => c.length >= 4);
+}
+
+// GTIN do XML (cEAN/cEANTrib). Códigos como "SEM GTIN" ou zeros não são GTIN.
+function gtinValido(raw: unknown): string | null {
+  const d = String(raw ?? "").replace(/\D/g, "");
+  if (![8, 12, 13, 14].includes(d.length)) return null;
+  if (/^0+$/.test(d)) return null;
+  return d;
+}
+
+function gtinDoXmlItem(xi: { cEAN?: string; cEANTrib?: string }): string | null {
+  return gtinValido(xi.cEAN) ?? gtinValido(xi.cEANTrib);
 }
 
 function normalizarCodigoBarra(raw: string | null | undefined): string {
@@ -1085,6 +1098,7 @@ function processarXml(
       gc_produto_id: gcProdId,
       nome_produto: item.nome_produto || "",
       ncm: "",
+      gtin: null,
       origem: "",
       cfop: "",
       nf_gc_id: meta.chave || xmlMeta.chave,
@@ -1404,6 +1418,7 @@ function processarXml(
       gc_produto_id: gcProdId,
       nome_produto: item.nome_produto || "",
       ncm: xi.NCM || "",
+      gtin: gtinDoXmlItem(xi),
       origem: normalizeOrigemXml(xi.icms_orig),
       cfop: xi.CFOP || "",
       nf_gc_id: meta.chave || xmlMeta.chave,

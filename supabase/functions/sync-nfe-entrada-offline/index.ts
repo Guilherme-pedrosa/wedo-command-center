@@ -66,6 +66,7 @@ interface ProductTaxRecord {
   gc_produto_id: string;
   nome_produto: string;
   ncm: string;
+  gtin: string | null;
   origem: string;
   cfop: string;
   nf_gc_id: string;
@@ -96,6 +97,18 @@ interface ProductTaxRecord {
 // ══════════════════════════════════════════════════════════════
 //  XML PARSER — extrai impostos POR ITEM do XML real da NF-e
 // ══════════════════════════════════════════════════════════════
+
+// GTIN do XML (cEAN/cEANTrib). Códigos como "SEM GTIN" ou zeros não são GTIN.
+function gtinValido(raw: unknown): string | null {
+  const d = String(raw ?? "").replace(/\D/g, "");
+  if (![8, 12, 13, 14].includes(d.length)) return null;
+  if (/^0+$/.test(d)) return null;
+  return d;
+}
+
+function gtinDoXmlItem(xi: { cEAN?: string; cEANTrib?: string }): string | null {
+  return gtinValido(xi.cEAN) ?? gtinValido(xi.cEANTrib);
+}
 
 function getTag(xml: string, tag: string): string {
   const patterns = [
@@ -546,6 +559,7 @@ serve(async (req) => {
             gc_produto_id: gcProdId,
             nome_produto: xmlItem.xProd || compraProd.nome_produto || "",
             ncm: xmlItem.NCM || "",
+            gtin: gtinDoXmlItem(xmlItem),
             origem: normalizeOrigemXml(xmlItem.icms_orig),
             cfop: xmlItem.CFOP || "",
             nf_gc_id: matchedChave,
@@ -604,6 +618,8 @@ serve(async (req) => {
             gc_produto_id: gcProdId,
             nome_produto: compraProd.nome_produto || "",
             ncm: xmlItems[0]?.NCM || "",
+            // Rateio não casa item a item: GTIN do primeiro item seria chute.
+            gtin: null,
             // Rateio não tem vínculo item a item. Só grava origem quando todos
             // os itens da NF concordam; nunca presume pelo primeiro item.
             origem: origemUnicaDosItens(xmlItems),

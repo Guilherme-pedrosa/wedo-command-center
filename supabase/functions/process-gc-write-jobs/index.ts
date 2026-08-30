@@ -68,6 +68,18 @@ function productNcm(product: Record<string, unknown> | null): string {
   return normalizeNcm(fiscal?.ncm ?? product.ncm);
 }
 
+function normalizeGtin(value: unknown): string {
+  const d = String(value ?? "").replace(/\D/g, "");
+  if (![8, 12, 13, 14].includes(d.length)) return "";
+  if (/^0+$/.test(d)) return "";
+  return d;
+}
+
+function productCodigoBarra(product: Record<string, unknown> | null): string {
+  if (!product) return "";
+  return normalizeGtin(product.codigo_barra);
+}
+
 function normalizeOrigem(value: unknown): string | null {
   const raw = String(value ?? "").trim();
   return /^[0-8]$/.test(raw) ? raw : null;
@@ -284,6 +296,19 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      const gtinDoJob = normalizeGtin(job.payload.codigo_barra);
+      if (job.recurso === "produtos" && job.payload.codigo_barra != null && !gtinDoJob) {
+        const errMsg = "GTIN inválido: informe 8, 12, 13 ou 14 dígitos numéricos.";
+        await supabase.from("fin_gc_write_jobs").update({
+          status: "erro_fatal",
+          ultimo_erro: errMsg,
+          response_body: { source: "gc_public", invalid_gtin: true } as never,
+          finalizado_em: new Date().toISOString(),
+        }).eq("id", job.id);
+        results.push({ id: job.id, status: "erro_fatal_gtin_invalido", erro: errMsg });
+        continue;
+      }
+
       // ===== GET-before-PUT =====
       // 1. GET produto completo do GC (PUT parcial é rejeitado com HTTP 500)
       const getRes = await gcFetch(url, {
@@ -339,6 +364,7 @@ Deno.serve(async (req) => {
         valores?: Array<Record<string, unknown>>;
         ncm?: string;
         origem?: string;
+        codigo_barra?: string;
       };
       const valoresPayload = payload.valores ?? [];
       const tiposAlterados = new Set<string>();
@@ -382,6 +408,7 @@ Deno.serve(async (req) => {
         ...produtoBase,
         valor_custo: String(novoCustoTopLevel),
         ...(ncmSolicitado ? { ncm: ncmSolicitado } : {}),
+        ...(gtinDoJob ? { codigo_barra: gtinDoJob } : {}),
         ...fiscalCanonical,
         valores: valoresMerged,
       };
@@ -422,6 +449,8 @@ Deno.serve(async (req) => {
 
         if (!verifyRes.ok) {
           errorMsg = `PUT aceito, mas a conferência falhou HTTP ${verifyRes.status}: ${JSON.stringify(verifyBody)}`;
+        } else if (gtinDoJob && productCodigoBarra(verifiedProduto) !== gtinDoJob) {
+          errorMsg = `GC respondeu sucesso, mas não gravou o código de barras ${gtinDoJob}. Retorno atual: ${productCodigoBarra(verifiedProduto) || "vazio"}`;
         } else if (ncmSolicitado && productNcm(verifiedProduto) !== ncmSolicitado) {
           errorMsg = `GC respondeu sucesso, mas não gravou o NCM ${ncmSolicitado}. Retorno atual: ${productNcm(verifiedProduto) || "vazio"}`;
         } else {
@@ -432,6 +461,7 @@ Deno.serve(async (req) => {
             _argus_verification: {
               source: origemVerificada ? "gc_public_icms_get" : "gc_public_get",
               ncm: productNcm(verifiedProduto),
+              codigo_barra: productCodigoBarra(verifiedProduto),
               origem: origemVerificada,
               verified_at: new Date().toISOString(),
             },
@@ -474,6 +504,7 @@ Deno.serve(async (req) => {
         valores?: Array<Record<string, unknown>>;
         ncm?: string;
         origem?: string;
+        codigo_barra?: string;
       };
       const valoresPayload = payload.valores ?? [];
       let cacheSyncError = "";
