@@ -1098,6 +1098,7 @@ function processarXml(
       gc_produto_id: gcProdId,
       nome_produto: item.nome_produto || "",
       ncm: "",
+      gtin: null,
       origem: "",
       cfop: "",
       nf_gc_id: meta.chave || xmlMeta.chave,
