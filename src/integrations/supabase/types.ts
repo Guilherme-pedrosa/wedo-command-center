@@ -2510,6 +2510,7 @@ export type Database = {
           fornecedor_nome: string | null
           frete_percentual: number | null
           gc_produto_id: string
+          gtin: string | null
           icms_aliquota: number | null
           icms_aliquota_manual: number | null
           icms_base: number | null
@@ -2575,6 +2576,7 @@ export type Database = {
           fornecedor_nome?: string | null
           frete_percentual?: number | null
           gc_produto_id: string
+          gtin?: string | null
           icms_aliquota?: number | null
           icms_aliquota_manual?: number | null
           icms_base?: number | null
@@ -2640,6 +2642,7 @@ export type Database = {
           fornecedor_nome?: string | null
           frete_percentual?: number | null
           gc_produto_id?: string
+          gtin?: string | null
           icms_aliquota?: number | null
           icms_aliquota_manual?: number | null
           icms_base?: number | null
