@@ -51,6 +51,7 @@ interface ProdutoTributo {
   nome_produto: string;
   descricao_nf?: string | null;
   ncm: string | null;
+  gtin?: string | null;
   origem: string | null;
   origem_manual: string | null;
   cfop: string | null;
@@ -391,6 +392,13 @@ const ORIGEM_OPTS = ORIGENS_FISCAIS_GC.map(({ codigo, descricao }) => ({
 }));
 
 const normNcm = (v: unknown) => String(v ?? "").replace(/\D/g, "").slice(0, 8);
+// GTIN: apenas EAN-8/12/13/14. "SEM GTIN" e zeros não são código de barras.
+const normGtin = (v: unknown) => {
+  const d = String(v ?? "").replace(/\D/g, "");
+  if (![8, 12, 13, 14].includes(d.length)) return "";
+  if (/^0+$/.test(d)) return "";
+  return d;
+};
 const normOrig = normalizeOrigemFiscal;
 
 type FiscalCorrectionInput = { produtoId: string; ncm: string; origem?: string };
@@ -537,6 +545,145 @@ async function corrigirFiscalNoGc(inputs: FiscalCorrectionInput[]) {
     origensConfirmadas: avaliacoes.filter(({ resultado }) => resultado.origemConfirmada).length,
     origensPendentes: avaliacoes.filter(({ resultado }) => resultado.origemPendente).length,
   };
+}
+
+async function gravarGtinNoGc(produtoId: string, gtin: string) {
+  const codigo = normGtin(gtin);
+  if (!codigo) throw new Error("GTIN inválido: informe 8, 12, 13 ou 14 dígitos.");
+
+  const { data: queued, error: queueError } = await supabase
+    .from("fin_gc_write_jobs")
+    .upsert({
+      recurso: "produtos",
+      recurso_id: String(produtoId),
+      payload: { codigo_barra: codigo },
+      payload_hash: btoa(`gtin-v1|${produtoId}|${codigo}`),
+      status: "pendente",
+      tentativas: 0,
+      ultimo_erro: null,
+      response_body: null,
+      iniciado_em: null,
+      processado_em: null,
+      finalizado_em: null,
+    }, { onConflict: "recurso,recurso_id,payload_hash" })
+    .select("id")
+    .maybeSingle();
+  if (queueError) throw new Error(`Não foi possível preparar a gravação do GTIN: ${queueError.message}`);
+  if (!queued?.id) throw new Error("A fila do GC não devolveu o job do GTIN.");
+
+  const { error: workerError } = await supabase.functions.invoke("process-gc-write-jobs", {
+    body: { job_ids: [String(queued.id)] },
+  });
+  if (workerError) throw new Error(`Falha ao gravar o GTIN no GC: ${workerError.message}`);
+
+  // HTTP 200 não é prova: só o estado persistido do job confirma a gravação.
+  const { data: state, error: stateError } = await supabase
+    .from("fin_gc_write_jobs")
+    .select("status, ultimo_erro, response_body")
+    .eq("id", queued.id)
+    .maybeSingle();
+  if (stateError) throw new Error(`Não foi possível conferir a gravação: ${stateError.message}`);
+  if (!isFiscalJobOperationallyComplete(state?.status)) {
+    throw new Error(state?.ultimo_erro || `O GC não confirmou o GTIN (status: ${state?.status || "desconhecido"}).`);
+  }
+  return codigo;
+}
+
+function GtinCell({
+  produtoId,
+  nome,
+  gtinGc,
+  gtinNf,
+  onSaved,
+}: {
+  produtoId: string;
+  nome: string;
+  gtinGc: string;
+  gtinNf: string;
+  onSaved?: () => void;
+}) {
+  const gcGtin = normGtin(gtinGc);
+  const nfGtin = normGtin(gtinNf);
+  const [saving, setSaving] = useState(false);
+  const [manual, setManual] = useState(false);
+  const [valor, setValor] = useState(gcGtin || nfGtin);
+
+  const divergente = !!nfGtin && !!gcGtin && nfGtin !== gcGtin;
+
+  const enviar = async (codigo: string) => {
+    setSaving(true);
+    try {
+      const gravado = await gravarGtinNoGc(produtoId, codigo);
+      toast.success(`GTIN ${gravado} gravado no cadastro de ${nome} no GestãoClick.`);
+      setValor(gravado);
+      setManual(false);
+      onSaved?.();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1 mt-2 pt-2 border-t border-border/60">
+      <span className="text-[10px] text-muted-foreground uppercase font-semibold">GTIN</span>
+      <div className="flex items-center gap-1.5">
+        <span className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ${gcGtin ? "border-border bg-secondary" : "border-amber-500/50 text-amber-400 bg-amber-500/5"}`}>
+          {gcGtin || "Sem GTIN no GC"}
+        </span>
+        {!!nfGtin && (
+          <span
+            className={`text-[9px] font-mono ${divergente ? "text-red-400" : "text-blue-400"}`}
+            title="GTIN (cEAN/cEANTrib) do XML da última NF de entrada"
+          >
+            NF: {nfGtin}
+          </span>
+        )}
+      </div>
+      {manual ? (
+        <div className="flex flex-col gap-1">
+          <Input
+            autoFocus
+            value={valor}
+            onChange={(e) => setValor(e.target.value.replace(/\D/g, "").slice(0, 14))}
+            placeholder="GTIN (8, 12, 13 ou 14 dígitos)"
+            className="h-7 text-[11px] px-1.5 font-mono"
+          />
+          <div className="flex items-center gap-1">
+            <Button size="sm" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => enviar(valor)}>
+              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar GTIN no GC"}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => { setValor(gcGtin || nfGtin); setManual(false); }}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {!!nfGtin && nfGtin !== gcGtin && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-[10px] text-blue-400 hover:text-blue-300 justify-start"
+              disabled={saving}
+              onClick={() => enviar(nfGtin)}
+            >
+              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : gcGtin ? `Substituir pelo GTIN ${nfGtin} da NF` : `Adicionar GTIN ${nfGtin} da NF ao GC`}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 px-2 text-[10px] gap-1 justify-start"
+            onClick={() => { setValor(gcGtin || nfGtin); setManual(true); }}
+          >
+            <Edit className="h-3 w-3" /> GTIN manual
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function FiscalCell({
@@ -3617,6 +3764,17 @@ export default function PrecificacaoPage() {
                           origManual={String(tributoRaw?.origem_manual || "")}
                           ncmNf={String(tributoRaw?.ncm || "")}
                           origNf={String(tributoRaw?.origem || "")}
+                          onSaved={() => {
+                            void refetchProdutos();
+                            void refetchTributos();
+                          }}
+                        />
+                        <GtinCell
+                          key={`gtin-${p.id}-${p.codigo_barra || ""}-${tributoRaw?.gtin || ""}`}
+                          produtoId={String(p.id)}
+                          nome={p.nome}
+                          gtinGc={String(p.codigo_barra || "")}
+                          gtinNf={String(tributoRaw?.gtin || "")}
                           onSaved={() => {
                             void refetchProdutos();
                             void refetchTributos();
