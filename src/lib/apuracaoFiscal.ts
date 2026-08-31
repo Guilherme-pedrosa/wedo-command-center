@@ -438,7 +438,10 @@ export interface NotaSaida {
   valorProdutos: number;
   valorServico: number;
   valorDesconto?: number;
+  /** ICMS destacado na nota — excluído da base de PIS/COFINS (RE 574.706/STF). */
   valorIcms?: number;
+  /** ICMS-ST, quando cobrado do cliente, também não é receita própria. */
+  valorIcmsSt?: number;
   /** vNF — valor da nota. Preferido como base: já traz frete e outros. */
   valorTotalNf?: number;
   /** IPI não integra a receita bruta e por isso sai da base. */
