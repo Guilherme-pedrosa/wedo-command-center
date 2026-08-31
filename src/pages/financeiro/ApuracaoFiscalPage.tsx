@@ -617,6 +617,12 @@ export default function ApuracaoFiscalPage() {
               </h2>
               <Linha rotulo="Receita Bruta Tributável" valor={resultado.receitaBruta} />
               <Linha
+                rotulo="ICMS Excluído da Base (RE 574.706)"
+                valor={resultado.icmsExcluidoBaseDebito}
+                nota="ICMS destacado + ICMS-ST das notas na base, já retirados do cálculo de PIS/COFINS"
+              />
+
+              <Linha
                 rotulo="Débito Apurado (PIS/COFINS)"
                 valor={resultado.pis.valorDebito + resultado.cofins.valorDebito}
                 nota={`PIS ${formatCurrency(resultado.pis.valorDebito)} + COFINS ${formatCurrency(resultado.cofins.valorDebito)}`}
