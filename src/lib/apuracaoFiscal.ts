@@ -454,7 +454,7 @@ export interface DecisaoReceita {
   motivo: string;
   requerRevisao: boolean;
   /** ICMS + ICMS-ST retirados da base de PIS/COFINS (RE 574.706). */
-  icmsExcluido: number;
+  icmsExcluido?: number;
 }
 
 
@@ -513,7 +513,13 @@ export function decidirReceitaSaida(
         requerRevisao: false,
       };
     }
-    return { compoe: true, valor, motivo: "Serviço tributado", requerRevisao: false };
+    return {
+      compoe: true,
+      valor,
+      motivo: "Serviço tributado",
+      requerRevisao: false,
+      icmsExcluido: icmsExcluido,
+    };
   }
 
   if (!nota.codigoCfop) {
