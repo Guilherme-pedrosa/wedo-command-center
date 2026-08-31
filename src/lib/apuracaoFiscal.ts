@@ -453,7 +453,10 @@ export interface DecisaoReceita {
   valor: number;
   motivo: string;
   requerRevisao: boolean;
+  /** ICMS + ICMS-ST retirados da base de PIS/COFINS (RE 574.706). */
+  icmsExcluido: number;
 }
+
 
 /** Palavras que marcam natureza de não-receita quando o CFOP não basta. */
 const NATUREZAS_NAO_RECEITA = [
