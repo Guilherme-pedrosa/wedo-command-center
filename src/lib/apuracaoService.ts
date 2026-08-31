@@ -311,6 +311,8 @@ export interface ResultadoApuracao {
   competencia: string;
   receitaBruta: number;
   baseDebito: number;
+  /** ICMS + ICMS-ST retirados da base de débito de PIS/COFINS (RE 574.706). */
+  icmsExcluidoBaseDebito: number;
   baseCredito: number;
   baseCreditoSimples: number;
   pis: ResultadoTributo;
@@ -401,6 +403,7 @@ export async function apurarCompetencia(
   const linhasReceita: LinhaReceita[] = [];
   let baseDebito = 0;
   let debitoIcms = 0;
+  let icmsExcluidoBaseDebito = 0;
 
   for (const nf of saidas ?? []) {
     const decisao = decidirReceitaSaida(
@@ -435,7 +438,10 @@ export async function apurarCompetencia(
       motivo: decisao.motivo,
     });
 
-    if (decisao.compoe) baseDebito += decisao.valor;
+    if (decisao.compoe) {
+      baseDebito += decisao.valor;
+      icmsExcluidoBaseDebito += decisao.icmsExcluido ?? 0;
+    }
 
     // ICMS de saída: o que foi efetivamente destacado na nota autorizada.
     if (nf.autorizada && !nf.cancelada && !nf.denegada) {
@@ -846,6 +852,7 @@ export async function apurarCompetencia(
   const { pis, cofins, saldoTotalARecolher } = apurarPisCofins({
     receitaBruta,
     baseDebito: round2(baseDebito),
+    icmsExcluidoBaseDebito: round2(icmsExcluidoBaseDebito),
     baseCredito: round2(baseCredito),
     baseCreditoSimples: round2(baseCreditoSimples),
     retencaoPis: rateio.totalPis,
@@ -880,6 +887,7 @@ export async function apurarCompetencia(
     competencia,
     receitaBruta,
     baseDebito: round2(baseDebito),
+    icmsExcluidoBaseDebito: round2(icmsExcluidoBaseDebito),
     baseCredito: round2(baseCredito),
     baseCreditoSimples: round2(baseCreditoSimples),
     pis,
