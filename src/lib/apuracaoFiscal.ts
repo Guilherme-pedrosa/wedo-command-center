@@ -453,7 +453,10 @@ export interface DecisaoReceita {
   valor: number;
   motivo: string;
   requerRevisao: boolean;
+  /** ICMS + ICMS-ST retirados da base de PIS/COFINS (RE 574.706). */
+  icmsExcluido?: number;
 }
+
 
 /** Palavras que marcam natureza de não-receita quando o CFOP não basta. */
 const NATUREZAS_NAO_RECEITA = [
@@ -510,7 +513,13 @@ export function decidirReceitaSaida(
         requerRevisao: false,
       };
     }
-    return { compoe: true, valor, motivo: "Serviço tributado", requerRevisao: false };
+    return {
+      compoe: true,
+      valor,
+      motivo: "Serviço tributado",
+      requerRevisao: false,
+      icmsExcluido: icmsExcluido,
+    };
   }
 
   if (!nota.codigoCfop) {
@@ -545,7 +554,9 @@ export function decidirReceitaSaida(
     valor,
     motivo: `CFOP ${nota.codigoCfop} — receita tributável`,
     requerRevisao: false,
+    icmsExcluido,
   };
+
 }
 
 // ---------------------------------------------------------------------------

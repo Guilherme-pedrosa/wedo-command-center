@@ -107,7 +107,12 @@ function abaResumo(r: ResultadoApuracao) {
 
   return [
     linha("Receita bruta tributável", r.receitaBruta, r.receitaBruta, ""),
+    linha(
+      "(-) ICMS excluído da base (RE 574.706)",
+      r.icmsExcluidoBaseDebito, r.icmsExcluidoBaseDebito, "",
+    ),
     linha("Base de cálculo do débito", r.baseDebito, r.baseDebito, ""),
+
     linha("Alíquota %", r.pis.aliquota, r.cofins.aliquota, ""),
     linha("(=) Débito apurado", r.pis.valorDebito, r.cofins.valorDebito, r.icms.valorDebito),
     linha("Base de crédito", r.baseCredito, r.baseCredito, ""),
