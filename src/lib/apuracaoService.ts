@@ -852,7 +852,6 @@ export async function apurarCompetencia(
   const { pis, cofins, saldoTotalARecolher } = apurarPisCofins({
     receitaBruta,
     baseDebito: round2(baseDebito),
-    icmsExcluidoBaseDebito: round2(icmsExcluidoBaseDebito),
     baseCredito: round2(baseCredito),
     baseCreditoSimples: round2(baseCreditoSimples),
     retencaoPis: rateio.totalPis,
