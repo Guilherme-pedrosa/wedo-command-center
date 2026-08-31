@@ -554,7 +554,9 @@ export function decidirReceitaSaida(
     valor,
     motivo: `CFOP ${nota.codigoCfop} — receita tributável`,
     requerRevisao: false,
+    icmsExcluido,
   };
+
 }
 
 // ---------------------------------------------------------------------------
