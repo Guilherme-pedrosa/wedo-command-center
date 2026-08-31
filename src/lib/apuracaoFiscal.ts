@@ -438,7 +438,10 @@ export interface NotaSaida {
   valorProdutos: number;
   valorServico: number;
   valorDesconto?: number;
+  /** ICMS destacado na nota — excluído da base de PIS/COFINS (RE 574.706/STF). */
   valorIcms?: number;
+  /** ICMS-ST, quando cobrado do cliente, também não é receita própria. */
+  valorIcmsSt?: number;
   /** vNF — valor da nota. Preferido como base: já traz frete e outros. */
   valorTotalNf?: number;
   /** IPI não integra a receita bruta e por isso sai da base. */
@@ -469,14 +472,16 @@ export function decidirReceitaSaida(
   nota: NotaSaida,
   regra: RegraCfop | null,
 ): DecisaoReceita {
-  // Base = valor da nota menos IPI. O vNF já embute frete, seguro e outras
-  // despesas cobradas do cliente, que integram a receita bruta; somar
-  // produtos e serviços e abater desconto deixava esses valores de fora.
-  const valor = round2(
+  // Base = valor da nota menos IPI, menos o ICMS destacado (e ICMS-ST).
+  // O vNF já embute frete, seguro e outras despesas cobradas do cliente, que
+  // integram a receita bruta. O IPI não é receita; o ICMS destacado também não
+  // compõe a base de PIS/COFINS (STF, RE 574.706, repercussão geral).
+  const bruto =
     (nota.valorTotalNf ?? 0) > 0
       ? (nota.valorTotalNf as number) - (nota.valorIpi ?? 0)
-      : (nota.valorProdutos ?? 0) + (nota.valorServico ?? 0) - (nota.valorDesconto ?? 0),
-  );
+      : (nota.valorProdutos ?? 0) + (nota.valorServico ?? 0) - (nota.valorDesconto ?? 0);
+  const icmsExcluido = (nota.valorIcms ?? 0) + (nota.valorIcmsSt ?? 0);
+  const valor = round2(Math.max(0, bruto - icmsExcluido));
 
   if (nota.cancelada) {
     return { compoe: false, valor: 0, motivo: "Nota cancelada", requerRevisao: false };

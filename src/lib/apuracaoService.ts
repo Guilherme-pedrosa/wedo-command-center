@@ -418,6 +418,7 @@ export async function apurarCompetencia(
         valorDesconto: Number(nf.valor_desconto) || 0,
         valorTotalNf: Number(nf.valor_total_nf) || 0,
         valorIpi: Number(nf.valor_ipi) || 0,
+        valorIcms: Number(nf.valor_icms) || 0,
       },
       nf.codigo_cfop ? regras.get(String(nf.codigo_cfop)) ?? null : null,
     );

@@ -270,6 +270,14 @@ describe("Regra 1 — base de débito", () => {
     expect(d.valor).toBe(5000);
   });
 
+  it("exclui o ICMS destacado e o ICMS-ST da base de PIS/COFINS (RE 574.706)", () => {
+    const d = decidirReceitaSaida(saida({ valorIcms: 900, valorIcmsSt: 100 }), CFOP_5102);
+    expect(d.compoe).toBe(true);
+    expect(d.valor).toBe(4000);
+  });
+
+
+
   it("exclui cancelada e denegada", () => {
     expect(decidirReceitaSaida(saida({ cancelada: true }), CFOP_5102).compoe).toBe(false);
     expect(decidirReceitaSaida(saida({ denegada: true }), CFOP_5102).compoe).toBe(false);
