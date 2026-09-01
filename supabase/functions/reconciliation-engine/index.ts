@@ -873,7 +873,14 @@ serve(async (req) => {
       });
     };
 
-    for (const ext of (extratos ?? [])) {
+    const listaExtratos = extratos ?? [];
+    for (let idx = 0; idx < listaExtratos.length; idx++) {
+      const ext = listaExtratos[idx];
+      if (Date.now() - startedAt > TIME_BUDGET_MS) {
+        stats.skipped_time_budget = listaExtratos.length - idx;
+        console.warn(`Orçamento de tempo atingido; ${stats.skipped_time_budget} extrato(s) não processado(s).`);
+        break;
+      }
       const isDebito = ext.tipo === "DEBITO";
       const pool = isDebito ? (pagamentos ?? []) : (recebimentos ?? []);
 
