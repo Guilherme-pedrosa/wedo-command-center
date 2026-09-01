@@ -1705,36 +1705,41 @@ export default function PrecificacaoPage() {
     return gcCusto > notaCusto ? "gc_acima" : "gc_abaixo";
   };
 
-  const preFiltered = useMemo(() => {
+  // Predicado único de filtros. `ignorar` permite avaliar todos os filtros
+  // exceto um, para que as opções de um select reflitam só o que sobrou dos
+  // filtros anteriores.
+  const passaFiltros = useCallback((p: any, ignorar?: "grupo") => {
     const q = search.toLowerCase();
+    if (EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k))) return false;
+    const nome = (p.nome || "").toLowerCase();
+    if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
+    const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
+    if (!(nome.includes(q) || codigo.includes(q))) return false;
+    if (ignorar !== "grupo" && grupoFilter !== "todos" && (p.nome_grupo || "(sem grupo)") !== grupoFilter) return false;
+    const estoqueNum = Number(p.estoque) || 0;
+    if (estoqueFilter === "com_estoque" && estoqueNum <= 0) return false;
+    if (estoqueFilter === "sem_estoque" && estoqueNum > 0) return false;
+    if (divergenciaFilter !== "todos") {
+      const direcao = getDivergenciaCustoDirecao(p);
+      const divergente = !!direcao;
+      if (divergenciaFilter === "divergentes" && !divergente) return false;
+      if (divergenciaFilter === "gc_acima" && direcao !== "gc_acima") return false;
+      if (divergenciaFilter === "gc_abaixo" && direcao !== "gc_abaixo") return false;
+      if (divergenciaFilter === "ok" && divergente) return false;
+    }
+    if (ncmFilter === "pendente" && !!p.ncm) return false;
+    if (ncmFilter === "pendente_com_nf") {
+      if (p.ncm) return false;
+      const trib = tributosMap.get(p.id);
+      if (normNcm(trib?.ncm).length !== 8) return false;
+    }
+    return true;
+  }, [search, grupoFilter, estoqueFilter, divergenciaFilter, ncmFilter, ultimaCompraMap, tributosMap]);
+
+  const preFiltered = useMemo(() => {
     if (!produtos) return [] as typeof produtos;
-    return produtos.filter((p) => {
-      if (EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k))) return false;
-      const nome = (p.nome || "").toLowerCase();
-      if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
-      const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
-      if (!(nome.includes(q) || codigo.includes(q))) return false;
-      if (grupoFilter !== "todos" && (p.nome_grupo || "(sem grupo)") !== grupoFilter) return false;
-      const estoqueNum = Number(p.estoque) || 0;
-      if (estoqueFilter === "com_estoque" && estoqueNum <= 0) return false;
-      if (estoqueFilter === "sem_estoque" && estoqueNum > 0) return false;
-      if (divergenciaFilter !== "todos") {
-        const direcao = getDivergenciaCustoDirecao(p);
-        const divergente = !!direcao;
-        if (divergenciaFilter === "divergentes" && !divergente) return false;
-        if (divergenciaFilter === "gc_acima" && direcao !== "gc_acima") return false;
-        if (divergenciaFilter === "gc_abaixo" && direcao !== "gc_abaixo") return false;
-        if (divergenciaFilter === "ok" && divergente) return false;
-      }
-      if (ncmFilter === "pendente" && !!p.ncm) return false;
-      if (ncmFilter === "pendente_com_nf") {
-        if (p.ncm) return false;
-        const trib = tributosMap.get(p.id);
-        if (normNcm(trib?.ncm).length !== 8) return false;
-      }
-      return true;
-    });
-  }, [produtos, search, grupoFilter, estoqueFilter, divergenciaFilter, ncmFilter, ultimaCompraMap, tributosMap]);
+    return produtos.filter((p) => passaFiltros(p));
+  }, [produtos, passaFiltros]);
 
 
   // Reseta página ao mudar filtros para evitar ficar fora do range
@@ -1746,11 +1751,13 @@ export default function PrecificacaoPage() {
     if (!produtos) return [] as string[];
     const set = new Set<string>();
     for (const p of produtos) {
-      if (EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k))) continue;
+      if (!passaFiltros(p, "grupo")) continue;
       set.add(p.nome_grupo || "(sem grupo)");
     }
+    if (grupoFilter !== "todos") set.add(grupoFilter);
     return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
-  }, [produtos]);
+  }, [produtos, passaFiltros, grupoFilter]);
+
 
   const grupoOptions = useMemo(() => [
     { value: "todos", label: "Todos os grupos" },
