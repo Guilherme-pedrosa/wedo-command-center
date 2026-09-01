@@ -422,6 +422,7 @@ export async function apurarCompetencia(
         valorTotalNf: Number(nf.valor_total_nf) || 0,
         valorIpi: Number(nf.valor_ipi) || 0,
         valorIcms: Number(nf.valor_icms) || 0,
+        valorIcmsSt: Number((nf as unknown as { valor_icms_st?: number }).valor_icms_st) || 0,
       },
       nf.codigo_cfop ? regras.get(String(nf.codigo_cfop)) ?? null : null,
     );
@@ -847,7 +848,9 @@ export async function apurarCompetencia(
 
   // ── Consolidação ──────────────────────────────────────────────────────
   const anterior = await saldoCredorAnterior(competencia);
-  const receitaBruta = round2(baseDebito);
+  // Receita bruta tributável = base do débito + ICMS excluído (RE 574.706),
+  // para que o resumo feche: bruta − ICMS excluído = base de cálculo.
+  const receitaBruta = round2(baseDebito + icmsExcluidoBaseDebito);
 
   const { pis, cofins, saldoTotalARecolher } = apurarPisCofins({
     receitaBruta,

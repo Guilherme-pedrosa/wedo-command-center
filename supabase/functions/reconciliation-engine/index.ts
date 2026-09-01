@@ -851,8 +851,13 @@ serve(async (req) => {
     }
 
     const usedIds = new Set<string>();
-    const stats = { auto: 0, review: 0, unmatched: 0, errors: 0 };
+    const stats = { auto: 0, review: 0, unmatched: 0, errors: 0, skipped_time_budget: 0 };
+    // Orçamento de tempo: encerra o processamento com resultado parcial antes de o
+    // worker ser abatido pelo limite de CPU/tempo (HTTP 546).
+    const startedAt = Date.now();
+    const TIME_BUDGET_MS = 100_000;
     const reviewItems: any[] = [];
+
     const unmatchedItems: any[] = [];
     const errorItems: Array<Record<string, unknown>> = [];
     const recordError = (stage: string, ext: any, error: unknown, lancamentoId?: string) => {
@@ -868,7 +873,14 @@ serve(async (req) => {
       });
     };
 
-    for (const ext of (extratos ?? [])) {
+    const listaExtratos = extratos ?? [];
+    for (let idx = 0; idx < listaExtratos.length; idx++) {
+      const ext = listaExtratos[idx];
+      if (Date.now() - startedAt > TIME_BUDGET_MS) {
+        stats.skipped_time_budget = listaExtratos.length - idx;
+        console.warn(`Orçamento de tempo atingido; ${stats.skipped_time_budget} extrato(s) não processado(s).`);
+        break;
+      }
       const isDebito = ext.tipo === "DEBITO";
       const pool = isDebito ? (pagamentos ?? []) : (recebimentos ?? []);
 
@@ -1288,7 +1300,7 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const orfaos = unmatchedItems.filter((u: any) => !u.sugestoes?.length && !u.sugestao_nn);
 
-    if (LOVABLE_API_KEY && (orfaos.length > 0 || reviewItems.length > 5)) {
+    if (LOVABLE_API_KEY && stats.skipped_time_budget === 0 && (orfaos.length > 0 || reviewItems.length > 5)) {
       try {
         const amostraOrfaos = orfaos.slice(0, 30).map((u: any) => ({
           id: u.extrato_id,
@@ -1336,7 +1348,7 @@ Use R$. Tom de auditor sênior, direto.`;
       }
     }
 
-    const reconciliationStatus = stats.errors > 0 ? "partial" : "success";
+    const reconciliationStatus = (stats.errors > 0 || stats.skipped_time_budget > 0) ? "partial" : "success";
     await supabase.from("fin_sync_log").insert({
       tipo: "reconciliation_engine",
       status: reconciliationStatus,
@@ -1353,7 +1365,7 @@ Use R$. Tom de auditor sênior, direto.`;
     return new Response(
       JSON.stringify({
         success: stats.errors === 0,
-        partial: stats.errors > 0,
+        partial: stats.errors > 0 || stats.skipped_time_budget > 0,
         stats,
         error_details: errorItems,
         review: reviewItems,
