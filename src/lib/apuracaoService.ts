@@ -848,7 +848,9 @@ export async function apurarCompetencia(
 
   // ── Consolidação ──────────────────────────────────────────────────────
   const anterior = await saldoCredorAnterior(competencia);
-  const receitaBruta = round2(baseDebito);
+  // Receita bruta tributável = base do débito + ICMS excluído (RE 574.706),
+  // para que o resumo feche: bruta − ICMS excluído = base de cálculo.
+  const receitaBruta = round2(baseDebito + icmsExcluidoBaseDebito);
 
   const { pis, cofins, saldoTotalARecolher } = apurarPisCofins({
     receitaBruta,
