@@ -1199,19 +1199,31 @@ async function probeOrphansFromGC(
   for (let i = 0; i < orphans.length; i += CONCURRENCY) {
     const slice = orphans.slice(i, i + CONCURRENCY);
     const results = await Promise.all(slice.map(async (o) => {
-      try {
-        const res = await callGC<any>({ endpoint: `/api/${scope}/${o.gc_id}` });
-        const raw = res?.data?.data ?? res?.data;
-        if (res?.status >= 400 || !raw?.id) return { orphan: o, raw: null as any };
-        return { orphan: o, raw };
-      } catch {
-        return { orphan: o, raw: null as any };
+      // Só um 404 explícito prova que o registro não existe mais no GC.
+      // Erros 5xx/rede são INCONCLUSIVOS: preservam o registro local.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const res = await callGC<any>({ endpoint: `/api/${scope}/${o.gc_id}` });
+          const raw = res?.data?.data ?? res?.data;
+          const status = Number(res?.status ?? 0);
+          if (status === 404) return { orphan: o, raw: null as any, missing: true };
+          if (status === 429 || status >= 500) {
+            await gcDelay(1500 * (attempt + 1));
+            continue;
+          }
+          if (status >= 400 || !raw?.id) return { orphan: o, raw: null as any, missing: false };
+          return { orphan: o, raw, missing: false };
+        } catch {
+          await gcDelay(1500 * (attempt + 1));
+        }
       }
+      return { orphan: o, raw: null as any, missing: false };
     }));
 
-    for (const { orphan, raw } of results) {
+    for (const { orphan, raw, missing } of results) {
       if (!raw) {
-        trueOrphans.push(orphan);
+        if (missing) trueOrphans.push(orphan);
+        else console.warn(`[probeOrphansFromGC:${scope}] inconclusivo para gc_id=${orphan.gc_id} — registro local preservado`);
         continue;
       }
       const base: any = {
