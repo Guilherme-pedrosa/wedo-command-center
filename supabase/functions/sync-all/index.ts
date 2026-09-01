@@ -71,34 +71,61 @@ async function fetchAllPages(
   endpoint: string,
   gcHeaders: Record<string, string>,
   extraParams?: Record<string, string>
-): Promise<{ records: any[]; pages: number }> {
+): Promise<{ records: any[]; pages: number; complete: boolean }> {
   const allRecords: any[] = [];
   let page = 1;
   let totalPages = 1;
+  let complete = true;
 
   while (page <= totalPages) {
     const params: Record<string, string> = { limite: "100", pagina: String(page), ...extraParams };
     const url = `${GC_BASE_URL}${endpoint}?${new URLSearchParams(params).toString()}`;
-    const response = await rateLimitedFetch(url, { headers: gcHeaders });
 
-    if (response.status === 429) {
-      await new Promise((r) => setTimeout(r, 2000));
-      continue;
-    }
-    if (!response.ok) {
-      console.error(`[sync-all] ${endpoint} error: ${response.status}`);
+    // Até 3 tentativas por página: falha real marca o fetch como INCOMPLETO
+    // para que a reconciliação (cancelar/deletar órfãos) seja pulada.
+    let response: Response | null = null;
+    let pageOk = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        response = await rateLimitedFetch(url, { headers: gcHeaders });
+      } catch (err) {
+        console.error(`[sync-all] ${endpoint} p${page} network error: ${(err as Error).message}`);
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        continue;
+      }
+      if (response.status === 429 || response.status >= 500) {
+        console.error(`[sync-all] ${endpoint} p${page} HTTP ${response.status} (tentativa ${attempt + 1}/3)`);
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        continue;
+      }
+      if (!response.ok) break; // 4xx: não retentar
+      pageOk = true;
       break;
     }
 
-    const data = await response.json();
+    if (!pageOk || !response) {
+      console.error(`[sync-all] ${endpoint} p${page} FALHOU — fetch marcado como incompleto`);
+      complete = false;
+      break;
+    }
+
+    let data: any;
+    try {
+      data = await response.json();
+    } catch {
+      console.error(`[sync-all] ${endpoint} p${page} resposta inválida — fetch incompleto`);
+      complete = false;
+      break;
+    }
     const records = Array.isArray(data?.data) ? data.data : [];
     totalPages = data?.meta?.total_paginas || 1;
     allRecords.push(...records);
     page++;
   }
 
-  return { records: allRecords, pages: totalPages };
+  return { records: allRecords, pages: totalPages, complete };
 }
+
 
 // ── Helpers ──
 function extrairOsCodigo(descricao: string | null | undefined): string | null {
