@@ -71,34 +71,61 @@ async function fetchAllPages(
   endpoint: string,
   gcHeaders: Record<string, string>,
   extraParams?: Record<string, string>
-): Promise<{ records: any[]; pages: number }> {
+): Promise<{ records: any[]; pages: number; complete: boolean }> {
   const allRecords: any[] = [];
   let page = 1;
   let totalPages = 1;
+  let complete = true;
 
   while (page <= totalPages) {
     const params: Record<string, string> = { limite: "100", pagina: String(page), ...extraParams };
     const url = `${GC_BASE_URL}${endpoint}?${new URLSearchParams(params).toString()}`;
-    const response = await rateLimitedFetch(url, { headers: gcHeaders });
 
-    if (response.status === 429) {
-      await new Promise((r) => setTimeout(r, 2000));
-      continue;
-    }
-    if (!response.ok) {
-      console.error(`[sync-all] ${endpoint} error: ${response.status}`);
+    // Até 3 tentativas por página: falha real marca o fetch como INCOMPLETO
+    // para que a reconciliação (cancelar/deletar órfãos) seja pulada.
+    let response: Response | null = null;
+    let pageOk = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        response = await rateLimitedFetch(url, { headers: gcHeaders });
+      } catch (err) {
+        console.error(`[sync-all] ${endpoint} p${page} network error: ${(err as Error).message}`);
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        continue;
+      }
+      if (response.status === 429 || response.status >= 500) {
+        console.error(`[sync-all] ${endpoint} p${page} HTTP ${response.status} (tentativa ${attempt + 1}/3)`);
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        continue;
+      }
+      if (!response.ok) break; // 4xx: não retentar
+      pageOk = true;
       break;
     }
 
-    const data = await response.json();
+    if (!pageOk || !response) {
+      console.error(`[sync-all] ${endpoint} p${page} FALHOU — fetch marcado como incompleto`);
+      complete = false;
+      break;
+    }
+
+    let data: any;
+    try {
+      data = await response.json();
+    } catch {
+      console.error(`[sync-all] ${endpoint} p${page} resposta inválida — fetch incompleto`);
+      complete = false;
+      break;
+    }
     const records = Array.isArray(data?.data) ? data.data : [];
     totalPages = data?.meta?.total_paginas || 1;
     allRecords.push(...records);
     page++;
   }
 
-  return { records: allRecords, pages: totalPages };
+  return { records: allRecords, pages: totalPages, complete };
 }
+
 
 // ── Helpers ──
 function extrairOsCodigo(descricao: string | null | undefined): string | null {
@@ -1076,7 +1103,7 @@ serve(async (req) => {
     console.log("[sync-all] ── Module 5/6: Recebimentos ──");
     const recStart = Date.now();
     try {
-      const { records: recRecords } = await fetchAllPages("/api/recebimentos", gcHeaders, finDateParams);
+      const { records: recRecords, complete: recComplete } = await fetchAllPages("/api/recebimentos", gcHeaders, finDateParams);
       let gcRecUpserted = 0;
       let finRecUpserted = 0;
       let recErrors = 0;
@@ -1166,7 +1193,10 @@ serve(async (req) => {
       let recCancelled = 0;
       let gcRecDeleted = 0;
       let recCancelledIds: string[] = [];
-      if (recRecords.length === 0) {
+      if (!recComplete) {
+        console.warn(`[sync-all] ⚠️ Recebimentos: fetch GC INCOMPLETO (erro de API) — pulando reconciliação para não cancelar registros legítimos.`);
+        recErrorMessages.add("fetch GC incompleto — reconciliação pulada");
+      } else if (recRecords.length === 0) {
         console.warn(`[sync-all] ⚠️ Recebimentos: API retornou 0 registros — pulando reconciliação por segurança.`);
       } else try {
         const apiGcIds = new Set(recRecords.map((r: any) => String(r.id)));
@@ -1256,7 +1286,7 @@ serve(async (req) => {
     console.log("[sync-all] ── Module 6/6: Pagamentos ──");
     const pagStart = Date.now();
     try {
-      const { records: pagRecords } = await fetchAllPages("/api/pagamentos", gcHeaders, finDateParams);
+      const { records: pagRecords, complete: pagComplete } = await fetchAllPages("/api/pagamentos", gcHeaders, finDateParams);
       let gcPagUpserted = 0;
       let finPagUpserted = 0;
       let pagErrors = 0;
@@ -1366,7 +1396,10 @@ serve(async (req) => {
 
       // ── Reconciliação: detectar cancelamentos/exclusões ──
       let pagCancelled = 0;
-      if (pagRecords.length === 0) {
+      if (!pagComplete) {
+        console.warn(`[sync-all] ⚠️ Pagamentos: fetch GC INCOMPLETO (erro de API) — pulando reconciliação para não deletar registros legítimos.`);
+        pagErrorMessages.add("fetch GC incompleto — reconciliação pulada");
+      } else if (pagRecords.length === 0) {
         console.warn(`[sync-all] ⚠️ Pagamentos: API retornou 0 registros — pulando reconciliação por segurança.`);
       } else try {
         const apiGcIds = new Set(pagRecords.map((r: any) => String(r.id)));
