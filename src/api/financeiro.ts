@@ -193,11 +193,15 @@ async function fetchPaginatedGC<T>(
     if (res.status >= 500) throw new Error(`GC server error: ${res.status}`);
 
     const gcResponse = res.data;
-    if (gcResponse?.data) {
-      allRecords.push(...gcResponse.data);
-      totalPages = gcResponse.meta?.total_paginas || 1;
-      onProgress?.(allRecords.length, gcResponse.meta?.total_registros ?? allRecords.length);
+    if (!gcResponse?.data) {
+      // Resposta inesperada: abortar em vez de devolver lista parcial
+      // (lista parcial faria a limpeza de órfãos apagar registros válidos).
+      throw new Error(`GC incomplete response on page ${page} (HTTP ${res.status})`);
     }
+    allRecords.push(...gcResponse.data);
+    totalPages = gcResponse.meta?.total_paginas || 1;
+    onProgress?.(allRecords.length, gcResponse.meta?.total_registros ?? allRecords.length);
+
 
     page++;
     if (page <= totalPages) await gcDelay();
