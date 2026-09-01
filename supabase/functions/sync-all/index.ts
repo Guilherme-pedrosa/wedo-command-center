@@ -1103,7 +1103,7 @@ serve(async (req) => {
     console.log("[sync-all] ── Module 5/6: Recebimentos ──");
     const recStart = Date.now();
     try {
-      const { records: recRecords } = await fetchAllPages("/api/recebimentos", gcHeaders, finDateParams);
+      const { records: recRecords, complete: recComplete } = await fetchAllPages("/api/recebimentos", gcHeaders, finDateParams);
       let gcRecUpserted = 0;
       let finRecUpserted = 0;
       let recErrors = 0;
@@ -1193,7 +1193,10 @@ serve(async (req) => {
       let recCancelled = 0;
       let gcRecDeleted = 0;
       let recCancelledIds: string[] = [];
-      if (recRecords.length === 0) {
+      if (!recComplete) {
+        console.warn(`[sync-all] ⚠️ Recebimentos: fetch GC INCOMPLETO (erro de API) — pulando reconciliação para não cancelar registros legítimos.`);
+        recErrorMessages.add("fetch GC incompleto — reconciliação pulada");
+      } else if (recRecords.length === 0) {
         console.warn(`[sync-all] ⚠️ Recebimentos: API retornou 0 registros — pulando reconciliação por segurança.`);
       } else try {
         const apiGcIds = new Set(recRecords.map((r: any) => String(r.id)));
@@ -1283,7 +1286,7 @@ serve(async (req) => {
     console.log("[sync-all] ── Module 6/6: Pagamentos ──");
     const pagStart = Date.now();
     try {
-      const { records: pagRecords } = await fetchAllPages("/api/pagamentos", gcHeaders, finDateParams);
+      const { records: pagRecords, complete: pagComplete } = await fetchAllPages("/api/pagamentos", gcHeaders, finDateParams);
       let gcPagUpserted = 0;
       let finPagUpserted = 0;
       let pagErrors = 0;
@@ -1393,7 +1396,10 @@ serve(async (req) => {
 
       // ── Reconciliação: detectar cancelamentos/exclusões ──
       let pagCancelled = 0;
-      if (pagRecords.length === 0) {
+      if (!pagComplete) {
+        console.warn(`[sync-all] ⚠️ Pagamentos: fetch GC INCOMPLETO (erro de API) — pulando reconciliação para não deletar registros legítimos.`);
+        pagErrorMessages.add("fetch GC incompleto — reconciliação pulada");
+      } else if (pagRecords.length === 0) {
         console.warn(`[sync-all] ⚠️ Pagamentos: API retornou 0 registros — pulando reconciliação por segurança.`);
       } else try {
         const apiGcIds = new Set(pagRecords.map((r: any) => String(r.id)));
