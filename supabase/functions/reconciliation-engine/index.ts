@@ -1300,7 +1300,7 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const orfaos = unmatchedItems.filter((u: any) => !u.sugestoes?.length && !u.sugestao_nn);
 
-    if (LOVABLE_API_KEY && (orfaos.length > 0 || reviewItems.length > 5)) {
+    if (LOVABLE_API_KEY && stats.skipped_time_budget === 0 && (orfaos.length > 0 || reviewItems.length > 5)) {
       try {
         const amostraOrfaos = orfaos.slice(0, 30).map((u: any) => ({
           id: u.extrato_id,
