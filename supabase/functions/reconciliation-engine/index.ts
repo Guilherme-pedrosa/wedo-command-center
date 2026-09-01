@@ -851,8 +851,13 @@ serve(async (req) => {
     }
 
     const usedIds = new Set<string>();
-    const stats = { auto: 0, review: 0, unmatched: 0, errors: 0 };
+    const stats = { auto: 0, review: 0, unmatched: 0, errors: 0, skipped_time_budget: 0 };
+    // Orçamento de tempo: encerra o processamento com resultado parcial antes de o
+    // worker ser abatido pelo limite de CPU/tempo (HTTP 546).
+    const startedAt = Date.now();
+    const TIME_BUDGET_MS = 100_000;
     const reviewItems: any[] = [];
+
     const unmatchedItems: any[] = [];
     const errorItems: Array<Record<string, unknown>> = [];
     const recordError = (stage: string, ext: any, error: unknown, lancamentoId?: string) => {
