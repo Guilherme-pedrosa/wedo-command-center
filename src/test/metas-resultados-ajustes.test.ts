@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeAjustesMeta, computeRateioFator, PLANOS_IMPOSTO_IDS, PLANOS_POR_COMPETENCIA_IDS } from '@/hooks/useMetasResultados';
+import { computeAjustesMeta, computeRateioFator, isLancamentoFolhaComercial, PLANOS_IMPOSTO_IDS, PLANOS_POR_COMPETENCIA_IDS } from '@/hooks/useMetasResultados';
 
 describe('resultados operação — rateio e pró-rata', () => {
   it('não rateia nada no modo Comercial + Serviços', () => {
@@ -11,22 +11,47 @@ describe('resultados operação — rateio e pró-rata', () => {
     expect(computeRateioFator(0, 0, false)).toBe(1);
   });
 
-  it('fixos recebem rateio e pró-rata no realizado e na meta absoluta', () => {
-    const { fatorRealizado, fatorMetaAbsoluta } = computeAjustesMeta('custo_fixo', 'Aluguel / Galpão', 0.65, 0.1);
-    expect(fatorRealizado).toBeCloseTo(0.065, 10);
-    expect(fatorMetaAbsoluta).toBeCloseTo(0.065, 10);
+  it('fixos NÃO rateiam no modo Apenas Serviços (existiriam com ou sem o comercial); só pró-rata', () => {
+    const { fatorRealizado, fatorMetaAbsoluta } = computeAjustesMeta('custo_fixo', 'Aluguel / Galpão', 0.65, 0.1, false);
+    expect(fatorRealizado).toBeCloseTo(0.1, 10);
+    expect(fatorMetaAbsoluta).toBeCloseTo(0.1, 10);
   });
 
-  it('impostos recebem rateio mas não pró-rata, e a meta percentual fica intacta', () => {
-    const { fatorRealizado, fatorMetaAbsoluta } = computeAjustesMeta('custo_variavel', 'Impostos (DAS/ISS/IRPJ/CSLL)', 0.65, 0.1);
+  it('pró-labore fica 80% nos serviços no modo Apenas Serviços (20% é do comercial)', () => {
+    expect(computeAjustesMeta('custo_fixo', 'Pró-Labore', 1, 1, false).fatorRealizado).toBeCloseTo(0.8, 10);
+    expect(computeAjustesMeta('custo_fixo', 'Pró-Labore', 1, 1, true).fatorRealizado).toBe(1);
+  });
+
+  it('impostos são proporcionais à receita no modo Apenas Serviços, e a meta percentual fica intacta', () => {
+    const { fatorRealizado, fatorMetaAbsoluta } = computeAjustesMeta('custo_variavel', 'Impostos (DAS/ISS/IRPJ/CSLL)', 0.65, 0.1, false);
     expect(fatorRealizado).toBeCloseTo(0.65, 10);
     expect(fatorMetaAbsoluta).toBe(1);
   });
 
   it('custos diretos da operação e receitas não recebem ajuste', () => {
-    expect(computeAjustesMeta('custo_variavel', 'Comissões e Premiações (Técnicos)', 0.65, 0.1).fatorRealizado).toBe(1);
-    expect(computeAjustesMeta('custo_variavel', 'Custo com Peças para Operações', 0.65, 0.1).fatorRealizado).toBe(1);
-    expect(computeAjustesMeta('receita', 'EXECUÇÃO DE SERVIÇOS + COIFAS', 0.65, 0.1).fatorRealizado).toBe(1);
+    expect(computeAjustesMeta('custo_variavel', 'Comissões e Premiações (Técnicos)', 0.65, 0.1, false).fatorRealizado).toBe(1);
+    expect(computeAjustesMeta('custo_variavel', 'Custo com Peças para Operações', 0.65, 0.1, false).fatorRealizado).toBe(1);
+    expect(computeAjustesMeta('receita', 'EXECUÇÃO DE SERVIÇOS + COIFAS', 0.65, 0.1, false).fatorRealizado).toBe(1);
+  });
+
+  it('identifica remuneração do comercial (Filipe/Pedro) sem capturar fretes ou outros planos', () => {
+    const planoSalarioAdm = 'bbce323d-c7ee-4795-97d6-f924d373c371';
+    expect(isLancamentoFolhaComercial(planoSalarioAdm, {
+      descricao: 'PAGAMENTO DE SERVIÇOS PRESTADOS COLABORADOR - FILIPE CARVALHO',
+      nome_fornecedor: '60.104.608 FILIPE FARIAS DE CARVALHO',
+    })).toBe(true);
+    expect(isLancamentoFolhaComercial(planoSalarioAdm, {
+      descricao: 'Compra de nº 4592',
+      nome_fornecedor: '64.307.233 PEDRO HENRIQUE PEREIRA RODRIGUES',
+    })).toBe(true);
+    expect(isLancamentoFolhaComercial(planoSalarioAdm, {
+      descricao: 'Compra de nº 4425 - FRETE EQUIPAMENTOS MINERVA 16/07',
+      nome_fornecedor: '64.307.233 PEDRO HENRIQUE PEREIRA RODRIGUES',
+    })).toBe(false);
+    expect(isLancamentoFolhaComercial('outro-plano-qualquer', {
+      descricao: 'ADIANTAMENTO DE SERVIÇOS PRESTADOS - FILIPE FARIAS',
+      nome_fornecedor: '60.104.608 FILIPE FARIAS DE CARVALHO',
+    })).toBe(false);
   });
 
   it('planos de imposto usam a guia do mês seguinte (referência), comissões seguem por competência', () => {

@@ -155,7 +155,7 @@ export default function MetasOrcamentoPage() {
   const [includeCommercial, setIncludeCommercial] = useState(true);
   const [prorataFixos, setProrataFixos] = useState(true);
 
-  const { metasComResultado, execTotal, rateioFator, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth, includeCommercial, prorataFixos);
+  const { metasComResultado, execTotal, rateioFator, folhaComercialExcluida, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth, includeCommercial, prorataFixos);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -345,9 +345,10 @@ export default function MetasOrcamentoPage() {
 
       {!includeCommercial && (
         <div className="rounded-md bg-muted/60 border border-border p-3 text-xs text-muted-foreground">
-          Modo Apenas Serviços: custos fixos e impostos rateados a {formatPct(rateioFator)} — participação dos
-          serviços (Execução + Coifas + PCM) na receita total do mês. O restante desses custos pertence à
-          operação comercial.
+          Modo Apenas Serviços: custos fixos 100% nos serviços (existiriam com ou sem o comercial). O comercial
+          carrega os salários do time de vendas ({formatBRL(folhaComercialExcluida)} excluídos da Folha ADM),
+          20% do pró-labore, impostos proporcionais ({formatPct(rateioFator)} ficam nos serviços) e o custo
+          cheio dos produtos vendidos.
         </div>
       )}
 

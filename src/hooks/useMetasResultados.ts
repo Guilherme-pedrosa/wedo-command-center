@@ -95,25 +95,55 @@ export const PLANOS_IMPOSTO_IDS = new Set([
   '2e311d38-f51c-40d9-baa8-ecdf3080c99d', // ISSQN Prest.Serv.Próprio
 ]);
 
-// No modo "Apenas Serviços", fixos e impostos entram só na proporção dos serviços na
-// receita total do mês — o restante pertence à operação comercial (vendas).
+// Regra de custeio do modo "Apenas Serviços" (definida pelo Guilherme, 03/09/2026):
+// o custo fixo existiria com ou sem o comercial, então fica 100% nos serviços.
+// O comercial (vendas) carrega apenas o que existe por causa dele:
+//   - salários do comercial (Filipe e Pedro — excluídos por lançamento da Folha ADM);
+//   - 20% do pró-labore;
+//   - impostos proporcionais à participação das vendas no faturamento;
+//   - custo cheio dos produtos vendidos (meta própria, já fora do modo serviços).
 export const computeRateioFator = (execServicos: number, execTotalFull: number, includeCommercial: boolean) =>
   includeCommercial ? 1 : execTotalFull > 0 ? execServicos / execTotalFull : 1;
 
-// Fatores aplicados a cada meta: rateio (fixos e impostos, modo Apenas Serviços) e
-// pró-rata dos fixos pelos dias corridos (mês corrente, quando ligado).
+export const PROLABORE_FRACAO_COMERCIAL = 0.2;
+
+// Planos onde caem os salários/encargos do time comercial (Filipe e Pedro, PJ).
+export const PLANOS_FOLHA_ADM_COMERCIAL = new Set([
+  'bbce323d-c7ee-4795-97d6-f924d373c371', // CONTRATAÇÃO DE SERVIÇOS / SALÁRIO ADM
+  '27287f2b-af8b-4a6d-b9af-b8b9b8286500', // Encargos Funcionários ADM - Alimentação / Refeição
+]);
+const FORNECEDOR_COMERCIAL_REGEX = /FILIPE FARIAS|PEDRO HENRIQUE/i;
+// Só remuneração conta como custo comercial: fretes/reembolsos pagos a eles são da operação.
+const REMUNERACAO_REGEX = /(SERVI[ÇC]OS PRESTADOS|SAL[ÁA]RIO|ADIANTAMENTO|BONIFICA)/i;
+const COMPRA_SECA_REGEX = /^Compra de nº \d+\s*$/i;
+
+export const isLancamentoFolhaComercial = (
+  planoUuid: string,
+  row: { descricao?: string | null; nome_fornecedor?: string | null },
+) => {
+  if (!PLANOS_FOLHA_ADM_COMERCIAL.has(planoUuid)) return false;
+  if (!FORNECEDOR_COMERCIAL_REGEX.test(String(row.nome_fornecedor || ''))) return false;
+  const desc = String(row.descricao || '');
+  return REMUNERACAO_REGEX.test(desc) || COMPRA_SECA_REGEX.test(desc);
+};
+
+// Fatores aplicados a cada meta no modo Apenas Serviços:
+// impostos → proporcionais à receita; pró-labore → 80%; demais fixos → 100% (só pró-rata).
 export const computeAjustesMeta = (
   categoria: Meta['categoria'],
   nome: string,
   rateioFator: number,
   fracaoProrata: number,
+  includeCommercial: boolean = true,
 ) => {
-  const isImposto = categoria === 'custo_variavel' && nome.toLowerCase().includes('impost');
-  const rateia = categoria === 'custo_fixo' || isImposto;
+  const nomeLower = nome.toLowerCase();
+  const isImposto = categoria === 'custo_variavel' && nomeLower.includes('impost');
+  const isProlabore = categoria === 'custo_fixo' && nomeLower.includes('labore');
+  const fatorComercial = !includeCommercial && isProlabore ? 1 - PROLABORE_FRACAO_COMERCIAL : 1;
   const prorata = categoria === 'custo_fixo' ? fracaoProrata : 1;
   return {
-    fatorRealizado: (rateia ? rateioFator : 1) * prorata,
-    fatorMetaAbsoluta: categoria === 'custo_fixo' ? rateioFator * prorata : 1,
+    fatorRealizado: (isImposto ? rateioFator : 1) * prorata * fatorComercial,
+    fatorMetaAbsoluta: categoria === 'custo_fixo' ? prorata * fatorComercial : 1,
   };
 };
 
@@ -209,12 +239,12 @@ export const useMetasResultados = (
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fin_pagamentos')
-        .select('id, plano_contas_id, centro_custo_id, valor, status, data_liquidacao')
+        .select('id, plano_contas_id, centro_custo_id, valor, status, data_liquidacao, descricao, nome_fornecedor')
         .neq('status', 'cancelado')
         .gte('data_vencimento', start)
         .lte('data_vencimento', end);
       if (error) throw error;
-      return data as { id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null }[];
+      return data as { id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null; descricao: string | null; nome_fornecedor: string | null }[];
     },
   });
 
@@ -471,6 +501,13 @@ export const useMetasResultados = (
     }, 0);
   }, [vendasConcretizadas]);
 
+  // Total de remuneração do comercial (Filipe/Pedro) excluída dos fixos no modo Apenas Serviços.
+  const folhaComercialExcluida = useMemo(() =>
+    pagamentos
+      .filter(r => isLancamentoFolhaComercial(r.plano_contas_id, r as { descricao?: string | null; nome_fornecedor?: string | null }))
+      .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0),
+  [pagamentos]);
+
   const metasComResultado = useMemo((): MetaComResultado[] => {
     return metas.filter(meta => {
       if (!includeCommercial) {
@@ -586,6 +623,7 @@ export const useMetasResultados = (
                 r.plano_contas_id === planoUuid &&
                 (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
               )
+              .filter(r => includeCommercial || meta.categoria !== 'custo_fixo' || !isLancamentoFolhaComercial(planoUuid, r as { descricao?: string | null; nome_fornecedor?: string | null }))
               .filter(r => {
                 const key = `${dedupPrefix}:${r.id}`;
                 if (countedRecords.has(key)) return false;
@@ -630,7 +668,7 @@ export const useMetasResultados = (
 
       // Rateio (Apenas Serviços) e pró-rata (mês corrente) — fixos e impostos.
       // Metas percentuais não recebem rateio: a base (execTotal) já encolhe no modo serviços.
-      const { fatorRealizado, fatorMetaAbsoluta } = computeAjustesMeta(meta.categoria, nome, rateioFator, fracaoProrata);
+      const { fatorRealizado, fatorMetaAbsoluta } = computeAjustesMeta(meta.categoria, nome, rateioFator, fracaoProrata, includeCommercial);
       realizado = realizado * fatorRealizado;
 
       const meta_calculada =
@@ -691,5 +729,5 @@ export const useMetasResultados = (
 
   const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingImpRef || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
 
-  return { metasComResultado, execTotal, execTotalFull, rateioFator, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
+  return { metasComResultado, execTotal, execTotalFull, rateioFator, folhaComercialExcluida, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
 };
