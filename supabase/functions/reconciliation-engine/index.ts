@@ -618,7 +618,27 @@ function tentarSomaParcelas(
   return null;
 }
 
+// Orçamento GLOBAL de CPU da busca combinatória. O limite do worker (HTTP 546 /
+// "CPU Time exceeded") é de CPU, não de tempo de parede: sem este teto, milhares
+// de extratos × ~14 buscas meet-in-the-middle estouravam o worker.
+const SUBSET_OPS_BUDGET = 1_200_000;
+let subsetOps = 0;
+let subsetBudgetExhausted = false;
+const subsetFailCache = new Set<string>();
+
+export function resetSubsetSumBudget() {
+  subsetOps = 0;
+  subsetBudgetExhausted = false;
+  subsetFailCache.clear();
+}
+
+export function isSubsetBudgetExhausted() {
+  return subsetBudgetExhausted;
+}
+
 function findSubsetSum(items: any[], target: number, tolerance: number): any[] | null {
+  if (subsetBudgetExhausted) return null;
+
   const sorted = [...items]
     .filter((item) => Number(item.valor) > 0)
     .sort((a, b) => Number(b.valor) - Number(a.valor));
@@ -630,6 +650,11 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
   const targetCents = Math.round(target * 100);
   const toleranceCents = Math.max(1, Math.round(tolerance * 100));
 
+  // Evita repetir buscas idênticas (mesmo alvo + mesmo pool) que já falharam.
+  const cacheKey = `${targetCents}|${sorted.map((s: any) => s.id).join(",")}`;
+  if (subsetFailCache.has(cacheKey)) return null;
+
+
   // Meet-in-the-middle limitado a 24 candidatos. A implementação anterior fazia
   // até milhões de chamadas recursivas por extrato e estourava o limite de CPU da
   // Edge Function em períodos reais. Aqui o custo fica previsível (2 x 2^12).
@@ -639,6 +664,7 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
     maxSize: number,
     minSize = 1,
   ): number[] | null {
+    if (subsetBudgetExhausted) return null;
     const indexes = [...new Set(candidateIndexes)].slice(0, 24);
     if (indexes.length === 0 || targetCentsLocal <= 0) return null;
 
@@ -649,6 +675,11 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
     const enumerate = (source: number[]) => {
       const result: Array<{ sum: number; picked: number[] }> = [];
       const totalMasks = 1 << source.length;
+      subsetOps += totalMasks;
+      if (subsetOps > SUBSET_OPS_BUDGET) {
+        subsetBudgetExhausted = true;
+        return result;
+      }
       for (let mask = 0; mask < totalMasks; mask++) {
         const picked: number[] = [];
         let sum = 0;
@@ -664,6 +695,7 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
       }
       return result;
     };
+
 
     const leftBySum = new Map<number, Map<number, number[]>>();
     for (const entry of enumerate(left)) {
@@ -709,6 +741,7 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
   if (kStar > 0) {
     const maxK = Math.min(n, kStar + 12);
     for (let k = kStar; k <= maxK; k++) {
+      if (subsetBudgetExhausted) return null;
       const subset = values.slice(0, k);
       const total = subset.reduce((s, v) => s + v, 0);
       const excess = total - targetCents;
@@ -733,7 +766,9 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
     }
   }
 
+  if (!subsetBudgetExhausted) subsetFailCache.add(cacheKey);
   return null;
+
 }
 
 async function fetchEverySupabaseRow(
@@ -851,11 +886,13 @@ serve(async (req) => {
     }
 
     const usedIds = new Set<string>();
-    const stats = { auto: 0, review: 0, unmatched: 0, errors: 0, skipped_time_budget: 0 };
+    const stats = { auto: 0, review: 0, unmatched: 0, errors: 0, skipped_time_budget: 0, subset_budget_exhausted: false };
     // Orçamento de tempo: encerra o processamento com resultado parcial antes de o
     // worker ser abatido pelo limite de CPU/tempo (HTTP 546).
+    resetSubsetSumBudget();
     const startedAt = Date.now();
-    const TIME_BUDGET_MS = 100_000;
+    const TIME_BUDGET_MS = 70_000;
+
     const reviewItems: any[] = [];
 
     const unmatchedItems: any[] = [];
@@ -1348,7 +1385,9 @@ Use R$. Tom de auditor sênior, direto.`;
       }
     }
 
-    const reconciliationStatus = (stats.errors > 0 || stats.skipped_time_budget > 0) ? "partial" : "success";
+    stats.subset_budget_exhausted = isSubsetBudgetExhausted();
+    const reconciliationStatus = (stats.errors > 0 || stats.skipped_time_budget > 0 || stats.subset_budget_exhausted) ? "partial" : "success";
+
     await supabase.from("fin_sync_log").insert({
       tipo: "reconciliation_engine",
       status: reconciliationStatus,
@@ -1365,7 +1404,7 @@ Use R$. Tom de auditor sênior, direto.`;
     return new Response(
       JSON.stringify({
         success: stats.errors === 0,
-        partial: stats.errors > 0 || stats.skipped_time_budget > 0,
+        partial: stats.errors > 0 || stats.skipped_time_budget > 0 || stats.subset_budget_exhausted,
         stats,
         error_details: errorItems,
         review: reviewItems,
