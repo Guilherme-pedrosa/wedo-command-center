@@ -52,7 +52,7 @@ export default function RelatorioResultados() {
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [includeCommercial, setIncludeCommercial] = useState(true);
 
-  const { metasComResultado, execTotal, isLoading, custoVendasProdutos } = useMetasResultados(selectedYear, selectedMonth, includeCommercial);
+  const { metasComResultado, execTotal, rateioFator, isLoading, custoVendasProdutos } = useMetasResultados(selectedYear, selectedMonth, includeCommercial);
 
   const receitas = metasComResultado.filter(m => m.categoria === 'receita');
   const custosVar = metasComResultado.filter(m => m.categoria === 'custo_variavel');
@@ -106,6 +106,13 @@ export default function RelatorioResultados() {
             </Select>
           </div>
         </div>
+
+        {!includeCommercial && (
+          <p className="text-xs text-muted-foreground">
+            Modo Apenas Serviços: custos fixos e impostos rateados a {formatPct(rateioFator)} — participação dos
+            serviços na receita total do mês.
+          </p>
+        )}
 
         {isLoading ? (
           <p className="text-muted-foreground text-center py-12">Carregando dados…</p>

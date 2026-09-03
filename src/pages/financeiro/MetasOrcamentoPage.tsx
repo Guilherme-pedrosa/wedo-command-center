@@ -153,8 +153,9 @@ export default function MetasOrcamentoPage() {
   const [selectedYear, setSelectedYear]   = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [includeCommercial, setIncludeCommercial] = useState(true);
+  const [prorataFixos, setProrataFixos] = useState(true);
 
-  const { metasComResultado, execTotal, isLoading, refetch, hasOsData, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth, includeCommercial);
+  const { metasComResultado, execTotal, rateioFator, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth, includeCommercial, prorataFixos);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -321,6 +322,32 @@ export default function MetasOrcamentoPage() {
             Execute o sync do GestãoClick para popular os campos.
             Até lá, AT+Coifa e Ecolab usam fin_recebimentos como fallback.
           </span>
+        </div>
+      )}
+
+      {isCurrentMonth && (
+        <div className="rounded-md bg-blue-500/10 border border-blue-500/30 p-3 text-sm text-blue-700 dark:text-blue-400 flex items-center justify-between gap-3 flex-wrap">
+          <span className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span>
+              Mês em andamento (dia {now.getDate()} de {diasNoMes}): a receita é parcial e os custos do mês
+              inteiro já estão lançados por vencimento.{' '}
+              {prorataFixos
+                ? 'Custos fixos e suas metas estão pró-rata pelos dias corridos.'
+                : 'Sem pró-rata, a margem só é comparável no fechamento do mês.'}
+            </span>
+          </span>
+          <Button variant="outline" size="sm" className="h-7 text-xs shrink-0" onClick={() => setProrataFixos(v => !v)}>
+            Fixos pró-rata: {prorataFixos ? 'ligado' : 'desligado'}
+          </Button>
+        </div>
+      )}
+
+      {!includeCommercial && (
+        <div className="rounded-md bg-muted/60 border border-border p-3 text-xs text-muted-foreground">
+          Modo Apenas Serviços: custos fixos e impostos rateados a {formatPct(rateioFator)} — participação dos
+          serviços (Execução + Coifas + PCM) na receita total do mês. O restante desses custos pertence à
+          operação comercial.
         </div>
       )}
 

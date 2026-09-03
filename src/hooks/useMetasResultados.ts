@@ -75,9 +75,56 @@ const AUVO_SOURCE_MAP: Record<string, number[]> = {
   '27912040': [48784],
 };
 
+// Planos apurados por competência (ver comentário no hook).
+export const PLANOS_POR_COMPETENCIA_IDS = new Set([
+  'e7299b90-98d2-4d7a-a04c-78ba40cc847a', // COMISSÕES E BONIFICAÇÕES
+  '367198e3-1eee-46b5-8d4a-af208852198e', // Impostos - importação IPI
+  '1726df3a-f803-4f28-b7ee-1930f94b569f', // Impostos - PIS
+  'e37b446f-e96f-4fe0-ab52-cfbaeb2e7c7c', // Impostos - COFINS
+  '3692812b-86d8-4ec7-be51-542af1424d2d', // Impostos - ICMS
+  '8f50518c-131e-4b4c-a8ca-a9fd3f5bea88', // Impostos - ISS
+  'df1e63ee-92db-4046-887a-9f4cbd5d4115', // Impostos - Simples Nacional
+  '2e311d38-f51c-40d9-baa8-ecdf3080c99d', // ISSQN Prest.Serv.Próprio
+]);
+
+// No modo "Apenas Serviços", fixos e impostos entram só na proporção dos serviços na
+// receita total do mês — o restante pertence à operação comercial (vendas).
+export const computeRateioFator = (execServicos: number, execTotalFull: number, includeCommercial: boolean) =>
+  includeCommercial ? 1 : execTotalFull > 0 ? execServicos / execTotalFull : 1;
+
+// Fatores aplicados a cada meta: rateio (fixos e impostos, modo Apenas Serviços) e
+// pró-rata dos fixos pelos dias corridos (mês corrente, quando ligado).
+export const computeAjustesMeta = (
+  categoria: Meta['categoria'],
+  nome: string,
+  rateioFator: number,
+  fracaoProrata: number,
+) => {
+  const isImposto = categoria === 'custo_variavel' && nome.toLowerCase().includes('impost');
+  const rateia = categoria === 'custo_fixo' || isImposto;
+  const prorata = categoria === 'custo_fixo' ? fracaoProrata : 1;
+  return {
+    fatorRealizado: (rateia ? rateioFator : 1) * prorata,
+    fatorMetaAbsoluta: categoria === 'custo_fixo' ? rateioFator * prorata : 1,
+  };
+};
+
 // ─── HOOK ──────────────────────────────────────────────────────────────────
-export const useMetasResultados = (year: number, month: number, includeCommercial: boolean = true) => {
+export const useMetasResultados = (
+  year: number,
+  month: number,
+  includeCommercial: boolean = true,
+  prorataFixos: boolean = false,
+) => {
   const { start, end } = getPeriodRange(year, month);
+
+  // Pró-rata só faz sentido no mês corrente: fixos (realizado e meta) proporcionais
+  // aos dias já corridos, para a margem parcial não comparar 3 dias de receita com
+  // um mês inteiro de custo lançado.
+  const hoje = new Date();
+  const isCurrentMonth = hoje.getFullYear() === year && hoje.getMonth() + 1 === month;
+  const diasNoMes = new Date(year, month, 0).getDate();
+  const fracaoProrata = prorataFixos && isCurrentMonth ? hoje.getDate() / diasNoMes : 1;
 
   const { data: metas = [], isLoading: loadingMetas } = useQuery({
     queryKey: ['fin_metas'],
@@ -181,9 +228,11 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
 
   // Plano de contas (UUIDs) que devem ser apurados por COMPETÊNCIA em vez de vencimento.
   // - COMISSÕES E BONIFICAÇÕES (28054594) → Comissões e Premiações (Técnicos)
-  const PLANOS_POR_COMPETENCIA = new Set([
-    'e7299b90-98d2-4d7a-a04c-78ba40cc847a',
-  ]);
+  // - Impostos: competem ao mês do fato gerador (faturamento). Por vencimento, o imposto
+  //   de um mês forte vence no mês seguinte e come a margem do mês errado. Obs.: o DAS/PIS/
+  //   COFINS do mês fechado só é lançado por volta do dia 20-25 seguinte — até lá o mês
+  //   recém-fechado mostra imposto parcial.
+  const PLANOS_POR_COMPETENCIA = PLANOS_POR_COMPETENCIA_IDS;
 
   // Espelha EXATAMENTE o "Relatório de Ordens de Serviços" do GestãoClick:
   // só esses status entram em Execução + Coifas.
@@ -308,16 +357,22 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
 
   // Faturamento Executado = OS Execução+Coifa + PCM Confirmado + (opcional) Venda de Produtos
   // FECHADO CHAMADO (Ecolab/Chamados) NÃO entra na execução de serviço — é base só de comissão.
-  const execTotal = useMemo(() => {
+  const { execTotal, execTotalFull, rateioFator } = useMemo(() => {
     const osTotal = osExecutadas
-      .filter(os => 
-        os.nome_situacao !== 'EXECUTADO - FECHADO CHAMADO' && 
+      .filter(os =>
+        os.nome_situacao !== 'EXECUTADO - FECHADO CHAMADO' &&
         os.nome_situacao !== 'CHAMADO FECHADO - FATURADO'
       )
       .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
     const recFinanceiro = gcRecPCM.reduce((acc, r) => acc + (r.valor || 0), 0);
-    const faturamentoVendas = includeCommercial ? vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0) : 0;
-    return osTotal + recFinanceiro + faturamentoVendas;
+    const vendasTotal = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
+    const execServicos = osTotal + recFinanceiro;
+    const full = execServicos + vendasTotal;
+    return {
+      execTotal: includeCommercial ? full : execServicos,
+      execTotalFull: full,
+      rateioFator: computeRateioFator(execServicos, full, includeCommercial),
+    };
   }, [gcRecPCM, osExecutadas, vendasConcretizadas, includeCommercial]);
 
   // Base de comissões: Ecolab/Chamados + Execução Serviços/Coifas
@@ -538,9 +593,14 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
             ? baseExecCoifa
             : execTotal;
 
+      // Rateio (Apenas Serviços) e pró-rata (mês corrente) — fixos e impostos.
+      // Metas percentuais não recebem rateio: a base (execTotal) já encolhe no modo serviços.
+      const { fatorRealizado, fatorMetaAbsoluta } = computeAjustesMeta(meta.categoria, nome, rateioFator, fracaoProrata);
+      realizado = realizado * fatorRealizado;
+
       const meta_calculada =
         meta.tipo_meta === 'absoluto'
-          ? (meta.meta_valor || 0)
+          ? (meta.meta_valor || 0) * fatorMetaAbsoluta
           : (meta.meta_percentual || 0) * basePercentual;
 
       const delta = realizado - meta_calculada;
@@ -552,7 +612,7 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, comissoesPremiacao, planoContasMap, uuidToGcId, centrosCustoMap, includeCommercial]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, comissoesPremiacao, planoContasMap, uuidToGcId, centrosCustoMap, includeCommercial, rateioFator, fracaoProrata]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
@@ -585,5 +645,5 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
 
   const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
 
-  return { metasComResultado, execTotal, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
+  return { metasComResultado, execTotal, execTotalFull, rateioFator, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
 };
