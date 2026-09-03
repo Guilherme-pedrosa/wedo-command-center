@@ -618,7 +618,27 @@ function tentarSomaParcelas(
   return null;
 }
 
+// Orçamento GLOBAL de CPU da busca combinatória. O limite do worker (HTTP 546 /
+// "CPU Time exceeded") é de CPU, não de tempo de parede: sem este teto, milhares
+// de extratos × ~14 buscas meet-in-the-middle estouravam o worker.
+const SUBSET_OPS_BUDGET = 1_200_000;
+let subsetOps = 0;
+let subsetBudgetExhausted = false;
+const subsetFailCache = new Set<string>();
+
+export function resetSubsetSumBudget() {
+  subsetOps = 0;
+  subsetBudgetExhausted = false;
+  subsetFailCache.clear();
+}
+
+export function isSubsetBudgetExhausted() {
+  return subsetBudgetExhausted;
+}
+
 function findSubsetSum(items: any[], target: number, tolerance: number): any[] | null {
+  if (subsetBudgetExhausted) return null;
+
   const sorted = [...items]
     .filter((item) => Number(item.valor) > 0)
     .sort((a, b) => Number(b.valor) - Number(a.valor));
@@ -629,6 +649,11 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
   const values = sorted.map((item) => Math.round(Number(item.valor) * 100));
   const targetCents = Math.round(target * 100);
   const toleranceCents = Math.max(1, Math.round(tolerance * 100));
+
+  // Evita repetir buscas idênticas (mesmo alvo + mesmo pool) que já falharam.
+  const cacheKey = `${targetCents}|${sorted.map((s: any) => s.id).join(",")}`;
+  if (subsetFailCache.has(cacheKey)) return null;
+
 
   // Meet-in-the-middle limitado a 24 candidatos. A implementação anterior fazia
   // até milhões de chamadas recursivas por extrato e estourava o limite de CPU da
