@@ -639,11 +639,12 @@ export const useMetasResultados = (
           : (meta.meta_percentual || 0) * basePercentual;
 
       // Provisão de impostos: as guias do mês selecionado vencem no mês seguinte e só são
-      // lançadas por volta do dia 20-25. Enquanto o lançado ficar abaixo da meta (% da
-      // receita), exibe a provisão — o valor real substitui quando as guias entram.
+      // lançadas por volta do dia 20-25. Provisiona pela meta APENAS quando o lançado está
+      // claramente incompleto (< 50% da meta) — um mês fechado com alíquota efetiva abaixo
+      // da meta (ex.: 13,5% real vs 16% orçado) mantém o valor real das guias.
       const isMetaImposto = meta.categoria === 'custo_variavel' && nome.includes('impost');
       let provisionado = false;
-      if (isMetaImposto && meta.tipo_meta === 'percentual' && realizado < meta_calculada) {
+      if (isMetaImposto && meta.tipo_meta === 'percentual' && realizado < meta_calculada * 0.5) {
         realizado = meta_calculada;
         provisionado = true;
       }
