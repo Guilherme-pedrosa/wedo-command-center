@@ -28,6 +28,7 @@ export interface MetaComResultado extends Meta {
   pct_faturamento: number;
   status: 'verde' | 'amarelo' | 'vermelho';
   progresso: number;
+  provisionado?: boolean;
 }
 
 // ─── UTILITÁRIOS ────────────────────────────────────────────────────────────
@@ -78,6 +79,13 @@ const AUVO_SOURCE_MAP: Record<string, number[]> = {
 // Planos apurados por competência (ver comentário no hook).
 export const PLANOS_POR_COMPETENCIA_IDS = new Set([
   'e7299b90-98d2-4d7a-a04c-78ba40cc847a', // COMISSÕES E BONIFICAÇÕES
+]);
+
+// Planos de imposto: a guia do mês M vence em M+1 (DAS/PIS/COFINS ~dia 20-25, ICMS/ISS ~dia 10).
+// A data_competencia dos lançamentos vem preenchida igual ao vencimento, então o imposto
+// REFERENTE ao mês M são as guias com data_vencimento em M+1 — regra confirmada pelo Guilherme:
+// "o imposto de julho é ref a junho, o de agosto ref a julho".
+export const PLANOS_IMPOSTO_IDS = new Set([
   '367198e3-1eee-46b5-8d4a-af208852198e', // Impostos - importação IPI
   '1726df3a-f803-4f28-b7ee-1930f94b569f', // Impostos - PIS
   'e37b446f-e96f-4fe0-ab52-cfbaeb2e7c7c', // Impostos - COFINS
@@ -226,12 +234,27 @@ export const useMetasResultados = (
     },
   });
 
+  // Impostos referentes ao mês selecionado = guias com VENCIMENTO no mês seguinte
+  // (ver comentário em PLANOS_IMPOSTO_IDS).
+  const nextMonthYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const { start: refStart, end: refEnd } = getPeriodRange(nextMonthYear, nextMonth);
+  const { data: pagamentosImpostoRef = [], isLoading: loadingImpRef, refetch: refetchImpRef } = useQuery({
+    queryKey: ['fin_pagamentos_impostos_ref', refStart, refEnd],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('fin_pagamentos')
+        .select('id, plano_contas_id, centro_custo_id, valor, status')
+        .neq('status', 'cancelado')
+        .gte('data_vencimento', refStart)
+        .lte('data_vencimento', refEnd);
+      if (error) throw error;
+      return data as { id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
+    },
+  });
+
   // Plano de contas (UUIDs) que devem ser apurados por COMPETÊNCIA em vez de vencimento.
   // - COMISSÕES E BONIFICAÇÕES (28054594) → Comissões e Premiações (Técnicos)
-  // - Impostos: competem ao mês do fato gerador (faturamento). Por vencimento, o imposto
-  //   de um mês forte vence no mês seguinte e come a margem do mês errado. Obs.: o DAS/PIS/
-  //   COFINS do mês fechado só é lançado por volta do dia 20-25 seguinte — até lá o mês
-  //   recém-fechado mostra imposto parcial.
   const PLANOS_POR_COMPETENCIA = PLANOS_POR_COMPETENCIA_IDS;
 
   // Espelha EXATAMENTE o "Relatório de Ordens de Serviços" do GestãoClick:
@@ -549,19 +572,22 @@ export const useMetasResultados = (
           } else {
             // Always use fin_pagamentos/fin_recebimentos (contas a pagar/receber)
             // instead of gc_pagamentos/gc_recebimentos to avoid mixing with compras.
-            // Para planos marcados como "por competência", usa pagamentosCompetencia.
+            // Impostos: guias do mês seguinte (referência = mês selecionado).
+            // Planos marcados como "por competência" usam pagamentosCompetencia.
+            const usaImpostoRef = meta.categoria !== 'receita' && PLANOS_IMPOSTO_IDS.has(planoUuid);
             const usaCompetencia =
-              meta.categoria !== 'receita' && PLANOS_POR_COMPETENCIA.has(planoUuid);
+              !usaImpostoRef && meta.categoria !== 'receita' && PLANOS_POR_COMPETENCIA.has(planoUuid);
             const source = meta.categoria === 'receita'
               ? recebimentos
-              : (usaCompetencia ? pagamentosCompetencia : pagamentos);
+              : (usaImpostoRef ? pagamentosImpostoRef : (usaCompetencia ? pagamentosCompetencia : pagamentos));
+            const dedupPrefix = usaImpostoRef ? 'ref' : usaCompetencia ? 'comp' : 'venc';
             const soma = source
               .filter(r =>
                 r.plano_contas_id === planoUuid &&
                 (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
               )
               .filter(r => {
-                const key = `${usaCompetencia ? 'comp' : 'venc'}:${r.id}`;
+                const key = `${dedupPrefix}:${r.id}`;
                 if (countedRecords.has(key)) return false;
                 countedRecords.add(key);
                 return true;
@@ -612,6 +638,16 @@ export const useMetasResultados = (
           ? (meta.meta_valor || 0) * fatorMetaAbsoluta
           : (meta.meta_percentual || 0) * basePercentual;
 
+      // Provisão de impostos: as guias do mês selecionado vencem no mês seguinte e só são
+      // lançadas por volta do dia 20-25. Enquanto o lançado ficar abaixo da meta (% da
+      // receita), exibe a provisão — o valor real substitui quando as guias entram.
+      const isMetaImposto = meta.categoria === 'custo_variavel' && nome.includes('impost');
+      let provisionado = false;
+      if (isMetaImposto && meta.tipo_meta === 'percentual' && realizado < meta_calculada) {
+        realizado = meta_calculada;
+        provisionado = true;
+      }
+
       const delta = realizado - meta_calculada;
       const pct_faturamento = execTotal > 0 ? realizado / execTotal : 0;
       const status = calcStatus(meta.categoria, realizado, meta_calculada);
@@ -619,9 +655,9 @@ export const useMetasResultados = (
         ? Math.min(Math.round((realizado / meta_calculada) * 100), 150)
         : 0;
 
-      return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso };
+      return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso, provisionado };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, comissoesPremiacao, planoContasMap, uuidToGcId, centrosCustoMap, includeCommercial, rateioFator, fracaoProrata]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, pagamentosImpostoRef, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, comissoesPremiacao, planoContasMap, uuidToGcId, centrosCustoMap, includeCommercial, rateioFator, fracaoProrata]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
 
@@ -649,10 +685,10 @@ export const useMetasResultados = (
 
 
   const refetch = useCallback(() => {
-    refetchRec(); refetchPag(); refetchPagComp(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo(); refetchPremiacao();
-  }, [refetchRec, refetchPag, refetchPagComp, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchAuvo, refetchPremiacao]);
+    refetchRec(); refetchPag(); refetchPagComp(); refetchImpRef(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo(); refetchPremiacao();
+  }, [refetchRec, refetchPag, refetchPagComp, refetchImpRef, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchAuvo, refetchPremiacao]);
 
-  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
+  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingImpRef || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
 
   return { metasComResultado, execTotal, execTotalFull, rateioFator, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
 };

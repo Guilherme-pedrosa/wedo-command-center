@@ -351,6 +351,13 @@ export default function MetasOrcamentoPage() {
         </div>
       )}
 
+      {metasComResultado.some(m => m.provisionado) && (
+        <div className="rounded-md bg-muted/60 border border-border p-3 text-xs text-muted-foreground">
+          Impostos exibidos por provisão (meta % sobre a receita): as guias referentes a este mês vencem no mês
+          seguinte e ainda não foram todas lançadas. O valor real substitui a provisão quando as guias entram.
+        </div>
+      )}
+
       {/* CARDS RESUMO */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
