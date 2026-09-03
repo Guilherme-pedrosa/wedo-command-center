@@ -905,11 +905,18 @@ async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): P
           break;
         }
         if (!res.ok) {
-          console.error(`[sync-all/auvo] expenses error typeId=${typeId} page=${page}: ${res.status}`);
+          // A API do Auvo responde 404 quando o filtro não tem nenhuma despesa
+          // (tipo sem lançamento no período). Não é erro e não autoriza exclusão.
+          if (res.status === 404) {
+            console.log(`[sync-all/auvo] typeId=${typeId}: sem despesas no período (404)`);
+          } else {
+            console.error(`[sync-all/auvo] expenses error typeId=${typeId} page=${page}: ${res.status}`);
+          }
           fetchOk = false;
           failStatus = res.status;
           break;
         }
+
         const json = await res.json();
         const results = json?.result?.entityList ?? json?.result?.entities ?? [];
         if (!Array.isArray(results) || results.length === 0) break;
