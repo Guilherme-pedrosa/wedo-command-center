@@ -96,7 +96,7 @@ export default function RaioXAnualPage() {
                   <YAxis yAxisId="marg" orientation="right" hide domain={[-15, 35]} />
                   <Tooltip formatter={(v: number, name: string) => name === 'Margem %' ? [`${v.toFixed(1)}%`, name] : [brlMil(v), name]}
                     contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} />
-                  <Bar yAxisId="rec" dataKey="servicos" name="Serviços" stackId="r" fill="#3987E5" radius={[0, 0, 0, 0]} maxBarSize={34} />
+                  <Bar yAxisId="rec" dataKey="servicos" name="Operação (OS+PCM)" stackId="r" fill="#3987E5" radius={[0, 0, 0, 0]} maxBarSize={34} />
                   <Bar yAxisId="rec" dataKey="vendas" name="Vendas" stackId="r" fill="#D95926" radius={[3, 3, 0, 0]} maxBarSize={34} />
                   <Line yAxisId="marg" dataKey="margem" name="Margem %" stroke="#E8B93D" strokeWidth={2.5} dot={{ r: 3 }} />
                 </ComposedChart>
@@ -131,8 +131,10 @@ export default function RaioXAnualPage() {
                 </tr></thead>
                 <tbody className="text-muted-foreground">
                   {([
-                    ['Receita serviços', d.meses.map(m => m.recServ)],
-                    ['Receita vendas', d.meses.map(m => m.recCom)],
+                    ['Receita da operação (OS+chamados+PCM)', d.meses.map(m => m.recServ)],
+                    ['· mão de obra (rubrica serviços)', d.meses.map(m => m.osMaoDeObra)],
+                    ['· peças aplicadas nas OS (venda)', d.meses.map(m => m.osPecasVenda)],
+                    ['Receita vendas de produtos', d.meses.map(m => m.recCom)],
                     ['Peças consumidas', d.meses.map(m => -m.pecas)],
                     ['Custo produtos', d.meses.map(m => -m.cmv)],
                     ['Comissões', d.meses.map(m => -m.comissoes)],

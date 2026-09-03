@@ -18,7 +18,7 @@ export const OS_CHAMADO_STATUS = ['EXECUTADO - FECHADO CHAMADO', 'CHAMADO FECHAD
 
 export type OsRow = {
   os_codigo: string; nome_cliente: string | null; nome_situacao: string | null;
-  valor_total: number | null; valor_pecas_custo: number | null; data_saida: string | null;
+  valor_total: number | null; valor_pecas?: number | null; valor_pecas_custo: number | null; data_saida: string | null;
 };
 export type PagamentoRow = {
   plano_contas_id: string | null; valor: number; data_vencimento: string | null;
@@ -32,6 +32,7 @@ export type RecebimentoTituloRow = { os_codigo: string | null; descricao: string
 export type MesRaioX = {
   mes: string;
   recServ: number; recCom: number; recTot: number;
+  osMaoDeObra: number; osPecasVenda: number;
   pecas: number; cmv: number; comissoes: number; fixos: number; diretos: number;
   imposto: number; impostoEstimado: boolean; folhaComercial: number; prolabore20: number;
   resServ: number; resCom: number; resTot: number;
@@ -89,16 +90,17 @@ export function construirRaioX(input: {
     }
   }
 
-  const osExecPorMes: Record<string, { total: number; pecas: number }> = {};
+  const osExecPorMes: Record<string, { total: number; pecas: number; pecasVenda: number }> = {};
   const chamadosPorMes: Record<string, number> = {};
   for (const o of input.os) {
     const m = mesDe(o.data_saida);
     if (!m) continue;
     const sit = o.nome_situacao || '';
     if (OS_EXEC_STATUS.includes(sit)) {
-      const b = (osExecPorMes[m] ||= { total: 0, pecas: 0 });
+      const b = (osExecPorMes[m] ||= { total: 0, pecas: 0, pecasVenda: 0 });
       b.total += o.valor_total || 0;
       b.pecas += o.valor_pecas_custo || 0;
+      b.pecasVenda += o.valor_pecas || 0;
     } else if (OS_CHAMADO_STATUS.includes(sit)) {
       chamadosPorMes[m] = (chamadosPorMes[m] || 0) + (o.valor_total || 0);
     }
@@ -127,7 +129,7 @@ export function construirRaioX(input: {
   const aliqEfetiva = sRec > 0 ? sImp / sRec : 0.10;
 
   const out: MesRaioX[] = meses.map((m) => {
-    const oe = osExecPorMes[m] || { total: 0, pecas: 0 };
+    const oe = osExecPorMes[m] || { total: 0, pecas: 0, pecasVenda: 0 };
     const vd = vendasPorMes[m] || { total: 0, cmv: 0, usoInterno: 0 };
     const recServ = oe.total + (chamadosPorMes[m] || 0) + (pcmPorMes[m] || 0);
     const recCom = vd.total;
@@ -147,7 +149,9 @@ export function construirRaioX(input: {
     const caixaRecebido = input.recebidosPorMes[m] || 0;
     const caixaPago = input.pagosPorMes[m] || 0;
     return {
-      mes: m, recServ, recCom, recTot, pecas, cmv: vd.cmv, comissoes, fixos, diretos,
+      mes: m, recServ, recCom, recTot,
+      osMaoDeObra: Math.max(0, oe.total - oe.pecasVenda), osPecasVenda: oe.pecasVenda,
+      pecas, cmv: vd.cmv, comissoes, fixos, diretos,
       imposto, impostoEstimado, folhaComercial, prolabore20,
       resServ, resCom, resTot: resServ + resCom,
       margTot: recTot > 0 ? (resServ + resCom) / recTot : 0,

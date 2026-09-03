@@ -24,8 +24,9 @@ export function useRaioXAnual(ano: number) {
   // Mês fechado: no ano corrente, o mês anterior ao atual; em anos passados, dezembro.
   const ateMesFechado = ano < hoje.getFullYear() ? 12 : Math.max(1, hoje.getMonth());
   const inicio = `${ano}-01-01`;
-  const fimFechado = `${ano}-${String(ateMesFechado).padStart(2, '0')}-31`;
-  const fimComRef = ateMesFechado === 12 ? `${ano + 1}-01-31` : `${ano}-${String(ateMesFechado + 1).padStart(2, '0')}-31`;
+  const ultimoDia = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}-${new Date(y, m, 0).getDate()}`;
+  const fimFechado = ultimoDia(ano, ateMesFechado);
+  const fimComRef = ateMesFechado === 12 ? ultimoDia(ano + 1, 1) : ultimoDia(ano, ateMesFechado + 1);
 
   return useQuery({
     queryKey: ['raio-x-anual', ano, ateMesFechado],
@@ -33,7 +34,7 @@ export function useRaioXAnual(ano: number) {
     queryFn: async () => {
       const [os, metasPlanos, pagamentosRaw, vendasRaw, internasRaw, pcm, titulos, recebidosLiq] = await Promise.all([
         todas<OsRow>((f, t) => supabase.from('os_index')
-          .select('os_codigo, nome_cliente, nome_situacao, valor_total, valor_pecas_custo, data_saida')
+          .select('os_codigo, nome_cliente, nome_situacao, valor_total, valor_pecas, valor_pecas_custo, data_saida')
           .gte('data_saida', inicio).lte('data_saida', fimFechado).range(f, t)),
         Promise.all([
           supabase.from('fin_meta_plano_contas').select('plano_contas_id, meta_id'),
