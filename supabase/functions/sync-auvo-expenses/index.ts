@@ -229,7 +229,7 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ synced: totalSynced, ignored_out_of_period: totalIgnoredOutOfPeriod, deleted_stale: totalDeletedStale, by_type: byType, period: { mes, ano, startDate, endDate }, mode: todos ? "all" : "by_type" }),
+      JSON.stringify({ synced: totalSynced, ignored_out_of_period: totalIgnoredOutOfPeriod, deleted_stale: totalDeletedStale, fetch_failures: fetchFailures, by_type: byType, period: { mes, ano, startDate, endDate }, mode: todos ? "all" : "by_type" }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
