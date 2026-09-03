@@ -70,7 +70,7 @@ async function fetchExpensesByType(
   typeId: number | null,
   startDate: string,
   endDate: string
-): Promise<any[]> {
+): Promise<{ items: any[]; ok: boolean; status: number }> {
   const all: any[] = [];
   let page = 1;
   const pageSize = 100;
@@ -80,12 +80,16 @@ async function fetchExpensesByType(
     if (typeId !== null) filterObj.type = typeId;
     const filter = JSON.stringify(filterObj);
     const url = `${AUVO_BASE}/expenses/?paramFilter=${encodeURIComponent(filter)}&page=${page}&pageSize=${pageSize}`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (e) {
+      console.error(`Auvo expenses network error typeId=${typeId} page=${page}: ${(e as Error).message}`);
+      return { items: all, ok: false, status: 0 };
+    }
     if (!res.ok) {
       console.error(`Auvo expenses error typeId=${typeId} page=${page}: ${res.status}`);
-      break;
+      return { items: all, ok: false, status: res.status };
     }
     const json = await res.json();
     const results = json?.result?.entityList ?? json?.result?.entities ?? [];
@@ -95,8 +99,9 @@ async function fetchExpensesByType(
     page++;
     if (page > 50) break; // safety cap (5000 rows)
   }
-  return all;
+  return { items: all, ok: true, status: 200 };
 }
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
