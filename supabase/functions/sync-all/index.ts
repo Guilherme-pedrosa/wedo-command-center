@@ -126,6 +126,45 @@ async function fetchAllPages(
   return { records: allRecords, pages: totalPages, complete };
 }
 
+// ── Sonda individual de órfãos ──
+// Um gc_id ausente da janela paginada NÃO significa exclusão no GestãoClick
+// (vencimento alterado, filtro de data divergente, página com erro silencioso).
+// Só um 404 explícito no GET individual confirma que o registro não existe mais.
+async function orphanRemovidoNoGC(
+  endpoint: string,
+  gcId: string,
+  gcHeaders: Record<string, string>
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await rateLimitedFetch(`${GC_BASE_URL}${endpoint}/${gcId}`, { headers: gcHeaders });
+      if (res.status === 404) return true;
+      if (res.status === 429 || res.status >= 500) {
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        continue;
+      }
+      return false; // 200 (ou 4xx não-404): inconclusivo → preserva
+    } catch {
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+    }
+  }
+  return false;
+}
+
+async function filtrarOrfaosConfirmados<T extends { gc_id: string }>(
+  endpoint: string,
+  orphans: T[],
+  gcHeaders: Record<string, string>
+): Promise<T[]> {
+  const confirmados: T[] = [];
+  for (const o of orphans) {
+    if (await orphanRemovidoNoGC(endpoint, String(o.gc_id), gcHeaders)) confirmados.push(o);
+    else console.log(`[sync-all] ↻ ${endpoint}/${o.gc_id} ainda existe no GC — cancelamento evitado`);
+  }
+  return confirmados;
+}
+
+
 
 // ── Helpers ──
 function extrairOsCodigo(descricao: string | null | undefined): string | null {
@@ -1081,13 +1120,11 @@ serve(async (req) => {
     // ── Build PC/CC/FP maps for fin_* upserts ──
     const { pcMap, ccMap, fpMap } = await buildPcCcFpMaps(supabase);
 
-    // Fetch cancelled gc_ids to skip during fin_* upserts
-    const [{ data: cancelledRecs }, { data: cancelledPags }] = await Promise.all([
-      supabase.from("fin_recebimentos").select("gc_id").eq("status", "cancelado").not("gc_id", "is", null),
-      supabase.from("fin_pagamentos").select("gc_id").eq("status", "cancelado").not("gc_id", "is", null),
-    ]);
-    const cancelledRecGcIds = new Set((cancelledRecs ?? []).map((r: any) => r.gc_id));
-    const cancelledPagGcIds = new Set((cancelledPags ?? []).map((p: any) => p.gc_id));
+    // NÃO pulamos mais registros 'cancelado' nos upserts fin_*:
+    // se o GestãoClick retorna o lançamento, ele existe e deve ser revivido
+    // com o status real do GC. O filtro anterior tornava permanente qualquer
+    // cancelamento indevido feito por uma reconciliação com lista parcial.
+
 
     // Fetch fornecedores for recipient_document backfill
     const { data: fornecedores } = await supabase
@@ -1149,7 +1186,6 @@ serve(async (req) => {
         }
 
         const finBatch = rawBatch
-          .filter((item: any) => !cancelledRecGcIds.has(String(item.id)))
           .map((item: any) => ({
             gc_id: String(item.id),
             gc_codigo: item.codigo || null,
@@ -1210,7 +1246,8 @@ serve(async (req) => {
           .lte("data_vencimento", dataFim)
           .neq("status", "cancelado");
 
-        const orphans = (localRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
+        const orphansCandidatos = (localRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
+        const orphans = await filtrarOrfaosConfirmados("/api/recebimentos", orphansCandidatos as any[], gcHeaders);
         if (orphans.length > 0) {
           recCancelledIds = orphans.map((o: any) => o.id);
           const { error: cancelErr } = await supabase
@@ -1242,7 +1279,8 @@ serve(async (req) => {
           .gte("data_vencimento", dataInicio)
           .lte("data_vencimento", dataFim);
 
-        const gcOrphans = (localGcRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
+        const gcOrphansCandidatos = (localGcRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
+        const gcOrphans = await filtrarOrfaosConfirmados("/api/recebimentos", gcOrphansCandidatos as any[], gcHeaders);
         if (gcOrphans.length > 0) {
           const gcOrphanIds = gcOrphans.map((o: any) => o.id);
           const { error: delErr } = await supabase
@@ -1330,7 +1368,6 @@ serve(async (req) => {
         }
 
         const finBatch = rawBatch
-          .filter((item: any) => !cancelledPagGcIds.has(String(item.id)))
           .map((item: any) => ({
             gc_id: String(item.id),
             gc_codigo: item.codigo || null,
@@ -1411,7 +1448,8 @@ serve(async (req) => {
           .lte("data_vencimento", dataFim)
           .neq("status", "cancelado");
 
-        const orphans = (localPags ?? []).filter((p: any) => !apiGcIds.has(String(p.gc_id)));
+        const orphansCandidatos = (localPags ?? []).filter((p: any) => !apiGcIds.has(String(p.gc_id)));
+        const orphans = await filtrarOrfaosConfirmados("/api/pagamentos", orphansCandidatos as any[], gcHeaders);
         if (orphans.length > 0) {
           const orphanIds = orphans.map((o: any) => o.id);
           const { error: cancelErr } = await supabase
