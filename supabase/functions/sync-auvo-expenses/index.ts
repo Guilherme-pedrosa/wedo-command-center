@@ -155,7 +155,8 @@ Deno.serve(async (req) => {
     let totalSynced = 0;
     let totalDeletedStale = 0;
     let totalIgnoredOutOfPeriod = 0;
-    const byType: Record<string, { count: number; total: number; ignored_out_of_period: number; deleted_stale: number }> = {};
+    const byType: Record<string, any> = {};
+    const fetchFailures: Array<{ type_id: number | null; status: number }> = [];
 
     // Modo "todos": uma única busca sem filtro de tipo (traz TODAS as despesas)
     // Modo padrão: loop pelos TYPE_IDS (mantém comportamento legado do cron)
@@ -165,9 +166,17 @@ Deno.serve(async (req) => {
       : (Array.isArray(body.tipos) && body.tipos.length > 0 ? body.tipos.map((t: any) => Number(t)) : DEFAULT_TYPE_IDS);
 
     for (const typeId of tipos) {
-      const expenses = await fetchExpensesByType(token, typeId, startDate, endDate);
+      const fetched = await fetchExpensesByType(token, typeId, startDate, endDate);
+      // Falha de fetch nunca significa "sem despesas": preserva os dados locais.
+      if (!fetched.ok) {
+        fetchFailures.push({ type_id: typeId, status: fetched.status });
+        byType[String(typeId ?? "all")] = { count: 0, total: 0, ignored_out_of_period: 0, deleted_stale: 0, fetch_failed: fetched.status || "network" };
+        continue;
+      }
+      const expenses = fetched.items;
       const periodExpenses = expenses.filter((e: any) => {
         const expenseDate = extractExpenseDate(e, "");
+
         return expenseDate >= startDate && expenseDate <= endDate;
       });
       const ignoredOutOfPeriod = expenses.length - periodExpenses.length;
