@@ -1404,7 +1404,7 @@ Use R$. Tom de auditor sênior, direto.`;
     return new Response(
       JSON.stringify({
         success: stats.errors === 0,
-        partial: stats.errors > 0 || stats.skipped_time_budget > 0,
+        partial: stats.errors > 0 || stats.skipped_time_budget > 0 || stats.subset_budget_exhausted,
         stats,
         error_details: errorItems,
         review: reviewItems,
