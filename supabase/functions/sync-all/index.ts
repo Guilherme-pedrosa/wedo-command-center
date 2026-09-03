@@ -1081,13 +1081,11 @@ serve(async (req) => {
     // ── Build PC/CC/FP maps for fin_* upserts ──
     const { pcMap, ccMap, fpMap } = await buildPcCcFpMaps(supabase);
 
-    // Fetch cancelled gc_ids to skip during fin_* upserts
-    const [{ data: cancelledRecs }, { data: cancelledPags }] = await Promise.all([
-      supabase.from("fin_recebimentos").select("gc_id").eq("status", "cancelado").not("gc_id", "is", null),
-      supabase.from("fin_pagamentos").select("gc_id").eq("status", "cancelado").not("gc_id", "is", null),
-    ]);
-    const cancelledRecGcIds = new Set((cancelledRecs ?? []).map((r: any) => r.gc_id));
-    const cancelledPagGcIds = new Set((cancelledPags ?? []).map((p: any) => p.gc_id));
+    // NÃO pulamos mais registros 'cancelado' nos upserts fin_*:
+    // se o GestãoClick retorna o lançamento, ele existe e deve ser revivido
+    // com o status real do GC. O filtro anterior tornava permanente qualquer
+    // cancelamento indevido feito por uma reconciliação com lista parcial.
+
 
     // Fetch fornecedores for recipient_document backfill
     const { data: fornecedores } = await supabase
