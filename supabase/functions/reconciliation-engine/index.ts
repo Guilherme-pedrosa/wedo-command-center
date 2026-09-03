@@ -741,6 +741,7 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
   if (kStar > 0) {
     const maxK = Math.min(n, kStar + 12);
     for (let k = kStar; k <= maxK; k++) {
+      if (subsetBudgetExhausted) return null;
       const subset = values.slice(0, k);
       const total = subset.reduce((s, v) => s + v, 0);
       const excess = total - targetCents;
@@ -765,7 +766,9 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
     }
   }
 
+  if (!subsetBudgetExhausted) subsetFailCache.add(cacheKey);
   return null;
+
 }
 
 async function fetchEverySupabaseRow(
