@@ -35,6 +35,7 @@ const FinPlanoContas = lazy(lazyImportWithRetry(() => import("@/pages/financeiro
 const FinConfigBanco = lazy(lazyImportWithRetry(() => import("@/pages/financeiro/ConfigBancoPage")));
 const FinLog = lazy(lazyImportWithRetry(() => import("@/pages/financeiro/LogPage")));
 const FinMetas = lazy(lazyImportWithRetry(() => import("@/pages/financeiro/MetasOrcamentoPage")));
+const FinRaioX = lazy(lazyImportWithRetry(() => import("@/pages/financeiro/RaioXAnualPage")));
 const FinControleGlobal = lazy(lazyImportWithRetry(() => import("@/pages/financeiro/ControleGlobalPage")));
 const FinCentrosCusto = lazy(lazyImportWithRetry(() => import("@/pages/financeiro/CentrosCustoPage")));
 const FinPaineisTv = lazy(lazyImportWithRetry(() => import("@/pages/financeiro/PaineisTvPage")));
@@ -115,6 +116,7 @@ const App = () => (
               <Route path="/financeiro/config-banco" element={<Suspense fallback={<LazyFallback />}><FinConfigBanco /></Suspense>} />
               <Route path="/financeiro/log" element={<Suspense fallback={<LazyFallback />}><FinLog /></Suspense>} />
               <Route path="/financeiro/metas" element={<Suspense fallback={<LazyFallback />}><FinMetas /></Suspense>} />
+              <Route path="/financeiro/raio-x" element={<Suspense fallback={<LazyFallback />}><FinRaioX /></Suspense>} />
               <Route path="/financeiro/controle-global" element={<Suspense fallback={<LazyFallback />}><FinControleGlobal /></Suspense>} />
               <Route path="/financeiro/centros-custo" element={<Suspense fallback={<LazyFallback />}><FinCentrosCusto /></Suspense>} />
               <Route path="/financeiro/clientes" element={<Suspense fallback={<LazyFallback />}><FinClientes /></Suspense>} />
