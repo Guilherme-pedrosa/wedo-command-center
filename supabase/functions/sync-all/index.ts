@@ -1246,7 +1246,8 @@ serve(async (req) => {
           .lte("data_vencimento", dataFim)
           .neq("status", "cancelado");
 
-        const orphans = (localRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
+        const orphansCandidatos = (localRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
+        const orphans = await filtrarOrfaosConfirmados("/api/recebimentos", orphansCandidatos as any[], gcHeaders);
         if (orphans.length > 0) {
           recCancelledIds = orphans.map((o: any) => o.id);
           const { error: cancelErr } = await supabase
@@ -1278,7 +1279,8 @@ serve(async (req) => {
           .gte("data_vencimento", dataInicio)
           .lte("data_vencimento", dataFim);
 
-        const gcOrphans = (localGcRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
+        const gcOrphansCandidatos = (localGcRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
+        const gcOrphans = await filtrarOrfaosConfirmados("/api/recebimentos", gcOrphansCandidatos as any[], gcHeaders);
         if (gcOrphans.length > 0) {
           const gcOrphanIds = gcOrphans.map((o: any) => o.id);
           const { error: delErr } = await supabase
@@ -1446,7 +1448,8 @@ serve(async (req) => {
           .lte("data_vencimento", dataFim)
           .neq("status", "cancelado");
 
-        const orphans = (localPags ?? []).filter((p: any) => !apiGcIds.has(String(p.gc_id)));
+        const orphansCandidatos = (localPags ?? []).filter((p: any) => !apiGcIds.has(String(p.gc_id)));
+        const orphans = await filtrarOrfaosConfirmados("/api/pagamentos", orphansCandidatos as any[], gcHeaders);
         if (orphans.length > 0) {
           const orphanIds = orphans.map((o: any) => o.id);
           const { error: cancelErr } = await supabase
