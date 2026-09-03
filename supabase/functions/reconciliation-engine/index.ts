@@ -664,6 +664,7 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
     maxSize: number,
     minSize = 1,
   ): number[] | null {
+    if (subsetBudgetExhausted) return null;
     const indexes = [...new Set(candidateIndexes)].slice(0, 24);
     if (indexes.length === 0 || targetCentsLocal <= 0) return null;
 
@@ -674,6 +675,11 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
     const enumerate = (source: number[]) => {
       const result: Array<{ sum: number; picked: number[] }> = [];
       const totalMasks = 1 << source.length;
+      subsetOps += totalMasks;
+      if (subsetOps > SUBSET_OPS_BUDGET) {
+        subsetBudgetExhausted = true;
+        return result;
+      }
       for (let mask = 0; mask < totalMasks; mask++) {
         const picked: number[] = [];
         let sum = 0;
@@ -689,6 +695,7 @@ function findSubsetSum(items: any[], target: number, tolerance: number): any[] |
       }
       return result;
     };
+
 
     const leftBySum = new Map<number, Map<number, number[]>>();
     for (const entry of enumerate(left)) {
