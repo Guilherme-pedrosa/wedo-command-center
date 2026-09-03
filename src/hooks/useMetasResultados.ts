@@ -505,6 +505,12 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
                 r.plano_contas_id === planoUuid &&
                 (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
               )
+              .filter(r => {
+                const key = `${usaCompetencia ? 'comp' : 'venc'}:${r.id}`;
+                if (countedRecords.has(key)) return false;
+                countedRecords.add(key);
+                return true;
+              })
               .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
             realizado += soma * (link.peso || 1);
           }
