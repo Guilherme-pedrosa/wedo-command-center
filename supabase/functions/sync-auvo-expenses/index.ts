@@ -88,9 +88,13 @@ async function fetchExpensesByType(
       return { items: all, ok: false, status: 0 };
     }
     if (!res.ok) {
-      console.error(`Auvo expenses error typeId=${typeId} page=${page}: ${res.status}`);
+      // 404 do Auvo = filtro sem despesas no período. Não é falha de integração,
+      // mas também não confirma exclusão: nada é apagado.
+      if (res.status === 404) console.log(`Auvo typeId=${typeId}: sem despesas no período (404)`);
+      else console.error(`Auvo expenses error typeId=${typeId} page=${page}: ${res.status}`);
       return { items: all, ok: false, status: res.status };
     }
+
     const json = await res.json();
     const results = json?.result?.entityList ?? json?.result?.entities ?? [];
     if (!Array.isArray(results) || results.length === 0) break;
