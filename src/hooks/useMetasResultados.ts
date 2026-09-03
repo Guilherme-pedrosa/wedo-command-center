@@ -140,12 +140,12 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fin_recebimentos')
-        .select('plano_contas_id, centro_custo_id, valor, status')
+        .select('id, plano_contas_id, centro_custo_id, valor, status')
         .neq('status', 'cancelado')
         .gte('data_vencimento', start)
         .lte('data_vencimento', end);
       if (error) throw error;
-      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
+      return data as { id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
     },
   });
 
@@ -154,12 +154,12 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fin_pagamentos')
-        .select('plano_contas_id, centro_custo_id, valor, status, data_liquidacao')
+        .select('id, plano_contas_id, centro_custo_id, valor, status, data_liquidacao')
         .neq('status', 'cancelado')
         .gte('data_vencimento', start)
         .lte('data_vencimento', end);
       if (error) throw error;
-      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null }[];
+      return data as { id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null }[];
     },
   });
 
@@ -170,12 +170,12 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fin_pagamentos')
-        .select('plano_contas_id, centro_custo_id, valor, status')
+        .select('id, plano_contas_id, centro_custo_id, valor, status')
         .neq('status', 'cancelado')
         .gte('data_competencia', start)
         .lte('data_competencia', end);
       if (error) throw error;
-      return data as { plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
+      return data as { id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
     },
   });
 
@@ -417,6 +417,9 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
       // Auvo não vem segmentado por centro de custo no cálculo das metas.
       // Se o mesmo plano Auvo estiver mapeado em 2 centros, soma o tipo Auvo apenas 1x.
       const seenAuvoSources = new Set<string>();
+      // Nenhum lançamento pode ser somado 2x na mesma meta (ex.: mesmo plano
+      // mapeado em 2 centros de custo — lançamentos sem centro casariam nos dois).
+      const countedRecords = new Set<string>();
       let realizado = 0;
       const nome = meta.nome.toLowerCase();
 
@@ -502,6 +505,12 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
                 r.plano_contas_id === planoUuid &&
                 (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
               )
+              .filter(r => {
+                const key = `${usaCompetencia ? 'comp' : 'venc'}:${r.id}`;
+                if (countedRecords.has(key)) return false;
+                countedRecords.add(key);
+                return true;
+              })
               .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
             realizado += soma * (link.peso || 1);
           }
