@@ -1385,7 +1385,9 @@ Use R$. Tom de auditor sênior, direto.`;
       }
     }
 
-    const reconciliationStatus = (stats.errors > 0 || stats.skipped_time_budget > 0) ? "partial" : "success";
+    stats.subset_budget_exhausted = isSubsetBudgetExhausted();
+    const reconciliationStatus = (stats.errors > 0 || stats.skipped_time_budget > 0 || stats.subset_budget_exhausted) ? "partial" : "success";
+
     await supabase.from("fin_sync_log").insert({
       tipo: "reconciliation_engine",
       status: reconciliationStatus,
