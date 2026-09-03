@@ -126,6 +126,45 @@ async function fetchAllPages(
   return { records: allRecords, pages: totalPages, complete };
 }
 
+// ── Sonda individual de órfãos ──
+// Um gc_id ausente da janela paginada NÃO significa exclusão no GestãoClick
+// (vencimento alterado, filtro de data divergente, página com erro silencioso).
+// Só um 404 explícito no GET individual confirma que o registro não existe mais.
+async function orphanRemovidoNoGC(
+  endpoint: string,
+  gcId: string,
+  gcHeaders: Record<string, string>
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await rateLimitedFetch(`${GC_BASE_URL}${endpoint}/${gcId}`, { headers: gcHeaders });
+      if (res.status === 404) return true;
+      if (res.status === 429 || res.status >= 500) {
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        continue;
+      }
+      return false; // 200 (ou 4xx não-404): inconclusivo → preserva
+    } catch {
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+    }
+  }
+  return false;
+}
+
+async function filtrarOrfaosConfirmados<T extends { gc_id: string }>(
+  endpoint: string,
+  orphans: T[],
+  gcHeaders: Record<string, string>
+): Promise<T[]> {
+  const confirmados: T[] = [];
+  for (const o of orphans) {
+    if (await orphanRemovidoNoGC(endpoint, String(o.gc_id), gcHeaders)) confirmados.push(o);
+    else console.log(`[sync-all] ↻ ${endpoint}/${o.gc_id} ainda existe no GC — cancelamento evitado`);
+  }
+  return confirmados;
+}
+
+
 
 // ── Helpers ──
 function extrairOsCodigo(descricao: string | null | undefined): string | null {
