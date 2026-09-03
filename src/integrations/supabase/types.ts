@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.1"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -2510,6 +2510,7 @@ export type Database = {
           fornecedor_nome: string | null
           frete_percentual: number | null
           gc_produto_id: string
+          gtin: string | null
           icms_aliquota: number | null
           icms_aliquota_manual: number | null
           icms_base: number | null
@@ -2526,6 +2527,7 @@ export type Database = {
           nf_numero: string | null
           nome_produto: string
           origem: string | null
+          origem_manual: string | null
           pis_aliquota: number | null
           pis_aliquota_manual: number | null
           q_com: number | null
@@ -2574,6 +2576,7 @@ export type Database = {
           fornecedor_nome?: string | null
           frete_percentual?: number | null
           gc_produto_id: string
+          gtin?: string | null
           icms_aliquota?: number | null
           icms_aliquota_manual?: number | null
           icms_base?: number | null
@@ -2590,6 +2593,7 @@ export type Database = {
           nf_numero?: string | null
           nome_produto: string
           origem?: string | null
+          origem_manual?: string | null
           pis_aliquota?: number | null
           pis_aliquota_manual?: number | null
           q_com?: number | null
@@ -2638,6 +2642,7 @@ export type Database = {
           fornecedor_nome?: string | null
           frete_percentual?: number | null
           gc_produto_id?: string
+          gtin?: string | null
           icms_aliquota?: number | null
           icms_aliquota_manual?: number | null
           icms_base?: number | null
@@ -2654,6 +2659,7 @@ export type Database = {
           nf_numero?: string | null
           nome_produto?: string
           origem?: string | null
+          origem_manual?: string | null
           pis_aliquota?: number | null
           pis_aliquota_manual?: number | null
           q_com?: number | null
@@ -3037,6 +3043,730 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      fis_anomalia: {
+        Row: {
+          competencia: string
+          contexto: Json | null
+          created_at: string | null
+          descricao: string
+          id: string
+          referencia: string | null
+          resolvida: boolean
+          resolvida_em: string | null
+          resolvida_por: string | null
+          severidade: string
+          tipo: string
+        }
+        Insert: {
+          competencia: string
+          contexto?: Json | null
+          created_at?: string | null
+          descricao: string
+          id?: string
+          referencia?: string | null
+          resolvida?: boolean
+          resolvida_em?: string | null
+          resolvida_por?: string | null
+          severidade?: string
+          tipo: string
+        }
+        Update: {
+          competencia?: string
+          contexto?: Json | null
+          created_at?: string | null
+          descricao?: string
+          id?: string
+          referencia?: string | null
+          resolvida?: boolean
+          resolvida_em?: string | null
+          resolvida_por?: string | null
+          severidade?: string
+          tipo?: string
+        }
+        Relationships: []
+      }
+      fis_apuracao: {
+        Row: {
+          aliquota: number
+          base_credito: number
+          base_credito_simples: number
+          base_debito: number
+          calculado_em: string | null
+          competencia: string
+          detalhamento: Json | null
+          fechada_em: string | null
+          fechada_por: string | null
+          id: string
+          receita_bruta: number
+          saldo_a_recolher: number
+          saldo_credor_anterior: number
+          saldo_credor_proximo: number
+          status: string
+          tributo: string
+          valor_credito: number
+          valor_debito: number
+          valor_retencoes: number
+        }
+        Insert: {
+          aliquota?: number
+          base_credito?: number
+          base_credito_simples?: number
+          base_debito?: number
+          calculado_em?: string | null
+          competencia: string
+          detalhamento?: Json | null
+          fechada_em?: string | null
+          fechada_por?: string | null
+          id?: string
+          receita_bruta?: number
+          saldo_a_recolher?: number
+          saldo_credor_anterior?: number
+          saldo_credor_proximo?: number
+          status?: string
+          tributo: string
+          valor_credito?: number
+          valor_debito?: number
+          valor_retencoes?: number
+        }
+        Update: {
+          aliquota?: number
+          base_credito?: number
+          base_credito_simples?: number
+          base_debito?: number
+          calculado_em?: string | null
+          competencia?: string
+          detalhamento?: Json | null
+          fechada_em?: string | null
+          fechada_por?: string | null
+          id?: string
+          receita_bruta?: number
+          saldo_a_recolher?: number
+          saldo_credor_anterior?: number
+          saldo_credor_proximo?: number
+          status?: string
+          tributo?: string
+          valor_credito?: number
+          valor_debito?: number
+          valor_retencoes?: number
+        }
+        Relationships: []
+      }
+      fis_cfop_regra: {
+        Row: {
+          atualizado_em: string
+          cfop: string
+          compoe_receita: boolean
+          descricao: string
+          gera_credito_icms: boolean
+          gera_credito_piscofins: boolean
+          observacao: string | null
+          sentido: string
+        }
+        Insert: {
+          atualizado_em?: string
+          cfop: string
+          compoe_receita?: boolean
+          descricao: string
+          gera_credito_icms?: boolean
+          gera_credito_piscofins?: boolean
+          observacao?: string | null
+          sentido: string
+        }
+        Update: {
+          atualizado_em?: string
+          cfop?: string
+          compoe_receita?: boolean
+          descricao?: string
+          gera_credito_icms?: boolean
+          gera_credito_piscofins?: boolean
+          observacao?: string | null
+          sentido?: string
+        }
+        Relationships: []
+      }
+      fis_fornecedor_papel: {
+        Row: {
+          cnpj: string
+          credita: boolean
+          declarado_em: string | null
+          declarado_por: string | null
+          justificativa: string
+          nome: string | null
+          origem: string
+          papel: string
+        }
+        Insert: {
+          cnpj: string
+          credita: boolean
+          declarado_em?: string | null
+          declarado_por?: string | null
+          justificativa: string
+          nome?: string | null
+          origem?: string
+          papel: string
+        }
+        Update: {
+          cnpj?: string
+          credita?: boolean
+          declarado_em?: string | null
+          declarado_por?: string | null
+          justificativa?: string
+          nome?: string | null
+          origem?: string
+          papel?: string
+        }
+        Relationships: []
+      }
+      fis_item_decisao_manual: {
+        Row: {
+          chave_nf: string
+          decidido_em: string
+          decidido_por: string | null
+          incluir: boolean
+          motivo: string | null
+          ordem_item: number
+        }
+        Insert: {
+          chave_nf: string
+          decidido_em?: string
+          decidido_por?: string | null
+          incluir: boolean
+          motivo?: string | null
+          ordem_item: number
+        }
+        Update: {
+          chave_nf?: string
+          decidido_em?: string
+          decidido_por?: string | null
+          incluir?: boolean
+          motivo?: string | null
+          ordem_item?: number
+        }
+        Relationships: []
+      }
+      fis_nf_entrada: {
+        Row: {
+          chave: string
+          cnpj_emitente: string | null
+          competencia: string
+          created_at: string | null
+          crt_emitente: number | null
+          data_emissao: string
+          gc_compra_id: string | null
+          id: string
+          modelo: string | null
+          natureza_operacao: string | null
+          nome_emitente: string | null
+          numero: string | null
+          parsed_at: string | null
+          regime_emitente: string | null
+          serie: string | null
+          storage_path: string | null
+          uf_emitente: string | null
+          valor_desconto: number | null
+          valor_frete: number | null
+          valor_icms: number | null
+          valor_icms_st: number | null
+          valor_ipi: number | null
+          valor_produtos: number | null
+          valor_total: number | null
+        }
+        Insert: {
+          chave: string
+          cnpj_emitente?: string | null
+          competencia: string
+          created_at?: string | null
+          crt_emitente?: number | null
+          data_emissao: string
+          gc_compra_id?: string | null
+          id?: string
+          modelo?: string | null
+          natureza_operacao?: string | null
+          nome_emitente?: string | null
+          numero?: string | null
+          parsed_at?: string | null
+          regime_emitente?: string | null
+          serie?: string | null
+          storage_path?: string | null
+          uf_emitente?: string | null
+          valor_desconto?: number | null
+          valor_frete?: number | null
+          valor_icms?: number | null
+          valor_icms_st?: number | null
+          valor_ipi?: number | null
+          valor_produtos?: number | null
+          valor_total?: number | null
+        }
+        Update: {
+          chave?: string
+          cnpj_emitente?: string | null
+          competencia?: string
+          created_at?: string | null
+          crt_emitente?: number | null
+          data_emissao?: string
+          gc_compra_id?: string | null
+          id?: string
+          modelo?: string | null
+          natureza_operacao?: string | null
+          nome_emitente?: string | null
+          numero?: string | null
+          parsed_at?: string | null
+          regime_emitente?: string | null
+          serie?: string | null
+          storage_path?: string | null
+          uf_emitente?: string | null
+          valor_desconto?: number | null
+          valor_frete?: number | null
+          valor_icms?: number | null
+          valor_icms_st?: number | null
+          valor_ipi?: number | null
+          valor_produtos?: number | null
+          valor_total?: number | null
+        }
+        Relationships: []
+      }
+      fis_nf_entrada_item: {
+        Row: {
+          aliq_cofins: number | null
+          aliq_icms: number | null
+          aliq_pis: number | null
+          base_cofins: number | null
+          base_icms: number | null
+          base_pis: number | null
+          cfop: string | null
+          codigo_produto: string | null
+          created_at: string | null
+          credito_icms_permitido: boolean
+          credito_icms_valor: number
+          credito_piscofins_base: number
+          credito_piscofins_permitido: boolean
+          cst_cofins: string | null
+          cst_icms: string | null
+          cst_pis: string | null
+          id: string
+          motivo_decisao: string | null
+          ncm: string | null
+          nf_entrada_id: string
+          nome_produto: string | null
+          ordem: number
+          origem_mercadoria: string | null
+          perc_reducao_bc: number | null
+          quantidade: number | null
+          regra_aplicada: string | null
+          unidade: string | null
+          valor_cofins: number | null
+          valor_desconto: number | null
+          valor_difal_dest: number | null
+          valor_difal_remet: number | null
+          valor_fcp_st: number | null
+          valor_frete: number | null
+          valor_icms: number | null
+          valor_icms_st: number | null
+          valor_ipi: number | null
+          valor_pis: number | null
+          valor_produto: number | null
+        }
+        Insert: {
+          aliq_cofins?: number | null
+          aliq_icms?: number | null
+          aliq_pis?: number | null
+          base_cofins?: number | null
+          base_icms?: number | null
+          base_pis?: number | null
+          cfop?: string | null
+          codigo_produto?: string | null
+          created_at?: string | null
+          credito_icms_permitido?: boolean
+          credito_icms_valor?: number
+          credito_piscofins_base?: number
+          credito_piscofins_permitido?: boolean
+          cst_cofins?: string | null
+          cst_icms?: string | null
+          cst_pis?: string | null
+          id?: string
+          motivo_decisao?: string | null
+          ncm?: string | null
+          nf_entrada_id: string
+          nome_produto?: string | null
+          ordem?: number
+          origem_mercadoria?: string | null
+          perc_reducao_bc?: number | null
+          quantidade?: number | null
+          regra_aplicada?: string | null
+          unidade?: string | null
+          valor_cofins?: number | null
+          valor_desconto?: number | null
+          valor_difal_dest?: number | null
+          valor_difal_remet?: number | null
+          valor_fcp_st?: number | null
+          valor_frete?: number | null
+          valor_icms?: number | null
+          valor_icms_st?: number | null
+          valor_ipi?: number | null
+          valor_pis?: number | null
+          valor_produto?: number | null
+        }
+        Update: {
+          aliq_cofins?: number | null
+          aliq_icms?: number | null
+          aliq_pis?: number | null
+          base_cofins?: number | null
+          base_icms?: number | null
+          base_pis?: number | null
+          cfop?: string | null
+          codigo_produto?: string | null
+          created_at?: string | null
+          credito_icms_permitido?: boolean
+          credito_icms_valor?: number
+          credito_piscofins_base?: number
+          credito_piscofins_permitido?: boolean
+          cst_cofins?: string | null
+          cst_icms?: string | null
+          cst_pis?: string | null
+          id?: string
+          motivo_decisao?: string | null
+          ncm?: string | null
+          nf_entrada_id?: string
+          nome_produto?: string | null
+          ordem?: number
+          origem_mercadoria?: string | null
+          perc_reducao_bc?: number | null
+          quantidade?: number | null
+          regra_aplicada?: string | null
+          unidade?: string | null
+          valor_cofins?: number | null
+          valor_desconto?: number | null
+          valor_difal_dest?: number | null
+          valor_difal_remet?: number | null
+          valor_fcp_st?: number | null
+          valor_frete?: number | null
+          valor_icms?: number | null
+          valor_icms_st?: number | null
+          valor_ipi?: number | null
+          valor_pis?: number | null
+          valor_produto?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fis_nf_entrada_item_nf_entrada_id_fkey"
+            columns: ["nf_entrada_id"]
+            isOneToOne: false
+            referencedRelation: "fis_nf_entrada"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fis_nf_saida: {
+        Row: {
+          autorizada: boolean
+          base_icms: number | null
+          base_icms_st: number | null
+          cancelada: boolean
+          chave: string | null
+          codigo_cfop: string | null
+          cofins_retido: boolean | null
+          competencia: string
+          consumidor_final: boolean | null
+          created_at: string | null
+          csll_retido: boolean | null
+          data_emissao: string
+          denegada: boolean
+          descricao_cfop: string | null
+          destinatario_doc: string | null
+          destinatario_ie: string | null
+          destinatario_nome: string | null
+          destinatario_uf: string | null
+          gc_id: string
+          gc_payload_raw: Json | null
+          id: string
+          inss_retido: boolean | null
+          ir_retido: boolean | null
+          iss_retido: boolean | null
+          last_synced_at: string | null
+          modelo: string
+          natureza_operacao: string | null
+          numero: string | null
+          pis_retido: boolean | null
+          protocolo: string | null
+          serie: string | null
+          situacao_nf: string | null
+          storage_path: string | null
+          valor_base_calculo: number | null
+          valor_cofins: number | null
+          valor_csll: number | null
+          valor_desconto: number | null
+          valor_fcp: number | null
+          valor_fcp_st: number | null
+          valor_frete: number | null
+          valor_icms: number | null
+          valor_icms_st: number | null
+          valor_inss: number | null
+          valor_ipi: number | null
+          valor_ir: number | null
+          valor_iss: number | null
+          valor_pis: number | null
+          valor_produtos: number | null
+          valor_servico: number | null
+          valor_total_nf: number | null
+        }
+        Insert: {
+          autorizada?: boolean
+          base_icms?: number | null
+          base_icms_st?: number | null
+          cancelada?: boolean
+          chave?: string | null
+          codigo_cfop?: string | null
+          cofins_retido?: boolean | null
+          competencia: string
+          consumidor_final?: boolean | null
+          created_at?: string | null
+          csll_retido?: boolean | null
+          data_emissao: string
+          denegada?: boolean
+          descricao_cfop?: string | null
+          destinatario_doc?: string | null
+          destinatario_ie?: string | null
+          destinatario_nome?: string | null
+          destinatario_uf?: string | null
+          gc_id: string
+          gc_payload_raw?: Json | null
+          id?: string
+          inss_retido?: boolean | null
+          ir_retido?: boolean | null
+          iss_retido?: boolean | null
+          last_synced_at?: string | null
+          modelo: string
+          natureza_operacao?: string | null
+          numero?: string | null
+          pis_retido?: boolean | null
+          protocolo?: string | null
+          serie?: string | null
+          situacao_nf?: string | null
+          storage_path?: string | null
+          valor_base_calculo?: number | null
+          valor_cofins?: number | null
+          valor_csll?: number | null
+          valor_desconto?: number | null
+          valor_fcp?: number | null
+          valor_fcp_st?: number | null
+          valor_frete?: number | null
+          valor_icms?: number | null
+          valor_icms_st?: number | null
+          valor_inss?: number | null
+          valor_ipi?: number | null
+          valor_ir?: number | null
+          valor_iss?: number | null
+          valor_pis?: number | null
+          valor_produtos?: number | null
+          valor_servico?: number | null
+          valor_total_nf?: number | null
+        }
+        Update: {
+          autorizada?: boolean
+          base_icms?: number | null
+          base_icms_st?: number | null
+          cancelada?: boolean
+          chave?: string | null
+          codigo_cfop?: string | null
+          cofins_retido?: boolean | null
+          competencia?: string
+          consumidor_final?: boolean | null
+          created_at?: string | null
+          csll_retido?: boolean | null
+          data_emissao?: string
+          denegada?: boolean
+          descricao_cfop?: string | null
+          destinatario_doc?: string | null
+          destinatario_ie?: string | null
+          destinatario_nome?: string | null
+          destinatario_uf?: string | null
+          gc_id?: string
+          gc_payload_raw?: Json | null
+          id?: string
+          inss_retido?: boolean | null
+          ir_retido?: boolean | null
+          iss_retido?: boolean | null
+          last_synced_at?: string | null
+          modelo?: string
+          natureza_operacao?: string | null
+          numero?: string | null
+          pis_retido?: boolean | null
+          protocolo?: string | null
+          serie?: string | null
+          situacao_nf?: string | null
+          storage_path?: string | null
+          valor_base_calculo?: number | null
+          valor_cofins?: number | null
+          valor_csll?: number | null
+          valor_desconto?: number | null
+          valor_fcp?: number | null
+          valor_fcp_st?: number | null
+          valor_frete?: number | null
+          valor_icms?: number | null
+          valor_icms_st?: number | null
+          valor_inss?: number | null
+          valor_ipi?: number | null
+          valor_ir?: number | null
+          valor_iss?: number | null
+          valor_pis?: number | null
+          valor_produtos?: number | null
+          valor_servico?: number | null
+          valor_total_nf?: number | null
+        }
+        Relationships: []
+      }
+      fis_nf_saida_item: {
+        Row: {
+          cfop: string | null
+          codigo_produto: string | null
+          created_at: string | null
+          id: string
+          ncm: string | null
+          nf_saida_id: string
+          nome_produto: string | null
+          ordem: number
+          produto_gc_id: string | null
+          quantidade: number | null
+          unidade: string | null
+          valor_venda: number | null
+        }
+        Insert: {
+          cfop?: string | null
+          codigo_produto?: string | null
+          created_at?: string | null
+          id?: string
+          ncm?: string | null
+          nf_saida_id: string
+          nome_produto?: string | null
+          ordem?: number
+          produto_gc_id?: string | null
+          quantidade?: number | null
+          unidade?: string | null
+          valor_venda?: number | null
+        }
+        Update: {
+          cfop?: string | null
+          codigo_produto?: string | null
+          created_at?: string | null
+          id?: string
+          ncm?: string | null
+          nf_saida_id?: string
+          nome_produto?: string | null
+          ordem?: number
+          produto_gc_id?: string | null
+          quantidade?: number | null
+          unidade?: string | null
+          valor_venda?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fis_nf_saida_item_nf_saida_id_fkey"
+            columns: ["nf_saida_id"]
+            isOneToOne: false
+            referencedRelation: "fis_nf_saida"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fis_retencao: {
+        Row: {
+          competencia: string
+          created_at: string | null
+          created_by: string | null
+          data_liquidacao: string
+          id: string
+          nf_numero: string | null
+          nf_saida_id: string | null
+          nome_cliente: string | null
+          observacao: string | null
+          origem: string
+          recebimento_id: string | null
+          valor_base: number
+          valor_cofins_retido: number
+          valor_pis_retido: number
+        }
+        Insert: {
+          competencia: string
+          created_at?: string | null
+          created_by?: string | null
+          data_liquidacao: string
+          id?: string
+          nf_numero?: string | null
+          nf_saida_id?: string | null
+          nome_cliente?: string | null
+          observacao?: string | null
+          origem?: string
+          recebimento_id?: string | null
+          valor_base?: number
+          valor_cofins_retido?: number
+          valor_pis_retido?: number
+        }
+        Update: {
+          competencia?: string
+          created_at?: string | null
+          created_by?: string | null
+          data_liquidacao?: string
+          id?: string
+          nf_numero?: string | null
+          nf_saida_id?: string | null
+          nome_cliente?: string | null
+          observacao?: string | null
+          origem?: string
+          recebimento_id?: string | null
+          valor_base?: number
+          valor_cofins_retido?: number
+          valor_pis_retido?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fis_retencao_nf_saida_id_fkey"
+            columns: ["nf_saida_id"]
+            isOneToOne: false
+            referencedRelation: "fis_nf_saida"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fis_retencao_recebimento_id_fkey"
+            columns: ["recebimento_id"]
+            isOneToOne: false
+            referencedRelation: "fin_recebimentos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fis_servico_regra: {
+        Row: {
+          ativo: boolean
+          categoria: string
+          credita: boolean
+          criado_em: string | null
+          fundamento: string
+          id: string
+          padrao: string
+          prioridade: number
+        }
+        Insert: {
+          ativo?: boolean
+          categoria: string
+          credita: boolean
+          criado_em?: string | null
+          fundamento: string
+          id?: string
+          padrao: string
+          prioridade?: number
+        }
+        Update: {
+          ativo?: boolean
+          categoria?: string
+          credita?: boolean
+          criado_em?: string | null
+          fundamento?: string
+          id?: string
+          padrao?: string
+          prioridade?: number
+        }
+        Relationships: []
       }
       gc_compras: {
         Row: {
@@ -4459,12 +5189,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4488,11 +5218,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4513,11 +5243,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4538,11 +5268,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4555,11 +5285,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

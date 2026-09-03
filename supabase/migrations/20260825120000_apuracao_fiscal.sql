@@ -366,13 +366,20 @@ BEGIN
     'fis_cfop_regra','fis_nf_saida','fis_nf_saida_item','fis_nf_entrada',
     'fis_nf_entrada_item','fis_retencao','fis_apuracao','fis_anomalia'
   ] LOOP
-    EXECUTE format(
-      'CREATE POLICY %I ON public.%I FOR ALL TO authenticated USING (%s) WITH CHECK (%s)',
-      'fiscal_rw_' || t,
-      t,
-      'public.has_role(auth.uid(), ''admin'') OR public.has_role(auth.uid(), ''ceo'') OR public.has_role(auth.uid(), ''gerente_financeiro'')',
-      'public.has_role(auth.uid(), ''admin'') OR public.has_role(auth.uid(), ''ceo'') OR public.has_role(auth.uid(), ''gerente_financeiro'')'
-    );
+    -- Idempotente: o banco de produção pode já ter estas policies (criadas pela
+    -- linha do Lovable) — recriar sem guarda derrubaria o deploy das migrations.
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = t AND policyname = 'fiscal_rw_' || t
+    ) THEN
+      EXECUTE format(
+        'CREATE POLICY %I ON public.%I FOR ALL TO authenticated USING (%s) WITH CHECK (%s)',
+        'fiscal_rw_' || t,
+        t,
+        'public.has_role(auth.uid(), ''admin'') OR public.has_role(auth.uid(), ''ceo'') OR public.has_role(auth.uid(), ''gerente_financeiro'')',
+        'public.has_role(auth.uid(), ''admin'') OR public.has_role(auth.uid(), ''ceo'') OR public.has_role(auth.uid(), ''gerente_financeiro'')'
+      );
+    END IF;
   END LOOP;
 END
 $policies$;

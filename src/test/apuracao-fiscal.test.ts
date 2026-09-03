@@ -4,6 +4,7 @@ import {
   decidirCreditoIcms,
   decidirReceitaSaida,
   apurarPisCofins,
+  indexarPedidos,
   apurarIcms,
   ratearRetencoes,
   round2,
@@ -64,40 +65,75 @@ const SIMPLES = { regimeEmitente: "simples_nacional" as const, crtEmitente: 1 };
 const MEI = { regimeEmitente: "mei" as const, crtEmitente: 4 };
 const SEM_CRT = { regimeEmitente: "desconhecido" as const, crtEmitente: null };
 
-describe("Regra 2.3 — crédito por CST (fornecedor regime normal)", () => {
-  it("libera crédito com CST 01", () => {
+const COM_PEDIDO = { ...NORMAL, temPedidoCompra: true };
+const SEM_PEDIDO = { ...NORMAL, temPedidoCompra: false };
+
+describe("crédito de PIS/COFINS — fornecedor do regime normal", () => {
+  it("libera crédito com CST 01 destacado", () => {
     const d = decidirCreditoPisCofins(item(), NORMAL, CFOP_1102);
     expect(d.permitido).toBe(true);
     expect(d.base).toBe(1000);
-    expect(d.regra).toBe("CST_01");
+    expect(d.regra).toBe("CST_TRIBUTADO");
     expect(d.viaResgateSimples).toBe(false);
   });
 
-  it.each(["02", "06", "07", "08", "49", "99"])(
-    "bloqueia CST %s",
+  it("CST 02 (alíquota diferenciada) também gera crédito", () => {
+    const d = decidirCreditoPisCofins(item({ cstPis: "02", cstCofins: "02" }), NORMAL, CFOP_1102);
+    expect(d.permitido).toBe(true);
+  });
+
+  it.each(["06", "07", "08", "49", "99"])(
+    "CST %s sem destaque: credita quando há pedido de compra, com marca de revisão",
     (cst) => {
-      const d = decidirCreditoPisCofins(item({ cstPis: cst, cstCofins: cst }), NORMAL, CFOP_1102);
-      expect(d.permitido).toBe(false);
-      expect(d.base).toBe(0);
-      expect(d.regra).toBe("CST_BLOQUEADO");
+      const d = decidirCreditoPisCofins(
+        item({ cstPis: cst, cstCofins: cst }), COM_PEDIDO, CFOP_1102,
+      );
+      expect(d.permitido).toBe(true);
+      expect(d.base).toBe(1000);
+      expect(d.regra).toBe("SEM_DESTAQUE_COM_PEDIDO");
+      expect(d.requerRevisao).toBe(true);
     },
   );
 
-  it("não decide sem CST e marca para revisão", () => {
+  it.each(["06", "07", "08", "49", "99"])(
+    "CST %s sem destaque e SEM pedido: nega",
+    (cst) => {
+      const d = decidirCreditoPisCofins(
+        item({ cstPis: cst, cstCofins: cst }), SEM_PEDIDO, CFOP_1102,
+      );
+      expect(d.permitido).toBe(false);
+      expect(d.regra).toBe("SEM_DESTAQUE_SEM_PEDIDO");
+      expect(d.requerRevisao).toBe(true);
+    },
+  );
+
+  it("sem CST mas com pedido de compra, credita", () => {
     const d = decidirCreditoPisCofins(
-      item({ cstPis: null, cstCofins: null }),
-      NORMAL,
-      CFOP_1102,
+      item({ cstPis: null, cstCofins: null }), COM_PEDIDO, CFOP_1102,
     );
-    expect(d.permitido).toBe(false);
-    expect(d.requerRevisao).toBe(true);
-    expect(d.regra).toBe("CST_AUSENTE");
+    expect(d.permitido).toBe(true);
+    expect(d.regra).toBe("SEM_DESTAQUE_COM_PEDIDO");
   });
 
   it("normaliza CST vindo sem zero à esquerda", () => {
     const d = decidirCreditoPisCofins(item({ cstPis: "1", cstCofins: "1" }), NORMAL, CFOP_1102);
     expect(d.permitido).toBe(true);
-    expect(d.regra).toBe("CST_01");
+    expect(d.regra).toBe("CST_TRIBUTADO");
+  });
+
+  it("Lucro Presumido credita a nossa alíquota cheia, não a cumulativa dele", () => {
+    // CRT 3 abrange Lucro Real e Presumido. O adquirente no não-cumulativo
+    // credita 9,25% sobre o valor da aquisição, não os 3,65% que o
+    // fornecedor recolheu.
+    const d = decidirCreditoPisCofins(item({ valorProduto: 10_000 }), NORMAL, CFOP_1102);
+    expect(d.permitido).toBe(true);
+    expect(d.base).toBe(10_000);
+    const { pis, cofins } = apurarPisCofins({
+      receitaBruta: 0, baseDebito: 0, baseCredito: d.base, baseCreditoSimples: 0,
+      retencaoPis: 0, retencaoCofins: 0,
+      saldoCredorAnteriorPis: 0, saldoCredorAnteriorCofins: 0,
+    });
+    expect(pis.valorCredito + cofins.valorCredito).toBe(925);
   });
 });
 
@@ -137,28 +173,30 @@ describe("Regra 2.4 — resgate do Simples Nacional", () => {
     },
   );
 
-  it("respeita o CFOP: uso e consumo não gera crédito nem no Simples", () => {
+  it("respeita o CFOP: remessa não gera crédito nem no Simples", () => {
     const d = decidirCreditoPisCofins(
       item({ cfop: "1556", cstPis: "49", cstCofins: "49" }),
       SIMPLES,
       CFOP_1556,
     );
     expect(d.permitido).toBe(false);
-    expect(d.regra).toBe("CFOP_SEM_CREDITO");
+    expect(d.regra).toBe("CFOP_NAO_AQUISICAO");
   });
 
-  it("MEI não é decidido automaticamente", () => {
+  it("MEI segue a mesma regra do Simples", () => {
     const d = decidirCreditoPisCofins(item({ cstPis: "49" }), MEI, CFOP_1102);
-    expect(d.permitido).toBe(false);
-    expect(d.requerRevisao).toBe(true);
-    expect(d.regra).toBe("MEI_REVISAR");
+    expect(d.permitido).toBe(true);
+    expect(d.viaResgateSimples).toBe(true);
   });
 
-  it("CRT ausente não vira suposição", () => {
-    const d = decidirCreditoPisCofins(item({ cstPis: "49" }), SEM_CRT, CFOP_1102);
-    expect(d.permitido).toBe(false);
+  it("CRT ausente com pedido de compra ainda credita", () => {
+    const d = decidirCreditoPisCofins(
+      item({ cstPis: "49" }),
+      { ...SEM_CRT, temPedidoCompra: true },
+      CFOP_1102,
+    );
+    expect(d.permitido).toBe(true);
     expect(d.requerRevisao).toBe(true);
-    expect(d.regra).toBe("CRT_AUSENTE");
   });
 });
 
@@ -231,6 +269,14 @@ describe("Regra 1 — base de débito", () => {
     expect(d.compoe).toBe(true);
     expect(d.valor).toBe(5000);
   });
+
+  it("exclui o ICMS destacado e o ICMS-ST da base de PIS/COFINS (RE 574.706)", () => {
+    const d = decidirReceitaSaida(saida({ valorIcms: 900, valorIcmsSt: 100 }), CFOP_5102);
+    expect(d.compoe).toBe(true);
+    expect(d.valor).toBe(4000);
+  });
+
+
 
   it("exclui cancelada e denegada", () => {
     expect(decidirReceitaSaida(saida({ cancelada: true }), CFOP_5102).compoe).toBe(false);
@@ -443,5 +489,186 @@ describe("Regra 3 — rateio de retenções por liquidação", () => {
     );
     expect(r.retencoes).toHaveLength(0);
     expect(r.avisos[0].tipo).toBe("NFSE_SEM_VALOR");
+  });
+});
+
+describe("serviço tomado — insumo depende da natureza, não do CFOP", () => {
+  const servico = (over: Partial<ItemEntrada> = {}): ItemEntrada =>
+    item({ cfop: "5933", ehServico: true, cstPis: "01", cstCofins: "01", ...over });
+  const CFOP_5933: RegraCfop = {
+    cfop: "5933", sentido: "saida", compoeReceita: true,
+    geraCreditoPisCofins: true, geraCreditoIcms: false,
+  };
+
+  it("manutenção de equipamento credita", () => {
+    const d = decidirCreditoPisCofins(
+      servico({ servicoEhInsumo: true, servicoCategoria: "manutencao" }), NORMAL, CFOP_5933,
+    );
+    expect(d.permitido).toBe(true);
+    expect(d.regra).toBe("SERVICO_INSUMO");
+  });
+
+  it("alimentação NÃO credita mesmo com CST 01 e fornecedor do Simples", () => {
+    const d = decidirCreditoPisCofins(
+      servico({ servicoEhInsumo: false, servicoCategoria: "alimentacao" }),
+      { ...SIMPLES, temPedidoCompra: true },
+      CFOP_5933,
+    );
+    expect(d.permitido).toBe(false);
+    expect(d.regra).toBe("SERVICO_NAO_INSUMO");
+  });
+
+  it("comissão de venda não credita nem com pedido de compra", () => {
+    const d = decidirCreditoPisCofins(
+      servico({ servicoEhInsumo: false, servicoCategoria: "comissao_venda" }),
+      COM_PEDIDO, CFOP_5933,
+    );
+    expect(d.permitido).toBe(false);
+  });
+
+  it("serviço sem descrição classificável não credita e pede revisão", () => {
+    const d = decidirCreditoPisCofins(
+      servico({ servicoEhInsumo: null, nomeProduto: "mensal" }), COM_PEDIDO, CFOP_5933,
+    );
+    expect(d.permitido).toBe(false);
+    expect(d.regra).toBe("SERVICO_INDECIDIVEL");
+    expect(d.requerRevisao).toBe(true);
+  });
+});
+
+describe("MEI e pessoa física", () => {
+  it("MEI tem CNPJ, é pessoa jurídica, e credita como o Simples", () => {
+    const d = decidirCreditoPisCofins(item({ cstPis: "49" }), MEI, CFOP_1102);
+    expect(d.permitido).toBe(true);
+    expect(d.viaResgateSimples).toBe(true);
+  });
+
+  it("emitente pessoa física (CPF) não gera crédito", () => {
+    const d = decidirCreditoPisCofins(
+      item(), { ...NORMAL, emitentePessoaFisica: true }, CFOP_1102,
+    );
+    expect(d.permitido).toBe(false);
+    expect(d.regra).toBe("PESSOA_FISICA");
+  });
+});
+
+describe("saldo credor: PIS e COFINS não se comunicam", () => {
+  // Lei 10.833/2003 art. 3º, §4º deixa o crédito não aproveitado passar para os
+  // meses seguintes -- mas cada contribuição tem o seu. Crédito de PIS não
+  // abate COFINS: são códigos de receita diferentes no DARF. A tela chegou a
+  // somar os dois numa coluna só, o que escondia exatamente isso.
+  const base = {
+    receitaBruta: 100_000,
+    baseDebito: 100_000,
+    baseCredito: 0,
+    baseCreditoSimples: 0,
+    retencaoPis: 0,
+    retencaoCofins: 0,
+    saldoCredorAnteriorPis: 0,
+    saldoCredorAnteriorCofins: 0,
+  };
+
+  it("credor sobrando no PIS não reduz o débito de COFINS", () => {
+    const r = apurarPisCofins({ ...base, saldoCredorAnteriorPis: 50_000 });
+
+    // PIS: 1,65% de 100k = 1.650, contra 50.000 de credor -> zera e sobra.
+    expect(r.pis.saldoARecolher).toBe(0);
+    expect(r.pis.saldoCredorProximo).toBe(48_350);
+
+    // COFINS: 7,6% de 100k = 7.600, intocado pelo credor de PIS.
+    expect(r.cofins.saldoARecolher).toBe(7_600);
+    expect(r.cofins.saldoCredorProximo).toBe(0);
+  });
+
+  it("cada contribuição consome só o seu saldo do mês anterior", () => {
+    const r = apurarPisCofins({
+      ...base,
+      saldoCredorAnteriorPis: 1_000,
+      saldoCredorAnteriorCofins: 2_000,
+    });
+
+    expect(r.pis.saldoARecolher).toBe(650); // 1.650 - 1.000
+    expect(r.cofins.saldoARecolher).toBe(5_600); // 7.600 - 2.000
+    expect(r.saldoTotalARecolher).toBe(6_250);
+  });
+
+  it("crédito não aproveitado é transportado, não perdido", () => {
+    const r = apurarPisCofins({ ...base, baseCredito: 300_000 });
+
+    // Crédito de 300k contra débito de 100k: sobra base de 200k em cada.
+    expect(r.pis.saldoARecolher).toBe(0);
+    expect(r.cofins.saldoARecolher).toBe(0);
+    expect(r.pis.saldoCredorProximo).toBe(3_300); // 1,65% de 200k
+    expect(r.cofins.saldoCredorProximo).toBe(15_200); // 7,6% de 200k
+  });
+});
+
+describe("amarração pedido de compra ↔ nota fiscal", () => {
+  // Casos tirados da base real da WeDo. Casar só pelo número da NF dava 291
+  // notas (R$ 387 mil) herdando pedido de outro fornecedor, e calava o alerta
+  // de compra sem XML em 99,7% dos casos.
+  const nota = (numero: string, cnpj: string, nome: string) => ({
+    numero,
+    cnpjEmitente: cnpj,
+    nomeEmitente: nome,
+  });
+  const pedido = (numeroNfe: string, cnpj: string | null, nome: string) => ({
+    numeroNfe,
+    cnpjFornecedor: cnpj,
+    nomeFornecedor: nome,
+  });
+
+  it("não deixa uma nota herdar o pedido de outro fornecedor", () => {
+    const ix = indexarPedidos([pedido("20", "56914804000150", "FRED JORGE DANTAS")]);
+    expect(ix.temPedido(nota("20", "64350009000105", "Wilton Rosa Silva"))).toBe(false);
+  });
+
+  it("casa pelo CNPJ mesmo com zeros à esquerda de um lado só", () => {
+    const ix = indexarPedidos([pedido("000020", "64350009000105", "Wilton Rosa Silva")]);
+    expect(ix.temPedido(nota("20", "64350009000105", "WILTON ROSA SILVA"))).toBe(true);
+  });
+
+  it("casa matriz com filial pela raiz do CNPJ", () => {
+    // O pedido fica no CNPJ da matriz e a nota sai da filial. É o mesmo
+    // fornecedor -- comparar os 14 dígitos separava um só.
+    const ix = indexarPedidos([pedido("60837", "12345678000199", "Nova Milenio")]);
+    expect(ix.temPedido(nota("60837", "12345678000288", "Nova Milenio"))).toBe(true);
+  });
+
+  it("aceita o CNPJ que o ERP cola na frente do nome quando o campo vem vazio", () => {
+    // 10,6% dos pedidos do Gestão Click não têm cnpj_fornecedor preenchido,
+    // mas trazem "62.197.586 AYRTON EULER..." na razão social.
+    const ix = indexarPedidos([pedido("62", null, "62.197.586 AYRTON EULER DOS SANTOS")]);
+    expect(ix.temPedido(nota("62", "62197586000183", "AYRTON EULER DOS SANTOS CARVALHO"))).toBe(
+      true,
+    );
+  });
+
+  it("casa por nome quando nenhum dos dois lados tem CNPJ utilizável", () => {
+    const ix = indexarPedidos([pedido("777", null, "Paulinélis Transportes Ltda")]);
+    expect(ix.temPedido(nota("777", "", "PAULINELIS TRANSPORTES LTDA"))).toBe(true);
+  });
+
+  it("não casa quando o cadastro diverge de verdade", () => {
+    // "PAULINELIS" na nota, "PAULINERIS" no pedido: erro de digitação real.
+    // Preferimos deixar sem casar a inventar equivalência por semelhança.
+    const ix = indexarPedidos([pedido("680217", null, "PAULINERIS TRANSPORTES")]);
+    expect(ix.temPedido(nota("680217", "11222333000144", "PAULINELIS TRANSPORTES"))).toBe(false);
+  });
+
+  it("lista como sem XML só o pedido cuja própria nota falta", () => {
+    const ix = indexarPedidos([
+      pedido("100", "11111111000191", "Fornecedor A"),
+      pedido("100", "22222222000172", "Fornecedor B"),
+    ]);
+    // Chegou o XML do A. O do B continua faltando -- e antes o XML do A
+    // servia de álibi para os dois, porque o número era o mesmo.
+    const faltam = ix.semNota([nota("100", "11111111000191", "Fornecedor A")]);
+    expect(faltam.map((p) => p.nomeFornecedor)).toEqual(["Fornecedor B"]);
+  });
+
+  it("ignora pedido sem número de nota informado", () => {
+    const ix = indexarPedidos([pedido("", "11111111000191", "Fornecedor A")]);
+    expect(ix.semNota([])).toEqual([]);
   });
 });

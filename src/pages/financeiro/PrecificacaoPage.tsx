@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, Fragment } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback, Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,7 +22,12 @@ import { format } from "date-fns";
 import { SyncNFPorPeriodoDialog } from "@/components/financeiro/SyncNFPorPeriodoDialog";
 import { SyncNFStatusChip } from "@/components/financeiro/SyncNFStatusChip";
 import { reindexNfeXmlsEmLotes } from "@/lib/reindexNfeXmls";
-import { normalizeOrigemFiscal, origemNfParaCadastroGc } from "@/lib/origemFiscal";
+import {
+  normalizeOrigemFiscal,
+  origemNfParaCadastroGc,
+  ORIGENS_FISCAIS_GC,
+  resolverOrigemFiscal,
+} from "@/lib/origemFiscal";
 import { dividirNfeEmLotes, NFE_FILES_PER_LOT } from "@/lib/nfeUpload";
 
 // ── Types ──
@@ -46,7 +51,9 @@ interface ProdutoTributo {
   nome_produto: string;
   descricao_nf?: string | null;
   ncm: string | null;
+  gtin?: string | null;
   origem: string | null;
+  origem_manual: string | null;
   cfop: string | null;
   nf_numero: string | null;
   nf_chave: string | null;
@@ -379,25 +386,81 @@ function calcPricingWithNF(
   };
 }
 
-const ORIGEM_OPTS = [
-  { v: "0", l: "0 - Nacional" },
-  { v: "1", l: "1 - Estrangeira (importação direta)" },
-  { v: "2", l: "2 - Estrangeira (mercado interno)" },
-  { v: "3", l: "3 - Nacional (import. 40-70%)" },
-  { v: "4", l: "4 - Nacional (proc. produtivos básicos)" },
-  { v: "5", l: "5 - Nacional (import. <= 40%)" },
-  { v: "6", l: "6 - Estrangeira direta (lista CAMEX)" },
-  { v: "7", l: "7 - Estrangeira mercado interno (lista CAMEX)" },
-  { v: "8", l: "8 - Nacional (import. > 70%)" },
-];
+const ORIGEM_OPTS = ORIGENS_FISCAIS_GC.map(({ codigo, descricao }) => ({
+  v: codigo,
+  l: `${codigo} - ${descricao}`,
+}));
 
 const normNcm = (v: unknown) => String(v ?? "").replace(/\D/g, "").slice(0, 8);
+// GTIN: apenas EAN-8/12/13/14. "SEM GTIN" e zeros não são código de barras.
+const normGtin = (v: unknown) => {
+  const d = String(v ?? "").replace(/\D/g, "");
+  if (![8, 12, 13, 14].includes(d.length)) return "";
+  if (/^0+$/.test(d)) return "";
+  return d;
+};
 const normOrig = normalizeOrigemFiscal;
 
 type FiscalCorrectionInput = { produtoId: string; ncm: string; origem?: string };
 
+export type FiscalVerificationAssessment = {
+  ncmConfirmado: boolean;
+  origemSolicitada: boolean;
+  origemConfirmada: boolean;
+  origemPendente: boolean;
+};
+
+function fiscalVerificationFromResponse(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const verification = (value as { _argus_verification?: unknown })._argus_verification;
+  if (!verification || typeof verification !== "object" || Array.isArray(verification)) return null;
+  const raw = verification as { source?: unknown; ncm?: unknown; origem?: unknown };
+  return {
+    source: String(raw.source ?? ""),
+    ncm: normNcm(raw.ncm),
+    origem: normOrig(raw.origem),
+  };
+}
+
+export function classifyFiscalVerification(
+  responseBody: unknown,
+  ncmEsperado: unknown,
+  origemEsperada?: unknown,
+): FiscalVerificationAssessment {
+  const verification = fiscalVerificationFromResponse(responseBody);
+  const origem = normOrig(origemEsperada);
+  const fonteConfirmada = verification?.source === "gc_public_get" ||
+    verification?.source === "gc_public_icms_get" ||
+    verification?.source === "gc_internal_get";
+  const ncmConfirmado = Boolean(
+    fonteConfirmada && verification?.ncm === normNcm(ncmEsperado),
+  );
+  // A origem só é confirmada quando a releitura devolve o campo canônico
+  // `ICMS_orig`, usado pela própria tela fiscal do GestãoClick.
+  const origemConfirmada = Boolean(
+    origem &&
+      ncmConfirmado &&
+      (verification?.source === "gc_public_icms_get" ||
+        verification?.source === "gc_internal_get") &&
+      verification.origem === origem,
+  );
+
+  return {
+    ncmConfirmado,
+    origemSolicitada: origem !== "",
+    origemConfirmada,
+    origemPendente: origem !== "" && ncmConfirmado && !origemConfirmada,
+  };
+}
+
+export function isFiscalJobOperationallyComplete(status: unknown): boolean {
+  return status === "sucesso" || status === "sucesso_parcial";
+}
+
 async function corrigirFiscalNoGc(inputs: FiscalCorrectionInput[]) {
-  if (inputs.length === 0) return { sucessos: 0 };
+  if (inputs.length === 0) {
+    return { sucessos: 0, origensConfirmadas: 0, origensPendentes: 0 };
+  }
 
   const jobs = inputs.map((item) => {
     const ncm = normNcm(item.ncm);
@@ -407,10 +470,13 @@ async function corrigirFiscalNoGc(inputs: FiscalCorrectionInput[]) {
       recurso: "produtos",
       recurso_id: String(item.produtoId),
       payload,
-      payload_hash: btoa(`fiscal-v3|${item.produtoId}|${ncm}|${origem}`),
+      payload_hash: btoa(`fiscal-v5|${item.produtoId}|${ncm}|${origem}`),
       status: "pendente",
       tentativas: 0,
       ultimo_erro: null,
+      // Sem isso, um job reaproveitado mantém a resposta antiga e a verificação
+      // fiscal avalia prova de uma execução anterior.
+      response_body: null,
       iniciado_em: null,
       processado_em: null,
       finalizado_em: null,
@@ -437,69 +503,194 @@ async function corrigirFiscalNoGc(inputs: FiscalCorrectionInput[]) {
   // A fonte da verdade é o estado persistido do job, não apenas o HTTP da função.
   const { data: states, error: stateError } = await supabase
     .from("fin_gc_write_jobs")
-    .select("recurso_id, status, ultimo_erro")
+    .select("recurso_id, status, ultimo_erro, response_body")
     .in("id", jobIds);
   if (stateError) throw new Error(`Não foi possível conferir a correção: ${stateError.message}`);
 
-  const falhas = (states || []).filter((job) => job.status !== "sucesso");
-  if (falhas.length > 0) {
-    const primeira = falhas[0];
-    throw new Error(
-      `${falhas.length} produto(s) não foram confirmados no GC. ` +
-      (primeira.ultimo_erro || `Status: ${primeira.status}`),
-    );
-  }
-
-  // O worker só atualiza o cache depois de reler e confirmar o cadastro fiscal
-  // no endpoint interno do GC. Esta segunda conferência impede que uma versão
-  // antiga da função devolva "sucesso" mesmo quando o GC ignorou a origem.
-  const expectedByProduct = new Map(
-    inputs.map((item) => [String(item.produtoId), {
-      ncm: normNcm(item.ncm),
-      origem: normOrig(item.origem),
-    }]),
-  );
-  const cacheByProduct = new Map<string, { ncm: string; origem: string }>();
-  const productIds = [...expectedByProduct.keys()];
-
-  for (let offset = 0; offset < productIds.length; offset += 100) {
-    const loteIds = productIds.slice(offset, offset + 100);
-    const { data: cacheRows, error: cacheError } = await supabase
-      .from("gc_produtos_cache")
-      .select("produto_gc_id, ncm, origem")
-      .in("produto_gc_id", loteIds);
-    if (cacheError) throw new Error(`Não foi possível validar o cadastro fiscal: ${cacheError.message}`);
-
-    for (const row of cacheRows || []) {
-      cacheByProduct.set(String(row.produto_gc_id), {
-        ncm: normNcm(row.ncm),
-        origem: normOrig(row.origem),
-      });
-    }
-  }
-
-  const divergencias = productIds.filter((produtoId) => {
-    const expected = expectedByProduct.get(produtoId)!;
-    const cached = cacheByProduct.get(produtoId);
-    if (!cached || cached.ncm !== expected.ncm) return true;
-    return expected.origem !== "" && cached.origem !== expected.origem;
+  const stateByProduct = new Map((states || []).map((state) => [String(state.recurso_id), state]));
+  const avaliacoes = inputs.map((item) => {
+    const state = stateByProduct.get(String(item.produtoId));
+    return {
+      item,
+      state,
+      resultado: classifyFiscalVerification(state?.response_body, item.ncm, item.origem),
+    };
   });
 
-  if (divergencias.length > 0) {
+  const semNcmConfirmado = avaliacoes.filter(({ resultado }) => !resultado.ncmConfirmado);
+  if (semNcmConfirmado.length > 0) {
+    const primeira = semNcmConfirmado[0];
+    const detalhe = primeira.state?.ultimo_erro ||
+      (primeira.state ? `Status: ${primeira.state.status}` : "Job não encontrado após a execução.");
     throw new Error(
-      `O GC não confirmou NCM/origem de ${divergencias.length} produto(s). ` +
-      `Nenhum sucesso foi presumido; primeiro produto divergente: ${divergencias[0]}.`,
+      `O GC não confirmou o NCM de ${semNcmConfirmado.length} produto(s). ` +
+      `Primeiro produto sem confirmação: ${primeira.item.produtoId}. ${detalhe}`,
     );
   }
 
-  return { sucessos: states?.length ?? 0 };
+  const falhasOperacionais = avaliacoes.filter(({ state }) =>
+    !isFiscalJobOperationallyComplete(state?.status)
+  );
+  if (falhasOperacionais.length > 0) {
+    const primeira = falhasOperacionais[0];
+    throw new Error(
+      `O NCM foi confirmado no GC, mas o Argus não concluiu ${falhasOperacionais.length} job(s). ` +
+      `Primeiro produto: ${primeira.item.produtoId}. ` +
+      (primeira.state?.ultimo_erro || `Status: ${primeira.state?.status || "não encontrado"}`),
+    );
+  }
+
+  return {
+    sucessos: avaliacoes.length,
+    origensConfirmadas: avaliacoes.filter(({ resultado }) => resultado.origemConfirmada).length,
+    origensPendentes: avaliacoes.filter(({ resultado }) => resultado.origemPendente).length,
+  };
+}
+
+async function gravarGtinNoGc(produtoId: string, gtin: string) {
+  const codigo = normGtin(gtin);
+  if (!codigo) throw new Error("GTIN inválido: informe 8, 12, 13 ou 14 dígitos.");
+
+  const { data: queued, error: queueError } = await supabase
+    .from("fin_gc_write_jobs")
+    .upsert({
+      recurso: "produtos",
+      recurso_id: String(produtoId),
+      payload: { codigo_barra: codigo },
+      payload_hash: btoa(`gtin-v1|${produtoId}|${codigo}`),
+      status: "pendente",
+      tentativas: 0,
+      ultimo_erro: null,
+      response_body: null,
+      iniciado_em: null,
+      processado_em: null,
+      finalizado_em: null,
+    }, { onConflict: "recurso,recurso_id,payload_hash" })
+    .select("id")
+    .maybeSingle();
+  if (queueError) throw new Error(`Não foi possível preparar a gravação do GTIN: ${queueError.message}`);
+  if (!queued?.id) throw new Error("A fila do GC não devolveu o job do GTIN.");
+
+  const { error: workerError } = await supabase.functions.invoke("process-gc-write-jobs", {
+    body: { job_ids: [String(queued.id)] },
+  });
+  if (workerError) throw new Error(`Falha ao gravar o GTIN no GC: ${workerError.message}`);
+
+  // HTTP 200 não é prova: só o estado persistido do job confirma a gravação.
+  const { data: state, error: stateError } = await supabase
+    .from("fin_gc_write_jobs")
+    .select("status, ultimo_erro, response_body")
+    .eq("id", queued.id)
+    .maybeSingle();
+  if (stateError) throw new Error(`Não foi possível conferir a gravação: ${stateError.message}`);
+  if (!isFiscalJobOperationallyComplete(state?.status)) {
+    throw new Error(state?.ultimo_erro || `O GC não confirmou o GTIN (status: ${state?.status || "desconhecido"}).`);
+  }
+  return codigo;
+}
+
+function GtinCell({
+  produtoId,
+  nome,
+  gtinGc,
+  gtinNf,
+  onSaved,
+}: {
+  produtoId: string;
+  nome: string;
+  gtinGc: string;
+  gtinNf: string;
+  onSaved?: () => void;
+}) {
+  const gcGtin = normGtin(gtinGc);
+  const nfGtin = normGtin(gtinNf);
+  const [saving, setSaving] = useState(false);
+  const [manual, setManual] = useState(false);
+  const [valor, setValor] = useState(gcGtin || nfGtin);
+
+  const divergente = !!nfGtin && !!gcGtin && nfGtin !== gcGtin;
+
+  const enviar = async (codigo: string) => {
+    setSaving(true);
+    try {
+      const gravado = await gravarGtinNoGc(produtoId, codigo);
+      toast.success(`GTIN ${gravado} gravado no cadastro de ${nome} no GestãoClick.`);
+      setValor(gravado);
+      setManual(false);
+      onSaved?.();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1 mt-2 pt-2 border-t border-border/60">
+      <span className="text-[10px] text-muted-foreground uppercase font-semibold">GTIN</span>
+      <div className="flex items-center gap-1.5">
+        <span className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ${gcGtin ? "border-border bg-secondary" : "border-amber-500/50 text-amber-400 bg-amber-500/5"}`}>
+          {gcGtin || "Sem GTIN no GC"}
+        </span>
+        <span
+          className={`text-[9px] font-mono ${divergente ? "text-red-400" : nfGtin ? "text-blue-400" : "text-amber-400"}`}
+          title="GTIN (cEAN/cEANTrib) do XML da última NF de entrada. Muitos fabricantes (ex.: Rational) emitem a tag com o literal 'SEM GTIN' — nesse caso não existe código de barras na nota e o cadastro precisa ser preenchido manualmente."
+        >
+          NF: {nfGtin || "nota sem GTIN informado"}
+        </span>
+
+      </div>
+      {manual ? (
+        <div className="flex flex-col gap-1">
+          <Input
+            autoFocus
+            value={valor}
+            onChange={(e) => setValor(e.target.value.replace(/\D/g, "").slice(0, 14))}
+            placeholder="GTIN (8, 12, 13 ou 14 dígitos)"
+            className="h-7 text-[11px] px-1.5 font-mono"
+          />
+          <div className="flex items-center gap-1">
+            <Button size="sm" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => enviar(valor)}>
+              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar GTIN no GC"}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => { setValor(gcGtin || nfGtin); setManual(false); }}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {!!nfGtin && nfGtin !== gcGtin && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-[10px] text-blue-400 hover:text-blue-300 justify-start"
+              disabled={saving}
+              onClick={() => enviar(nfGtin)}
+            >
+              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : gcGtin ? `Substituir pelo GTIN ${nfGtin} da NF` : `Adicionar GTIN ${nfGtin} da NF ao GC`}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 px-2 text-[10px] gap-1 justify-start"
+            onClick={() => { setValor(gcGtin || nfGtin); setManual(true); }}
+          >
+            <Edit className="h-3 w-3" /> GTIN manual
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function FiscalCell({
   produtoId,
   nome,
   ncmGc,
-  origGc,
+  origCache,
+  origManual,
   ncmNf,
   origNf,
   onSaved,
@@ -507,49 +698,102 @@ function FiscalCell({
   produtoId: string;
   nome: string;
   ncmGc: string;
-  origGc: string;
+  origCache: string;
+  origManual: string;
   ncmNf: string;
   origNf: string;
   onSaved?: () => void;
 }) {
   const gcNcm = normNcm(ncmGc);
-  const gcOrig = normOrig(origGc);
+  const cachedOrig = normOrig(origCache);
+  const manualOrig = normOrig(origManual);
   const nfNcm = normNcm(ncmNf);
   const nfOrig = normOrig(origNf);
   const nfOrigParaGc = origemNfParaCadastroGc(nfOrig);
+  // Correção explícita > XML da última NF > cache legado. O cache nunca é
+  // tratado como prova de gravação no GestãoClick.
+  const origemResolvida = resolverOrigemFiscal({ manual: manualOrig, nf: nfOrig, legado: cachedOrig });
+  const origemIdentificada = origemResolvida.origemEfetiva;
 
   const [editing, setEditing] = useState(false);
   const [ncm, setNcm] = useState(gcNcm || nfNcm);
-  const [orig, setOrig] = useState(gcOrig || nfOrigParaGc);
+  const [orig, setOrig] = useState(origemIdentificada);
   const [saving, setSaving] = useState(false);
 
   const divNcm = !!nfNcm && nfNcm !== gcNcm;
-  const divOrig = nfOrigParaGc !== "" && nfOrigParaGc !== gcOrig;
+  const legacyOrigDivergente = origemResolvida.divergenciaLegada;
+  const divOrig = origemResolvida.divergenciaManual || legacyOrigDivergente;
   const pendNcm = !gcNcm;
   const temNf = !!nfNcm || nfOrig !== "";
 
-  const enviar = async (novoNcm: string, novaOrigem: string) => {
+  const enviar = async (novoNcm: string, novaOrigem: string, fonteOrigem: "nf" | "manual") => {
     const ncmLimpo = normNcm(novoNcm);
     if (ncmLimpo.length !== 8) {
       toast.error("NCM deve ter 8 dígitos.");
       return;
     }
-    const origemFinal = normOrig(novaOrigem) || gcOrig || nfOrigParaGc;
+    const origemFinal = normOrig(novaOrigem) || origemIdentificada;
     setSaving(true);
     try {
-      await corrigirFiscalNoGc([{ produtoId, ncm: ncmLimpo, origem: origemFinal || undefined }]);
-      toast.success(
-        `NCM de ${nome} confirmado no GestãoClick.` +
-        (origemFinal
-          ? " Origem também confirmada no cadastro fiscal do GC."
-          : " A origem ainda não foi identificada na NF."),
-      );
+      if (fonteOrigem === "manual" && origemFinal) {
+        const { error: manualError } = await supabase
+          .from("fin_produto_tributos")
+          .upsert({
+            gc_produto_id: produtoId,
+            nome_produto: nome,
+            origem_manual: origemFinal,
+            ultima_atualizacao: new Date().toISOString(),
+          }, { onConflict: "gc_produto_id" });
+        if (manualError) throw new Error(`Não foi possível preservar a origem manual: ${manualError.message}`);
+        onSaved?.();
+      }
+
+      const result = await corrigirFiscalNoGc([{
+        produtoId,
+        ncm: ncmLimpo,
+        origem: origemFinal || undefined,
+      }]);
+      const mensagem = `NCM de ${nome} confirmado no GestãoClick.` +
+        (result.origensPendentes > 0
+          ? ` A origem ${origemFinal} não foi confirmada no cadastro fiscal do GC; nenhum sucesso foi presumido.`
+          : result.origensConfirmadas > 0
+            ? ` Origem ${origemFinal} também confirmada no cadastro fiscal do GC.`
+            : " A origem ainda não foi identificada na NF.");
+      if (result.origensPendentes > 0) toast(mensagem, { icon: "⚠️" });
+      else toast.success(mensagem);
       setNcm(ncmLimpo);
       setOrig(origemFinal);
       setEditing(false);
       onSaved?.();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removerOrigemManual = async () => {
+    if (!manualOrig) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("fin_produto_tributos")
+        .update({
+          origem_manual: null,
+          ultima_atualizacao: new Date().toISOString(),
+        })
+        .eq("gc_produto_id", produtoId);
+      if (error) throw error;
+      setOrig(nfOrigParaGc || cachedOrig);
+      setEditing(false);
+      onSaved?.();
+      toast.success(
+        nfOrigParaGc
+          ? `Correção manual removida. O Argus voltou a usar a origem ${nfOrigParaGc} derivada da NF.`
+          : "Correção manual removida. Este produto ainda não tem origem válida na NF.",
+      );
+    } catch (error) {
+      toast.error(`Não foi possível remover a correção manual: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setSaving(false);
     }
@@ -583,14 +827,14 @@ function FiscalCell({
             disabled={saving}
             onClick={() => { setNcm(nfNcm || ncm); setOrig(nfOrigParaGc || orig); }}
           >
-            Preencher com NCM da NF e origem correta{nfNcm ? ` (${nfNcm})` : ""}
+            Preencher com NCM e origem da NF{nfNcm ? ` (${nfNcm})` : ""}
           </Button>
         )}
         <div className="flex items-center gap-1">
-          <Button size="sm" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => enviar(ncm, orig)}>
-            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar no GC"}
+          <Button size="sm" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => enviar(ncm, orig, "manual")}>
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Salvar NCM no GC"}
           </Button>
-          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => { setNcm(gcNcm || nfNcm); setOrig(gcOrig || nfOrigParaGc); setEditing(false); }}>
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" disabled={saving} onClick={() => { setNcm(gcNcm || nfNcm); setOrig(origemIdentificada); setEditing(false); }}>
             Cancelar
           </Button>
         </div>
@@ -615,24 +859,37 @@ function FiscalCell({
         </div>
       </div>
       <div className="flex flex-col gap-0.5">
-        <span className="text-[10px] text-muted-foreground uppercase font-semibold">Origem GC</span>
+        <span className="text-[10px] text-muted-foreground uppercase font-semibold">Origem identificada no Argus</span>
         <div className="flex items-center gap-1.5">
           <span
-            className={`text-[10px] px-1.5 py-0.5 rounded border ${divOrig ? "border-amber-500/50 text-amber-400 bg-amber-500/5" : "border-border bg-secondary"}`}
-            title={divOrig ? `Divergência: GC=${gcOrig || "—"}; origem correta para a WeDo=${nfOrigParaGc}` : `Origem confirmada no GC: ${gcOrig || "não informada"}`}
+            className={`text-[10px] px-1.5 py-0.5 rounded border ${divOrig ? "border-red-500/50 text-red-400 bg-red-500/5" : origemIdentificada ? "border-amber-500/50 text-amber-400 bg-amber-500/5" : "border-border bg-secondary"}`}
+            title={divOrig
+              ? manualOrig
+                ? `A correção manual (${manualOrig}) diverge da origem aplicável (${nfOrigParaGc}) e prevalece até ser removida explicitamente.`
+                : `O histórico legado do Argus (${cachedOrig}) diverge da origem aplicável (${nfOrigParaGc}). A NF prevalece, mas a divergência exige revisão manual.`
+              : origemIdentificada
+                ? manualOrig ? "Correção manual preservada no Argus." : "Origem calculada a partir do XML da última NF."
+              : "Origem ainda não identificada."}
           >
-            {gcOrig ? (ORIGEM_OPTS.find(o => o.v === gcOrig)?.l || gcOrig) : "—"}
+            {origemIdentificada ? (ORIGEM_OPTS.find(o => o.v === origemIdentificada)?.l || origemIdentificada) : "—"}
           </span>
           {!!nfOrig && (
             <span
-              className={`text-[9px] font-mono ${divOrig ? "text-amber-500" : "text-muted-foreground"}`}
+              className={`text-[9px] font-mono ${divOrig ? "text-red-400" : "text-muted-foreground"}`}
               title={nfOrig !== nfOrigParaGc
-                ? `A NF informa a origem sob a perspectiva do fornecedor. Para o cadastro da WeDo, ${nfOrig} vira ${nfOrigParaGc}.`
-                : "Origem informada na última NF de entrada."}
+                ? `A NF do fornecedor informa ${nfOrig}; para a WeDo, adquirida no mercado interno, o cadastro usa ${nfOrigParaGc}.`
+                : "Código de origem informado na última NF de entrada."}
             >
-              NF fornecedor: {nfOrig}
-              {nfOrig !== nfOrigParaGc ? ` → GC sugerido: ${nfOrigParaGc}` : ""}
+              NF fornecedor: {nfOrig}{nfOrig !== nfOrigParaGc ? ` → GC: ${nfOrigParaGc}` : ""}
             </span>
+          )}
+          {legacyOrigDivergente && (
+            <span className="text-[9px] text-red-400 font-mono" title="Valor antigo misturava NF e correção manual; não foi tratado como prova.">
+              Histórico Argus: {cachedOrig} — revisar
+            </span>
+          )}
+          {!!origemIdentificada && (
+            <span className="text-[9px] text-amber-500" title="A API pública do GC não devolve este campo; o Argus não presume confirmação.">Pendente no GC</span>
           )}
         </div>
       </div>
@@ -641,7 +898,7 @@ function FiscalCell({
           size="sm"
           variant="outline"
           className="h-6 px-2 text-[10px] gap-1"
-          onClick={() => { setNcm(gcNcm || nfNcm); setOrig(gcOrig || nfOrigParaGc); setEditing(true); }}
+          onClick={() => { setNcm(gcNcm || nfNcm); setOrig(origemIdentificada); setEditing(true); }}
         >
           <Edit className="h-3 w-3" /> Corrigir manual
         </Button>
@@ -657,10 +914,31 @@ function FiscalCell({
                 toast.error("A NF não trouxe NCM válido — use 'Corrigir manual'.");
                 return;
               }
-              enviar(nfNcm || gcNcm, nfOrigParaGc || gcOrig);
+              // A ação em massa/atalho de NCM não pode apagar uma correção
+              // fiscal manual. Quando houver divergência, preserva a manual.
+              enviar(
+                nfNcm || gcNcm,
+                manualOrig || nfOrigParaGc || cachedOrig,
+                manualOrig || legacyOrigDivergente ? "manual" : "nf",
+              );
             }}
           >
-            Usar NCM da NF + origem sugerida
+            {legacyOrigDivergente
+              ? `Usar origem ${nfOrigParaGc} da NF no Argus (histórico ${cachedOrig})`
+              : manualOrig && nfOrigParaGc && manualOrig !== nfOrigParaGc
+              ? `Usar NCM da NF (mantém origem ${manualOrig})`
+              : "Usar NCM e origem da NF"}
+          </Button>
+        )}
+        {!!manualOrig && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[10px] text-amber-400 hover:text-amber-300"
+            disabled={saving}
+            onClick={removerOrigemManual}
+          >
+            {nfOrigParaGc ? `Voltar a usar origem ${nfOrigParaGc} da NF` : "Remover correção manual"}
           </Button>
         )}
       </div>
@@ -751,10 +1029,11 @@ export default function PrecificacaoPage() {
     }
     const selecionados = produtos?.filter(p => selectedProductIds.has(String(p.id))) || [];
     const jobs: FiscalCorrectionInput[] = [];
-    const falhas = [];
+    const falhasNcm: string[] = [];
 
     let semNcm = 0;
     let semOrigem = 0;
+    let revisaoOrigem = 0;
 
     for (const p of selecionados) {
       const trib = tributosMap.get(String(p.id));
@@ -764,13 +1043,23 @@ export default function PrecificacaoPage() {
 
       if (nfNcm.length !== 8) {
         semNcm++;
-        falhas.push(p.nome);
+        falhasNcm.push(p.nome);
         continue;
       }
 
-      const gcOrig = normOrig(p.origem);
+      const origemManual = normOrig(trib?.origem_manual);
+      const origemLegada = normOrig(p.origem);
+      if (!origemManual && origemLegada && nfOrigParaGc && origemLegada !== nfOrigParaGc) {
+        // O campo legado misturava NF e correção humana. O lote não escolhe um
+        // lado e não apaga a única evidência; exige decisão explícita na linha.
+        revisaoOrigem++;
+        continue;
+      }
 
-      const origemFinal = nfOrigParaGc || gcOrig;
+      // A sincronização em lote jamais pode desfazer uma correção explícita.
+      // Sem override, converte apenas importação direta do fornecedor em
+      // aquisição da WeDo no mercado interno (1 -> 2 e 6 -> 7).
+      const origemFinal = origemManual || nfOrigParaGc;
       if (!origemFinal) semOrigem++;
 
       jobs.push({
@@ -782,7 +1071,10 @@ export default function PrecificacaoPage() {
 
     if (jobs.length === 0) {
       toast.error(
-        semNcm > 0
+        revisaoOrigem > 0
+          ? `Nenhum produto foi alterado: ${revisaoOrigem} exige(m) revisão da origem na própria linha` +
+            (semNcm > 0 ? ` e ${semNcm} não possui(em) NCM válido.` : ".")
+          : semNcm > 0
           ? `Nenhum dos ${semNcm} produto(s) selecionado(s) tem NCM de 8 dígitos na NF.`
           : "Nenhum produto selecionado pôde ser corrigido.",
       );
@@ -793,13 +1085,21 @@ export default function PrecificacaoPage() {
     setSavingBatchFiscal(true);
     try {
       const result = await corrigirFiscalNoGc(jobs);
-      toast.success(
-        `${result.sucessos} cadastro(s) fiscal(is) confirmado(s) no GestãoClick (NCM e origem quando informada).` +
-          (semOrigem > 0 ? ` ${semOrigem} ficou(aram) sem origem porque a NF ainda não a trouxe.` : "") +
-          (falhas.length > 0 ? ` ${falhas.length} ignorado(s) por NCM inválido.` : ""),
-      );
-      if (falhas.length > 0) {
-        console.warn("Produtos ignorados no lote fiscal:", falhas);
+      const mensagem =
+        `${result.sucessos} NCM(s) confirmado(s) no GestãoClick.` +
+        (result.origensConfirmadas > 0
+          ? ` ${result.origensConfirmadas} origem(ns) também confirmada(s) no cadastro fiscal.`
+          : "") +
+        (result.origensPendentes > 0
+          ? ` ${result.origensPendentes} origem(ns) não foi(ram) confirmada(s) no cadastro fiscal do GC; nenhum sucesso foi presumido.`
+          : "") +
+        (semOrigem > 0 ? ` ${semOrigem} ficou(aram) sem origem porque a NF ainda não a trouxe.` : "") +
+        (falhasNcm.length > 0 ? ` ${falhasNcm.length} ignorado(s) por NCM inválido.` : "") +
+        (revisaoOrigem > 0 ? ` ${revisaoOrigem} ignorado(s) porque o histórico de origem diverge da NF e exige revisão na linha.` : "");
+      if (result.origensPendentes > 0) toast(mensagem, { icon: "⚠️" });
+      else toast.success(mensagem);
+      if (falhasNcm.length > 0) {
+        console.warn("Produtos ignorados no lote fiscal por NCM inválido:", falhasNcm);
       }
       setSelectedProductIds(new Set());
       await Promise.all([refetchProdutos(), refetchTributos()]);
@@ -1138,6 +1438,7 @@ export default function PrecificacaoPage() {
       (t) =>
         t.excecao_manual ||
         t.match_rule === "manual" ||
+        normOrig(t.origem_manual) !== "" ||
         (Boolean(t.nf_chave) && indexedNfChaves.has(t.nf_chave as string))
     );
   }, [tributos, indexedNfChaves]);
@@ -1404,36 +1705,41 @@ export default function PrecificacaoPage() {
     return gcCusto > notaCusto ? "gc_acima" : "gc_abaixo";
   };
 
-  const preFiltered = useMemo(() => {
+  // Predicado único de filtros. `ignorar` permite avaliar todos os filtros
+  // exceto um, para que as opções de um select reflitam só o que sobrou dos
+  // filtros anteriores.
+  const passaFiltros = useCallback((p: any, ignorar?: "grupo") => {
     const q = search.toLowerCase();
+    if (EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k))) return false;
+    const nome = (p.nome || "").toLowerCase();
+    if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
+    const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
+    if (!(nome.includes(q) || codigo.includes(q))) return false;
+    if (ignorar !== "grupo" && grupoFilter !== "todos" && (p.nome_grupo || "(sem grupo)") !== grupoFilter) return false;
+    const estoqueNum = Number(p.estoque) || 0;
+    if (estoqueFilter === "com_estoque" && estoqueNum <= 0) return false;
+    if (estoqueFilter === "sem_estoque" && estoqueNum > 0) return false;
+    if (divergenciaFilter !== "todos") {
+      const direcao = getDivergenciaCustoDirecao(p);
+      const divergente = !!direcao;
+      if (divergenciaFilter === "divergentes" && !divergente) return false;
+      if (divergenciaFilter === "gc_acima" && direcao !== "gc_acima") return false;
+      if (divergenciaFilter === "gc_abaixo" && direcao !== "gc_abaixo") return false;
+      if (divergenciaFilter === "ok" && divergente) return false;
+    }
+    if (ncmFilter === "pendente" && !!p.ncm) return false;
+    if (ncmFilter === "pendente_com_nf") {
+      if (p.ncm) return false;
+      const trib = tributosMap.get(p.id);
+      if (normNcm(trib?.ncm).length !== 8) return false;
+    }
+    return true;
+  }, [search, grupoFilter, estoqueFilter, divergenciaFilter, ncmFilter, ultimaCompraMap, tributosMap]);
+
+  const preFiltered = useMemo(() => {
     if (!produtos) return [] as typeof produtos;
-    return produtos.filter((p) => {
-      if (EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k))) return false;
-      const nome = (p.nome || "").toLowerCase();
-      if (EXCLUDED_NAME_KEYWORDS.some(k => nome.includes(k))) return false;
-      const codigo = (p.codigo || p.codigo_interno || "").toLowerCase();
-      if (!(nome.includes(q) || codigo.includes(q))) return false;
-      if (grupoFilter !== "todos" && (p.nome_grupo || "(sem grupo)") !== grupoFilter) return false;
-      const estoqueNum = Number(p.estoque) || 0;
-      if (estoqueFilter === "com_estoque" && estoqueNum <= 0) return false;
-      if (estoqueFilter === "sem_estoque" && estoqueNum > 0) return false;
-      if (divergenciaFilter !== "todos") {
-        const direcao = getDivergenciaCustoDirecao(p);
-        const divergente = !!direcao;
-        if (divergenciaFilter === "divergentes" && !divergente) return false;
-        if (divergenciaFilter === "gc_acima" && direcao !== "gc_acima") return false;
-        if (divergenciaFilter === "gc_abaixo" && direcao !== "gc_abaixo") return false;
-        if (divergenciaFilter === "ok" && divergente) return false;
-      }
-      if (ncmFilter === "pendente" && !!p.ncm) return false;
-      if (ncmFilter === "pendente_com_nf") {
-        if (p.ncm) return false;
-        const trib = tributosMap.get(p.id);
-        if (normNcm(trib?.ncm).length !== 8) return false;
-      }
-      return true;
-    });
-  }, [produtos, search, grupoFilter, estoqueFilter, divergenciaFilter, ncmFilter, ultimaCompraMap, tributosMap]);
+    return produtos.filter((p) => passaFiltros(p));
+  }, [produtos, passaFiltros]);
 
 
   // Reseta página ao mudar filtros para evitar ficar fora do range
@@ -1445,11 +1751,13 @@ export default function PrecificacaoPage() {
     if (!produtos) return [] as string[];
     const set = new Set<string>();
     for (const p of produtos) {
-      if (EXCLUDED_GROUP_KEYWORDS.some(k => (p.nome_grupo || "").toLowerCase().includes(k))) continue;
+      if (!passaFiltros(p, "grupo")) continue;
       set.add(p.nome_grupo || "(sem grupo)");
     }
+    if (grupoFilter !== "todos") set.add(grupoFilter);
     return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
-  }, [produtos]);
+  }, [produtos, passaFiltros, grupoFilter]);
+
 
   const grupoOptions = useMemo(() => [
     { value: "todos", label: "Todos os grupos" },
@@ -3040,7 +3348,7 @@ export default function PrecificacaoPage() {
                     />
                   </TableHead>
                   <TableHead className="text-xs" rowSpan={2}>Produto</TableHead>
-                  <TableHead className="text-xs" rowSpan={2}>NCM / Origem</TableHead>
+                  <TableHead className="text-xs" rowSpan={2}>NCM / Origem / GTIN</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Estoque</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2}>Custo</TableHead>
                   <TableHead className="text-xs text-right" rowSpan={2} title="Custo cadastrado no GestãoClick (gc_produtos_cache.valor_custo)">Custo GC</TableHead>
@@ -3454,13 +3762,25 @@ export default function PrecificacaoPage() {
                       </TableCell>
                       <TableCell>
                         <FiscalCell
-                          key={`fiscal-${p.id}-${p.ncm || ""}-${p.origem || ""}-${tributo?.ncm || ""}-${tributo?.origem || ""}`}
+                          key={`fiscal-${p.id}-${p.ncm || ""}-${p.origem || ""}-${tributoRaw?.ncm || ""}-${tributoRaw?.origem || ""}-${tributoRaw?.origem_manual || ""}`}
                           produtoId={String(p.id)}
                           nome={p.nome}
                           ncmGc={String(p.ncm || "")}
-                          origGc={String(p.origem || "")}
-                          ncmNf={String(tributo?.ncm || "")}
-                          origNf={String(tributo?.origem || "")}
+                          origCache={String(p.origem || "")}
+                          origManual={String(tributoRaw?.origem_manual || "")}
+                          ncmNf={String(tributoRaw?.ncm || "")}
+                          origNf={String(tributoRaw?.origem || "")}
+                          onSaved={() => {
+                            void refetchProdutos();
+                            void refetchTributos();
+                          }}
+                        />
+                        <GtinCell
+                          key={`gtin-${p.id}-${p.codigo_barra || ""}-${tributoRaw?.gtin || ""}`}
+                          produtoId={String(p.id)}
+                          nome={p.nome}
+                          gtinGc={String(p.codigo_barra || "")}
+                          gtinNf={String(tributoRaw?.gtin || "")}
                           onSaved={() => {
                             void refetchProdutos();
                             void refetchTributos();

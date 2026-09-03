@@ -20,6 +20,7 @@ import {
   type ResultadoTributo,
   type RetencaoRateada,
   type DecisaoCredito,
+  indexarPedidos,
 } from "@/lib/apuracaoFiscal";
 
 /**
@@ -66,7 +67,92 @@ interface NfSaidaRow {
   valor_produtos: number | null;
   valor_servico: number | null;
   valor_desconto: number | null;
+  valor_total_nf: number | null;
+  valor_ipi: number | null;
   valor_icms: number | null;
+}
+
+interface CompraRow {
+  numero_nfe: string | null;
+  codigo: string | null;
+  data: string | null;
+  nome_fornecedor: string | null;
+  cnpj_fornecedor: string | null;
+  valor_total: number | null;
+  nome_situacao: string | null;
+}
+
+interface ProdutoTributoRow {
+  gc_produto_id: string;
+  nf_chave: string | null;
+  nome_produto: string | null;
+  sem_credito: boolean | null;
+  excecao_manual: boolean | null;
+  excecao_motivo: string | null;
+  ineligivel_precificacao: boolean | null;
+  ineligivel_motivo: string | null;
+}
+
+interface FornecedorPapelRow {
+  cnpj: string;
+  papel: string;
+  credita: boolean;
+  justificativa: string;
+}
+
+interface ServicoRegraRow {
+  padrao: string;
+  credita: boolean;
+  categoria: string;
+  fundamento: string;
+  prioridade: number;
+  ativo: boolean;
+}
+
+/**
+ * Combustível e lubrificante: NCM do capítulo 2710 ou descrição explícita.
+ * Só vale como insumo se houver pedido de compra amarrado — sem isso não há
+ * evidência de que foi consumido na operação.
+ */
+function ehCombustivel(ncm: string | null, descricao: string | null): boolean {
+  const porNcm = /^2710/.test((ncm ?? "").replace(/\D/g, ""));
+  const porDescricao = /gasolina|diesel|[óo]leo diesel|etanol|arla|lubrificante|combust/i
+    .test(descricao ?? "");
+  return porNcm || porDescricao;
+}
+
+/** CFOP de serviço tributado pelo ISSQN (x933 na saída do prestador). */
+function ehCfopServico(cfop: string | null): boolean {
+  return !!cfop && /^[1256]933$/.test(cfop);
+}
+
+/**
+ * Classifica um serviço tomado contra fis_servico_regra. Menor prioridade é
+ * avaliada primeiro, para que uma vedação (almoço) vença uma palavra que
+ * pareça insumo na mesma descrição.
+ */
+function classificarServico(descricao: string | null, regras: ServicoRegraRow[]) {
+  const texto = descricao ?? "";
+  for (const r of regras) {
+    try {
+      if (new RegExp(r.padrao, "i").test(texto)) {
+        return { insumo: r.credita, categoria: r.categoria, fundamento: r.fundamento };
+      }
+    } catch {
+      // Padrão inválido cadastrado por engano não pode derrubar a apuração.
+    }
+  }
+  return { insumo: null as boolean | null, categoria: null, fundamento: null };
+}
+
+/** Base do item quando a inclusão é decidida à mão: valor líquido de desconto. */
+function baseDoItemManual(item: { valorProduto: number; valorDesconto?: number }): number {
+  return round2((item.valorProduto ?? 0) - (item.valorDesconto ?? 0));
+}
+
+/** Chave de ligação com a precificação: a NF de origem mais o nome do item. */
+function chaveCuradoria(nfChave: string | null, nomeProduto: string | null): string {
+  return `${nfChave ?? ""}|${(nomeProduto ?? "").trim().toLowerCase()}`;
 }
 
 interface NfSaidaRetencaoRow {
@@ -80,7 +166,17 @@ interface NfSaidaRetencaoRow {
 }
 
 interface NfEntradaItemRow {
+  id: string;
   ordem: number;
+  unidade: string | null;
+  quantidade: number | null;
+  valor_ipi: number | null;
+  valor_icms_st: number | null;
+  base_pis: number | null;
+  valor_pis: number | null;
+  base_cofins: number | null;
+  valor_cofins: number | null;
+  base_icms: number | null;
   cfop: string | null;
   cst_pis: string | null;
   cst_cofins: string | null;
@@ -91,12 +187,18 @@ interface NfEntradaItemRow {
   valor_desconto: number | null;
   valor_frete: number | null;
   valor_icms: number | null;
+  perc_reducao_bc: number | null;
 }
 
 interface NfEntradaRow {
+  id: string;
   chave: string;
   numero: string | null;
+  serie: string | null;
+  modelo: string | null;
+  data_emissao: string | null;
   nome_emitente: string | null;
+  cnpj_emitente: string | null;
   crt_emitente: number | null;
   regime_emitente: RegimeEmitente | null;
   fis_nf_entrada_item: NfEntradaItemRow[] | null;
@@ -129,7 +231,51 @@ export interface AnomaliaApuracao {
   descricao: string;
 }
 
+interface DecisaoManualRow {
+  chave_nf: string;
+  ordem_item: number;
+  incluir: boolean;
+  motivo: string | null;
+  decidido_por: string | null;
+}
+
+/**
+ * Chave da decisao manual: (chave da NF, ordem do item).
+ *
+ * Nao usar o id do item de proposito -- reimportar o XML apaga e recria os
+ * itens, e a escolha da pessoa iria junto. A chave da nota mais o numero do
+ * item sobrevivem a qualquer reimportacao.
+ */
+function chaveDecisao(chaveNf: string, ordem: number): string {
+  return chaveNf + "#" + ordem;
+}
+
 export interface LinhaCredito {
+  /** Campos do livro de entradas — o export precisa deles. */
+  cnpjEmitente: string | null;
+  dataEmissao: string | null;
+  modelo: string | null;
+  serie: string | null;
+  ncm: string | null;
+  unidade: string | null;
+  quantidade: number;
+  basePis: number;
+  valorPisDestacado: number;
+  baseCofins: number;
+  valorCofinsDestacado: number;
+  baseIcms: number;
+  valorIcmsDestacado: number;
+  percReducaoBc: number;
+  valorIcmsSt: number;
+  valorIpi: number;
+  /** Id do item — chave para gravar a decisão manual. */
+  itemId: string;
+  /** Id da nota. É NOT NULL na tabela, então o upsert da decisão precisa dele. */
+  nfEntradaId: string;
+  /** Posição do item na nota, como veio no XML. */
+  ordem: number;
+  /** true quando uma pessoa decidiu manualmente, contra ou a favor da regra. */
+  decidoManualmente: boolean;
   chave: string;
   fornecedor: string;
   regime: RegimeEmitente;
@@ -137,9 +283,16 @@ export interface LinhaCredito {
   item: number;
   produto: string | null;
   cfop: string | null;
-  cst: string | null;
+  /** CST de PIS/COFINS — não confundir com o de ICMS. */
+  cstPisCofins: string | null;
+  /** CST de ICMS, ou CSOSN quando o emitente é do Simples. */
+  cstIcms: string | null;
   valorProduto: number;
+  /** Desconto do item. Sem ele visivel, o valor bruto engana. */
+  valorDesconto: number;
+  temPedidoCompra: boolean;
   decisao: DecisaoCredito;
+  decisaoIcms: DecisaoCredito;
 }
 
 export interface LinhaReceita {
@@ -158,6 +311,8 @@ export interface ResultadoApuracao {
   competencia: string;
   receitaBruta: number;
   baseDebito: number;
+  /** ICMS + ICMS-ST retirados da base de débito de PIS/COFINS (RE 574.706). */
+  icmsExcluidoBaseDebito: number;
   baseCredito: number;
   baseCreditoSimples: number;
   pis: ResultadoTributo;
@@ -248,6 +403,7 @@ export async function apurarCompetencia(
   const linhasReceita: LinhaReceita[] = [];
   let baseDebito = 0;
   let debitoIcms = 0;
+  let icmsExcluidoBaseDebito = 0;
 
   for (const nf of saidas ?? []) {
     const decisao = decidirReceitaSaida(
@@ -263,6 +419,10 @@ export async function apurarCompetencia(
         valorProdutos: Number(nf.valor_produtos) || 0,
         valorServico: Number(nf.valor_servico) || 0,
         valorDesconto: Number(nf.valor_desconto) || 0,
+        valorTotalNf: Number(nf.valor_total_nf) || 0,
+        valorIpi: Number(nf.valor_ipi) || 0,
+        valorIcms: Number(nf.valor_icms) || 0,
+        valorIcmsSt: Number((nf as unknown as { valor_icms_st?: number }).valor_icms_st) || 0,
       },
       nf.codigo_cfop ? regras.get(String(nf.codigo_cfop)) ?? null : null,
     );
@@ -279,7 +439,10 @@ export async function apurarCompetencia(
       motivo: decisao.motivo,
     });
 
-    if (decisao.compoe) baseDebito += decisao.valor;
+    if (decisao.compoe) {
+      baseDebito += decisao.valor;
+      icmsExcluidoBaseDebito += decisao.icmsExcluido ?? 0;
+    }
 
     // ICMS de saída: o que foi efetivamente destacado na nota autorizada.
     if (nf.autorizada && !nf.cancelada && !nf.denegada) {
@@ -303,6 +466,68 @@ export async function apurarCompetencia(
     .eq("competencia", competencia);
   if (erroEntradas) throw new Error(`Falha ao ler notas de entrada: ${erroEntradas.message}`);
 
+  // Pedidos de compra da janela. Nota amarrada a pedido é prova de que o item
+  // foi adquirido para uso na operação — critério de insumo objetivo, em vez
+  // de depender do CST que o fornecedor digitou.
+  const { data: compras } = await db
+    .from<CompraRow>("gc_compras")
+    .select(
+      "numero_nfe, codigo, data, nome_fornecedor, cnpj_fornecedor, valor_total, nome_situacao",
+    )
+    .gte("data", competenciaAnterior(competencia))
+    .lte("data", ultimoDiaDoMes(competencia));
+
+  // Casar pedido com nota exige o par (numero, fornecedor). Numeracao de NF e
+  // por emitente e se repete: so pelo numero, 291 notas herdavam o pedido de
+  // outro fornecedor -- e o alerta de compra sem XML ficava calado em 99,7%
+  // dos casos, porque qualquer nota homonima servia de alibi.
+  const pedidos = indexarPedidos(
+    (compras ?? []).map((c) => ({
+      numeroNfe: c.numero_nfe,
+      cnpjFornecedor: c.cnpj_fornecedor,
+      nomeFornecedor: c.nome_fornecedor,
+    })),
+  );
+
+  // Decisões já curadas na precificação. Elas mandam: se um humano marcou
+  // sem_credito ou corrigiu a alíquota, a apuração não pode contradizer.
+  const { data: tributos } = await db
+    .from<ProdutoTributoRow>("fin_produto_tributos")
+    .select(
+      "gc_produto_id, nf_chave, nome_produto, sem_credito, " +
+      "excecao_manual, excecao_motivo, ineligivel_precificacao, ineligivel_motivo",
+    );
+  const curadoria = new Map<string, ProdutoTributoRow>();
+  for (const t of tributos ?? []) {
+    curadoria.set(chaveCuradoria(t.nf_chave, t.nome_produto), t);
+  }
+
+  const { data: regrasServicoRaw } = await db
+    .from<ServicoRegraRow>("fis_servico_regra")
+    .select("padrao, credita, categoria, fundamento, prioridade, ativo")
+    .eq("ativo", true);
+  const regrasServico = (regrasServicoRaw ?? []).sort(
+    (a, b) => (a.prioridade ?? 100) - (b.prioridade ?? 100),
+  );
+
+  // Decisões manuais: a regra continua decidindo sozinha, mas quando alguém
+  // marca ou desmarca um item na tela, a palavra dele é a final.
+  const { data: manuaisRaw } = await db
+    .from<DecisaoManualRow>("fis_item_decisao_manual")
+    .select("chave_nf, ordem_item, incluir, motivo, decidido_por");
+  const decisoesManuais = new Map<string, DecisaoManualRow>();
+  for (const m of manuaisRaw ?? []) {
+    decisoesManuais.set(chaveDecisao(m.chave_nf, m.ordem_item), m);
+  }
+
+  const { data: papeisRaw } = await db
+    .from<FornecedorPapelRow>("fis_fornecedor_papel")
+    .select("cnpj, papel, credita, justificativa");
+  const papeisFornecedor = new Map<string, FornecedorPapelRow>();
+  for (const p of papeisRaw ?? []) {
+    papeisFornecedor.set(String(p.cnpj ?? "").replace(/\D/g, ""), p);
+  }
+
   const linhasCredito: LinhaCredito[] = [];
   let baseCredito = 0;
   let baseCreditoSimples = 0;
@@ -313,10 +538,23 @@ export async function apurarCompetencia(
 
   for (const nf of entradas ?? []) {
     const regime = (nf.regime_emitente ?? "desconhecido") as RegimeEmitente;
-    const cabecalho = { regimeEmitente: regime, crtEmitente: nf.crt_emitente ?? null };
+    const temPedidoCompra = pedidos.temPedido({
+      numero: nf.numero,
+      cnpjEmitente: nf.cnpj_emitente,
+      nomeEmitente: nf.nome_emitente,
+    });
+    // 11 dígitos = CPF. MEI tem CNPJ (14) e não é pessoa física.
+    const doc = String(nf.cnpj_emitente ?? "").replace(/\D/g, "");
+    const cabecalho = {
+      regimeEmitente: regime,
+      crtEmitente: nf.crt_emitente ?? null,
+      temPedidoCompra,
+      emitentePessoaFisica: doc.length === 11,
+    };
 
     for (const item of nf.fis_nf_entrada_item ?? []) {
       itensEntrada++;
+      const regra = item.cfop ? regras.get(String(item.cfop)) ?? null : null;
       const itemEntrada = {
         ordem: item.ordem,
         cfop: item.cfop,
@@ -327,13 +565,111 @@ export async function apurarCompetencia(
         valorDesconto: Number(item.valor_desconto) || 0,
         valorFrete: Number(item.valor_frete) || 0,
         valorIcms: Number(item.valor_icms) || 0,
+        percReducaoBc: Number(item.perc_reducao_bc) || 0,
         ncm: item.ncm,
         nomeProduto: item.nome_produto,
+        ehServico: ehCfopServico(item.cfop),
+        // Combustivel nao precisa de pedido de compra: gasolina de bomba se
+        // paga no cartao e nunca gera pedido no ERP. O proprio CFOP de
+        // aquisicao ja diz que e para consumo, e o art. 3o, II nomeia
+        // "combustiveis e lubrificantes". Exigir pedido matava justamente o
+        // credito que a lei da de graca.
+        ehCombustivelInsumo:
+          ehCombustivel(item.ncm, item.nome_produto) && !!regra?.geraCreditoPisCofins,
+        // Monofásico/ST comprado com pedido e por CFOP de aquisição foi para
+        // uso na atividade, não para revenda — é a destinação que decide.
+        ehMonofasicoInsumo: temPedidoCompra && !!regra?.geraCreditoPisCofins,
+        ...(() => {
+          if (!ehCfopServico(item.cfop)) return {};
+          // O papel declarado do prestador manda sobre a descrição da linha:
+          // quando o fornecedor executa em cliente, "alimentação" e "premiação"
+          // são como o MEI discrimina o próprio preço, não despesa de pessoal
+          // do tomador.
+          const papel = papeisFornecedor.get(String(nf.cnpj_emitente ?? "").replace(/\D/g, ""));
+          if (papel) {
+            // Linha com a palavra "comissão" vinda de prestador de campo:
+            // credita, porque a substância é remuneração variável do técnico
+            // pela entrega — mas fica marcada. A descrição na NFS-e diz
+            // "comissão de venda" com número de venda, e é isso que o auditor
+            // lê. O caminho de defesa é o prestador descrever o que entregou.
+            if (papel.credita && /comiss[ãa]o/i.test(item.nome_produto ?? "")) {
+              return {
+                servicoEhInsumo: true,
+                servicoCategoria: "bonus_entrega",
+                servicoFundamento:
+                  "Prestador de campo. Declarado como bônus por foco em entrega, não " +
+                  "comissão de venda. ATENÇÃO: a descrição na nota diz 'comissão de venda' — " +
+                  "orientar o prestador a descrever o serviço entregue.",
+              };
+            }
+            return {
+              servicoEhInsumo: papel.credita,
+              servicoCategoria: papel.papel,
+              servicoFundamento: papel.justificativa,
+            };
+          }
+          const c = classificarServico(item.nome_produto, regrasServico);
+          return {
+            servicoEhInsumo: c.insumo,
+            servicoCategoria: c.categoria,
+            servicoFundamento: c.fundamento,
+          };
+        })(),
       };
-      const regra = item.cfop ? regras.get(String(item.cfop)) ?? null : null;
 
-      const decisao = decidirCreditoPisCofins(itemEntrada, cabecalho, regra, opcoes);
+      let decisao = decidirCreditoPisCofins(itemEntrada, cabecalho, regra, opcoes);
       const decisaoIcms = decidirCreditoIcms(itemEntrada, cabecalho, regra);
+
+      // A precificação tem precedência: se um humano já vetou o item ou o
+      // marcou como inelegível (brinde, bonificação, doação), a apuração
+      // não pode conceder crédito por cima dessa decisão.
+      const curado = curadoria.get(chaveCuradoria(nf.chave, item.nome_produto));
+      // sem_credito e conceito de CUSTEIO, e a propria migration de origem
+      // avisa: "vedacao integral excepcional; nao usar automaticamente para
+      // fornecedor do Simples Nacional". Na pratica os 223 produtos marcados
+      // sao todos do Simples e so 7 tem motivo escrito -- e o veto automatico
+      // do Simples entrando pela porta dos fundos, que e exatamente o erro
+      // que este sistema existe para corrigir.
+      //
+      // Veto sem motivo registrado nao mata credito. Com motivo, mata.
+      const vetoComMotivo =
+        curado?.sem_credito === true && (curado?.excecao_motivo ?? "").trim() !== "";
+      if (decisao.permitido && vetoComMotivo) {
+        decisao = {
+          ...decisao,
+          permitido: false,
+          base: 0,
+          regra: "VETO_PRECIFICACAO",
+          motivo: `Vedado na precificação: ${curado?.excecao_motivo}`,
+        };
+      } else if (decisao.permitido && curado?.ineligivel_precificacao) {
+        decisao = {
+          ...decisao,
+          permitido: false,
+          base: 0,
+          regra: "INELEGIVEL_PRECIFICACAO",
+          motivo:
+            `Marcado como inelegível na precificação: ${curado.ineligivel_motivo ?? "sem motivo"}`,
+        };
+      }
+
+      // Decisão manual vence a regra — nos dois sentidos. Fica registrado no
+      // motivo de quem decidiu, para o relatório não parecer automático.
+      const manual = decisoesManuais.get(chaveDecisao(nf.chave, item.ordem));
+      if (manual) {
+        decisao = {
+          ...decisao,
+          permitido: manual.incluir,
+          base: manual.incluir ? baseDoItemManual(itemEntrada) : 0,
+          regra: manual.incluir ? "MANUAL_INCLUIDO" : "MANUAL_EXCLUIDO",
+          requerRevisao: false,
+          motivo:
+            `Decisão manual de ${manual.decidido_por ?? "usuário"}: ` +
+            `${manual.incluir ? "incluído" : "excluído"} da base. ` +
+            (manual.motivo ? `${manual.motivo} ` : "") +
+            `(Regra automática dizia: ${decisao.permitido ? "creditar" : "não creditar"} — ${decisao.motivo})`,
+        };
+      }
 
       if (decisao.permitido) {
         baseCredito += decisao.base;
@@ -344,15 +680,44 @@ export async function apurarCompetencia(
 
       if (decisao.requerRevisao) {
         itensParaRevisao++;
+        // Revisar nao e sinonimo de recusar. A maior parte destes ENTROU na
+        // base -- CST 49/99 de fornecedor do Simples, combustivel monofasico --
+        // e so pede confirmacao antes do fechamento. Marcar tudo como critico
+        // fazia a tela dizer que o saldo estava subestimado quando o credito
+        // ja estava dentro dele.
         anomalias.push({
           tipo: decisao.regra,
-          severidade: "critico",
+          severidade: decisao.permitido ? "aviso" : "critico",
           referencia: `${nf.chave} item ${item.ordem}`,
-          descricao: `${item.nome_produto ?? "item"}: ${decisao.motivo}`,
+          descricao:
+            `${item.nome_produto ?? "item"}: ${decisao.motivo} ` +
+            (decisao.permitido
+              ? `Creditado (base R$ ${round2(decisao.base).toFixed(2)}) — confirmar antes de fechar.`
+              : "Fora da base de crédito."),
         });
       }
 
       linhasCredito.push({
+        cnpjEmitente: nf.cnpj_emitente,
+        dataEmissao: nf.data_emissao,
+        modelo: nf.modelo,
+        serie: nf.serie,
+        ncm: item.ncm,
+        unidade: item.unidade,
+        quantidade: Number(item.quantidade) || 0,
+        basePis: Number(item.base_pis) || 0,
+        valorPisDestacado: Number(item.valor_pis) || 0,
+        baseCofins: Number(item.base_cofins) || 0,
+        valorCofinsDestacado: Number(item.valor_cofins) || 0,
+        baseIcms: Number(item.base_icms) || 0,
+        valorIcmsDestacado: Number(item.valor_icms) || 0,
+        percReducaoBc: Number(item.perc_reducao_bc) || 0,
+        valorIcmsSt: Number(item.valor_icms_st) || 0,
+        valorIpi: Number(item.valor_ipi) || 0,
+        itemId: item.id,
+        nfEntradaId: nf.id,
+        ordem: Number(item.ordem) || 0,
+        decidoManualmente: !!manual,
         chave: nf.chave,
         fornecedor: nf.nome_emitente ?? "",
         regime,
@@ -360,11 +725,85 @@ export async function apurarCompetencia(
         item: item.ordem,
         produto: item.nome_produto,
         cfop: item.cfop,
-        cst: item.cst_pis ?? item.cst_cofins,
+        cstPisCofins: item.cst_pis ?? item.cst_cofins,
+        cstIcms: item.cst_icms,
         valorProduto: itemEntrada.valorProduto,
+        valorDesconto: itemEntrada.valorDesconto ?? 0,
+        temPedidoCompra,
         decisao,
+        decisaoIcms,
       });
     }
+  }
+
+  // ── Compra registrada sem XML: crédito que existe e ninguém vê ─────────
+  // Se há pedido de compra com número de NF e o XML nunca chegou, o crédito
+  // simplesmente não entra na apuração — em silêncio. Em julho/2026 isso
+  // escondia R$ 72.509,55 de uma única nota. Aqui vira lista de trabalho.
+  const daCompetencia = (compras ?? []).filter(
+    (c) => c.data && c.data >= inicio && c.data <= fim,
+  );
+  const indice = indexarPedidos(
+    daCompetencia.map((c) => ({
+      numeroNfe: c.numero_nfe,
+      cnpjFornecedor: c.cnpj_fornecedor,
+      nomeFornecedor: c.nome_fornecedor,
+    })),
+  );
+  const faltando = new Set(
+    indice
+      .semNota(
+        (entradas ?? []).map((e) => ({
+          numero: e.numero,
+          cnpjEmitente: e.cnpj_emitente,
+          nomeEmitente: e.nome_emitente,
+        })),
+      )
+      .map((p) => `${p.numeroNfe}|${p.cnpjFornecedor ?? ""}|${p.nomeFornecedor ?? ""}`),
+  );
+  const semXml = daCompetencia.filter((c) =>
+    faltando.has(`${c.numero_nfe}|${c.cnpj_fornecedor ?? ""}|${c.nome_fornecedor ?? ""}`),
+  );
+
+  // Papel declarado manda; sem declaracao, o CNPJ de MEI que o ERP cola no
+  // nome ja denuncia o tecnico autonomo, que so emite nota de servico.
+  const ehPrestador = (c: CompraRow) => {
+    const doc = String(c.cnpj_fornecedor ?? "").replace(/D/g, "");
+    const papel = papeisFornecedor.get(doc);
+    if (papel) return papel.papel === "prestador";
+    return /^d{2}.d{3}.d{3}s/.test(c.nome_fornecedor ?? "");
+  };
+
+  let valorSemXml = 0;
+  for (const c of semXml) {
+    const valor = Number(c.valor_total) || 0;
+    valorSemXml += valor;
+    anomalias.push({
+      tipo: "COMPRA_SEM_XML",
+      // Acima de mil reais o crédito perdido passa de R$ 92 e vira dinheiro.
+      severidade: valor >= 1000 ? "critico" : "aviso",
+      referencia: `NF ${c.numero_nfe} · pedido ${c.codigo ?? "?"}`,
+      descricao:
+        `${c.nome_fornecedor ?? "Fornecedor"} — R$ ${valor.toFixed(2)} (${c.nome_situacao ?? "?"}). ` +
+        `Pedido de compra registrado, documento nunca importado. Crédito potencial de ` +
+        `R$ ${round2((valor * ALIQUOTA_PIS_COFINS) / 100).toFixed(2)} em PIS/COFINS não está ` +
+        `sendo aproveitado. ` +
+        // Prestador emite NFS-e na prefeitura: nao adianta procurar na SEFAZ.
+        (ehPrestador(c)
+          ? "Prestador de serviço: pedir a NFS-e ao emitente (não sai no portal da SEFAZ)."
+          : "Baixar o XML na SEFAZ e importar."),
+    });
+  }
+  if (valorSemXml > 0) {
+    anomalias.push({
+      tipo: "COMPRA_SEM_XML_TOTAL",
+      severidade: "critico",
+      referencia: competencia.slice(0, 7),
+      descricao:
+        `${semXml.length} compra(s) somando R$ ${valorSemXml.toFixed(2)} sem XML importado. ` +
+        `Crédito de PIS/COFINS deixado na mesa: aproximadamente ` +
+        `R$ ${round2((valorSemXml * ALIQUOTA_PIS_COFINS) / 100).toFixed(2)}.`,
+    });
   }
 
   // ── Regra 3: retenções na fonte, regime de caixa ──────────────────────
@@ -409,7 +848,9 @@ export async function apurarCompetencia(
 
   // ── Consolidação ──────────────────────────────────────────────────────
   const anterior = await saldoCredorAnterior(competencia);
-  const receitaBruta = round2(baseDebito);
+  // Receita bruta tributável = base do débito + ICMS excluído (RE 574.706),
+  // para que o resumo feche: bruta − ICMS excluído = base de cálculo.
+  const receitaBruta = round2(baseDebito + icmsExcluidoBaseDebito);
 
   const { pis, cofins, saldoTotalARecolher } = apurarPisCofins({
     receitaBruta,
@@ -448,6 +889,7 @@ export async function apurarCompetencia(
     competencia,
     receitaBruta,
     baseDebito: round2(baseDebito),
+    icmsExcluidoBaseDebito: round2(icmsExcluidoBaseDebito),
     baseCredito: round2(baseCredito),
     baseCreditoSimples: round2(baseCreditoSimples),
     pis,
@@ -504,6 +946,67 @@ export async function salvarApuracao(r: ResultadoApuracao): Promise<void> {
     .from<ApuracaoSaldoRow>("fis_apuracao")
     .upsert(linhas, { onConflict: "competencia,tributo" });
   if (error) throw new Error(`Falha ao gravar apuração: ${error.message}`);
+
+  await gravarDecisoesDosItens(r.linhasCredito);
+}
+
+interface DecisaoItemRow {
+  id: string;
+  nf_entrada_id: string;
+  ordem: number;
+  credito_piscofins_permitido: boolean;
+  credito_piscofins_base: number;
+  credito_icms_permitido: boolean;
+  credito_icms_valor: number;
+  motivo_decisao: string;
+  regra_aplicada: string;
+}
+
+/**
+ * Grava, item a item, o que a apuração decidiu e por quê.
+ *
+ * As colunas existiam desde a importação e nasciam em `false / 0`, e ninguém
+ * escrevia por cima: o banco dizia que nada creditava enquanto a apuração
+ * creditava quase dois milhões de base. Quem abrisse a tabela seis meses
+ * depois — a contabilidade, uma fiscalização, ou nós mesmos — não teria como
+ * reconstruir o número nem descobrir o motivo de cada recusa.
+ *
+ * Falha aqui não derruba a apuração: o saldo já está gravado, e perder o
+ * detalhamento é ruim, mas perder o fechamento é pior.
+ */
+async function gravarDecisoesDosItens(linhas: LinhaCredito[]): Promise<void> {
+  const registros: DecisaoItemRow[] = linhas
+    .filter((l) => l.itemId)
+    .map((l) => ({
+      id: l.itemId,
+      // NOT NULL sem default: o INSERT do "on conflict" e validado antes da
+      // resolucao do conflito, entao os dois precisam ir no payload.
+      nf_entrada_id: l.nfEntradaId,
+      ordem: l.ordem,
+      credito_piscofins_permitido: l.decisao.permitido,
+      credito_piscofins_base: l.decisao.permitido ? round2(l.decisao.base) : 0,
+      credito_icms_permitido: l.decisaoIcms.permitido,
+      credito_icms_valor: l.decisaoIcms.permitido ? round2(l.decisaoIcms.base) : 0,
+      // O motivo e a regra sao o que torna a decisao defensavel depois.
+      motivo_decisao: l.decidoManualmente
+        ? `[decisão manual] ${l.decisao.motivo}`
+        : l.decisao.motivo,
+      regra_aplicada: l.decisao.regra,
+    }));
+  if (!registros.length) return;
+
+  // Em lotes: uma competencia passa de trezentos itens e o upsert unico
+  // estoura o limite de payload do PostgREST.
+  const LOTE = 200;
+  for (let i = 0; i < registros.length; i += LOTE) {
+    const { error } = await db
+      .from<DecisaoItemRow>("fis_nf_entrada_item")
+      .upsert(registros.slice(i, i + LOTE), { onConflict: "id" });
+    if (error) {
+      console.error("Falha ao gravar decisões dos itens:", error.message);
+      return;
+    }
+  }
 }
 
 /**
@@ -584,4 +1087,221 @@ export async function diagnosticarEndpointsGC(
     }
   }
   return resultados;
+}
+
+/**
+ * Grava a decisão manual de incluir ou excluir um item da base de crédito.
+ *
+ * A regra automática continua rodando e continua registrada no motivo — a
+ * decisão manual não a apaga, se sobrepõe a ela. Em fiscalização, crédito
+ * tomado por escolha humana precisa mostrar quem escolheu.
+ */
+export async function decidirItemManualmente(
+  chaveNf: string,
+  ordemItem: number,
+  incluir: boolean,
+  quem: string,
+  motivo?: string,
+): Promise<void> {
+  const { error } = await db.from<DecisaoManualRow>("fis_item_decisao_manual").upsert(
+    {
+      chave_nf: chaveNf,
+      ordem_item: ordemItem,
+      incluir,
+      motivo: motivo ?? null,
+      decidido_por: quem,
+      decidido_em: new Date().toISOString(),
+    },
+    { onConflict: "chave_nf,ordem_item" },
+  );
+  if (error) throw new Error(`Falha ao gravar decisão manual: ${error.message}`);
+}
+
+/** Desfaz a decisão manual e devolve o item ao que a regra automática disser. */
+export async function voltarParaRegraAutomatica(chaveNf: string, ordemItem: number): Promise<void> {
+  const alvo = db.from<DecisaoManualRow>("fis_item_decisao_manual") as unknown as {
+    delete(): { eq(c: string, v: unknown): { eq(c: string, v: unknown): Promise<{ error: { message: string } | null }> } };
+  };
+  const { error } = await alvo.delete().eq("chave_nf", chaveNf).eq("ordem_item", ordemItem);
+  if (error) throw new Error(`Falha ao remover decisão manual: ${error.message}`);
+}
+
+/**
+ * Apuração de UM tributo num mês.
+ *
+ * PIS e COFINS são contribuições distintas: alíquotas diferentes (1,65% e
+ * 7,6%), códigos de receita diferentes no DARF e — o que mais importa aqui —
+ * saldos credores que NÃO se comunicam. Crédito de PIS não abate COFINS.
+ * Somar os dois numa linha só esconde exatamente o que precisa ser conferido.
+ */
+export interface SaldoTributo {
+  debito: number;
+  credito: number;
+  retencoes: number;
+  /** Credito trazido do mes anterior e consumido nesta apuracao. */
+  usouCredorAnterior: number;
+  saldo: number;
+  /** Credito que sobrou e passa para o mes seguinte. Sem isso na tela, um mes
+   *  com credito maior que debito parece que zerou por bug. */
+  credor: number;
+}
+
+function saldoZerado(): SaldoTributo {
+  return { debito: 0, credito: 0, retencoes: 0, usouCredorAnterior: 0, saldo: 0, credor: 0 };
+}
+
+export interface ApuracaoHistorico {
+  competencia: string;
+  status: "rascunho" | "fechada";
+  calculadoEm: string | null;
+  fechadaEm: string | null;
+  fechadaPor: string | null;
+  receitaBruta: number;
+  pis: SaldoTributo;
+  cofins: SaldoTributo;
+  icms: SaldoTributo;
+}
+
+interface ApuracaoLinhaRow {
+  competencia: string;
+  tributo: string;
+  status: string;
+  calculado_em: string | null;
+  fechada_em: string | null;
+  fechada_por: string | null;
+  receita_bruta: number | null;
+  valor_debito: number | null;
+  valor_credito: number | null;
+  valor_retencoes: number | null;
+  saldo_a_recolher: number | null;
+  saldo_credor_proximo: number | null;
+  saldo_credor_anterior: number | null;
+}
+
+/**
+ * Histórico das apurações já calculadas, uma linha por competência.
+ *
+ * A tabela guarda uma linha por tributo; aqui elas viram um mês só, que é
+ * como se olha o fechamento. Existe para que ninguém precise reapurar para
+ * lembrar quanto deu — e para que dê para ver se um mês foi recalculado
+ * depois de fechado.
+ */
+export async function listarApuracoes(): Promise<ApuracaoHistorico[]> {
+  const { data, error } = await db
+    .from<ApuracaoLinhaRow>("fis_apuracao")
+    .select(
+      "competencia, tributo, status, calculado_em, fechada_em, fechada_por, " +
+      "receita_bruta, valor_debito, valor_credito, valor_retencoes, saldo_a_recolher, " +
+      "saldo_credor_proximo, saldo_credor_anterior",
+    );
+  if (error) throw new Error(`Falha ao ler histórico: ${error.message}`);
+
+  const porCompetencia = new Map<string, ApuracaoHistorico>();
+  for (const l of data ?? []) {
+    const atual = porCompetencia.get(l.competencia) ?? {
+      competencia: l.competencia,
+      status: "rascunho" as const,
+      calculadoEm: l.calculado_em,
+      fechadaEm: l.fechada_em,
+      fechadaPor: l.fechada_por,
+      receitaBruta: 0,
+      pis: saldoZerado(), cofins: saldoZerado(), icms: saldoZerado(),
+    };
+
+    // Uma linha por tributo, e cada uma fica na sua. Somar PIS com COFINS
+    // aqui era o que escondia o saldo credor de cada contribuicao.
+    const alvo =
+      l.tributo === "ICMS" ? atual.icms : l.tributo === "PIS" ? atual.pis : atual.cofins;
+    alvo.debito = Number(l.valor_debito) || 0;
+    alvo.credito = Number(l.valor_credito) || 0;
+    alvo.retencoes = Number(l.valor_retencoes) || 0;
+    alvo.usouCredorAnterior = Number(l.saldo_credor_anterior) || 0;
+    alvo.saldo = Number(l.saldo_a_recolher) || 0;
+    alvo.credor = Number(l.saldo_credor_proximo) || 0;
+    if (l.tributo !== "ICMS") {
+      atual.receitaBruta = Number(l.receita_bruta) || atual.receitaBruta;
+    }
+    // Fechada só quando todos os tributos do mês estão fechados.
+    if (l.status === "fechada" && atual.status === "rascunho" && porCompetencia.has(l.competencia)) {
+      atual.status = "fechada";
+    } else if (l.status !== "fechada") {
+      atual.status = "rascunho";
+    }
+    atual.calculadoEm = l.calculado_em ?? atual.calculadoEm;
+    porCompetencia.set(l.competencia, atual);
+  }
+
+  return [...porCompetencia.values()].sort((a, b) => b.competencia.localeCompare(a.competencia));
+}
+
+/** Marca a competência como fechada, congelando o que foi apurado. */
+export async function fecharCompetencia(competencia: string, quem: string): Promise<void> {
+  const alvo = db.from<ApuracaoLinhaRow>("fis_apuracao") as unknown as {
+    update(v: unknown): { eq(c: string, x: string): Promise<{ error: { message: string } | null }> };
+  };
+  const { error } = await alvo
+    .update({ status: "fechada", fechada_em: new Date().toISOString(), fechada_por: quem })
+    .eq("competencia", competencia);
+  if (error) throw new Error(`Falha ao fechar competência: ${error.message}`);
+}
+
+/**
+ * Reapura as competências POSTERIORES a uma que acabou de mudar.
+ *
+ * O saldo credor encadeia: o que sobra num mês abate o seguinte. Cada
+ * apuração lê o saldo do mês anterior no instante em que roda, então
+ * recalcular um mês antigo — ou apurar fora de ordem — deixa a cadeia
+ * desalinhada em silêncio.
+ *
+ * Aconteceu de verdade: maio/2026 foi apurado antes de abril e ignorou
+ * R$ 3.247,02 de crédito que abril havia gerado, inflando o DARF de junho no
+ * mesmo valor. Ninguém veria, porque cada mês isolado fecha certo.
+ *
+ * Devolve as competências que mudaram de saldo.
+ */
+export interface MudancaCadeia {
+  competencia: string;
+  tributo: "PIS" | "COFINS" | "ICMS";
+  saldoAntes: number;
+  saldoDepois: number;
+}
+
+export async function reapurarCadeia(
+  aPartirDe: string,
+  opcoes: OpcoesApuracao = {},
+): Promise<MudancaCadeia[]> {
+  const { data } = await db
+    .from<{ competencia: string; saldo_a_recolher: number | null; tributo: string }>("fis_apuracao")
+    .select("competencia, saldo_a_recolher, tributo")
+    .gte("competencia", aPartirDe);
+
+  // Guarda o saldo de cada tributo separado: e por tributo que a cadeia anda,
+  // e e por tributo que a diferenca precisa aparecer.
+  const antesPorCompetencia = new Map<string, Map<string, number>>();
+  for (const l of data ?? []) {
+    const m = antesPorCompetencia.get(l.competencia) ?? new Map<string, number>();
+    m.set(l.tributo, Number(l.saldo_a_recolher) || 0);
+    antesPorCompetencia.set(l.competencia, m);
+  }
+
+  const posteriores = [...antesPorCompetencia.keys()].filter((c) => c > aPartirDe).sort();
+
+  const mudancas: MudancaCadeia[] = [];
+  for (const competencia of posteriores) {
+    const antes = antesPorCompetencia.get(competencia) ?? new Map<string, number>();
+    const r = await apurarCompetencia(competencia, opcoes);
+    await salvarApuracao(r);
+
+    for (const [tributo, depois] of [
+      ["PIS", r.pis.saldoARecolher],
+      ["COFINS", r.cofins.saldoARecolher],
+      ["ICMS", r.icms.saldoARecolher],
+    ] as const) {
+      const valorAntes = antes.get(tributo) ?? 0;
+      if (Math.abs(depois - valorAntes) >= 0.01) {
+        mudancas.push({ competencia, tributo, saldoAntes: valorAntes, saldoDepois: depois });
+      }
+    }
+  }
+  return mudancas;
 }

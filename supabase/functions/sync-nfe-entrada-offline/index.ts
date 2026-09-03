@@ -66,6 +66,8 @@ interface ProductTaxRecord {
   gc_produto_id: string;
   nome_produto: string;
   ncm: string;
+  gtin: string | null;
+  origem: string;
   cfop: string;
   nf_gc_id: string;
   nf_numero: string | null;
@@ -96,6 +98,18 @@ interface ProductTaxRecord {
 //  XML PARSER — extrai impostos POR ITEM do XML real da NF-e
 // ══════════════════════════════════════════════════════════════
 
+// GTIN do XML (cEAN/cEANTrib). Códigos como "SEM GTIN" ou zeros não são GTIN.
+function gtinValido(raw: unknown): string | null {
+  const d = String(raw ?? "").replace(/\D/g, "");
+  if (![8, 12, 13, 14].includes(d.length)) return null;
+  if (/^0+$/.test(d)) return null;
+  return d;
+}
+
+function gtinDoXmlItem(xi: { cEAN?: string; cEANTrib?: string }): string | null {
+  return gtinValido(xi.cEAN) ?? gtinValido(xi.cEANTrib);
+}
+
 function getTag(xml: string, tag: string): string {
   const patterns = [
     new RegExp(`<(?:[a-zA-Z0-9]+:)?${tag}[^>]*>([^<]*)<\\/(?:[a-zA-Z0-9]+:)?${tag}>`, "i"),
@@ -117,6 +131,21 @@ function getBlock(xml: string, tag: string): string {
 function getAllBlocks(xml: string, tag: string): string[] {
   const re = new RegExp(`<(?:[a-zA-Z0-9]+:)?${tag}[^>]*>[\\s\\S]*?<\\/(?:[a-zA-Z0-9]+:)?${tag}>`, "gi");
   return [...xml.matchAll(re)].map(m => m[0]);
+}
+
+function normalizeOrigemXml(value: unknown): string {
+  const raw = String(value ?? "").trim();
+  if (!raw || raw.toLowerCase() === "null") return "";
+  const match = raw.match(/(?:^|\D)([0-8])(?:\D|$)/);
+  return match?.[1] ?? "";
+}
+
+function origemUnicaDosItens(items: XmlItemTax[]): string {
+  if (items.length === 0) return "";
+  const codigos = items.map((item) => normalizeOrigemXml(item.icms_orig));
+  if (codigos.some((codigo) => !codigo)) return "";
+  const origens = new Set(codigos);
+  return origens.size === 1 ? [...origens][0] : "";
 }
 
 interface XmlItemTax {
@@ -207,6 +236,13 @@ function getXmlFrete(xml: string): number {
   const total = getBlock(infNFe, "total");
   const icmsTot = getBlock(total, "ICMSTot");
   return parseFloat(getTag(icmsTot, "vFrete")) || 0;
+}
+
+function getXmlDescontoTotal(xml: string): number {
+  const infNFe = getBlock(xml, "infNFe") || xml;
+  const total = getBlock(infNFe, "total");
+  const icmsTot = getBlock(total, "ICMSTot");
+  return parseFloat(getTag(icmsTot, "vDesc")) || 0;
 }
 
 function isXmlSimplesNacional(xml: string, xmlItems?: XmlItemTax[]): boolean {
@@ -315,9 +351,10 @@ serve(async (req) => {
     // ── Step 2.5: On first batch, clear stale tributos (preserve manual overrides) ──
     if (offset === 0) {
       console.log("[offline] Limpando dados antigos de tributos...");
-      await supabase
+      const { error: clearError } = await supabase
         .from("fin_produto_tributos")
         .delete()
+        .is("origem_manual", null)
         .is("icms_aliquota_manual", null)
         .is("pis_aliquota_manual", null)
         .is("cofins_aliquota_manual", null)
@@ -325,12 +362,16 @@ serve(async (req) => {
         .eq("sem_credito", false)
         // Preserva exceções manuais marcadas pelo usuário
         .or("excecao_manual.is.null,excecao_manual.eq.false");
+      if (clearError) {
+        throw new Error(`Falha ao limpar tributos antigos sem override manual: ${clearError.message}`);
+      }
     }
 
     // ── Step 3: Build CNPJ → XMLs index ──
-    const { data: xmlIndex } = await supabase
+    const { data: xmlIndex, error: xmlIndexError } = await supabase
       .from("fin_nfe_xml_index")
       .select("chave, cnpj_emitente, nome_emitente, data_emissao, valor_total, valor_produtos, qtd_itens, storage_path");
+    if (xmlIndexError) throw new Error(`Falha ao carregar o índice de XMLs: ${xmlIndexError.message}`);
 
     const cnpjToXmls = new Map<string, typeof xmlIndex>();
     for (const xi of (xmlIndex || [])) {
@@ -419,8 +460,13 @@ serve(async (req) => {
       // ── Parse XML and match products ──
       const xmlItems = parseXmlItems(xmlContent);
       const xmlFrete = getXmlFrete(xmlContent);
+      const descontoItens = xmlItems.reduce((s, i) => s + (i.vDesc || 0), 0);
+      const descontoCabecalhoRatear = Math.max(0, getXmlDescontoTotal(xmlContent) - descontoItens);
+      const totalVProdBruto = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd), 0);
+      const descontoEfetivo = (item: XmlItemTax) =>
+        (item.vDesc || 0) + (totalVProdBruto > 0 ? descontoCabecalhoRatear * Math.max(0, item.vProd) / totalVProdBruto : 0);
       const isSN = isXmlSimplesNacional(xmlContent, xmlItems);
-      const totalVProd = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd - (i.vDesc || 0)), 0);
+      const totalVProd = xmlItems.reduce((s, i) => s + Math.max(0, i.vProd - descontoEfetivo(i)), 0);
       const usedXmlIndices = new Set<number>();
       const r = (v: number) => Math.round(v * 100) / 100;
 
@@ -488,7 +534,7 @@ serve(async (req) => {
           usedXmlIndices.add(bestIdx);
 
           const qtd = xmlItem.qCom || 1;
-          const vProdLiquido = Math.max(0, xmlItem.vProd - (xmlItem.vDesc || 0));
+          const vProdLiquido = Math.max(0, xmlItem.vProd - descontoEfetivo(xmlItem));
           const valorUnit = vProdLiquido / qtd;
           const proporcao = totalVProd > 0 ? vProdLiquido / totalVProd : 0;
           const freteUnit = qtd > 0 ? (xmlFrete * proporcao) / qtd : 0;
@@ -513,6 +559,8 @@ serve(async (req) => {
             gc_produto_id: gcProdId,
             nome_produto: xmlItem.xProd || compraProd.nome_produto || "",
             ncm: xmlItem.NCM || "",
+            gtin: gtinDoXmlItem(xmlItem),
+            origem: normalizeOrigemXml(xmlItem.icms_orig),
             cfop: xmlItem.CFOP || "",
             nf_gc_id: matchedChave,
             nf_numero: nfNumeroFromChave,
@@ -570,6 +618,11 @@ serve(async (req) => {
             gc_produto_id: gcProdId,
             nome_produto: compraProd.nome_produto || "",
             ncm: xmlItems[0]?.NCM || "",
+            // Rateio não casa item a item: GTIN do primeiro item seria chute.
+            gtin: null,
+            // Rateio não tem vínculo item a item. Só grava origem quando todos
+            // os itens da NF concordam; nunca presume pelo primeiro item.
+            origem: origemUnicaDosItens(xmlItems),
             cfop: xmlItems[0]?.CFOP || "",
             nf_gc_id: matchedChave,
             nf_numero: nfNumeroFromChave,
@@ -607,10 +660,11 @@ serve(async (req) => {
     const existingExcecao = new Set<string>();
     for (let i = 0; i < existingIds.length; i += 100) {
       const batch = existingIds.slice(i, i + 100);
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("fin_produto_tributos")
         .select("gc_produto_id, icms_aliquota_manual, pis_aliquota_manual, cofins_aliquota_manual, regime_fornecedor, sem_credito, excecao_manual")
         .in("gc_produto_id", batch);
+      if (error) throw new Error(`Falha ao conferir overrides fiscais existentes: ${error.message}`);
       for (const row of (data || [])) {
         const vedacaoIntegralManual = row.sem_credito && row.regime_fornecedor !== "simples_nacional";
         if (vedacaoIntegralManual || row.icms_aliquota_manual != null || row.pis_aliquota_manual != null || row.cofins_aliquota_manual != null) {
@@ -637,19 +691,19 @@ serve(async (req) => {
       const batch = records.slice(i, i + 50);
       const { error } = await supabase.from("fin_produto_tributos").upsert(batch as any, { onConflict: "gc_produto_id" });
       if (error) {
-        console.error(`[offline] Upsert error batch ${i}:`, error.message);
-      } else {
-        upserted += batch.length;
+        throw new Error(`Falha ao gravar tributos do lote ${Math.floor(i / 50) + 1}: ${error.message}`);
       }
+      upserted += batch.length;
     }
 
     if (!hasMore) {
-      await supabase.from("fin_sync_log").insert({
+      const { error: logError } = await supabase.from("fin_sync_log").insert({
         tipo: "sync_nfe_entrada_offline",
         status: "ok",
         payload: { total_compras: total, compras_processadas: comprasProcessed, xmls_usados: xmlsUsed, total_produtos: records.length },
         resposta: { upserted },
       });
+      if (logError) throw new Error(`Tributos gravados, mas falhou o registro de conclusão: ${logError.message}`);
     }
 
     console.log(`[offline] Batch done: ${comprasProcessed} compras, ${xmlsUsed} XMLs, ${records.length} produtos`);

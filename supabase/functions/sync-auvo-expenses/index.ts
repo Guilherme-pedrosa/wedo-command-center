@@ -70,7 +70,7 @@ async function fetchExpensesByType(
   typeId: number | null,
   startDate: string,
   endDate: string
-): Promise<any[]> {
+): Promise<{ items: any[]; ok: boolean; status: number }> {
   const all: any[] = [];
   let page = 1;
   const pageSize = 100;
@@ -80,13 +80,21 @@ async function fetchExpensesByType(
     if (typeId !== null) filterObj.type = typeId;
     const filter = JSON.stringify(filterObj);
     const url = `${AUVO_BASE}/expenses/?paramFilter=${encodeURIComponent(filter)}&page=${page}&pageSize=${pageSize}`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) {
-      console.error(`Auvo expenses error typeId=${typeId} page=${page}: ${res.status}`);
-      break;
+    let res: Response;
+    try {
+      res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (e) {
+      console.error(`Auvo expenses network error typeId=${typeId} page=${page}: ${(e as Error).message}`);
+      return { items: all, ok: false, status: 0 };
     }
+    if (!res.ok) {
+      // 404 do Auvo = filtro sem despesas no período. Não é falha de integração,
+      // mas também não confirma exclusão: nada é apagado.
+      if (res.status === 404) console.log(`Auvo typeId=${typeId}: sem despesas no período (404)`);
+      else console.error(`Auvo expenses error typeId=${typeId} page=${page}: ${res.status}`);
+      return { items: all, ok: false, status: res.status };
+    }
+
     const json = await res.json();
     const results = json?.result?.entityList ?? json?.result?.entities ?? [];
     if (!Array.isArray(results) || results.length === 0) break;
@@ -95,8 +103,9 @@ async function fetchExpensesByType(
     page++;
     if (page > 50) break; // safety cap (5000 rows)
   }
-  return all;
+  return { items: all, ok: true, status: 200 };
 }
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -150,7 +159,8 @@ Deno.serve(async (req) => {
     let totalSynced = 0;
     let totalDeletedStale = 0;
     let totalIgnoredOutOfPeriod = 0;
-    const byType: Record<string, { count: number; total: number; ignored_out_of_period: number; deleted_stale: number }> = {};
+    const byType: Record<string, any> = {};
+    const fetchFailures: Array<{ type_id: number | null; status: number }> = [];
 
     // Modo "todos": uma única busca sem filtro de tipo (traz TODAS as despesas)
     // Modo padrão: loop pelos TYPE_IDS (mantém comportamento legado do cron)
@@ -160,9 +170,17 @@ Deno.serve(async (req) => {
       : (Array.isArray(body.tipos) && body.tipos.length > 0 ? body.tipos.map((t: any) => Number(t)) : DEFAULT_TYPE_IDS);
 
     for (const typeId of tipos) {
-      const expenses = await fetchExpensesByType(token, typeId, startDate, endDate);
+      const fetched = await fetchExpensesByType(token, typeId, startDate, endDate);
+      // Falha de fetch nunca significa "sem despesas": preserva os dados locais.
+      if (!fetched.ok) {
+        fetchFailures.push({ type_id: typeId, status: fetched.status });
+        byType[String(typeId ?? "all")] = { count: 0, total: 0, ignored_out_of_period: 0, deleted_stale: 0, fetch_failed: fetched.status || "network" };
+        continue;
+      }
+      const expenses = fetched.items;
       const periodExpenses = expenses.filter((e: any) => {
         const expenseDate = extractExpenseDate(e, "");
+
         return expenseDate >= startDate && expenseDate <= endDate;
       });
       const ignoredOutOfPeriod = expenses.length - periodExpenses.length;
@@ -186,6 +204,7 @@ Deno.serve(async (req) => {
 
         typeTotal = rows.reduce((s: number, r: any) => s + (r.amount || 0), 0);
 
+        let upsertOk = true;
         for (let i = 0; i < rows.length; i += 50) {
           const batch = rows.slice(i, i + 50);
           // ignoreDuplicates:false so re-sync updates fields, but onConflict preserves
@@ -193,12 +212,18 @@ Deno.serve(async (req) => {
           const { error } = await supabase
             .from("auvo_expenses_sync")
             .upsert(batch, { onConflict: "auvo_id" });
-          if (error) console.error(`Upsert error typeId=${typeId}:`, error.message);
+          if (error) {
+            upsertOk = false;
+            console.error(`Upsert error typeId=${typeId}:`, error.message);
+          }
         }
 
-        deletedStale = await deleteStaleRows(supabase, typeId, startDate, endDate, rows.map((row: any) => Number(row.auvo_id)).filter(Number.isFinite));
-        totalDeletedStale += deletedStale;
+        if (upsertOk) {
+          deletedStale = await deleteStaleRows(supabase, typeId, startDate, endDate, rows.map((row: any) => Number(row.auvo_id)).filter(Number.isFinite));
+          totalDeletedStale += deletedStale;
+        }
         totalSynced += rows.length;
+
       } else {
         deletedStale = await deleteStaleRows(supabase, typeId, startDate, endDate, []);
         totalDeletedStale += deletedStale;
@@ -208,7 +233,7 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ synced: totalSynced, ignored_out_of_period: totalIgnoredOutOfPeriod, deleted_stale: totalDeletedStale, by_type: byType, period: { mes, ano, startDate, endDate }, mode: todos ? "all" : "by_type" }),
+      JSON.stringify({ synced: totalSynced, ignored_out_of_period: totalIgnoredOutOfPeriod, deleted_stale: totalDeletedStale, fetch_failures: fetchFailures, by_type: byType, period: { mes, ano, startDate, endDate }, mode: todos ? "all" : "by_type" }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {

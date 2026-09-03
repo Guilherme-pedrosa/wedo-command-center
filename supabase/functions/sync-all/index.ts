@@ -71,34 +71,100 @@ async function fetchAllPages(
   endpoint: string,
   gcHeaders: Record<string, string>,
   extraParams?: Record<string, string>
-): Promise<{ records: any[]; pages: number }> {
+): Promise<{ records: any[]; pages: number; complete: boolean }> {
   const allRecords: any[] = [];
   let page = 1;
   let totalPages = 1;
+  let complete = true;
 
   while (page <= totalPages) {
     const params: Record<string, string> = { limite: "100", pagina: String(page), ...extraParams };
     const url = `${GC_BASE_URL}${endpoint}?${new URLSearchParams(params).toString()}`;
-    const response = await rateLimitedFetch(url, { headers: gcHeaders });
 
-    if (response.status === 429) {
-      await new Promise((r) => setTimeout(r, 2000));
-      continue;
-    }
-    if (!response.ok) {
-      console.error(`[sync-all] ${endpoint} error: ${response.status}`);
+    // Até 3 tentativas por página: falha real marca o fetch como INCOMPLETO
+    // para que a reconciliação (cancelar/deletar órfãos) seja pulada.
+    let response: Response | null = null;
+    let pageOk = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        response = await rateLimitedFetch(url, { headers: gcHeaders });
+      } catch (err) {
+        console.error(`[sync-all] ${endpoint} p${page} network error: ${(err as Error).message}`);
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        continue;
+      }
+      if (response.status === 429 || response.status >= 500) {
+        console.error(`[sync-all] ${endpoint} p${page} HTTP ${response.status} (tentativa ${attempt + 1}/3)`);
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        continue;
+      }
+      if (!response.ok) break; // 4xx: não retentar
+      pageOk = true;
       break;
     }
 
-    const data = await response.json();
+    if (!pageOk || !response) {
+      console.error(`[sync-all] ${endpoint} p${page} FALHOU — fetch marcado como incompleto`);
+      complete = false;
+      break;
+    }
+
+    let data: any;
+    try {
+      data = await response.json();
+    } catch {
+      console.error(`[sync-all] ${endpoint} p${page} resposta inválida — fetch incompleto`);
+      complete = false;
+      break;
+    }
     const records = Array.isArray(data?.data) ? data.data : [];
     totalPages = data?.meta?.total_paginas || 1;
     allRecords.push(...records);
     page++;
   }
 
-  return { records: allRecords, pages: totalPages };
+  return { records: allRecords, pages: totalPages, complete };
 }
+
+// ── Sonda individual de órfãos ──
+// Um gc_id ausente da janela paginada NÃO significa exclusão no GestãoClick
+// (vencimento alterado, filtro de data divergente, página com erro silencioso).
+// Só um 404 explícito no GET individual confirma que o registro não existe mais.
+async function orphanRemovidoNoGC(
+  endpoint: string,
+  gcId: string,
+  gcHeaders: Record<string, string>
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await rateLimitedFetch(`${GC_BASE_URL}${endpoint}/${gcId}`, { headers: gcHeaders });
+      if (res.status === 404) return true;
+      if (res.status === 429 || res.status >= 500) {
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        continue;
+      }
+      return false; // 200 (ou 4xx não-404): inconclusivo → preserva
+    } catch {
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+    }
+  }
+  return false;
+}
+
+async function filtrarOrfaosConfirmados<T extends { gc_id: string }>(
+  endpoint: string,
+  orphans: T[],
+  gcHeaders: Record<string, string>
+): Promise<T[]> {
+  const confirmados: T[] = [];
+  for (const o of orphans) {
+    if (await orphanRemovidoNoGC(endpoint, String(o.gc_id), gcHeaders)) confirmados.push(o);
+    else console.log(`[sync-all] ↻ ${endpoint}/${o.gc_id} ainda existe no GC — cancelamento evitado`);
+  }
+  return confirmados;
+}
+
+
 
 // ── Helpers ──
 function extrairOsCodigo(descricao: string | null | undefined): string | null {
@@ -817,27 +883,54 @@ async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): P
     let totalDeletedStale = 0;
     const byType: Record<string, { count: number; total: number; ignored_out_of_period: number; deleted_stale: number }> = {};
 
+    const fetchFailures: Array<{ type_id: number; status: number }> = [];
+
     for (const typeId of AUVO_TYPE_IDS) {
       const all: any[] = [];
       let page = 1;
       const pageSize = 100;
+      let fetchOk = true;
+      let failStatus = 0;
 
       while (true) {
         const filter = JSON.stringify({ startDate, endDate, type: typeId });
         const url = `${AUVO_BASE}/expenses/?paramFilter=${encodeURIComponent(filter)}&page=${page}&pageSize=${pageSize}`;
-        const res = await fetch(url, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) {
-          console.error(`[sync-all/auvo] expenses error typeId=${typeId} page=${page}: ${res.status}`);
+        let res: Response;
+        try {
+          res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        } catch (e) {
+          console.error(`[sync-all/auvo] expenses network error typeId=${typeId} page=${page}: ${(e as Error).message}`);
+          fetchOk = false;
+          failStatus = 0;
           break;
         }
+        if (!res.ok) {
+          // A API do Auvo responde 404 quando o filtro não tem nenhuma despesa
+          // (tipo sem lançamento no período). Não é erro e não autoriza exclusão.
+          if (res.status === 404) {
+            console.log(`[sync-all/auvo] typeId=${typeId}: sem despesas no período (404)`);
+          } else {
+            console.error(`[sync-all/auvo] expenses error typeId=${typeId} page=${page}: ${res.status}`);
+          }
+          fetchOk = false;
+          failStatus = res.status;
+          break;
+        }
+
         const json = await res.json();
         const results = json?.result?.entityList ?? json?.result?.entities ?? [];
         if (!Array.isArray(results) || results.length === 0) break;
         all.push(...results);
         if (results.length < pageSize) break;
         page++;
+      }
+
+      // Falha de fetch NUNCA pode ser interpretada como "não existem despesas".
+      // Sem lista confiável, não apagamos nada — os dados do mês são preservados.
+      if (!fetchOk) {
+        fetchFailures.push({ type_id: typeId, status: failStatus });
+        byType[String(typeId)] = { count: 0, total: 0, ignored_out_of_period: 0, deleted_stale: 0, fetch_failed: failStatus || "network" } as any;
+        continue;
       }
 
       const periodExpenses = all.filter((e: any) => {
@@ -865,16 +958,22 @@ async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): P
 
         typeTotal = rows.reduce((s: number, r: any) => s + (r.amount || 0), 0);
 
+        let upsertOk = true;
         for (let i = 0; i < rows.length; i += 50) {
           const batch = rows.slice(i, i + 50);
           const { error } = await supabase
             .from("auvo_expenses_sync")
             .upsert(batch, { onConflict: "auvo_id" });
-          if (error) console.error(`[sync-all/auvo] Upsert error typeId=${typeId}:`, error.message);
+          if (error) {
+            upsertOk = false;
+            console.error(`[sync-all/auvo] Upsert error typeId=${typeId}:`, error.message);
+          }
         }
 
-        deletedStale = await deleteStaleAuvoRows(supabase, typeId, startDate, endDate, rows.map((row: any) => Number(row.auvo_id)).filter(Number.isFinite));
-        totalDeletedStale += deletedStale;
+        if (upsertOk) {
+          deletedStale = await deleteStaleAuvoRows(supabase, typeId, startDate, endDate, rows.map((row: any) => Number(row.auvo_id)).filter(Number.isFinite));
+          totalDeletedStale += deletedStale;
+        }
         totalSynced += rows.length;
       } else {
         deletedStale = await deleteStaleAuvoRows(supabase, typeId, startDate, endDate, []);
@@ -884,7 +983,22 @@ async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): P
       byType[String(typeId)] = { count: periodExpenses.length, total: typeTotal, ignored_out_of_period: ignoredOutOfPeriod, deleted_stale: deletedStale };
     }
 
-    return { status: "ok", synced: totalSynced, ignored_out_of_period: totalIgnoredOutOfPeriod, deleted_stale: totalDeletedStale, period: { startDate, endDate }, by_type: byType, duration_ms: Date.now() - start };
+
+    if (fetchFailures.length > 0) {
+      console.error(`[sync-all/auvo] tipos com falha (dados preservados): ${JSON.stringify(fetchFailures)}`);
+    }
+
+    return {
+      status: fetchFailures.length > 0 ? "partial" : "ok",
+      synced: totalSynced,
+      ignored_out_of_period: totalIgnoredOutOfPeriod,
+      deleted_stale: totalDeletedStale,
+      fetch_failures: fetchFailures,
+      period: { startDate, endDate },
+      by_type: byType,
+      duration_ms: Date.now() - start,
+    };
+
   } catch (err) {
     return { status: "error", error: (err as Error).message, duration_ms: Date.now() - start };
   }
@@ -1054,13 +1168,11 @@ serve(async (req) => {
     // ── Build PC/CC/FP maps for fin_* upserts ──
     const { pcMap, ccMap, fpMap } = await buildPcCcFpMaps(supabase);
 
-    // Fetch cancelled gc_ids to skip during fin_* upserts
-    const [{ data: cancelledRecs }, { data: cancelledPags }] = await Promise.all([
-      supabase.from("fin_recebimentos").select("gc_id").eq("status", "cancelado").not("gc_id", "is", null),
-      supabase.from("fin_pagamentos").select("gc_id").eq("status", "cancelado").not("gc_id", "is", null),
-    ]);
-    const cancelledRecGcIds = new Set((cancelledRecs ?? []).map((r: any) => r.gc_id));
-    const cancelledPagGcIds = new Set((cancelledPags ?? []).map((p: any) => p.gc_id));
+    // NÃO pulamos mais registros 'cancelado' nos upserts fin_*:
+    // se o GestãoClick retorna o lançamento, ele existe e deve ser revivido
+    // com o status real do GC. O filtro anterior tornava permanente qualquer
+    // cancelamento indevido feito por uma reconciliação com lista parcial.
+
 
     // Fetch fornecedores for recipient_document backfill
     const { data: fornecedores } = await supabase
@@ -1076,7 +1188,7 @@ serve(async (req) => {
     console.log("[sync-all] ── Module 5/6: Recebimentos ──");
     const recStart = Date.now();
     try {
-      const { records: recRecords } = await fetchAllPages("/api/recebimentos", gcHeaders, finDateParams);
+      const { records: recRecords, complete: recComplete } = await fetchAllPages("/api/recebimentos", gcHeaders, finDateParams);
       let gcRecUpserted = 0;
       let finRecUpserted = 0;
       let recErrors = 0;
@@ -1122,7 +1234,6 @@ serve(async (req) => {
         }
 
         const finBatch = rawBatch
-          .filter((item: any) => !cancelledRecGcIds.has(String(item.id)))
           .map((item: any) => ({
             gc_id: String(item.id),
             gc_codigo: item.codigo || null,
@@ -1166,7 +1277,10 @@ serve(async (req) => {
       let recCancelled = 0;
       let gcRecDeleted = 0;
       let recCancelledIds: string[] = [];
-      if (recRecords.length === 0) {
+      if (!recComplete) {
+        console.warn(`[sync-all] ⚠️ Recebimentos: fetch GC INCOMPLETO (erro de API) — pulando reconciliação para não cancelar registros legítimos.`);
+        recErrorMessages.add("fetch GC incompleto — reconciliação pulada");
+      } else if (recRecords.length === 0) {
         console.warn(`[sync-all] ⚠️ Recebimentos: API retornou 0 registros — pulando reconciliação por segurança.`);
       } else try {
         const apiGcIds = new Set(recRecords.map((r: any) => String(r.id)));
@@ -1180,7 +1294,8 @@ serve(async (req) => {
           .lte("data_vencimento", dataFim)
           .neq("status", "cancelado");
 
-        const orphans = (localRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
+        const orphansCandidatos = (localRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
+        const orphans = await filtrarOrfaosConfirmados("/api/recebimentos", orphansCandidatos as any[], gcHeaders);
         if (orphans.length > 0) {
           recCancelledIds = orphans.map((o: any) => o.id);
           const { error: cancelErr } = await supabase
@@ -1212,7 +1327,8 @@ serve(async (req) => {
           .gte("data_vencimento", dataInicio)
           .lte("data_vencimento", dataFim);
 
-        const gcOrphans = (localGcRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
+        const gcOrphansCandidatos = (localGcRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
+        const gcOrphans = await filtrarOrfaosConfirmados("/api/recebimentos", gcOrphansCandidatos as any[], gcHeaders);
         if (gcOrphans.length > 0) {
           const gcOrphanIds = gcOrphans.map((o: any) => o.id);
           const { error: delErr } = await supabase
@@ -1256,7 +1372,7 @@ serve(async (req) => {
     console.log("[sync-all] ── Module 6/6: Pagamentos ──");
     const pagStart = Date.now();
     try {
-      const { records: pagRecords } = await fetchAllPages("/api/pagamentos", gcHeaders, finDateParams);
+      const { records: pagRecords, complete: pagComplete } = await fetchAllPages("/api/pagamentos", gcHeaders, finDateParams);
       let gcPagUpserted = 0;
       let finPagUpserted = 0;
       let pagErrors = 0;
@@ -1300,7 +1416,6 @@ serve(async (req) => {
         }
 
         const finBatch = rawBatch
-          .filter((item: any) => !cancelledPagGcIds.has(String(item.id)))
           .map((item: any) => ({
             gc_id: String(item.id),
             gc_codigo: item.codigo || null,
@@ -1366,7 +1481,10 @@ serve(async (req) => {
 
       // ── Reconciliação: detectar cancelamentos/exclusões ──
       let pagCancelled = 0;
-      if (pagRecords.length === 0) {
+      if (!pagComplete) {
+        console.warn(`[sync-all] ⚠️ Pagamentos: fetch GC INCOMPLETO (erro de API) — pulando reconciliação para não deletar registros legítimos.`);
+        pagErrorMessages.add("fetch GC incompleto — reconciliação pulada");
+      } else if (pagRecords.length === 0) {
         console.warn(`[sync-all] ⚠️ Pagamentos: API retornou 0 registros — pulando reconciliação por segurança.`);
       } else try {
         const apiGcIds = new Set(pagRecords.map((r: any) => String(r.id)));
@@ -1378,7 +1496,8 @@ serve(async (req) => {
           .lte("data_vencimento", dataFim)
           .neq("status", "cancelado");
 
-        const orphans = (localPags ?? []).filter((p: any) => !apiGcIds.has(String(p.gc_id)));
+        const orphansCandidatos = (localPags ?? []).filter((p: any) => !apiGcIds.has(String(p.gc_id)));
+        const orphans = await filtrarOrfaosConfirmados("/api/pagamentos", orphansCandidatos as any[], gcHeaders);
         if (orphans.length > 0) {
           const orphanIds = orphans.map((o: any) => o.id);
           const { error: cancelErr } = await supabase
