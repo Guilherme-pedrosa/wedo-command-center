@@ -883,19 +883,31 @@ async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): P
     let totalDeletedStale = 0;
     const byType: Record<string, { count: number; total: number; ignored_out_of_period: number; deleted_stale: number }> = {};
 
+    const fetchFailures: Array<{ type_id: number; status: number }> = [];
+
     for (const typeId of AUVO_TYPE_IDS) {
       const all: any[] = [];
       let page = 1;
       const pageSize = 100;
+      let fetchOk = true;
+      let failStatus = 0;
 
       while (true) {
         const filter = JSON.stringify({ startDate, endDate, type: typeId });
         const url = `${AUVO_BASE}/expenses/?paramFilter=${encodeURIComponent(filter)}&page=${page}&pageSize=${pageSize}`;
-        const res = await fetch(url, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        let res: Response;
+        try {
+          res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        } catch (e) {
+          console.error(`[sync-all/auvo] expenses network error typeId=${typeId} page=${page}: ${(e as Error).message}`);
+          fetchOk = false;
+          failStatus = 0;
+          break;
+        }
         if (!res.ok) {
           console.error(`[sync-all/auvo] expenses error typeId=${typeId} page=${page}: ${res.status}`);
+          fetchOk = false;
+          failStatus = res.status;
           break;
         }
         const json = await res.json();
@@ -904,6 +916,14 @@ async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): P
         all.push(...results);
         if (results.length < pageSize) break;
         page++;
+      }
+
+      // Falha de fetch NUNCA pode ser interpretada como "não existem despesas".
+      // Sem lista confiável, não apagamos nada — os dados do mês são preservados.
+      if (!fetchOk) {
+        fetchFailures.push({ type_id: typeId, status: failStatus });
+        byType[String(typeId)] = { count: 0, total: 0, ignored_out_of_period: 0, deleted_stale: 0, fetch_failed: failStatus || "network" } as any;
+        continue;
       }
 
       const periodExpenses = all.filter((e: any) => {
@@ -931,16 +951,22 @@ async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): P
 
         typeTotal = rows.reduce((s: number, r: any) => s + (r.amount || 0), 0);
 
+        let upsertOk = true;
         for (let i = 0; i < rows.length; i += 50) {
           const batch = rows.slice(i, i + 50);
           const { error } = await supabase
             .from("auvo_expenses_sync")
             .upsert(batch, { onConflict: "auvo_id" });
-          if (error) console.error(`[sync-all/auvo] Upsert error typeId=${typeId}:`, error.message);
+          if (error) {
+            upsertOk = false;
+            console.error(`[sync-all/auvo] Upsert error typeId=${typeId}:`, error.message);
+          }
         }
 
-        deletedStale = await deleteStaleAuvoRows(supabase, typeId, startDate, endDate, rows.map((row: any) => Number(row.auvo_id)).filter(Number.isFinite));
-        totalDeletedStale += deletedStale;
+        if (upsertOk) {
+          deletedStale = await deleteStaleAuvoRows(supabase, typeId, startDate, endDate, rows.map((row: any) => Number(row.auvo_id)).filter(Number.isFinite));
+          totalDeletedStale += deletedStale;
+        }
         totalSynced += rows.length;
       } else {
         deletedStale = await deleteStaleAuvoRows(supabase, typeId, startDate, endDate, []);
@@ -949,6 +975,7 @@ async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): P
 
       byType[String(typeId)] = { count: periodExpenses.length, total: typeTotal, ignored_out_of_period: ignoredOutOfPeriod, deleted_stale: deletedStale };
     }
+
 
     return { status: "ok", synced: totalSynced, ignored_out_of_period: totalIgnoredOutOfPeriod, deleted_stale: totalDeletedStale, period: { startDate, endDate }, by_type: byType, duration_ms: Date.now() - start };
   } catch (err) {
