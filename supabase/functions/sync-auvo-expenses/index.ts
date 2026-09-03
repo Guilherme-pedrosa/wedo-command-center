@@ -200,6 +200,7 @@ Deno.serve(async (req) => {
 
         typeTotal = rows.reduce((s: number, r: any) => s + (r.amount || 0), 0);
 
+        let upsertOk = true;
         for (let i = 0; i < rows.length; i += 50) {
           const batch = rows.slice(i, i + 50);
           // ignoreDuplicates:false so re-sync updates fields, but onConflict preserves
@@ -207,12 +208,18 @@ Deno.serve(async (req) => {
           const { error } = await supabase
             .from("auvo_expenses_sync")
             .upsert(batch, { onConflict: "auvo_id" });
-          if (error) console.error(`Upsert error typeId=${typeId}:`, error.message);
+          if (error) {
+            upsertOk = false;
+            console.error(`Upsert error typeId=${typeId}:`, error.message);
+          }
         }
 
-        deletedStale = await deleteStaleRows(supabase, typeId, startDate, endDate, rows.map((row: any) => Number(row.auvo_id)).filter(Number.isFinite));
-        totalDeletedStale += deletedStale;
+        if (upsertOk) {
+          deletedStale = await deleteStaleRows(supabase, typeId, startDate, endDate, rows.map((row: any) => Number(row.auvo_id)).filter(Number.isFinite));
+          totalDeletedStale += deletedStale;
+        }
         totalSynced += rows.length;
+
       } else {
         deletedStale = await deleteStaleRows(supabase, typeId, startDate, endDate, []);
         totalDeletedStale += deletedStale;
