@@ -977,7 +977,21 @@ async function syncAuvo(supabase: any, dataInicio?: string, dataFim?: string): P
     }
 
 
-    return { status: "ok", synced: totalSynced, ignored_out_of_period: totalIgnoredOutOfPeriod, deleted_stale: totalDeletedStale, period: { startDate, endDate }, by_type: byType, duration_ms: Date.now() - start };
+    if (fetchFailures.length > 0) {
+      console.error(`[sync-all/auvo] tipos com falha (dados preservados): ${JSON.stringify(fetchFailures)}`);
+    }
+
+    return {
+      status: fetchFailures.length > 0 ? "partial" : "ok",
+      synced: totalSynced,
+      ignored_out_of_period: totalIgnoredOutOfPeriod,
+      deleted_stale: totalDeletedStale,
+      fetch_failures: fetchFailures,
+      period: { startDate, endDate },
+      by_type: byType,
+      duration_ms: Date.now() - start,
+    };
+
   } catch (err) {
     return { status: "error", error: (err as Error).message, duration_ms: Date.now() - start };
   }
