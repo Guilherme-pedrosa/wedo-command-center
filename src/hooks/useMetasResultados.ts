@@ -417,6 +417,9 @@ export const useMetasResultados = (year: number, month: number, includeCommercia
       // Auvo não vem segmentado por centro de custo no cálculo das metas.
       // Se o mesmo plano Auvo estiver mapeado em 2 centros, soma o tipo Auvo apenas 1x.
       const seenAuvoSources = new Set<string>();
+      // Nenhum lançamento pode ser somado 2x na mesma meta (ex.: mesmo plano
+      // mapeado em 2 centros de custo — lançamentos sem centro casariam nos dois).
+      const countedRecords = new Set<string>();
       let realizado = 0;
       const nome = meta.nome.toLowerCase();
 
