@@ -1147,7 +1147,6 @@ serve(async (req) => {
         }
 
         const finBatch = rawBatch
-          .filter((item: any) => !cancelledRecGcIds.has(String(item.id)))
           .map((item: any) => ({
             gc_id: String(item.id),
             gc_codigo: item.codigo || null,
@@ -1328,7 +1327,6 @@ serve(async (req) => {
         }
 
         const finBatch = rawBatch
-          .filter((item: any) => !cancelledPagGcIds.has(String(item.id)))
           .map((item: any) => ({
             gc_id: String(item.id),
             gc_codigo: item.codigo || null,
