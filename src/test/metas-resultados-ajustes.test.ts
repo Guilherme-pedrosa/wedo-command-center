@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeAjustesMeta, computeRateioFator, isLancamentoFolhaComercial, PLANOS_IMPOSTO_IDS, PLANOS_POR_COMPETENCIA_IDS } from '@/hooks/useMetasResultados';
+import { computeAjustesMeta, computeAliquotaEfetiva, computeOutrosCustos, computeRateioFator, isLancamentoFolhaComercial, PLANOS_IMPOSTO_IDS, PLANOS_POR_COMPETENCIA_IDS } from '@/hooks/useMetasResultados';
 
 describe('resultados operação — rateio e pró-rata', () => {
   it('não rateia nada no modo Comercial + Serviços', () => {
@@ -69,5 +69,34 @@ describe('resultados operação — rateio e pró-rata', () => {
       expect(PLANOS_POR_COMPETENCIA_IDS.has(plano)).toBe(false);
     }
     expect(PLANOS_POR_COMPETENCIA_IDS.has('e7299b90-98d2-4d7a-a04c-78ba40cc847a')).toBe(true);
+  });
+});
+
+describe('resultados operação — mesma régua do Raio-X', () => {
+  it('alíquota efetiva = guias (venc. M+1) ÷ receita, só nos meses elegíveis com guia e receita', () => {
+    const r = computeAliquotaEfetiva(
+      { '2026-05': 10000, '2026-06': 0, '2026-07': 12000, '2026-08': 3000 },
+      { '2026-05': 100000, '2026-06': 90000, '2026-07': 100000, '2026-08': 110000 },
+      ['2026-05', '2026-06', '2026-07'], // agosto não é elegível: a guia vence em setembro, mês ainda aberto
+    );
+    expect(r.meses).toEqual(['2026-05', '2026-07']);
+    expect(r.aliquota).toBeCloseTo(22000 / 200000, 6);
+  });
+
+  it('sem histórico a alíquota é nula e a provisão cai na meta %', () => {
+    expect(computeAliquotaEfetiva({}, {}, ['2026-01']).aliquota).toBeNull();
+  });
+
+  it('outros custos: planos sem meta entram; estoque/capex e societário ficam fora; vendedor é do comercial', () => {
+    const nomes = { p1: 'Transportadora', p2: 'Comissão de vendedores', p3: 'Aquisição de máquinas para revenda', p4: 'Transferências de  Sócios', p5: 'Combustivel' };
+    const pag = [
+      { plano_contas_id: 'p1', valor: -800 }, { plano_contas_id: 'p2', valor: 300 },
+      { plano_contas_id: 'p3', valor: 5000 }, { plano_contas_id: 'p4', valor: 1000 }, { plano_contas_id: 'p5', valor: 900 },
+    ];
+    const comMeta = new Set(['p5']);
+    const tudo = computeOutrosCustos(pag, comMeta, nomes, true);
+    expect(tudo.total).toBe(1100);
+    expect(tudo.itens.map(i => i.nome)).toEqual(['Transportadora', 'Comissão de vendedores']);
+    expect(computeOutrosCustos(pag, comMeta, nomes, false).total).toBe(800);
   });
 });

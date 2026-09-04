@@ -115,6 +115,33 @@ const SaidasOsRow = ({ valor, execTotal }: { valor: number; execTotal: number })
   );
 };
 
+// Pagamentos do mês em planos que não estão em nenhuma meta (transportadora, tarifas,
+// químicos…). Entram no total de custos e na margem — o Raio-X anual já os contava.
+const OutrosCustosRow = ({ outros, execTotal }: { outros: { total: number; itens: { nome: string; valor: number }[] }; execTotal: number }) => (
+  <div className="flex flex-col gap-1 p-3 rounded-lg border border-dashed border-border bg-muted/30">
+    <div className="flex items-center justify-between gap-2 flex-wrap">
+      <span className="font-medium text-sm text-foreground">Outros custos (planos sem meta)</span>
+      <Badge variant="outline" className="text-xs">{outros.itens.length} planos</Badge>
+    </div>
+    <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+      <div className="col-span-1 min-w-0">
+        <span className="block text-[10px] uppercase tracking-wide">Maiores</span>
+        <span className="font-medium text-foreground line-clamp-2">
+          {outros.itens.slice(0, 3).map(i => `${i.nome} ${formatBRL(i.valor)}`).join(' · ')}
+        </span>
+      </div>
+      <div>
+        <span className="block text-[10px] uppercase tracking-wide">Total</span>
+        <span className="font-medium text-foreground">{formatBRL(outros.total)}</span>
+      </div>
+      <div>
+        <span className="block text-[10px] uppercase tracking-wide">% Fatur.</span>
+        <span className="font-medium text-foreground">{execTotal > 0 ? formatPct(outros.total / execTotal) : '—'}</span>
+      </div>
+    </div>
+  </div>
+);
+
 // Linha informativa: vendas de balcão (gc_vendas concretizadas) — faturamento, custo
 // real (qtd × valor_custo) e margem bruta.
 const VendasBalcaoRow = ({ faturamento, custo }: { faturamento: number; custo: number }) => {
@@ -155,7 +182,7 @@ export default function MetasOrcamentoPage() {
   const [includeCommercial, setIncludeCommercial] = useState(true);
   const [prorataFixos, setProrataFixos] = useState(true);
 
-  const { metasComResultado, execTotal, rateioFator, folhaComercialExcluida, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth, includeCommercial, prorataFixos);
+  const { metasComResultado, execTotal, rateioFator, folhaComercialExcluida, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, aliquotaEfetiva, outrosCustos, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth, includeCommercial, prorataFixos);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -222,7 +249,7 @@ export default function MetasOrcamentoPage() {
 
   const totalMetaReceita  = receitas.reduce((a, m) => a + m.meta_calculada, 0);
   const totalRealReceita  = receitas.reduce((a, m) => a + m.realizado, 0);
-  const totalCustos       = [...custosVar, ...custosFixos].reduce((a, m) => a + m.realizado, 0);
+  const totalCustos       = [...custosVar, ...custosFixos].reduce((a, m) => a + m.realizado, 0) + outrosCustos.total;
   const margemLiquida     = execTotal > 0 ? (execTotal - totalCustos) / execTotal : 0;
   const totalAlertas      = metasComResultado.filter(m => m.status !== 'verde').length;
 
@@ -364,7 +391,9 @@ export default function MetasOrcamentoPage() {
 
       {metasComResultado.some(m => m.provisionado) && (
         <div className="rounded-md bg-muted/60 border border-border p-3 text-xs text-muted-foreground">
-          Impostos exibidos por provisão (meta % sobre a receita): as guias referentes a este mês vencem no mês
+          Impostos exibidos por provisão{aliquotaEfetiva.aliquota != null
+            ? ` pela alíquota efetiva dos últimos meses fechados (${formatPct(aliquotaEfetiva.aliquota)} da receita, ${aliquotaEfetiva.meses.length} meses)`
+            : ' pela meta % sobre a receita'}: as guias referentes a este mês vencem no mês
           seguinte e ainda não foram todas lançadas. O valor real substitui a provisão quando as guias entram.
         </div>
       )}
@@ -465,7 +494,7 @@ export default function MetasOrcamentoPage() {
             Custos Variáveis
             <span className="text-xs text-muted-foreground font-normal">(% sobre faturamento executado)</span>
             <Badge variant="outline" className="text-xs ml-auto">
-              {formatBRL(custosVar.reduce((a, m) => a + m.realizado, 0))}
+              {formatBRL(custosVar.reduce((a, m) => a + m.realizado, 0) + outrosCustos.total)}
             </Badge>
           </CardTitle>
         </CardHeader>
@@ -490,6 +519,9 @@ export default function MetasOrcamentoPage() {
                 return [row];
               })
           }
+          {!isLoading && outrosCustos.total > 0 && (
+            <OutrosCustosRow outros={outrosCustos} execTotal={execTotal} />
+          )}
         </CardContent>
       </Card>
 

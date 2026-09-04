@@ -52,7 +52,7 @@ export default function RelatorioResultados() {
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [includeCommercial, setIncludeCommercial] = useState(true);
 
-  const { metasComResultado, execTotal, rateioFator, isLoading, custoVendasProdutos } = useMetasResultados(selectedYear, selectedMonth, includeCommercial);
+  const { metasComResultado, execTotal, rateioFator, isLoading, custoVendasProdutos, outrosCustos } = useMetasResultados(selectedYear, selectedMonth, includeCommercial);
 
   const receitas = metasComResultado.filter(m => m.categoria === 'receita');
   const custosVar = metasComResultado.filter(m => m.categoria === 'custo_variavel');
@@ -60,7 +60,7 @@ export default function RelatorioResultados() {
 
   const totalMetaReceita = receitas.reduce((a, m) => a + m.meta_calculada, 0);
   const totalRealReceita = receitas.reduce((a, m) => a + m.realizado, 0);
-  const totalCustos = [...custosVar, ...custosFixos].reduce((a, m) => a + m.realizado, 0);
+  const totalCustos = [...custosVar, ...custosFixos].reduce((a, m) => a + m.realizado, 0) + outrosCustos.total;
   const margemLiquida = execTotal > 0 ? (execTotal - totalCustos) / execTotal : 0;
   const totalAlertas = metasComResultado.filter(m => m.status !== 'verde').length;
   const margemColor = margemLiquida >= 0.30 ? 'text-emerald-600' : margemLiquida >= 0.15 ? 'text-yellow-600' : 'text-destructive';
@@ -157,10 +157,19 @@ export default function RelatorioResultados() {
             <Card>
               <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2">
                 <Percent className="h-4 w-4 text-blue-500" /> Custos Variáveis
-                <Badge variant="outline" className="text-xs ml-auto">{formatBRL(custosVar.reduce((a, m) => a + m.realizado, 0))}</Badge>
+                <Badge variant="outline" className="text-xs ml-auto">{formatBRL(custosVar.reduce((a, m) => a + m.realizado, 0) + outrosCustos.total)}</Badge>
               </CardTitle></CardHeader>
               <CardContent className="flex flex-col gap-2">
                 {custosVar.map(m => <MetaRow key={m.id} m={m} execTotal={execTotal} />)}
+                {outrosCustos.total > 0 && (
+                  <div className="flex items-center justify-between gap-2 p-3 rounded-lg border border-dashed border-border text-sm">
+                    <span>
+                      Outros custos (planos sem meta)
+                      <span className="block text-xs text-muted-foreground">{outrosCustos.itens.slice(0, 3).map(i => i.nome).join(' · ')}</span>
+                    </span>
+                    <span className="font-medium">{formatBRL(outrosCustos.total)}</span>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

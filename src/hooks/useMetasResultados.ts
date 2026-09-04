@@ -3,6 +3,7 @@
 import { useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { classificarPlanoSemMeta } from '@/lib/raioXAnual';
 
 // ─── TIPOS ─────────────────────────────────────────────────────────────────
 export interface Meta {
@@ -70,11 +71,9 @@ export const statusBadge = (status: 'verde' | 'amarelo' | 'vermelho') => {
   return map[status];
 };
 
-// Auvo typeId → plano gc_id mapping
-const AUVO_SOURCE_MAP: Record<string, number[]> = {
-  '27867667': [48782],
-  '27912040': [48784],
-};
+// Combustível e hospedagem vêm do contas a pagar (fin_pagamentos), como todo custo. O Auvo só
+// tinha o que o técnico lançava (jan/26 sem nada) e divergia do que foi pago — o Raio-X anual
+// já lia do contas a pagar; as duas telas agora batem.
 
 // Planos apurados por competência (ver comentário no hook).
 export const PLANOS_POR_COMPETENCIA_IDS = new Set([
@@ -147,6 +146,51 @@ export const computeAjustesMeta = (
   };
 };
 
+// Alíquota efetiva de impostos = guias (vencimento M+1) ÷ receita executada, nos meses fechados
+// em que a guia já existe. É a estimativa enquanto a guia do mês não vem — a meta (16%) é alvo,
+// não estimativa, e inflava o custo do mês corrente em ~60%. Mesma régua do Raio-X anual.
+export const computeAliquotaEfetiva = (
+  guiasPorMesRef: Record<string, number>,
+  receitaPorMes: Record<string, number>,
+  mesesElegiveis: string[],
+): { aliquota: number | null; meses: string[] } => {
+  let guias = 0;
+  let receita = 0;
+  const usados: string[] = [];
+  for (const m of mesesElegiveis) {
+    const g = guiasPorMesRef[m] || 0;
+    const r = receitaPorMes[m] || 0;
+    if (g <= 0 || r <= 0) continue;
+    guias += g;
+    receita += r;
+    usados.push(m);
+  }
+  return { aliquota: receita > 0 ? guias / receita : null, meses: usados };
+};
+
+// Pagamentos em planos que não estão em nenhuma meta de custo entram como "Outros custos"
+// (transportadora, tarifas, químicos…), exceto estoque/capex e societário; comissão de
+// vendedores é do comercial. Sem isso o resultado do mês ignorava esses custos.
+export const computeOutrosCustos = (
+  pagamentos: { plano_contas_id: string; valor: number }[],
+  planosComMeta: Set<string>,
+  nomesPlanos: Record<string, string>,
+  includeCommercial: boolean,
+): { total: number; itens: { nome: string; valor: number }[] } => {
+  const porPlano = new Map<string, number>();
+  for (const p of pagamentos) {
+    const plano = String(p.plano_contas_id || '');
+    if (!plano || planosComMeta.has(plano)) continue;
+    const nome = nomesPlanos[plano] || '(plano sem nome)';
+    const classe = classificarPlanoSemMeta(nome);
+    if (classe === 'fora') continue;
+    if (classe === 'outros_comercial' && !includeCommercial) continue;
+    porPlano.set(nome, (porPlano.get(nome) || 0) + Math.abs(p.valor || 0));
+  }
+  const itens = [...porPlano.entries()].map(([nome, valor]) => ({ nome, valor })).sort((a, b) => b.valor - a.valor);
+  return { total: itens.reduce((a, i) => a + i.valor, 0), itens };
+};
+
 // ─── HOOK ──────────────────────────────────────────────────────────────────
 export const useMetasResultados = (
   year: number,
@@ -184,27 +228,23 @@ export const useMetasResultados = (
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: planoContasMap = {}, isLoading: loadingPlanos } = useQuery({
-    queryKey: ['fin_plano_contas_gc_map'],
+  const { data: planos = { map: {}, nomes: {} }, isLoading: loadingPlanos } = useQuery({
+    queryKey: ['fin_plano_contas_gc_map_nomes'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('fin_plano_contas').select('id, gc_id');
+      const { data, error } = await supabase.from('fin_plano_contas').select('id, gc_id, nome');
       if (error) throw error;
       const map: Record<string, string> = {};
+      const nomes: Record<string, string> = {};
       for (const row of data || []) {
         if (row.gc_id) map[row.gc_id] = row.id;
+        nomes[row.id] = String(row.nome || '');
       }
-      return map;
+      return { map, nomes };
     },
     staleTime: 10 * 60 * 1000,
   });
-
-  const uuidToGcId = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const [gcId, uuid] of Object.entries(planoContasMap)) {
-      map[uuid] = gcId;
-    }
-    return map;
-  }, [planoContasMap]);
+  const planoContasMap = planos.map;
+  const nomesPlanos = planos.nomes;
 
   const { data: centrosCustoMap = {} } = useQuery({
     queryKey: ['fin_centros_custo_map'],
@@ -363,19 +403,6 @@ export const useMetasResultados = (
   });
 
 
-  const { data: auvoExpenses = [], isLoading: loadingAuvo, refetch: refetchAuvo } = useQuery({
-    queryKey: ['auvo_expenses_metas', start, end],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('auvo_expenses_sync' as any)
-        .select('type_id, amount, expense_date')
-        .gte('expense_date', start)
-        .lte('expense_date', end);
-      if (error) throw error;
-      return (data as any[]) as { type_id: number; amount: number; expense_date: string }[];
-    },
-  });
-
   // gc_recebimentos filtrado por competência (para categorias gerais)
   const { data: gcRecebimentos = [], isLoading: loadingGcRec, refetch: refetchGcRec } = useQuery({
     queryKey: ['gc_recebimentos_metas', start, end],
@@ -408,15 +435,11 @@ export const useMetasResultados = (
     },
   });
 
-  // Faturamento Executado = OS Execução+Coifa + PCM Confirmado + (opcional) Venda de Produtos
-  // FECHADO CHAMADO (Ecolab/Chamados) NÃO entra na execução de serviço — é base só de comissão.
+  // Faturamento Executado = OS Execução+Coifa + Chamados (Ecolab) + PCM Confirmado + (opcional) Venda de Produtos.
+  // Chamado fechado/faturado é receita real de serviço e entra na base — igual ao Raio-X anual
+  // (~R$ 15 mil/mês que a margem ignorava). Só a base de % de peças segue sem chamados.
   const { execTotal, execTotalFull, rateioFator } = useMemo(() => {
-    const osTotal = osExecutadas
-      .filter(os =>
-        os.nome_situacao !== 'EXECUTADO - FECHADO CHAMADO' &&
-        os.nome_situacao !== 'CHAMADO FECHADO - FATURADO'
-      )
-      .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
+    const osTotal = osExecutadas.reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
     const recFinanceiro = gcRecPCM.reduce((acc, r) => acc + (r.valor || 0), 0);
     const vendasTotal = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
     const execServicos = osTotal + recFinanceiro;
@@ -508,6 +531,78 @@ export const useMetasResultados = (
       .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0),
   [pagamentos]);
 
+  // ─── Alíquota efetiva: guias com vencimento em [M-5, M] ↔ receita executada de [M-6, M-1] ───
+  const mesRef = (y: number, m: number, delta: number) => {
+    const d = new Date(y, m - 1 + delta, 1);
+    return { y: d.getFullYear(), m: d.getMonth() + 1 };
+  };
+  const histIni = mesRef(year, month, -6);
+  const histFim = mesRef(year, month, -1);
+  const guiasIni = mesRef(year, month, -5);
+  const histStart = getPeriodRange(histIni.y, histIni.m).start;
+  const histEnd = getPeriodRange(histFim.y, histFim.m).end;
+  const guiasStart = getPeriodRange(guiasIni.y, guiasIni.m).start;
+  const guiasEnd = end;
+  const { data: historicoImpostos, isLoading: loadingHist } = useQuery({
+    queryKey: ['impostos_aliquota_efetiva', histStart, histEnd],
+    staleTime: 30 * 60 * 1000,
+    queryFn: async () => {
+      const [guias, os, pcm, vendas] = await Promise.all([
+        supabase.from('fin_pagamentos').select('valor, data_vencimento')
+          .in('plano_contas_id', [...PLANOS_IMPOSTO_IDS]).neq('status', 'cancelado')
+          .gte('data_vencimento', guiasStart).lte('data_vencimento', guiasEnd),
+        supabase.from('os_index').select('valor_total, data_saida')
+          .in('nome_situacao', OS_EXECUTADOS_STATUS).gte('data_saida', histStart).lte('data_saida', histEnd),
+        supabase.from('gc_recebimentos').select('valor, data_vencimento')
+          .in('plano_contas_id', PCM_PLANO_IDS).eq('liquidado', true)
+          .gte('data_vencimento', histStart).lte('data_vencimento', histEnd),
+        supabase.from('gc_vendas').select('valor_total, data')
+          .eq('situacao_id', VENDAS_SITUACAO_CONCRETIZADA).gte('data', histStart).lte('data', histEnd),
+      ]);
+      if (guias.error) throw guias.error;
+      if (os.error) throw os.error;
+      if (pcm.error) throw pcm.error;
+      if (vendas.error) throw vendas.error;
+      const mes = (d: string | null) => String(d || '').slice(0, 7);
+      const mesAnterior = (m: string) => {
+        const [y, mm] = m.split('-').map(Number);
+        return mm === 1 ? `${y - 1}-12` : `${y}-${String(mm - 1).padStart(2, '0')}`;
+      };
+      const guiasPorMesRef: Record<string, number> = {};
+      for (const g of guias.data || []) {
+        const k = mesAnterior(mes(g.data_vencimento));
+        guiasPorMesRef[k] = (guiasPorMesRef[k] || 0) + Math.abs(Number(g.valor) || 0);
+      }
+      const receitaPorMes: Record<string, number> = {};
+      const add = (k: string, v: number) => { receitaPorMes[k] = (receitaPorMes[k] || 0) + v; };
+      for (const o of os.data || []) add(mes(o.data_saida), Number(o.valor_total) || 0);
+      for (const p of pcm.data || []) add(mes(p.data_vencimento), Number(p.valor) || 0);
+      for (const v of vendas.data || []) add(mes(v.data), Number(v.valor_total) || 0);
+      return { guiasPorMesRef, receitaPorMes };
+    },
+  });
+  const hojeKey = hoje.toISOString().slice(0, 10);
+  const aliquotaEfetiva = useMemo(() => {
+    if (!historicoImpostos) return { aliquota: null as number | null, meses: [] as string[] };
+    // Só entra o mês cuja guia já deveria estar toda lançada: o mês de vencimento (M+1) terminou.
+    const agora = new Date(hojeKey + 'T12:00:00');
+    const elegiveis: string[] = [];
+    for (let k = -6; k <= -1; k++) {
+      const r = mesRef(year, month, k);
+      const venc = mesRef(r.y, r.m, 1);
+      const fimVenc = new Date(venc.y, venc.m, 0);
+      if (fimVenc < agora) elegiveis.push(`${r.y}-${String(r.m).padStart(2, '0')}`);
+    }
+    return computeAliquotaEfetiva(historicoImpostos.guiasPorMesRef, historicoImpostos.receitaPorMes, elegiveis);
+  }, [historicoImpostos, year, month, hojeKey]);
+
+  // ─── Outros custos: pagamentos do mês em planos fora de qualquer meta de custo ───
+  const outrosCustos = useMemo(() => {
+    const metasCusto = new Set(metas.filter(m => m.categoria !== 'receita').map(m => m.id));
+    const planosComMeta = new Set(mapeamentos.filter(l => metasCusto.has(l.meta_id)).map(l => String(l.plano_contas_id)));
+    return computeOutrosCustos(pagamentos, planosComMeta, nomesPlanos, includeCommercial);
+  }, [metas, mapeamentos, pagamentos, nomesPlanos, includeCommercial]);
+
   const metasComResultado = useMemo((): MetaComResultado[] => {
     return metas.filter(meta => {
       if (!includeCommercial) {
@@ -529,9 +624,6 @@ export const useMetasResultados = (
         seenLinks.add(key);
         return true;
       });
-      // Auvo não vem segmentado por centro de custo no cálculo das metas.
-      // Se o mesmo plano Auvo estiver mapeado em 2 centros, soma o tipo Auvo apenas 1x.
-      const seenAuvoSources = new Set<string>();
       // Nenhum lançamento pode ser somado 2x na mesma meta (ex.: mesmo plano
       // mapeado em 2 centros de custo — lançamentos sem centro casariam nos dois).
       const countedRecords = new Set<string>();
@@ -594,45 +686,30 @@ export const useMetasResultados = (
         for (const link of links) {
           const planoUuid = link.plano_contas_id;
           const centroUuid = link.centro_custo_id || null;
-          const gcId = uuidToGcId[planoUuid];
-          const auvoTypeIds = gcId ? AUVO_SOURCE_MAP[gcId] : undefined;
-
-          if (auvoTypeIds) {
-            const auvoKey = `${gcId}:${auvoTypeIds.join(',')}`;
-            if (seenAuvoSources.has(auvoKey)) continue;
-            seenAuvoSources.add(auvoKey);
-
-            const auvoSum = auvoExpenses
-              .filter(e => auvoTypeIds.includes(e.type_id))
-              .reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
-            realizado += auvoSum * (link.peso || 1);
-          } else {
-            // Always use fin_pagamentos/fin_recebimentos (contas a pagar/receber)
-            // instead of gc_pagamentos/gc_recebimentos to avoid mixing with compras.
-            // Impostos: guias do mês seguinte (referência = mês selecionado).
-            // Planos marcados como "por competência" usam pagamentosCompetencia.
-            const usaImpostoRef = meta.categoria !== 'receita' && PLANOS_IMPOSTO_IDS.has(planoUuid);
-            const usaCompetencia =
-              !usaImpostoRef && meta.categoria !== 'receita' && PLANOS_POR_COMPETENCIA.has(planoUuid);
-            const source = meta.categoria === 'receita'
-              ? recebimentos
-              : (usaImpostoRef ? pagamentosImpostoRef : (usaCompetencia ? pagamentosCompetencia : pagamentos));
-            const dedupPrefix = usaImpostoRef ? 'ref' : usaCompetencia ? 'comp' : 'venc';
-            const soma = source
-              .filter(r =>
-                r.plano_contas_id === planoUuid &&
-                (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
-              )
-              .filter(r => includeCommercial || meta.categoria !== 'custo_fixo' || !isLancamentoFolhaComercial(planoUuid, r as { descricao?: string | null; nome_fornecedor?: string | null }))
-              .filter(r => {
-                const key = `${dedupPrefix}:${r.id}`;
-                if (countedRecords.has(key)) return false;
-                countedRecords.add(key);
-                return true;
-              })
-              .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
-            realizado += soma * (link.peso || 1);
-          }
+          // Sempre fin_pagamentos/fin_recebimentos (contas a pagar/receber), nunca gc_* (mistura compras).
+          // Impostos: guias do mês seguinte (referência = mês selecionado).
+          // Planos marcados como "por competência" usam pagamentosCompetencia.
+          const usaImpostoRef = meta.categoria !== 'receita' && PLANOS_IMPOSTO_IDS.has(planoUuid);
+          const usaCompetencia =
+            !usaImpostoRef && meta.categoria !== 'receita' && PLANOS_POR_COMPETENCIA.has(planoUuid);
+          const source = meta.categoria === 'receita'
+            ? recebimentos
+            : (usaImpostoRef ? pagamentosImpostoRef : (usaCompetencia ? pagamentosCompetencia : pagamentos));
+          const dedupPrefix = usaImpostoRef ? 'ref' : usaCompetencia ? 'comp' : 'venc';
+          const soma = source
+            .filter(r =>
+              r.plano_contas_id === planoUuid &&
+              (centroUuid === null || !r.centro_custo_id || r.centro_custo_id === centroUuid)
+            )
+            .filter(r => includeCommercial || meta.categoria !== 'custo_fixo' || !isLancamentoFolhaComercial(planoUuid, r as { descricao?: string | null; nome_fornecedor?: string | null }))
+            .filter(r => {
+              const key = `${dedupPrefix}:${r.id}`;
+              if (countedRecords.has(key)) return false;
+              countedRecords.add(key);
+              return true;
+            })
+            .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0);
+          realizado += soma * (link.peso || 1);
         }
       }
 
@@ -677,14 +754,18 @@ export const useMetasResultados = (
           : (meta.meta_percentual || 0) * basePercentual;
 
       // Provisão de impostos: as guias do mês selecionado vencem no mês seguinte e só são
-      // lançadas por volta do dia 20-25. Provisiona pela meta APENAS quando o lançado está
-      // claramente incompleto (< 50% da meta) — um mês fechado com alíquota efetiva abaixo
-      // da meta (ex.: 13,5% real vs 16% orçado) mantém o valor real das guias.
+      // lançadas por volta do dia 20-25. Enquanto o lançado está claramente incompleto
+      // (< 50% da estimativa), mostra a estimativa pela alíquota efetiva dos últimos meses
+      // fechados — igual ao Raio-X; sem histórico, cai na meta %. Um mês fechado com alíquota
+      // real abaixo da estimativa mantém o valor real das guias.
       const isMetaImposto = meta.categoria === 'custo_variavel' && nome.includes('impost');
       let provisionado = false;
-      if (isMetaImposto && meta.tipo_meta === 'percentual' && realizado < meta_calculada * 0.5) {
-        realizado = meta_calculada;
-        provisionado = true;
+      if (isMetaImposto && meta.tipo_meta === 'percentual') {
+        const estimativa = (aliquotaEfetiva.aliquota ?? (meta.meta_percentual || 0)) * basePercentual;
+        if (realizado < estimativa * 0.5) {
+          realizado = estimativa;
+          provisionado = true;
+        }
       }
 
       const delta = realizado - meta_calculada;
@@ -696,7 +777,7 @@ export const useMetasResultados = (
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso, provisionado };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, pagamentosImpostoRef, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, comissoesPremiacao, planoContasMap, uuidToGcId, centrosCustoMap, includeCommercial, rateioFator, fracaoProrata]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, pagamentosImpostoRef, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, execTotal, baseComissoes, comissoesPremiacao, planoContasMap, centrosCustoMap, includeCommercial, rateioFator, fracaoProrata, aliquotaEfetiva]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
   // Erro de leitura (ex.: statement timeout com o banco lento) NÃO é tabela vazia: a tela
@@ -727,10 +808,10 @@ export const useMetasResultados = (
 
 
   const refetch = useCallback(() => {
-    refetchRec(); refetchPag(); refetchPagComp(); refetchImpRef(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchAuvo(); refetchPremiacao();
-  }, [refetchRec, refetchPag, refetchPagComp, refetchImpRef, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchAuvo, refetchPremiacao]);
+    refetchRec(); refetchPag(); refetchPagComp(); refetchImpRef(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchPremiacao();
+  }, [refetchRec, refetchPag, refetchPagComp, refetchImpRef, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchPremiacao]);
 
-  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingImpRef || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
+  const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingImpRef || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingHist;
 
-  return { metasComResultado, execTotal, execTotalFull, rateioFator, folhaComercialExcluida, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
+  return { metasComResultado, execTotal, execTotalFull, rateioFator, folhaComercialExcluida, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, aliquotaEfetiva, outrosCustos, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
 };
