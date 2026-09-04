@@ -191,6 +191,35 @@ export const computeOutrosCustos = (
   return { total: itens.reduce((a, i) => a + i.valor, 0), itens };
 };
 
+// Comissões: a fonte oficial é a tela de Premiação (edge do Auvo GC Sync). Quando ela não
+// responde, o valor não pode virar R$ 0 com status OK — cai no último valor obtido (guardado
+// no navegador) e, sem ele, nas comissões pagas no mês seguinte (contas a pagar), sinalizado.
+export type ComissoesFonte = 'premiacao' | 'cache' | 'pagas_m1';
+export const escolherComissoes = (
+  premiacao: number | null | undefined,
+  cache: { valor: number; em: string } | null,
+  pagasM1: number,
+): { valor: number; fonte: ComissoesFonte; em: string | null } => {
+  if (typeof premiacao === 'number' && Number.isFinite(premiacao)) return { valor: premiacao, fonte: 'premiacao', em: null };
+  if (cache) return { valor: cache.valor, fonte: 'cache', em: cache.em };
+  return { valor: pagasM1, fonte: 'pagas_m1', em: null };
+};
+
+const PLANO_COMISSOES_ID = 'e7299b90-98d2-4d7a-a04c-78ba40cc847a';
+type PremiacaoTotais = { comissao_total: number; comissao_final: number; faturamento_premiacao: number };
+const premiacaoCacheKey = (m: string) => `wedo:premiacao-totais:${m}`;
+const lerPremiacaoCache = (m: string): { valor: number; em: string } | null => {
+  try {
+    const raw = localStorage.getItem(premiacaoCacheKey(m));
+    if (!raw) return null;
+    const p = JSON.parse(raw) as { valor?: number; em?: string };
+    return typeof p.valor === 'number' && p.em ? { valor: p.valor, em: p.em } : null;
+  } catch { return null; }
+};
+const gravarPremiacaoCache = (m: string, valor: number) => {
+  try { localStorage.setItem(premiacaoCacheKey(m), JSON.stringify({ valor, em: new Date().toISOString() })); } catch { /* sem storage */ }
+};
+
 // ─── HOOK ──────────────────────────────────────────────────────────────────
 export const useMetasResultados = (
   year: number,
@@ -500,21 +529,43 @@ export const useMetasResultados = (
   }, [vendasBalcaoRows]);
 
   // Comissões / Premiações: valor oficial vem da tela de Premiação do projeto "Auvo GC Sync"
-  // (comissao_final = bruto − reduções + bônus de meta/telemetria).
+  // (comissao_final = bruto − reduções + bônus de meta/telemetria). Aquela edge monta o mês do
+  // zero quando o cache dela está frio (passa de 90 s; quente, ~15 s): limite de 60 s por
+  // tentativa e tentativas espaçadas — a segunda em geral já pega o cache quente.
+  const monthStr = `${year}-${String(month).padStart(2, '0')}`;
   const { data: premiacaoTotais, isLoading: loadingPremiacao, refetch: refetchPremiacao } = useQuery({
     queryKey: ['premiacao_comissoes_total', year, month],
     queryFn: async () => {
-      const monthStr = `${year}-${String(month).padStart(2, '0')}`;
-      const { data, error } = await supabase.functions.invoke('premiacao-comissoes-total', {
-        body: { month: monthStr },
-      });
+      const resultado = await Promise.race([
+        supabase.functions.invoke('premiacao-comissoes-total', { body: { month: monthStr } }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Premiação demorou mais de 60 s')), 60_000)),
+      ]);
+      const { data, error } = resultado as { data: any; error: any };
       if (error) throw error;
-      if (data?.ok === false) throw new Error(data.error || 'Falha ao buscar premiações');
-      return data as { comissao_total: number; comissao_final: number; faturamento_premiacao: number };
+      if (!data || data.ok === false || typeof data.comissao_final !== 'number') throw new Error(data?.error || 'Falha ao buscar premiações');
+      gravarPremiacaoCache(monthStr, Number(data.comissao_final) || 0);
+      return data as PremiacaoTotais;
     },
     staleTime: 10 * 60 * 1000,
+    retry: 2,
+    retryDelay: 10_000,
+    refetchOnWindowFocus: false,
   });
-  const comissoesPremiacao = Number(premiacaoTotais?.comissao_final) || 0;
+  // Comissões pagas no mês seguinte (plano COMISSÕES E BONIFICAÇÕES) — já vêm na consulta de
+  // referência M+1 dos impostos; ficam ~1 mês defasadas em relação à Premiação.
+  const comissoesPagasM1 = useMemo(() =>
+    pagamentosImpostoRef
+      .filter(r => r.plano_contas_id === PLANO_COMISSOES_ID)
+      .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0),
+  [pagamentosImpostoRef]);
+  const comissoesEscolha = useMemo(() => escolherComissoes(
+    premiacaoTotais ? Number(premiacaoTotais.comissao_final) : null,
+    premiacaoTotais ? null : lerPremiacaoCache(monthStr),
+    comissoesPagasM1,
+  ), [premiacaoTotais, monthStr, comissoesPagasM1]);
+  const comissoesPremiacao = comissoesEscolha.valor;
+  const comissoesFonte = comissoesEscolha.fonte;
+  const comissoesAtualizadoEm = comissoesEscolha.em;
 
   // Custo de Venda de Produtos (concretizadas que entraram no faturamento)
   const custoVendasProdutos = useMemo(() => {
@@ -814,5 +865,5 @@ export const useMetasResultados = (
 
   const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingImpRef || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingHist;
 
-  return { metasComResultado, execTotal, execTotalFull, rateioFator, folhaComercialExcluida, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, aliquotaEfetiva, outrosCustos, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
+  return { metasComResultado, execTotal, execTotalFull, rateioFator, folhaComercialExcluida, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, aliquotaEfetiva, outrosCustos, comissoesFonte, comissoesAtualizadoEm, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
 };

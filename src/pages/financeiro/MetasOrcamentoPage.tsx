@@ -182,7 +182,7 @@ export default function MetasOrcamentoPage() {
   const [includeCommercial, setIncludeCommercial] = useState(true);
   const [prorataFixos, setProrataFixos] = useState(true);
 
-  const { metasComResultado, execTotal, rateioFator, folhaComercialExcluida, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, aliquotaEfetiva, outrosCustos, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth, includeCommercial, prorataFixos);
+  const { metasComResultado, execTotal, rateioFator, folhaComercialExcluida, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, aliquotaEfetiva, outrosCustos, comissoesFonte, comissoesAtualizadoEm, loadingPremiacao, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth, includeCommercial, prorataFixos);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -395,6 +395,18 @@ export default function MetasOrcamentoPage() {
             ? ` pela alíquota efetiva dos últimos meses fechados (${formatPct(aliquotaEfetiva.aliquota)} da receita, ${aliquotaEfetiva.meses.length} meses)`
             : ' pela meta % sobre a receita'}: as guias referentes a este mês vencem no mês
           seguinte e ainda não foram todas lançadas. O valor real substitui a provisão quando as guias entram.
+        </div>
+      )}
+
+      {comissoesFonte !== 'premiacao' && (
+        <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>
+            Comissões: a tela de Premiação (Auvo GC Sync) {loadingPremiacao ? 'ainda não respondeu — tentando de novo.' : 'não respondeu.'}{' '}
+            {comissoesFonte === 'cache'
+              ? `Mostrando o último valor obtido${comissoesAtualizadoEm ? ` em ${new Date(comissoesAtualizadoEm).toLocaleString('pt-BR')}` : ''}.`
+              : 'Mostrando as comissões pagas no mês seguinte (contas a pagar), que ficam cerca de um mês defasadas.'}
+          </span>
         </div>
       )}
 

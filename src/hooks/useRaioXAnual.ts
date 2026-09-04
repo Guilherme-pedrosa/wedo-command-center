@@ -182,7 +182,8 @@ async function carregarComissoes(ano: number): Promise<{ porMes: Record<string, 
     try {
       const resultado = await Promise.race([
         supabase.functions.invoke('premiacao-comissoes-total', { body: { month: m } }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 25_000)),
+        // Quente a edge responde em ~15 s; fria passa de 90 s e cai no fallback sinalizado.
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 45_000)),
       ]);
       const { data, error } = resultado as { data: any; error: any };
       if (error || !data || data.ok === false || typeof data.comissao_final !== 'number') throw new Error('sem dado');

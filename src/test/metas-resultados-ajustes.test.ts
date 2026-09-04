@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeAjustesMeta, computeAliquotaEfetiva, computeOutrosCustos, computeRateioFator, isLancamentoFolhaComercial, PLANOS_IMPOSTO_IDS, PLANOS_POR_COMPETENCIA_IDS } from '@/hooks/useMetasResultados';
+import { computeAjustesMeta, computeAliquotaEfetiva, computeOutrosCustos, computeRateioFator, escolherComissoes, isLancamentoFolhaComercial, PLANOS_IMPOSTO_IDS, PLANOS_POR_COMPETENCIA_IDS } from '@/hooks/useMetasResultados';
 
 describe('resultados operação — rateio e pró-rata', () => {
   it('não rateia nada no modo Comercial + Serviços', () => {
@@ -85,6 +85,13 @@ describe('resultados operação — mesma régua do Raio-X', () => {
 
   it('sem histórico a alíquota é nula e a provisão cai na meta %', () => {
     expect(computeAliquotaEfetiva({}, {}, ['2026-01']).aliquota).toBeNull();
+  });
+
+  it('comissões nunca viram R$ 0 silencioso: Premiação > último valor obtido > pagas em M+1, sempre com a fonte', () => {
+    expect(escolherComissoes(16705.97, { valor: 15000, em: '2026-09-03T10:00:00Z' }, 14000)).toEqual({ valor: 16705.97, fonte: 'premiacao', em: null });
+    expect(escolherComissoes(null, { valor: 15000, em: '2026-09-03T10:00:00Z' }, 14000)).toEqual({ valor: 15000, fonte: 'cache', em: '2026-09-03T10:00:00Z' });
+    expect(escolherComissoes(undefined, null, 14000)).toEqual({ valor: 14000, fonte: 'pagas_m1', em: null });
+    expect(escolherComissoes(NaN, null, 14000).fonte).toBe('pagas_m1');
   });
 
   it('outros custos: planos sem meta entram; estoque/capex e societário ficam fora; vendedor é do comercial', () => {
