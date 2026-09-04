@@ -19,6 +19,9 @@ import {
 
 const PAGE = 1000;
 const PLANO_COMISSOES = 'e7299b90-98d2-4d7a-a04c-78ba40cc847a';
+// Movimentos que não são caixa da operação (entram no GC como título, mas são só dinheiro
+// trocando de conta ou de sócio).
+const PLANO_NAO_OPERACIONAL = /TRANSFER[ÊE]NCIA|APORTE|N[ÃA]O UTILIZAR/i;
 
 type PageResult<T> = { data: T[] | null; error: { message?: string } | null };
 type LinhaComId = { id: string };
@@ -127,9 +130,9 @@ async function carregarDados(ano: number): Promise<Dados> {
     }),
     // Títulos desde o ano anterior (vínculo com OS por nº, abertos) e qualquer título liquidado
     // dentro do ano, mesmo que vencido antes — caixa é pela data da liquidação.
-    todas<RecebimentoTituloRow & LinhaComId>('gc_recebimentos', (depois) => {
+    todas<RecebimentoTituloRow & LinhaComId & { nome_plano_conta: string | null }>('gc_recebimentos', (depois) => {
       const q = supabase.from('gc_recebimentos')
-        .select('id, os_codigo, descricao, valor, liquidado, data_liquidacao, data_vencimento')
+        .select('id, os_codigo, descricao, valor, liquidado, data_liquidacao, data_vencimento, nome_plano_conta')
         .or(`data_vencimento.gte.${ano - 1}-01-01,data_liquidacao.gte.${inicio}`);
       return (depois ? q.gt('id', depois) : q).order('id').limit(PAGE);
     }),
@@ -137,7 +140,7 @@ async function carregarDados(ano: number): Promise<Dados> {
     // vencido e não pago virava saída de caixa — o caixa jan–ago/26 saía R$ 370 mil pior.
     todas<any>('fin_pagamentos (liquidados)', (depois) => {
       const q = supabase.from('fin_pagamentos')
-        .select('id, valor, data_liquidacao')
+        .select('id, valor, data_liquidacao, plano_contas_id')
         .eq('status', 'pago')
         .gte('data_liquidacao', inicio).lte('data_liquidacao', fimFechado);
       return (depois ? q.gt('id', depois) : q).order('id').limit(PAGE);
@@ -163,12 +166,13 @@ async function carregarDados(ano: number): Promise<Dados> {
   const monthStr = (d: string | null) => (d ? String(d).slice(0, 7) : '');
   const recebidosPorMes: Record<string, number> = {};
   for (const r of titulos) {
-    if (!r.liquidado) continue;
+    if (!r.liquidado || PLANO_NAO_OPERACIONAL.test(String(r.nome_plano_conta || ''))) continue;
     const m = monthStr(r.data_liquidacao || r.data_vencimento);
     if (meses.includes(m)) recebidosPorMes[m] = (recebidosPorMes[m] || 0) + (r.valor || 0);
   }
   const pagosPorMes: Record<string, number> = {};
   for (const p of pagosLiquidados) {
+    if (PLANO_NAO_OPERACIONAL.test(metasPlanos.nomesPlanos.get(String(p.plano_contas_id)) || '')) continue;
     const m = monthStr(p.data_liquidacao);
     if (meses.includes(m)) pagosPorMes[m] = (pagosPorMes[m] || 0) + Math.abs(p.valor || 0);
   }
