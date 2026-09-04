@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeAjustesMeta, computeAliquotaEfetiva, computeOutrosCustos, computeRateioFator, escolherComissoes, isLancamentoFolhaComercial, PLANOS_IMPOSTO_IDS, PLANOS_POR_COMPETENCIA_IDS } from '@/hooks/useMetasResultados';
+import { calcStatus, computeAjustesMeta, computeAliquotaEfetiva, computeOutrosCustos, computeRateioFator, escolherComissoes, isLancamentoFolhaComercial, isMetaPecasOperacao, PLANOS_IMPOSTO_IDS, PLANOS_POR_COMPETENCIA_IDS } from '@/hooks/useMetasResultados';
 
 describe('resultados operação — rateio e pró-rata', () => {
   it('não rateia nada no modo Comercial + Serviços', () => {
@@ -85,6 +85,21 @@ describe('resultados operação — mesma régua do Raio-X', () => {
 
   it('sem histórico a alíquota é nula e a provisão cai na meta %', () => {
     expect(computeAliquotaEfetiva({}, {}, ['2026-01']).aliquota).toBeNull();
+  });
+
+  it('só a meta de peças da operação é tratada como peças — "custos extras com as operações" não é', () => {
+    expect(isMetaPecasOperacao('Custo com Peças para Operações')).toBe(true);
+    expect(isMetaPecasOperacao('Peças / Estoque')).toBe(true);
+    expect(isMetaPecasOperacao('CUSTOS EXTRAS COM AS OPERAÇÕES')).toBe(false);
+    expect(isMetaPecasOperacao('Custo com Venda de Produtos')).toBe(false);
+    expect(isMetaPecasOperacao('Combustível')).toBe(false);
+  });
+
+  it('custo com meta zero e gasto > 0 é ALERTA, não OK', () => {
+    expect(calcStatus('custo_variavel', 8850, 0)).toBe('vermelho');
+    expect(calcStatus('custo_variavel', 0, 0)).toBe('verde');
+    expect(calcStatus('custo_fixo', 900, 1000)).toBe('verde');
+    expect(calcStatus('receita', 0, 0)).toBe('vermelho');
   });
 
   it('comissões nunca viram R$ 0 silencioso: Premiação > último valor obtido > pagas em M+1, sempre com a fonte', () => {

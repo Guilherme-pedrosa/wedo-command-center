@@ -56,6 +56,8 @@ export const calcStatus = (
     if (ratio >= 0.8) return 'amarelo';
     return 'vermelho';
   } else {
+    // Custo com meta zero: qualquer gasto já é estouro — não pode aparecer "OK".
+    if (meta_calculada <= 0) return realizado > 0 ? 'vermelho' : 'verde';
     if (ratio <= 1) return 'verde';
     if (ratio <= 1.15) return 'amarelo';
     return 'vermelho';
@@ -69,6 +71,16 @@ export const statusBadge = (status: 'verde' | 'amarelo' | 'vermelho') => {
     vermelho: { label: 'ALERTA',   class: 'bg-red-100 text-red-800 border-red-200' },
   };
   return map[status];
+};
+
+// A meta de peças da operação é reconhecida pelo nome ("Custo com Peças para Operações",
+// "…estoque"). Só ela lê o custo real das saídas de estoque e ganha as linhas informativas
+// de compras e uso interno na tela. "CUSTOS EXTRAS COM AS OPERAÇÕES" NÃO é essa meta —
+// "operaç" sozinho já duplicou as linhas informativas uma vez.
+export const isMetaPecasOperacao = (nome: string) => {
+  const n = String(nome || '').toLowerCase();
+  if (n.includes('venda') && n.includes('produto')) return false;
+  return n.includes('peça') || n.includes('peca') || n.includes('estoque');
 };
 
 // Combustível e hospedagem vêm do contas a pagar (fin_pagamentos), como todo custo. O Auvo só
@@ -718,7 +730,7 @@ export const useMetasResultados = (
         // Custo real (valor_custo GC) das vendas de produtos concretizadas no período
         realizado = custoVendasProdutos;
       }
-      else if (meta.categoria === 'custo_variavel' && (nome.includes('peça') || nome.includes('estoque'))) {
+      else if (meta.categoria === 'custo_variavel' && isMetaPecasOperacao(nome)) {
         // Custo da operação = custo REAL das peças que saíram do estoque para OS no período
         // + custo das saídas internas (Uso Interno / Maleta) que também consomem estoque.
         // Excluímos peças de 'Ecolab / Chamados' do custo de operação/serviços.
@@ -773,9 +785,7 @@ export const useMetasResultados = (
       const isCustoVendaProdutos =
         meta.categoria === 'custo_variavel' && nome.includes('venda') && nome.includes('produto');
       const isCustoPecasOperacao =
-        !isCustoVendaProdutos &&
-        meta.categoria === 'custo_variavel' &&
-        (nome.includes('peça') || nome.includes('peca') || nome.includes('operaç') || nome.includes('operac') || nome.includes('estoque'));
+        !isCustoVendaProdutos && meta.categoria === 'custo_variavel' && isMetaPecasOperacao(nome);
 
       const baseExecCoifa = osExecutadas
         .filter(os =>

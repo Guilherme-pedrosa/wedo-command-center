@@ -15,7 +15,7 @@ import MetasConfigDialog from '@/components/financeiro/MetasConfigDialog';
 import AnaliseIAMetas from '@/components/financeiro/AnaliseIAMetas';
 import {
   useMetasResultados, formatBRL, formatPct, statusBadge,
-  getPeriodRange, MetaComResultado
+  getPeriodRange, isMetaPecasOperacao, MetaComResultado
 } from '@/hooks/useMetasResultados';
 
 // ─── COMPONENTE ROW ──────────────────────────────────────────────────────────
@@ -516,8 +516,7 @@ export default function MetasOrcamentoPage() {
             : custosVar.length === 0
             ? <p className="text-sm text-muted-foreground">Nenhuma meta de custo variável cadastrada.</p>
             : custosVar.flatMap(m => {
-                const n = (m.nome || '').toLowerCase();
-                const isPecas = n.includes('peça') || n.includes('peca') || n.includes('operaç') || n.includes('operac') || n.includes('estoque');
+                const isPecas = isMetaPecasOperacao(m.nome);
                 const row = <MetaRow key={m.id} m={m} execTotal={execTotal} />;
 
                 if (isPecas) {
