@@ -117,7 +117,7 @@ async function carregarDados(ano: number): Promise<Dados> {
       return (depois ? q.gt('id', depois) : q).order('id').limit(PAGE);
     }),
   ]);
-  const [pcm, titulos] = await Promise.all([
+  const [pcm, titulos, pagosLiquidados] = await Promise.all([
     todas<PcmRow & LinhaComId>('gc_recebimentos (PCM)', (depois) => {
       const q = supabase.from('gc_recebimentos')
         .select('id, valor, data_vencimento')
@@ -125,11 +125,21 @@ async function carregarDados(ano: number): Promise<Dados> {
         .gte('data_vencimento', inicio).lte('data_vencimento', fimFechado);
       return (depois ? q.gt('id', depois) : q).order('id').limit(PAGE);
     }),
-    // Títulos desde o ano anterior: cobrem OS do ano (vínculo por nº), liquidações e abertos.
+    // Títulos desde o ano anterior (vínculo com OS por nº, abertos) e qualquer título liquidado
+    // dentro do ano, mesmo que vencido antes — caixa é pela data da liquidação.
     todas<RecebimentoTituloRow & LinhaComId>('gc_recebimentos', (depois) => {
       const q = supabase.from('gc_recebimentos')
         .select('id, os_codigo, descricao, valor, liquidado, data_liquidacao, data_vencimento')
-        .gte('data_vencimento', `${ano - 1}-01-01`);
+        .or(`data_vencimento.gte.${ano - 1}-01-01,data_liquidacao.gte.${inicio}`);
+      return (depois ? q.gt('id', depois) : q).order('id').limit(PAGE);
+    }),
+    // Saídas de caixa: só o que foi PAGO, pela data da liquidação. Por vencimento, título
+    // vencido e não pago virava saída de caixa — o caixa jan–ago/26 saía R$ 370 mil pior.
+    todas<any>('fin_pagamentos (liquidados)', (depois) => {
+      const q = supabase.from('fin_pagamentos')
+        .select('id, valor, data_liquidacao')
+        .eq('status', 'pago')
+        .gte('data_liquidacao', inicio).lte('data_liquidacao', fimFechado);
       return (depois ? q.gt('id', depois) : q).order('id').limit(PAGE);
     }),
   ]);
@@ -158,10 +168,13 @@ async function carregarDados(ano: number): Promise<Dados> {
     if (meses.includes(m)) recebidosPorMes[m] = (recebidosPorMes[m] || 0) + (r.valor || 0);
   }
   const pagosPorMes: Record<string, number> = {};
+  for (const p of pagosLiquidados) {
+    const m = monthStr(p.data_liquidacao);
+    if (meses.includes(m)) pagosPorMes[m] = (pagosPorMes[m] || 0) + Math.abs(p.valor || 0);
+  }
   const comissoesPagasM1: Record<string, number> = {};
   for (const p of pagamentosRaw) {
     const m = monthStr(p.data_vencimento);
-    if (meses.includes(m)) pagosPorMes[m] = (pagosPorMes[m] || 0) + Math.abs(p.valor || 0);
     if (String(p.plano_contas_id) === PLANO_COMISSOES) {
       // comissão do mês M é paga em M+1 — atribui ao mês de referência
       const ref = meses.find(x => proximoMes(x) === m);
@@ -224,8 +237,14 @@ export function useRaioXAnual(ano: number) {
       comissoesPorMes, recebidosPorMes: d.recebidosPorMes, pagosPorMes: d.pagosPorMes,
     });
     const semTitulo = osSemTitulo(d.os, d.titulos);
-    const emAberto = d.titulos.filter(t => !t.liquidado && (t.data_vencimento || '') >= d.inicio);
-    const titulosAbertoTotal = emAberto.reduce((a, t) => a + (t.valor || 0), 0);
+    // Abertos: tudo que não liquidou (inclusive vencido em anos anteriores), separado em
+    // vencido × a vencer — parcelas futuras de OS já executadas são caixa contratado, não atraso.
+    const hojeIso = new Date().toISOString().slice(0, 10);
+    const emAberto = d.titulos.filter(t => !t.liquidado);
+    const vencidos = emAberto.filter(t => (t.data_vencimento || '') < hojeIso);
+    const aVencer = emAberto.filter(t => (t.data_vencimento || '') >= hojeIso);
+    const somaTit = (ts: RecebimentoTituloRow[]) => ts.reduce((a, t) => a + (t.valor || 0), 0);
+    const titulosAbertoTotal = somaTit(emAberto);
     const recebidoYtd = Object.values(d.recebidosPorMes).reduce((a, v) => a + v, 0);
     // Ponte: receita executada no período − recebido no período = ainda não recebido;
     // desse valor, o que não está em título aberto foi executado e nunca faturado.
@@ -236,6 +255,10 @@ export function useRaioXAnual(ano: number) {
       semTituloTotal: semTitulo.reduce((a, o) => a + (o.valor_total || 0), 0),
       titulosAbertoTotal,
       titulosAbertoQtd: emAberto.length,
+      titulosVencidosTotal: somaTit(vencidos),
+      titulosVencidosQtd: vencidos.length,
+      titulosAVencerTotal: somaTit(aVencer),
+      titulosAVencerQtd: aVencer.length,
       naoRecebido,
       naoFaturadoEstimado: Math.max(0, naoRecebido - titulosAbertoTotal),
       comissoesCarregando: comissoes.isLoading,

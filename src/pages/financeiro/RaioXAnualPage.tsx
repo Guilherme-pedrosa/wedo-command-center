@@ -79,9 +79,9 @@ export default function RaioXAnualPage() {
               <div className="text-xs text-muted-foreground mt-0.5">receita do período − recebido · ~{formatBRL(d.naoFaturadoEstimado)} sem título</div>
             </CardContent></Card>
             <Card><CardContent className="pt-4">
-              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><Wallet className="h-3.5 w-3.5" />Títulos em aberto</div>
+              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><Wallet className="h-3.5 w-3.5" />Títulos a receber em aberto</div>
               <div className="text-xl font-bold text-foreground">{formatBRL(d.titulosAbertoTotal)}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">{d.titulosAbertoQtd} título(s) a receber</div>
+              <div className="text-xs text-muted-foreground mt-0.5">vencidos {formatBRL(d.titulosVencidosTotal)} ({d.titulosVencidosQtd}) · a vencer {formatBRL(d.titulosAVencerTotal)} ({d.titulosAVencerQtd})</div>
             </CardContent></Card>
           </div>
 

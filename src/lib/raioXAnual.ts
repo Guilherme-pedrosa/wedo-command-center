@@ -68,7 +68,7 @@ export function construirRaioX(input: {
   pcm: PcmRow[];
   comissoesPorMes: Record<string, number>;
   recebidosPorMes: Record<string, number>; // caixa: liquidados por mês
-  pagosPorMes: Record<string, number>; // caixa: todos os pagamentos por mês
+  pagosPorMes: Record<string, number>; // caixa: pagamentos LIQUIDADOS por mês de liquidação
 }) {
   const meses = mesesDoAno(input.ano, input.ateMesFechado);
   const proximoMes = (m: string) => {
