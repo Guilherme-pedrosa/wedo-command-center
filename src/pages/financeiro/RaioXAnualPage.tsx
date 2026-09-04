@@ -122,7 +122,19 @@ export default function RaioXAnualPage() {
           </Card>
 
           <Card>
-            <CardHeader className="pb-3"><CardTitle className="text-base">DRE mensal — régua WeDo (R$ mil)</CardTitle></CardHeader>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-base">DRE mensal — régua WeDo (R$ mil)</CardTitle>
+                {d.comissoesCarregando
+                  ? <Badge variant="outline" className="text-[10px]">Comissões: carregando Premiação… (usando pagas M+1)</Badge>
+                  : d.comissoesFallback.length > 0
+                    ? <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-500">Comissões pagas (M+1) em {d.comissoesFallback.map(m => MES_LABEL[Number(m.slice(5)) - 1]).join(', ')} — Premiação indisponível</Badge>
+                    : <Badge variant="outline" className="text-[10px]">Comissões: tela de Premiação</Badge>}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Fontes lidas: {d.totais.linhasOs} OS · {d.totais.linhasPagamentos} pagamentos ({formatBRL(d.totais.pagos)} no período) · recebido {formatBRL(d.totais.recebidos)}.
+              </p>
+            </CardHeader>
             <CardContent className="p-0 overflow-x-auto">
               <table className="w-full text-xs whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>
                 <thead><tr className="text-muted-foreground border-b border-border">

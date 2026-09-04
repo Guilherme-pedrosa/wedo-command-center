@@ -1,5 +1,23 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { construirRaioX, osSemTitulo } from '@/lib/raioXAnual';
+
+describe('raio-x anual — leitura de dados', () => {
+  it('toda paginação do hook ordena por id antes do range (sem ordem, o Postgres pula e repete linhas)', () => {
+    const src = fs.readFileSync(path.resolve(process.cwd(), 'src/hooks/useRaioXAnual.ts'), 'utf8');
+    const ranges = (src.match(/\.range\(f, t\)/g) || []).length;
+    const ordenados = (src.match(/\.order\('id'\)\.range\(f, t\)/g) || []).length;
+    expect(ranges).toBeGreaterThan(0);
+    expect(ordenados).toBe(ranges);
+  });
+
+  it('comissões não são disparadas em paralelo contra a edge (estoura timeout e virava R$ 0)', () => {
+    const src = fs.readFileSync(path.resolve(process.cwd(), 'src/hooks/useRaioXAnual.ts'), 'utf8');
+    expect(src).not.toMatch(/Promise\.all\([^)]*premiacao-comissoes-total/s);
+    expect(src).toMatch(/for \(const m of mesesDoAno[\s\S]*premiacao-comissoes-total/);
+  });
+});
 
 describe('raio-x anual — régua WeDo', () => {
   it('monta o mês com fixos 100% nos serviços, imposto da guia M+1 e caixa separado', () => {
