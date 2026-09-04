@@ -23,8 +23,18 @@ export type OsRow = {
 export type PagamentoRow = {
   plano_contas_id: string | null; valor: number; data_vencimento: string | null;
   descricao?: string | null; nome_fornecedor?: string | null; categoria_meta?: 'custo_fixo' | 'custo_variavel' | null;
-  nome_meta?: string | null;
+  nome_meta?: string | null; nome_plano?: string | null;
 };
+
+// Pagamentos em planos fora das metas: estoque/capex e movimentos societários não são custo
+// do período; todo o resto é custo operacional que estava passando batido — entra em "outros".
+const PLANO_ESTOQUE_CAPEX = /revenda|estoque|showroom|comodato|imobilizado/i;
+const PLANO_SOCIETARIO = /s[óo]cio|aporte|n[ãa]o usar/i;
+export function classificarPlanoSemMeta(nomePlano: string | null | undefined): 'fora' | 'outros_servicos' | 'outros_comercial' {
+  const n = String(nomePlano || '');
+  if (PLANO_ESTOQUE_CAPEX.test(n) || PLANO_SOCIETARIO.test(n)) return 'fora';
+  return /vendedor/i.test(n) ? 'outros_comercial' : 'outros_servicos';
+}
 export type VendaRow = { valor_total: number | null; custo: number; data: string | null; interna: boolean };
 export type PcmRow = { valor: number; data_vencimento: string | null };
 export type RecebimentoTituloRow = { os_codigo: string | null; descricao: string | null; valor: number; liquidado: boolean; data_liquidacao: string | null; data_vencimento: string | null };
@@ -33,7 +43,7 @@ export type MesRaioX = {
   mes: string;
   recServ: number; recCom: number; recTot: number;
   osMaoDeObra: number; osPecasVenda: number;
-  pecas: number; cmv: number; comissoes: number; fixos: number; diretos: number;
+  pecas: number; cmv: number; comissoes: number; fixos: number; diretos: number; outros: number; outrosComercial: number;
   imposto: number; impostoEstimado: boolean; folhaComercial: number; prolabore20: number;
   resServ: number; resCom: number; resTot: number;
   margTot: number; margServ: number; margCom: number;
@@ -71,6 +81,8 @@ export function construirRaioX(input: {
   const diretosPorMes: Record<string, number> = {};
   const folhaComPorMes: Record<string, number> = {};
   const prolaborePorMes: Record<string, number> = {};
+  const outrosPorMes: Record<string, number> = {};
+  const outrosComPorMes: Record<string, number> = {};
   for (const p of input.pagamentos) {
     const m = mesDe(p.data_vencimento);
     if (!m) continue;
@@ -87,6 +99,10 @@ export function construirRaioX(input: {
       if (n.includes('peça') || n.includes('peca') || n.includes('estoque') || n.includes('comiss') || n.includes('premia') || (n.includes('venda') && n.includes('produto'))) continue;
       if (n.includes('impost')) continue;
       diretosPorMes[m] = (diretosPorMes[m] || 0) + v;
+    } else if (!p.categoria_meta) {
+      const balde = classificarPlanoSemMeta(p.nome_plano);
+      if (balde === 'outros_servicos') outrosPorMes[m] = (outrosPorMes[m] || 0) + v;
+      else if (balde === 'outros_comercial') outrosComPorMes[m] = (outrosComPorMes[m] || 0) + v;
     }
   }
 
@@ -119,12 +135,16 @@ export function construirRaioX(input: {
     if (m) pcmPorMes[m] = (pcmPorMes[m] || 0) + (r.valor || 0);
   }
 
-  // alíquota efetiva média dos meses com guia cheia (para estimar o mês sem guias)
+  // Guia real sempre que existir. Só o ÚLTIMO mês fechado pode estar com guias incompletas
+  // (vencem no mês seguinte, lançadas ~dia 20-25): aí estima pela alíquota efetiva média
+  // dos meses anteriores. Nunca substitui uma guia real de mês antigo por estimativa.
+  const ultimoMes = meses[meses.length - 1];
   let sImp = 0, sRec = 0;
   for (const m of meses) {
+    if (m === ultimoMes) continue;
     const guia = impostosPorVenc[proximoMes(m)] || 0;
     const rec = (osExecPorMes[m]?.total || 0) + (chamadosPorMes[m] || 0) + (pcmPorMes[m] || 0) + (vendasPorMes[m]?.total || 0);
-    if (rec > 0 && guia > rec * 0.05) { sImp += guia; sRec += rec; }
+    if (rec > 0 && guia > 0) { sImp += guia; sRec += rec; }
   }
   const aliqEfetiva = sRec > 0 ? sImp / sRec : 0.10;
 
@@ -135,23 +155,25 @@ export function construirRaioX(input: {
     const recCom = vd.total;
     const recTot = recServ + recCom;
     const guia = impostosPorVenc[proximoMes(m)] || 0;
-    const impostoEstimado = recTot > 0 && guia < recTot * aliqEfetiva * 0.5;
+    const impostoEstimado = recTot > 0 && (guia === 0 || (m === ultimoMes && guia < recTot * aliqEfetiva * 0.5));
     const imposto = impostoEstimado ? Math.round(recTot * aliqEfetiva) : guia;
     const fixos = fixosPorMes[m] || 0;
     const diretos = diretosPorMes[m] || 0;
+    const outros = outrosPorMes[m] || 0;
+    const outrosComercial = outrosComPorMes[m] || 0;
     const comissoes = input.comissoesPorMes[m] || 0;
     const folhaComercial = folhaComPorMes[m] || 0;
     const prolabore20 = (prolaborePorMes[m] || 0) * PROLABORE_FRACAO_COMERCIAL;
     const pecas = oe.pecas + vd.usoInterno;
     const impServ = recTot > 0 ? imposto * (recServ / recTot) : imposto;
-    const resServ = recServ - (pecas + comissoes + (fixos - folhaComercial - prolabore20) + diretos + impServ);
-    const resCom = recCom - (vd.cmv + folhaComercial + prolabore20 + (imposto - impServ));
+    const resServ = recServ - (pecas + comissoes + (fixos - folhaComercial - prolabore20) + diretos + outros + impServ);
+    const resCom = recCom - (vd.cmv + folhaComercial + prolabore20 + outrosComercial + (imposto - impServ));
     const caixaRecebido = input.recebidosPorMes[m] || 0;
     const caixaPago = input.pagosPorMes[m] || 0;
     return {
       mes: m, recServ, recCom, recTot,
       osMaoDeObra: Math.max(0, oe.total - oe.pecasVenda), osPecasVenda: oe.pecasVenda,
-      pecas, cmv: vd.cmv, comissoes, fixos, diretos,
+      pecas, cmv: vd.cmv, comissoes, fixos, diretos, outros, outrosComercial,
       imposto, impostoEstimado, folhaComercial, prolabore20,
       resServ, resCom, resTot: resServ + resCom,
       margTot: recTot > 0 ? (resServ + resCom) / recTot : 0,

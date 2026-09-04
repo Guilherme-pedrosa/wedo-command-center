@@ -39,15 +39,17 @@ export function useRaioXAnual(ano: number) {
         Promise.all([
           supabase.from('fin_meta_plano_contas').select('plano_contas_id, meta_id'),
           supabase.from('fin_metas').select('id, nome, categoria').eq('ativo', true),
-        ]).then(([mp, m]) => {
-          if (mp.error) throw mp.error; if (m.error) throw m.error;
+          supabase.from('fin_plano_contas').select('id, nome'),
+        ]).then(([mp, m, pc]) => {
+          if (mp.error) throw mp.error; if (m.error) throw m.error; if (pc.error) throw pc.error;
           const metas = new Map((m.data || []).map((x: any) => [x.id, x]));
           const map = new Map<string, { categoria: 'custo_fixo' | 'custo_variavel' | null; nome: string }>();
           for (const l of mp.data || []) {
             const meta: any = metas.get((l as any).meta_id);
             if (meta && meta.categoria !== 'receita') map.set(String((l as any).plano_contas_id), { categoria: meta.categoria, nome: meta.nome });
           }
-          return map;
+          const nomesPlanos = new Map<string, string>((pc.data || []).map((x: any) => [String(x.id), String(x.nome || '')]));
+          return { map, nomesPlanos };
         }),
         todas<any>((f, t) => supabase.from('fin_pagamentos')
           .select('plano_contas_id, valor, data_vencimento, descricao, nome_fornecedor')
@@ -79,8 +81,13 @@ export function useRaioXAnual(ano: number) {
         ...internasRaw.map((v: any) => ({ valor_total: 0, custo: custoDe(v.gc_payload_raw), data: v.data, interna: true })),
       ];
       const pagamentos: PagamentoRow[] = pagamentosRaw.map((p: any) => {
-        const meta = metasPlanos.get(String(p.plano_contas_id));
-        return { ...p, categoria_meta: meta?.categoria ?? null, nome_meta: meta?.nome ?? null };
+        const meta = metasPlanos.map.get(String(p.plano_contas_id));
+        return {
+          ...p,
+          categoria_meta: meta?.categoria ?? null,
+          nome_meta: meta?.nome ?? null,
+          nome_plano: metasPlanos.nomesPlanos.get(String(p.plano_contas_id)) ?? null,
+        };
       });
 
       const meses = mesesDoAno(ano, ateMesFechado);
@@ -110,12 +117,19 @@ export function useRaioXAnual(ano: number) {
       });
       const semTitulo = osSemTitulo(os, titulos);
       const emAberto = titulos.filter(t => !t.liquidado && (t.data_vencimento || '') >= inicio);
+      const titulosAbertoTotal = emAberto.reduce((a, t) => a + (t.valor || 0), 0);
+      const recebidoYtd = Object.values(recebidosPorMes).reduce((a, v) => a + v, 0);
+      // Ponte: receita executada no período − recebido no período = ainda não recebido;
+      // desse valor, o que não está em título aberto foi executado e nunca faturado.
+      const naoRecebido = Math.max(0, modelo.ytd.recTot - recebidoYtd);
       return {
         ...modelo,
         semTitulo,
         semTituloTotal: semTitulo.reduce((a, o) => a + (o.valor_total || 0), 0),
-        titulosAbertoTotal: emAberto.reduce((a, t) => a + (t.valor || 0), 0),
+        titulosAbertoTotal,
         titulosAbertoQtd: emAberto.length,
+        naoRecebido,
+        naoFaturadoEstimado: Math.max(0, naoRecebido - titulosAbertoTotal),
       };
     },
   });

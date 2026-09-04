@@ -50,6 +50,37 @@ describe('raio-x anual — régua WeDo', () => {
     expect(r.meses[1].imposto).toBe(10000); // alíquota efetiva 10% × 100k
   });
 
+  it('nunca troca guia real de mês antigo por estimativa, mesmo se baixa', () => {
+    const r = construirRaioX({
+      ano: 2026, ateMesFechado: 3,
+      os: ['01', '02', '03'].map(mm => ({ os_codigo: mm, nome_cliente: 'A', nome_situacao: 'EXECUTADO - AGUARDANDO PAGAMENTO', valor_total: 100000, valor_pecas_custo: 0, data_saida: `2026-${mm}-10` })),
+      pagamentos: [
+        { plano_contas_id: '1726df3a-f803-4f28-b7ee-1930f94b569f', valor: 12000, data_vencimento: '2026-02-10', categoria_meta: 'custo_variavel', nome_meta: 'Impostos' },
+        { plano_contas_id: '1726df3a-f803-4f28-b7ee-1930f94b569f', valor: 3000, data_vencimento: '2026-03-10', categoria_meta: 'custo_variavel', nome_meta: 'Impostos' },
+      ],
+      vendas: [], pcm: [], comissoesPorMes: {}, recebidosPorMes: {}, pagosPorMes: {},
+    });
+    expect(r.meses[1].imposto).toBe(3000); // guia baixa, mas real e de mês antigo: mantém
+    expect(r.meses[1].impostoEstimado).toBe(false);
+    expect(r.meses[2].impostoEstimado).toBe(true); // último mês sem guia: estima
+  });
+
+  it('custos em planos fora das metas entram em "outros"; estoque/capex e societário ficam fora', () => {
+    const r = construirRaioX({
+      ano: 2026, ateMesFechado: 1,
+      os: [{ os_codigo: '1', nome_cliente: 'A', nome_situacao: 'EXECUTADO - AGUARDANDO PAGAMENTO', valor_total: 100000, valor_pecas_custo: 0, data_saida: '2026-01-10' }],
+      pagamentos: [
+        { plano_contas_id: 'x1', valor: 8000, data_vencimento: '2026-01-05', categoria_meta: null, nome_plano: 'Transportadora' },
+        { plano_contas_id: 'x2', valor: 3000, data_vencimento: '2026-01-05', categoria_meta: null, nome_plano: 'Comissão de vendedores' },
+        { plano_contas_id: 'x3', valor: 50000, data_vencimento: '2026-01-05', categoria_meta: null, nome_plano: 'Aquisição de máquinas para revenda' },
+        { plano_contas_id: 'x4', valor: 10000, data_vencimento: '2026-01-05', categoria_meta: null, nome_plano: 'Transferências de  Sócios' },
+      ],
+      vendas: [], pcm: [], comissoesPorMes: {}, recebidosPorMes: {}, pagosPorMes: {},
+    });
+    expect(r.meses[0].outros).toBe(8000);
+    expect(r.meses[0].outrosComercial).toBe(3000);
+  });
+
   it('lista OS sem título e reconhece título pela descrição com nº', () => {
     const lista = osSemTitulo(
       [

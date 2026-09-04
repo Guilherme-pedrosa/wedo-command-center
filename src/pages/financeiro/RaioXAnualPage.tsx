@@ -74,9 +74,9 @@ export default function RaioXAnualPage() {
               <div className="text-xs text-muted-foreground mt-0.5">recebido − pago (GC)</div>
             </CardContent></Card>
             <Card><CardContent className="pt-4">
-              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><TrendingDown className="h-3.5 w-3.5" />Executado sem título</div>
-              <div className="text-xl font-bold text-amber-500">{formatBRL(d.semTituloTotal)}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">{d.semTitulo.length} OS sem cobrança rastreável</div>
+              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><TrendingDown className="h-3.5 w-3.5" />Executado e não recebido</div>
+              <div className="text-xl font-bold text-amber-500">{formatBRL(d.naoRecebido)}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">receita do período − recebido · ~{formatBRL(d.naoFaturadoEstimado)} sem título</div>
             </CardContent></Card>
             <Card><CardContent className="pt-4">
               <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><Wallet className="h-3.5 w-3.5" />Títulos em aberto</div>
@@ -139,6 +139,7 @@ export default function RaioXAnualPage() {
                     ['Custo produtos', d.meses.map(m => -m.cmv)],
                     ['Comissões', d.meses.map(m => -m.comissoes)],
                     ['Frota e diretos', d.meses.map(m => -m.diretos)],
+                    ['Outros custos (planos fora das metas)', d.meses.map(m => -(m.outros + m.outrosComercial))],
                     ['Impostos (ref. mês)', d.meses.map(m => -m.imposto)],
                     ['Custos fixos', d.meses.map(m => -m.fixos)],
                   ] as [string, number[]][]).map(([nome, vals]) => (
@@ -165,9 +166,9 @@ export default function RaioXAnualPage() {
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <div>
-                  <CardTitle className="text-base">OS executadas sem cobrança rastreável</CardTitle>
+                  <CardTitle className="text-base">OS sem título rastreável — lista de conferência</CardTitle>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {formatBRL(d.semTituloTotal)} em {d.semTitulo.length} OS sem título vinculado. Atenção: clientes que pagam por medição agrupada (ex.: Sodexo) podem já ter pago sem citar o nº da OS — confirmar antes de cobrar.
+                    {d.semTitulo.length} OS ({formatBRL(d.semTituloTotal)}) sem título que cite o nº da OS. Isso NÃO é o valor a cobrar: clientes por medição agrupada (ex.: Sodexo) já pagaram parte sem citar a OS. O valor real ainda não recebido é o do card acima (~{formatBRL(d.naoFaturadoEstimado)} sem título). Use a lista para conferir cliente a cliente.
                   </p>
                 </div>
                 <div className="relative w-full sm:w-64">
