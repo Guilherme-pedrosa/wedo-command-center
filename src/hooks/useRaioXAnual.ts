@@ -66,14 +66,13 @@ type Dados = {
 
 async function carregarDados(ano: number): Promise<Dados> {
   const { ateMesFechado, inicio, fimFechado, fimComRef } = periodo(ano);
-  const sel = (cols: string, comContagem: boolean) => ({ cols, opts: comContagem ? { count: 'exact' as const } : undefined });
+  // O select precisa receber as colunas como literal (não variável) para o supabase-js tipar as linhas.
+  const contagem = (c: boolean) => (c ? { count: 'exact' as const } : undefined);
 
   const [os, metasPlanos, pagamentosRaw, vendasRaw, internasRaw, pcm, titulos] = await Promise.all([
-    todas<OsRow>('os_index', (f, t, c) => {
-      const s = sel('os_codigo, nome_cliente, nome_situacao, valor_total, valor_pecas, valor_pecas_custo, data_saida', c);
-      return supabase.from('os_index').select(s.cols, s.opts)
-        .gte('data_saida', inicio).lte('data_saida', fimFechado).order('id').range(f, t);
-    }),
+    todas<OsRow>('os_index', (f, t, c) => supabase.from('os_index')
+      .select('os_codigo, nome_cliente, nome_situacao, valor_total, valor_pecas, valor_pecas_custo, data_saida', contagem(c))
+      .gte('data_saida', inicio).lte('data_saida', fimFechado).order('id').range(f, t)),
     Promise.all([
       supabase.from('fin_meta_plano_contas').select('plano_contas_id, meta_id'),
       supabase.from('fin_metas').select('id, nome, categoria').eq('ativo', true),
@@ -89,36 +88,26 @@ async function carregarDados(ano: number): Promise<Dados> {
       const nomesPlanos = new Map<string, string>((pc.data || []).map((x: any) => [String(x.id), String(x.nome || '')]));
       return { map, nomesPlanos };
     }),
-    todas<any>('fin_pagamentos', (f, t, c) => {
-      const s = sel('plano_contas_id, valor, data_vencimento, descricao, nome_fornecedor', c);
-      return supabase.from('fin_pagamentos').select(s.cols, s.opts)
-        .neq('status', 'cancelado')
-        .gte('data_vencimento', inicio).lte('data_vencimento', fimComRef).order('id').range(f, t);
-    }),
-    todas<any>('gc_vendas', (f, t, c) => {
-      const s = sel('valor_total, gc_payload_raw, data', c);
-      return supabase.from('gc_vendas').select(s.cols, s.opts)
-        .eq('situacao_id', '7063585')
-        .gte('data', inicio).lte('data', fimFechado).order('id').range(f, t);
-    }),
-    todas<any>('gc_vendas (uso interno)', (f, t, c) => {
-      const s = sel('gc_payload_raw, data', c);
-      return supabase.from('gc_vendas').select(s.cols, s.opts)
-        .eq('situacao_id', '7340612')
-        .gte('data', inicio).lte('data', fimFechado).order('id').range(f, t);
-    }),
-    todas<PcmRow>('gc_recebimentos (PCM)', (f, t, c) => {
-      const s = sel('valor, data_vencimento', c);
-      return supabase.from('gc_recebimentos').select(s.cols, s.opts)
-        .in('plano_contas_id', ['27867721', '27867722']).eq('liquidado', true)
-        .gte('data_vencimento', inicio).lte('data_vencimento', fimFechado).order('id').range(f, t);
-    }),
+    todas<any>('fin_pagamentos', (f, t, c) => supabase.from('fin_pagamentos')
+      .select('plano_contas_id, valor, data_vencimento, descricao, nome_fornecedor', contagem(c))
+      .neq('status', 'cancelado')
+      .gte('data_vencimento', inicio).lte('data_vencimento', fimComRef).order('id').range(f, t)),
+    todas<any>('gc_vendas', (f, t, c) => supabase.from('gc_vendas')
+      .select('valor_total, gc_payload_raw, data', contagem(c))
+      .eq('situacao_id', '7063585')
+      .gte('data', inicio).lte('data', fimFechado).order('id').range(f, t)),
+    todas<any>('gc_vendas (uso interno)', (f, t, c) => supabase.from('gc_vendas')
+      .select('gc_payload_raw, data', contagem(c))
+      .eq('situacao_id', '7340612')
+      .gte('data', inicio).lte('data', fimFechado).order('id').range(f, t)),
+    todas<PcmRow>('gc_recebimentos (PCM)', (f, t, c) => supabase.from('gc_recebimentos')
+      .select('valor, data_vencimento', contagem(c))
+      .in('plano_contas_id', ['27867721', '27867722']).eq('liquidado', true)
+      .gte('data_vencimento', inicio).lte('data_vencimento', fimFechado).order('id').range(f, t)),
     // Títulos desde o ano anterior: cobrem OS do ano (vínculo por nº), liquidações e abertos.
-    todas<RecebimentoTituloRow>('gc_recebimentos', (f, t, c) => {
-      const s = sel('os_codigo, descricao, valor, liquidado, data_liquidacao, data_vencimento', c);
-      return supabase.from('gc_recebimentos').select(s.cols, s.opts)
-        .gte('data_vencimento', `${ano - 1}-01-01`).order('id').range(f, t);
-    }),
+    todas<RecebimentoTituloRow>('gc_recebimentos', (f, t, c) => supabase.from('gc_recebimentos')
+      .select('os_codigo, descricao, valor, liquidado, data_liquidacao, data_vencimento', contagem(c))
+      .gte('data_vencimento', `${ano - 1}-01-01`).order('id').range(f, t)),
   ]);
 
   const custoDe = (raw: any) => parseFloat(String(raw?.valor_custo || '0').replace(',', '.')) || 0;
