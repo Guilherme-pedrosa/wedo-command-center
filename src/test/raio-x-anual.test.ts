@@ -4,12 +4,25 @@ import { describe, expect, it } from 'vitest';
 import { construirRaioX, osSemTitulo } from '@/lib/raioXAnual';
 
 describe('raio-x anual — leitura de dados', () => {
-  it('toda paginação do hook ordena por id antes do range (sem ordem, o Postgres pula e repete linhas)', () => {
+  it('toda paginação do hook é por keyset: id > último id, ordenada por id, sem OFFSET e sem count(*)', () => {
     const src = fs.readFileSync(path.resolve(process.cwd(), 'src/hooks/useRaioXAnual.ts'), 'utf8');
-    const ranges = (src.match(/\.range\(f, t\)/g) || []).length;
-    const ordenados = (src.match(/\.order\('id'\)\.range\(f, t\)/g) || []).length;
-    expect(ranges).toBeGreaterThan(0);
-    expect(ordenados).toBe(ranges);
+    // count: 'exact' faz um count(*) inteiro por tabela e estourava o statement_timeout do banco;
+    // .range() é OFFSET, que relê tudo de novo a cada página.
+    expect(src).not.toMatch(/count: 'exact'/);
+    expect(src).not.toMatch(/\.range\(/);
+    const paginas = (src.match(/\.order\('id'\)\.limit\(PAGE\)/g) || []).length;
+    const keysets = (src.match(/\.gt\('id', depois\)/g) || []).length;
+    expect(paginas).toBeGreaterThan(0);
+    expect(keysets).toBe(paginas);
+  });
+
+  it('não martela o banco: no máximo 3 leituras simultâneas, retry 1 e sem refetch ao focar a janela', () => {
+    const src = fs.readFileSync(path.resolve(process.cwd(), 'src/hooks/useRaioXAnual.ts'), 'utf8');
+    const grupos = src.match(/await Promise\.all\(\[([\s\S]*?)\n  \]\);/g) || [];
+    expect(grupos.length).toBeGreaterThan(1);
+    for (const g of grupos) expect((g.match(/todas</g) || []).length).toBeLessThanOrEqual(3);
+    expect((src.match(/retry: 1/g) || []).length).toBe(2);
+    expect((src.match(/refetchOnWindowFocus: false/g) || []).length).toBe(2);
   });
 
   it('comissões não são disparadas em paralelo contra a edge (estoura timeout e virava R$ 0)', () => {

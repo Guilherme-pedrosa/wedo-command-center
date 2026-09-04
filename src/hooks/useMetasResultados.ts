@@ -298,7 +298,7 @@ export const useMetasResultados = (
     'CHAMADO FECHADO - FATURADO', // Adicionado conforme solicitado
   ];
 
-  const { data: osExecutadas = [], isLoading: loadingOS, refetch: refetchOS, dataUpdatedAt: osDataUpdatedAt } = useQuery({
+  const { data: osExecutadas = [], isLoading: loadingOS, refetch: refetchOS, dataUpdatedAt: osDataUpdatedAt, error: errorOS } = useQuery({
     queryKey: ['os_executadas_metas', start, end],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -699,6 +699,9 @@ export const useMetasResultados = (
   }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, pagamentosImpostoRef, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, auvoExpenses, execTotal, baseComissoes, comissoesPremiacao, planoContasMap, uuidToGcId, centrosCustoMap, includeCommercial, rateioFator, fracaoProrata]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
+  // Erro de leitura (ex.: statement timeout com o banco lento) NÃO é tabela vazia: a tela
+  // precisa distinguir para não mandar o usuário "sincronizar" — o que só piora a carga.
+  const osError = errorOS ? ((errorOS as Error).message || 'falha ao ler as OS') : null;
 
   // Saídas de peças para OS no período — soma o CUSTO real das peças que saíram do estoque
   // (valor_pecas_custo = quantidade × valor_custo do produto), espelhando o "Custo total"
@@ -729,5 +732,5 @@ export const useMetasResultados = (
 
   const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingImpRef || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingAuvo;
 
-  return { metasComResultado, execTotal, execTotalFull, rateioFator, folhaComercialExcluida, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
+  return { metasComResultado, execTotal, execTotalFull, rateioFator, folhaComercialExcluida, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
 };

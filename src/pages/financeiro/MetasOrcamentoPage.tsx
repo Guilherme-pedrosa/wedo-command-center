@@ -155,7 +155,7 @@ export default function MetasOrcamentoPage() {
   const [includeCommercial, setIncludeCommercial] = useState(true);
   const [prorataFixos, setProrataFixos] = useState(true);
 
-  const { metasComResultado, execTotal, rateioFator, folhaComercialExcluida, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth, includeCommercial, prorataFixos);
+  const { metasComResultado, execTotal, rateioFator, folhaComercialExcluida, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth, includeCommercial, prorataFixos);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -314,7 +314,17 @@ export default function MetasOrcamentoPage() {
       </div>
 
 
-      {!hasOsData && (
+      {osError && (
+        <div className="rounded-md bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-700 dark:text-red-400 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>
+            Não consegui ler as OS do período: <strong>{osError}</strong>. O banco respondeu devagar —
+            clique em recarregar. Não é falta de dados e não precisa sincronizar.
+          </span>
+        </div>
+      )}
+
+      {!osError && !hasOsData && (
         <div className="rounded-md bg-yellow-500/10 border border-yellow-500/30 p-3 text-sm text-yellow-700 dark:text-yellow-400 flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span>

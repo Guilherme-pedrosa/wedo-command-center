@@ -2,8 +2,10 @@
 //
 // Duas lições caras (03/09/2026):
 // 1. Paginar SEM `order` perde e repete linhas entre páginas — a página chegou a mostrar
-//    R$ 140 mil a menos de pagamentos. Toda leitura paginada ordena por id e confere a
-//    contagem exata; se divergir, falha alto em vez de mostrar número furado.
+//    R$ 140 mil a menos de pagamentos. E pedir a contagem exata ao PostgREST para conferir
+//    custava um count(*) inteiro por tabela, que estourava o statement_timeout (3 s anon / 8 s logado)
+//    no banco pequeno do arguswedo. Toda leitura paginada agora é por keyset (id > último id,
+//    ordenado por id, sem OFFSET e sem count): consistente por construção e barata por página.
 // 2. Disparar 8 chamadas paralelas à edge de Premiação estoura timeout em todas, e o
 //    catch silencioso virava "comissões = R$ 0". Agora é sequencial, em query separada,
 //    com fallback explícito (comissões pagas no mês seguinte) e sinalizado na tela.
@@ -18,22 +20,22 @@ import {
 const PAGE = 1000;
 const PLANO_COMISSOES = 'e7299b90-98d2-4d7a-a04c-78ba40cc847a';
 
-type PageResult<T> = { data: T[] | null; error: { message?: string } | null; count?: number | null };
+type PageResult<T> = { data: T[] | null; error: { message?: string } | null };
+type LinhaComId = { id: string };
 
-// Lê todas as páginas de uma consulta. O builder DEVE aplicar `.order('id')` antes do range.
-async function todas<T>(nome: string, build: (from: number, to: number, comContagem: boolean) => PromiseLike<PageResult<T>>): Promise<T[]> {
+// Lê todas as linhas de uma consulta por keyset. O builder recebe o último id lido (ou null na
+// primeira página) e DEVE selecionar `id`, aplicar `.gt('id', depois)` quando houver e terminar
+// com `.order('id').limit(PAGE)`. Sem OFFSET (que relê tudo a cada página) e sem count(*).
+async function todas<T extends LinhaComId>(nome: string, build: (depois: string | null) => PromiseLike<PageResult<T>>): Promise<T[]> {
   const rows: T[] = [];
-  let esperado: number | null = null;
-  for (let from = 0; ; from += PAGE) {
-    const { data, error, count } = await build(from, from + PAGE - 1, from === 0);
+  let depois: string | null = null;
+  for (;;) {
+    const { data, error } = await build(depois);
     if (error) throw new Error(`${nome}: ${error.message || 'falha ao carregar'}`);
-    if (from === 0 && typeof count === 'number') esperado = count;
     if (!data?.length) break;
     rows.push(...data);
     if (data.length < PAGE) break;
-  }
-  if (esperado !== null && esperado !== rows.length) {
-    throw new Error(`${nome}: leitura inconsistente (${rows.length} de ${esperado} linhas) — recarregue a página`);
+    depois = data[data.length - 1].id;
   }
   return rows;
 }
@@ -67,12 +69,15 @@ type Dados = {
 async function carregarDados(ano: number): Promise<Dados> {
   const { ateMesFechado, inicio, fimFechado, fimComRef } = periodo(ano);
   // O select precisa receber as colunas como literal (não variável) para o supabase-js tipar as linhas.
-  const contagem = (c: boolean) => (c ? { count: 'exact' as const } : undefined);
-
-  const [os, metasPlanos, pagamentosRaw, vendasRaw, internasRaw, pcm, titulos] = await Promise.all([
-    todas<OsRow>('os_index', (f, t, c) => supabase.from('os_index')
-      .select('os_codigo, nome_cliente, nome_situacao, valor_total, valor_pecas, valor_pecas_custo, data_saida', contagem(c))
-      .gte('data_saida', inicio).lte('data_saida', fimFechado).order('id').range(f, t)),
+  // As leituras vão em grupos pequenos: o banco do arguswedo é uma instância pequena e sete
+  // consultas simultâneas só disputam CPU até estourar o statement_timeout.
+  const [os, metasPlanos, pagamentosRaw] = await Promise.all([
+    todas<OsRow & LinhaComId>('os_index', (depois) => {
+      const q = supabase.from('os_index')
+        .select('id, os_codigo, nome_cliente, nome_situacao, valor_total, valor_pecas, valor_pecas_custo, data_saida')
+        .gte('data_saida', inicio).lte('data_saida', fimFechado);
+      return (depois ? q.gt('id', depois) : q).order('id').limit(PAGE);
+    }),
     Promise.all([
       supabase.from('fin_meta_plano_contas').select('plano_contas_id, meta_id'),
       supabase.from('fin_metas').select('id, nome, categoria').eq('ativo', true),
@@ -88,26 +93,45 @@ async function carregarDados(ano: number): Promise<Dados> {
       const nomesPlanos = new Map<string, string>((pc.data || []).map((x: any) => [String(x.id), String(x.nome || '')]));
       return { map, nomesPlanos };
     }),
-    todas<any>('fin_pagamentos', (f, t, c) => supabase.from('fin_pagamentos')
-      .select('plano_contas_id, valor, data_vencimento, descricao, nome_fornecedor', contagem(c))
-      .neq('status', 'cancelado')
-      .gte('data_vencimento', inicio).lte('data_vencimento', fimComRef).order('id').range(f, t)),
-    todas<any>('gc_vendas', (f, t, c) => supabase.from('gc_vendas')
-      .select('valor_total, gc_payload_raw, data', contagem(c))
-      .eq('situacao_id', '7063585')
-      .gte('data', inicio).lte('data', fimFechado).order('id').range(f, t)),
-    todas<any>('gc_vendas (uso interno)', (f, t, c) => supabase.from('gc_vendas')
-      .select('gc_payload_raw, data', contagem(c))
-      .eq('situacao_id', '7340612')
-      .gte('data', inicio).lte('data', fimFechado).order('id').range(f, t)),
-    todas<PcmRow>('gc_recebimentos (PCM)', (f, t, c) => supabase.from('gc_recebimentos')
-      .select('valor, data_vencimento', contagem(c))
-      .in('plano_contas_id', ['27867721', '27867722']).eq('liquidado', true)
-      .gte('data_vencimento', inicio).lte('data_vencimento', fimFechado).order('id').range(f, t)),
+    todas<any>('fin_pagamentos', (depois) => {
+      const q = supabase.from('fin_pagamentos')
+        .select('id, plano_contas_id, valor, data_vencimento, descricao, nome_fornecedor')
+        .neq('status', 'cancelado')
+        .gte('data_vencimento', inicio).lte('data_vencimento', fimComRef);
+      return (depois ? q.gt('id', depois) : q).order('id').limit(PAGE);
+    }),
+  ]);
+  const [vendasRaw, internasRaw] = await Promise.all([
+    todas<any>('gc_vendas', (depois) => {
+      const q = supabase.from('gc_vendas')
+        .select('id, valor_total, gc_payload_raw, data')
+        .eq('situacao_id', '7063585')
+        .gte('data', inicio).lte('data', fimFechado);
+      return (depois ? q.gt('id', depois) : q).order('id').limit(PAGE);
+    }),
+    todas<any>('gc_vendas (uso interno)', (depois) => {
+      const q = supabase.from('gc_vendas')
+        .select('id, gc_payload_raw, data')
+        .eq('situacao_id', '7340612')
+        .gte('data', inicio).lte('data', fimFechado);
+      return (depois ? q.gt('id', depois) : q).order('id').limit(PAGE);
+    }),
+  ]);
+  const [pcm, titulos] = await Promise.all([
+    todas<PcmRow & LinhaComId>('gc_recebimentos (PCM)', (depois) => {
+      const q = supabase.from('gc_recebimentos')
+        .select('id, valor, data_vencimento')
+        .in('plano_contas_id', ['27867721', '27867722']).eq('liquidado', true)
+        .gte('data_vencimento', inicio).lte('data_vencimento', fimFechado);
+      return (depois ? q.gt('id', depois) : q).order('id').limit(PAGE);
+    }),
     // Títulos desde o ano anterior: cobrem OS do ano (vínculo por nº), liquidações e abertos.
-    todas<RecebimentoTituloRow>('gc_recebimentos', (f, t, c) => supabase.from('gc_recebimentos')
-      .select('os_codigo, descricao, valor, liquidado, data_liquidacao, data_vencimento', contagem(c))
-      .gte('data_vencimento', `${ano - 1}-01-01`).order('id').range(f, t)),
+    todas<RecebimentoTituloRow & LinhaComId>('gc_recebimentos', (depois) => {
+      const q = supabase.from('gc_recebimentos')
+        .select('id, os_codigo, descricao, valor, liquidado, data_liquidacao, data_vencimento')
+        .gte('data_vencimento', `${ano - 1}-01-01`);
+      return (depois ? q.gt('id', depois) : q).order('id').limit(PAGE);
+    }),
   ]);
 
   const custoDe = (raw: any) => parseFloat(String(raw?.valor_custo || '0').replace(',', '.')) || 0;
@@ -172,8 +196,16 @@ async function carregarComissoes(ano: number): Promise<{ porMes: Record<string, 
 
 export function useRaioXAnual(ano: number) {
   const { ateMesFechado } = periodo(ano);
-  const dados = useQuery({ queryKey: ['raio-x-dados', ano, ateMesFechado], queryFn: () => carregarDados(ano), staleTime: 10 * 60 * 1000 });
-  const comissoes = useQuery({ queryKey: ['raio-x-comissoes', ano, ateMesFechado], queryFn: () => carregarComissoes(ano), staleTime: 30 * 60 * 1000, retry: 1 });
+  // retry 1 e sem refetch ao focar a janela: cada tentativa são ~15 consultas e 8 chamadas de
+  // edge — repetir isso a cada troca de aba era o que mantinha o banco pequeno no limite.
+  const dados = useQuery({
+    queryKey: ['raio-x-dados', ano, ateMesFechado], queryFn: () => carregarDados(ano),
+    staleTime: 10 * 60 * 1000, retry: 1, refetchOnWindowFocus: false,
+  });
+  const comissoes = useQuery({
+    queryKey: ['raio-x-comissoes', ano, ateMesFechado], queryFn: () => carregarComissoes(ano),
+    staleTime: 30 * 60 * 1000, retry: 1, refetchOnWindowFocus: false,
+  });
 
   const data = useMemo(() => {
     const d = dados.data;
