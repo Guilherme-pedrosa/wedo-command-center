@@ -531,14 +531,15 @@ export const useMetasResultados = (
       .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0),
   [pagamentos]);
 
-  // ─── Alíquota efetiva: guias com vencimento em [M-5, M] ↔ receita executada de [M-6, M-1] ───
+  // ─── Alíquota efetiva: guias com vencimento em [fev, M] ↔ receita executada de [jan, M-1] ───
   const mesRef = (y: number, m: number, delta: number) => {
     const d = new Date(y, m - 1 + delta, 1);
     return { y: d.getFullYear(), m: d.getMonth() + 1 };
   };
-  const histIni = mesRef(year, month, -6);
+  // Mesma janela do Raio-X anual: os meses anteriores do próprio ano (jan..M-1).
+  const histIni = { y: year, m: 1 };
   const histFim = mesRef(year, month, -1);
-  const guiasIni = mesRef(year, month, -5);
+  const guiasIni = { y: year, m: 2 }; // guia de janeiro vence em fevereiro
   const histStart = getPeriodRange(histIni.y, histIni.m).start;
   const histEnd = getPeriodRange(histFim.y, histFim.m).end;
   const guiasStart = getPeriodRange(guiasIni.y, guiasIni.m).start;
@@ -587,8 +588,8 @@ export const useMetasResultados = (
     // Só entra o mês cuja guia já deveria estar toda lançada: o mês de vencimento (M+1) terminou.
     const agora = new Date(hojeKey + 'T12:00:00');
     const elegiveis: string[] = [];
-    for (let k = -6; k <= -1; k++) {
-      const r = mesRef(year, month, k);
+    for (let mm = 1; mm < month; mm++) {
+      const r = { y: year, m: mm };
       const venc = mesRef(r.y, r.m, 1);
       const fimVenc = new Date(venc.y, venc.m, 0);
       if (fimVenc < agora) elegiveis.push(`${r.y}-${String(r.m).padStart(2, '0')}`);
