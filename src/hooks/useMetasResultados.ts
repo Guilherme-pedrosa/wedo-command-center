@@ -4,6 +4,7 @@ import { useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { classificarPlanoSemMeta } from '@/lib/raioXAnual';
+import { fetchAllRows, dedupeBy } from '@/lib/supabasePaginate';
 
 // ─── TIPOS ─────────────────────────────────────────────────────────────────
 export interface Meta {
@@ -304,28 +305,32 @@ export const useMetasResultados = (
   const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec } = useQuery({
     queryKey: ['fin_recebimentos_metas', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_recebimentos')
-        .select('id, plano_contas_id, centro_custo_id, valor, status')
-        .neq('status', 'cancelado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
-      if (error) throw error;
-      return data as { id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
+      const rows = await fetchAllRows<{ id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }>(
+        (from, to) => supabase
+          .from('fin_recebimentos')
+          .select('id, plano_contas_id, centro_custo_id, valor, status')
+          .neq('status', 'cancelado')
+          .gte('data_vencimento', start)
+          .lte('data_vencimento', end)
+          .order('id', { ascending: true })
+          .range(from, to) as any);
+      return dedupeBy(rows, r => r.id);
     },
   });
 
   const { data: pagamentos = [], isLoading: loadingPag, refetch: refetchPag } = useQuery({
     queryKey: ['fin_pagamentos_metas', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_pagamentos')
-        .select('id, plano_contas_id, centro_custo_id, valor, status, data_liquidacao, descricao, nome_fornecedor')
-        .neq('status', 'cancelado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
-      if (error) throw error;
-      return data as { id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null; descricao: string | null; nome_fornecedor: string | null }[];
+      const rows = await fetchAllRows<{ id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null; descricao: string | null; nome_fornecedor: string | null }>(
+        (from, to) => supabase
+          .from('fin_pagamentos')
+          .select('id, plano_contas_id, centro_custo_id, valor, status, data_liquidacao, descricao, nome_fornecedor')
+          .neq('status', 'cancelado')
+          .gte('data_vencimento', start)
+          .lte('data_vencimento', end)
+          .order('id', { ascending: true })
+          .range(from, to) as any);
+      return dedupeBy(rows, r => r.id);
     },
   });
 
@@ -334,14 +339,16 @@ export const useMetasResultados = (
   const { data: pagamentosCompetencia = [], isLoading: loadingPagComp, refetch: refetchPagComp } = useQuery({
     queryKey: ['fin_pagamentos_metas_competencia', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_pagamentos')
-        .select('id, plano_contas_id, centro_custo_id, valor, status')
-        .neq('status', 'cancelado')
-        .gte('data_competencia', start)
-        .lte('data_competencia', end);
-      if (error) throw error;
-      return data as { id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
+      const rows = await fetchAllRows<{ id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }>(
+        (from, to) => supabase
+          .from('fin_pagamentos')
+          .select('id, plano_contas_id, centro_custo_id, valor, status')
+          .neq('status', 'cancelado')
+          .gte('data_competencia', start)
+          .lte('data_competencia', end)
+          .order('id', { ascending: true })
+          .range(from, to) as any);
+      return dedupeBy(rows, r => r.id);
     },
   });
 
@@ -353,14 +360,16 @@ export const useMetasResultados = (
   const { data: pagamentosImpostoRef = [], isLoading: loadingImpRef, refetch: refetchImpRef } = useQuery({
     queryKey: ['fin_pagamentos_impostos_ref', refStart, refEnd],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_pagamentos')
-        .select('id, plano_contas_id, centro_custo_id, valor, status')
-        .neq('status', 'cancelado')
-        .gte('data_vencimento', refStart)
-        .lte('data_vencimento', refEnd);
-      if (error) throw error;
-      return data as { id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
+      const rows = await fetchAllRows<{ id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; descricao: string | null; nome_fornecedor: string | null }>(
+        (from, to) => supabase
+          .from('fin_pagamentos')
+          .select('id, plano_contas_id, centro_custo_id, valor, status, descricao, nome_fornecedor')
+          .neq('status', 'cancelado')
+          .gte('data_vencimento', refStart)
+          .lte('data_vencimento', refEnd)
+          .order('id', { ascending: true })
+          .range(from, to) as any);
+      return dedupeBy(rows, r => r.id);
     },
   });
 
@@ -382,14 +391,16 @@ export const useMetasResultados = (
   const { data: osExecutadas = [], isLoading: loadingOS, refetch: refetchOS, dataUpdatedAt: osDataUpdatedAt, error: errorOS } = useQuery({
     queryKey: ['os_executadas_metas', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const raw = await fetchAllRows<any>((from, to) => supabase
         .from('os_index')
-        .select('os_id, os_codigo, nome_cliente, nome_situacao, nome_vendedor, valor_total, valor_pecas, valor_pecas_custo, data_saida, data_execucao_real')
+        .select('os_id, os_codigo, nome_cliente, nome_situacao, nome_vendedor, valor_total, valor_pecas, valor_pecas_custo, data_saida, data_execucao_real, execucao_verificacao_status, execucao_verificacao_motivo')
         .in('nome_situacao', OS_EXECUTADOS_STATUS)
         .gte('data_saida', start)
-        .lte('data_saida', end);
-      if (error) throw error;
-      const rows = (data ?? []) as { os_id: string; os_codigo: string; nome_cliente: string | null; nome_situacao: string | null; nome_vendedor: string | null; valor_total: number | null; valor_pecas: number | null; valor_pecas_custo: number | null; data_saida: string | null; data_execucao_real: string | null }[];
+        .lte('data_saida', end)
+        .order('os_id', { ascending: true })
+        .range(from, to) as any);
+      // Uma OS pode ter vários orçamentos vinculados: a chave canônica é os_id.
+      const rows = dedupeBy(raw, r => String(r.os_id)) as { os_id: string; os_codigo: string; nome_cliente: string | null; nome_situacao: string | null; nome_vendedor: string | null; valor_total: number | null; valor_pecas: number | null; valor_pecas_custo: number | null; data_saida: string | null; data_execucao_real: string | null; execucao_verificacao_status: string | null; execucao_verificacao_motivo: string | null }[];
       // Exclui apenas OS com execução real antiga, anterior ao período analisado.
       // Ex: OS faturada (data_saida) em Maio mas executada em Nov/2025 não deve contar em Maio/2026.
       // OS com execução real posterior ao período permanece, pois consta no relatório do GC por data_saida.
@@ -407,14 +418,15 @@ export const useMetasResultados = (
   const { data: vendasConcretizadas = [], isLoading: loadingVendas, refetch: refetchVendas } = useQuery({
     queryKey: ['gc_vendas_metas', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const rows = await fetchAllRows<any>((from, to) => supabase
         .from('gc_vendas')
         .select('gc_id, codigo, nome_cliente, nome_situacao, situacao_id, valor_total, valor_produtos, data, gc_payload_raw')
         .eq('situacao_id', VENDAS_SITUACAO_CONCRETIZADA)
         .gte('data', start)
-        .lte('data', end);
-      if (error) throw error;
-      return data as { gc_id: string; codigo: string; nome_cliente: string | null; nome_situacao: string | null; situacao_id: string | null; valor_total: number | null; valor_produtos: number | null; data: string | null; gc_payload_raw: any }[];
+        .lte('data', end)
+        .order('gc_id', { ascending: true })
+        .range(from, to) as any);
+      return dedupeBy(rows, r => String(r.gc_id)) as { gc_id: string; codigo: string; nome_cliente: string | null; nome_situacao: string | null; situacao_id: string | null; valor_total: number | null; valor_produtos: number | null; data: string | null; gc_payload_raw: any }[];
     },
   });
 
@@ -425,21 +437,24 @@ export const useMetasResultados = (
   const { data: comprasFinalizadas = [], isLoading: loadingCompras, refetch: refetchCompras } = useQuery({
     queryKey: ['gc_compras_metas', start, end],
     queryFn: async () => {
-      const { data: byData, error: err1 } = await supabase
+      const byData = await fetchAllRows<any>((from, to) => supabase
         .from('gc_compras' as any)
         .select('gc_id, codigo, nome_fornecedor, nome_situacao, situacao_id, valor_total, data, cadastrado_em')
         .in('situacao_id', COMPRAS_CUSTO_SITUACAO_IDS)
         .gte('data', start)
-        .lte('data', end);
-      if (!err1 && byData && byData.length > 0) return byData as any[];
-      const { data: byCad, error: err2 } = await supabase
+        .lte('data', end)
+        .order('gc_id', { ascending: true })
+        .range(from, to) as any);
+      if (byData.length > 0) return dedupeBy(byData, r => String(r.gc_id));
+      const byCad = await fetchAllRows<any>((from, to) => supabase
         .from('gc_compras' as any)
         .select('gc_id, codigo, nome_fornecedor, nome_situacao, situacao_id, valor_total, data, cadastrado_em')
         .in('situacao_id', COMPRAS_CUSTO_SITUACAO_IDS)
         .gte('cadastrado_em', start)
-        .lte('cadastrado_em', end + 'T23:59:59');
-      if (err2) throw err2;
-      return (byCad as any[]) ?? [];
+        .lte('cadastrado_em', end + 'T23:59:59')
+        .order('gc_id', { ascending: true })
+        .range(from, to) as any);
+      return dedupeBy(byCad, r => String(r.gc_id));
     },
   });
 
@@ -448,13 +463,14 @@ export const useMetasResultados = (
   const { data: gcRecebimentos = [], isLoading: loadingGcRec, refetch: refetchGcRec } = useQuery({
     queryKey: ['gc_recebimentos_metas', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const rows = await fetchAllRows<any>((from, to) => supabase
         .from('gc_recebimentos')
         .select('gc_id, gc_codigo, descricao, valor, plano_contas_id, centro_custo_id, data_vencimento, liquidado')
         .gte('data_competencia', start)
-        .lte('data_competencia', end);
-      if (error) throw error;
-      return data as { gc_id: string; gc_codigo: string; descricao: string | null; valor: number; plano_contas_id: string | null; centro_custo_id: string | null; data_vencimento: string | null; liquidado: boolean }[];
+        .lte('data_competencia', end)
+        .order('gc_id', { ascending: true })
+        .range(from, to) as any);
+      return dedupeBy(rows, r => String(r.gc_id)) as { gc_id: string; gc_codigo: string; descricao: string | null; valor: number; plano_contas_id: string | null; centro_custo_id: string | null; data_vencimento: string | null; liquidado: boolean }[];
     },
   });
 
@@ -464,15 +480,16 @@ export const useMetasResultados = (
   const { data: gcRecPCM = [], isLoading: loadingGcPCM, refetch: refetchGcPCM } = useQuery({
     queryKey: ['gc_recebimentos_pcm', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const rows = await fetchAllRows<any>((from, to) => supabase
         .from('gc_recebimentos')
         .select('gc_id, gc_codigo, descricao, valor, plano_contas_id, centro_custo_id, data_vencimento, liquidado')
         .in('plano_contas_id', PCM_PLANO_IDS)
         .eq('liquidado', true)
         .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
-      if (error) throw error;
-      return data as { gc_id: string; gc_codigo: string; descricao: string | null; valor: number; plano_contas_id: string | null; centro_custo_id: string | null; data_vencimento: string | null; liquidado: boolean }[];
+        .lte('data_vencimento', end)
+        .order('gc_id', { ascending: true })
+        .range(from, to) as any);
+      return dedupeBy(rows, r => String(r.gc_id)) as { gc_id: string; gc_codigo: string; descricao: string | null; valor: number; plano_contas_id: string | null; centro_custo_id: string | null; data_vencimento: string | null; liquidado: boolean }[];
     },
   });
 
@@ -519,14 +536,15 @@ export const useMetasResultados = (
   const { data: vendasBalcaoRows = [], refetch: refetchVendasBalcao } = useQuery({
     queryKey: ['gc_vendas_balcao', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const rows = await fetchAllRows<any>((from, to) => supabase
         .from('gc_vendas')
         .select('gc_id, valor_produtos, gc_payload_raw, data, situacao_id')
         .in('situacao_id', VENDAS_BALCAO_SITUACAO_IDS)
         .gte('data', start)
-        .lte('data', end);
-      if (error) throw error;
-      return (data ?? []) as { valor_produtos: number | null; gc_payload_raw: any }[];
+        .lte('data', end)
+        .order('gc_id', { ascending: true })
+        .range(from, to) as any);
+      return dedupeBy(rows, r => String(r.gc_id)) as { valor_produtos: number | null; gc_payload_raw: any }[];
     },
   });
   const vendasBalcao = useMemo(() => {
