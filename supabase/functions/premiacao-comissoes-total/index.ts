@@ -84,7 +84,17 @@ Deno.serve(async (req) => {
       month = `${y}-${String(m).padStart(2, "0")}`;
     }
     if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("month deve ser 'YYYY-MM'");
-    const aguardar = body?.aguardar === true;
+    // Esperar não é opção: a própria edge morre no limite de 150 s de idle. O cálculo roda
+    // sempre em segundo plano (waitUntil, sobrevive à resposta) e a resposta usa o cache.
+    const dispararRecalculo = () => {
+      const rt = (globalThis as { EdgeRuntime?: { waitUntil: (p: Promise<unknown>) => void } }).EdgeRuntime;
+      const tarefa = recalcular(month).catch((e) => {
+        console.error(`[premiacao] ${month} background falhou: ${(e as Error).message}`);
+        return null;
+      });
+      if (rt?.waitUntil) rt.waitUntil(tarefa);
+      return tarefa;
+    };
 
     const { data: cache } = await admin()
       .from("fin_premiacao_cache")
@@ -92,32 +102,17 @@ Deno.serve(async (req) => {
       .eq("mes", month)
       .maybeSingle();
 
-    if (aguardar || !cache) {
-      // Sem cache não há o que devolver: aqui vale esperar o cálculo (uso do cron).
-      const calc = await recalcular(month);
-      const { data: novo } = await admin()
-        .from("fin_premiacao_cache")
-        .select("comissao_final, comissao_total, faturamento_premiacao, calculado_em, versao")
-        .eq("mes", month)
-        .maybeSingle();
-      if (!novo) {
-        return json({ ok: false, month, error: calc ? "cache não gravado" : "Premiação indisponível e sem valor anterior" });
-      }
+    if (!cache) {
+      dispararRecalculo();
       return json({
-        ok: true, month, origem: "premiacao", degradado: false, atualizando: false,
-        calculado_em: novo.calculado_em, versao: novo.versao,
-        comissao_final: Number(novo.comissao_final) || 0,
-        comissao_total: Number(novo.comissao_total) || 0,
-        faturamento_premiacao: Number(novo.faturamento_premiacao) || 0,
+        ok: false, month, atualizando: true,
+        error: "Premiação ainda sendo calculada para este mês — o valor aparece no próximo carregamento",
       });
     }
 
     const idade = Date.now() - new Date(String(cache.calculado_em)).getTime();
     // Recalcula em segundo plano — a resposta não espera.
-    try {
-      (globalThis as { EdgeRuntime?: { waitUntil: (p: Promise<unknown>) => void } }).EdgeRuntime
-        ?.waitUntil(recalcular(month).catch(() => null));
-    } catch { /* runtime sem waitUntil */ }
+    dispararRecalculo();
 
     return json({
       ok: true,
