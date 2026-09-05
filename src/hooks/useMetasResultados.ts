@@ -907,8 +907,12 @@ export const useMetasResultados = (
       let provisionado = false;
       if (isMetaImposto && meta.tipo_meta === 'percentual') {
         const estimativa = (aliquotaEfetiva.aliquota ?? (meta.meta_percentual || 0)) * basePercentual;
-        if (realizado < estimativa * 0.5) {
-          realizado = estimativa;
+        // Parcelamento de dívida antiga não indica que a guia do mês já foi lançada: se entrar
+        // nessa comparação, a provisão deixa de aparecer e o imposto do mês fica subestimado.
+        const parcelamentoAjustado = impostosDetalhe.parcelamentos * fatorRealizado;
+        const correntes = Math.max(0, realizado - parcelamentoAjustado);
+        if (correntes < estimativa * 0.5) {
+          realizado = estimativa + parcelamentoAjustado;
           provisionado = true;
         }
       }
@@ -922,7 +926,7 @@ export const useMetasResultados = (
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso, provisionado };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, pagamentosImpostoRef, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, execTotal, baseComissoes, comissoesPremiacao, planoContasMap, centrosCustoMap, includeCommercial, rateioFator, fracaoProrata, aliquotaEfetiva]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, pagamentosImpostoRef, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, execTotal, baseComissoes, comissoesPremiacao, planoContasMap, centrosCustoMap, includeCommercial, rateioFator, fracaoProrata, aliquotaEfetiva, impostosDetalhe]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
   // Erro de leitura (ex.: statement timeout com o banco lento) NÃO é tabela vazia: a tela
