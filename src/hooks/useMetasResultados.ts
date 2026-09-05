@@ -14,6 +14,7 @@ export interface Meta {
   tipo_meta: 'absoluto' | 'percentual';
   meta_valor: number | null;
   meta_percentual: number | null;
+  fonte?: string | null;
 }
 
 export interface MetaPlanoContas {
@@ -32,6 +33,45 @@ export interface MetaComResultado extends Meta {
   progresso: number;
   provisionado?: boolean;
 }
+
+// Classificação da meta. A regra vem de fin_metas.fonte (coluna explícita), NUNCA do nome:
+// heurística por substring é instável — 'at' casava com "Contratos", e renomear uma meta na tela
+// trocava silenciosamente a fórmula do realizado.
+export type MetaFonte =
+  | 'receita_pcm' | 'receita_locacao' | 'receita_servicos' | 'receita_ecolab' | 'receita_produtos'
+  | 'custo_venda_produtos' | 'custo_pecas_operacao' | 'comissoes' | 'impostos' | 'prolabore' | 'generico';
+
+const FONTES_VALIDAS = new Set<MetaFonte>([
+  'receita_pcm', 'receita_locacao', 'receita_servicos', 'receita_ecolab', 'receita_produtos',
+  'custo_venda_produtos', 'custo_pecas_operacao', 'comissoes', 'impostos', 'prolabore', 'generico',
+]);
+
+/** Fallback só para metas novas ainda sem `fonte` gravada. */
+const inferirFonteLegado = (meta: Pick<Meta, 'nome' | 'categoria'>): MetaFonte => {
+  const n = meta.nome.toLowerCase();
+  const receita = meta.categoria === 'receita';
+  if (!receita && (n.includes('comiss') || n.includes('premia'))) return 'comissoes';
+  if (!receita && n.includes('impost')) return 'impostos';
+  if (!receita && n.includes('labore')) return 'prolabore';
+  if (!receita && n.includes('venda') && n.includes('produto')) return 'custo_venda_produtos';
+  if (!receita && meta.categoria === 'custo_variavel' && isMetaPecasOperacao(n)) return 'custo_pecas_operacao';
+  if (receita && (n.includes('contrato') || n.includes('pcm'))) return 'receita_pcm';
+  if (receita && n.includes('loca')) return 'receita_locacao';
+  if (receita && (n.includes('ecolab') || n.includes('chamado'))) return 'receita_ecolab';
+  if (receita && (n.includes('coifa') || n.includes('execu') || n.includes('higieniza'))) return 'receita_servicos';
+  if (receita && (n.includes('venda') || n.includes('produto') || n.includes('peça'))) return 'receita_produtos';
+  return 'generico';
+};
+
+export const classificarMeta = (meta: Pick<Meta, 'nome' | 'categoria' | 'fonte'>): MetaFonte => {
+  const f = String(meta.fonte || '').trim() as MetaFonte;
+  if (FONTES_VALIDAS.has(f) && f !== 'generico') return f;
+  if (f === 'generico') return 'generico';
+  return inferirFonteLegado(meta);
+};
+
+// Receitas de venda de produtos/peças — excluídas do modo "Apenas Serviços".
+const FONTES_COMERCIAL = new Set<MetaFonte>(['receita_produtos', 'custo_venda_produtos']);
 
 // ─── UTILITÁRIOS ────────────────────────────────────────────────────────────
 export const formatBRL = (v: number) =>
@@ -147,10 +187,11 @@ export const computeAjustesMeta = (
   rateioFator: number,
   fracaoProrata: number,
   includeCommercial: boolean = true,
+  fonte?: MetaFonte,
 ) => {
-  const nomeLower = nome.toLowerCase();
-  const isImposto = categoria === 'custo_variavel' && nomeLower.includes('impost');
-  const isProlabore = categoria === 'custo_fixo' && nomeLower.includes('labore');
+  const efetiva = fonte ?? inferirFonteLegado({ nome, categoria });
+  const isImposto = categoria === 'custo_variavel' && efetiva === 'impostos';
+  const isProlabore = categoria === 'custo_fixo' && efetiva === 'prolabore';
   const fatorComercial = !includeCommercial && isProlabore ? 1 - PROLABORE_FRACAO_COMERCIAL : 1;
   const prorata = categoria === 'custo_fixo' ? fracaoProrata : 1;
   return {
@@ -218,6 +259,8 @@ export const escolherComissoes = (
   return { valor: pagasM1, fonte: 'pagas_m1', em: null };
 };
 
+const PLANO_PCM_CONTRATOS = '27867721';
+const PLANO_PCM_LOCACAO = '27867722';
 const PLANO_COMISSOES_ID = 'e7299b90-98d2-4d7a-a04c-78ba40cc847a';
 type PremiacaoTotais = { comissao_total: number; comissao_final: number; faturamento_premiacao: number };
 const premiacaoCacheKey = (m: string) => `wedo:premiacao-totais:${m}`;
@@ -629,37 +672,39 @@ export const useMetasResultados = (
     queryKey: ['impostos_aliquota_efetiva', histStart, histEnd],
     staleTime: 30 * 60 * 1000,
     queryFn: async () => {
+      // O histórico anual estoura 1000 linhas facilmente: sem paginação a alíquota efetiva
+      // era calculada sobre uma receita truncada (alíquota inflada).
       const [guias, os, pcm, vendas] = await Promise.all([
-        supabase.from('fin_pagamentos').select('valor, data_vencimento')
+        fetchAllRows<any>((f, t) => supabase.from('fin_pagamentos').select('id, valor, data_vencimento')
           .in('plano_contas_id', [...PLANOS_IMPOSTO_IDS]).neq('status', 'cancelado')
-          .gte('data_vencimento', guiasStart).lte('data_vencimento', guiasEnd),
-        supabase.from('os_index').select('valor_total, data_saida')
-          .in('nome_situacao', OS_EXECUTADOS_STATUS).gte('data_saida', histStart).lte('data_saida', histEnd),
-        supabase.from('gc_recebimentos').select('valor, data_vencimento')
+          .gte('data_vencimento', guiasStart).lte('data_vencimento', guiasEnd)
+          .order('id', { ascending: true }).range(f, t) as any),
+        fetchAllRows<any>((f, t) => supabase.from('os_index').select('os_id, valor_total, data_saida')
+          .in('nome_situacao', OS_EXECUTADOS_STATUS).gte('data_saida', histStart).lte('data_saida', histEnd)
+          .order('os_id', { ascending: true }).range(f, t) as any),
+        fetchAllRows<any>((f, t) => supabase.from('gc_recebimentos').select('gc_id, valor, data_vencimento')
           .in('plano_contas_id', PCM_PLANO_IDS).eq('liquidado', true)
-          .gte('data_vencimento', histStart).lte('data_vencimento', histEnd),
-        supabase.from('gc_vendas').select('valor_total, data')
-          .eq('situacao_id', VENDAS_SITUACAO_CONCRETIZADA).gte('data', histStart).lte('data', histEnd),
+          .gte('data_vencimento', histStart).lte('data_vencimento', histEnd)
+          .order('gc_id', { ascending: true }).range(f, t) as any),
+        fetchAllRows<any>((f, t) => supabase.from('gc_vendas').select('gc_id, valor_total, data')
+          .eq('situacao_id', VENDAS_SITUACAO_CONCRETIZADA).gte('data', histStart).lte('data', histEnd)
+          .order('gc_id', { ascending: true }).range(f, t) as any),
       ]);
-      if (guias.error) throw guias.error;
-      if (os.error) throw os.error;
-      if (pcm.error) throw pcm.error;
-      if (vendas.error) throw vendas.error;
       const mes = (d: string | null) => String(d || '').slice(0, 7);
       const mesAnterior = (m: string) => {
         const [y, mm] = m.split('-').map(Number);
         return mm === 1 ? `${y - 1}-12` : `${y}-${String(mm - 1).padStart(2, '0')}`;
       };
       const guiasPorMesRef: Record<string, number> = {};
-      for (const g of guias.data || []) {
+      for (const g of dedupeBy(guias, r => String(r.id))) {
         const k = mesAnterior(mes(g.data_vencimento));
         guiasPorMesRef[k] = (guiasPorMesRef[k] || 0) + Math.abs(Number(g.valor) || 0);
       }
       const receitaPorMes: Record<string, number> = {};
       const add = (k: string, v: number) => { receitaPorMes[k] = (receitaPorMes[k] || 0) + v; };
-      for (const o of os.data || []) add(mes(o.data_saida), Number(o.valor_total) || 0);
-      for (const p of pcm.data || []) add(mes(p.data_vencimento), Number(p.valor) || 0);
-      for (const v of vendas.data || []) add(mes(v.data), Number(v.valor_total) || 0);
+      for (const o of dedupeBy(os, r => String(r.os_id))) add(mes(o.data_saida), Number(o.valor_total) || 0);
+      for (const p of dedupeBy(pcm, r => String(r.gc_id))) add(mes(p.data_vencimento), Number(p.valor) || 0);
+      for (const v of dedupeBy(vendas, r => String(r.gc_id))) add(mes(v.data), Number(v.valor_total) || 0);
       return { guiasPorMesRef, receitaPorMes };
     },
   });
@@ -687,13 +732,8 @@ export const useMetasResultados = (
 
   const metasComResultado = useMemo((): MetaComResultado[] => {
     return metas.filter(meta => {
-      if (!includeCommercial) {
-        const nome = meta.nome.toLowerCase();
-        // Ignora meta de custo de venda de produtos se comercial estiver desativado
-        if (meta.categoria === 'custo_variavel' && nome.includes('venda') && nome.includes('produto')) return false;
-        // Ignora meta de receita de venda de produtos se comercial estiver desativado
-        if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto'))) return false;
-      }
+      // Modo "Apenas Serviços": sai receita e custo de venda de produtos (pela fonte, não pelo nome).
+      if (!includeCommercial && FONTES_COMERCIAL.has(classificarMeta(meta))) return false;
       return true;
     }).map(meta => {
       const rawLinks = mapeamentos.filter(m => m.meta_id === meta.id);
@@ -711,17 +751,26 @@ export const useMetasResultados = (
       const countedRecords = new Set<string>();
       let realizado = 0;
       const nome = meta.nome.toLowerCase();
+      const fonte = classificarMeta(meta);
 
       // Comissões / Premiações (Técnicos): fonte oficial = tela de Premiação (Auvo GC Sync)
-      if (meta.categoria !== 'receita' && (nome.includes('comiss') || nome.includes('premia'))) {
+      if (fonte === 'comissoes') {
         realizado = comissoesPremiacao;
       }
-      else if (meta.categoria === 'receita' && (nome.includes('contrato') || nome.includes('pcm'))) {
+      else if (fonte === 'receita_pcm') {
         realizado = gcRecPCM
-          .filter(r => r.plano_contas_id === '27867721')
+          .filter(r => r.plano_contas_id === PLANO_PCM_CONTRATOS)
           .reduce((acc, r) => acc + (r.valor || 0), 0);
       }
-      else if (meta.categoria === 'receita' && (nome.includes('at') || nome.includes('coifa') || nome.includes('higienização'))) {
+      // Locação de Equipamentos vem do MESMO conjunto do card de contratos (recebimentos
+      // liquidados no plano de locação). Antes caía no genérico (fin_recebimentos por
+      // vencimento) e divergia do card por causa de outra base.
+      else if (fonte === 'receita_locacao') {
+        realizado = gcRecPCM
+          .filter(r => r.plano_contas_id === PLANO_PCM_LOCACAO)
+          .reduce((acc, r) => acc + (r.valor || 0), 0);
+      }
+      else if (fonte === 'receita_servicos') {
         const EXEC_SERVICO_STATUS = [
           'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
           'EXECUTADO - AGUARDANDO PAGAMENTO',
@@ -732,7 +781,7 @@ export const useMetasResultados = (
           .filter(os => EXEC_SERVICO_STATUS.includes(os.nome_situacao ?? ''))
           .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
       }
-      else if (meta.categoria === 'receita' && (nome.includes('ecolab') || nome.includes('chamado'))) {
+      else if (fonte === 'receita_ecolab') {
         const ECOLAB_STATUS = [
           'EXECUTADO - FECHADO CHAMADO',
           'CHAMADO FECHADO - FATURADO'
@@ -741,14 +790,14 @@ export const useMetasResultados = (
           .filter(os => ECOLAB_STATUS.includes(os.nome_situacao ?? ''))
           .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
       }
-      else if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto') || nome.includes('peça'))) {
+      else if (fonte === 'receita_produtos') {
         realizado = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
       }
-      else if (meta.categoria === 'custo_variavel' && nome.includes('venda') && nome.includes('produto')) {
+      else if (fonte === 'custo_venda_produtos') {
         // Custo real (valor_custo GC) das vendas de produtos concretizadas no período
         realizado = custoVendasProdutos;
       }
-      else if (meta.categoria === 'custo_variavel' && isMetaPecasOperacao(nome)) {
+      else if (fonte === 'custo_pecas_operacao') {
         // Custo da operação = custo REAL das peças que saíram do estoque para OS no período
         // + custo das saídas internas (Uso Interno / Maleta) que também consomem estoque.
         // Excluímos peças de 'Ecolab / Chamados' do custo de operação/serviços.
@@ -799,11 +848,9 @@ export const useMetasResultados = (
       // - Comissões/Premiações: Ecolab + Execução Serviços/Coifas
       // - Custo de peças/operações: APENAS Execução + Coifas (não inclui PCM, Vendas, Ecolab)
       // - Demais: Faturamento Executado total
-      const isComissao = nome.includes('comiss') || nome.includes('premia');
-      const isCustoVendaProdutos =
-        meta.categoria === 'custo_variavel' && nome.includes('venda') && nome.includes('produto');
-      const isCustoPecasOperacao =
-        !isCustoVendaProdutos && meta.categoria === 'custo_variavel' && isMetaPecasOperacao(nome);
+      const isComissao = fonte === 'comissoes';
+      const isCustoVendaProdutos = fonte === 'custo_venda_produtos';
+      const isCustoPecasOperacao = fonte === 'custo_pecas_operacao';
 
       const baseExecCoifa = osExecutadas
         .filter(os =>
@@ -825,7 +872,7 @@ export const useMetasResultados = (
 
       // Rateio (Apenas Serviços) e pró-rata (mês corrente) — fixos e impostos.
       // Metas percentuais não recebem rateio: a base (execTotal) já encolhe no modo serviços.
-      const { fatorRealizado, fatorMetaAbsoluta } = computeAjustesMeta(meta.categoria, nome, rateioFator, fracaoProrata, includeCommercial);
+      const { fatorRealizado, fatorMetaAbsoluta } = computeAjustesMeta(meta.categoria, nome, rateioFator, fracaoProrata, includeCommercial, fonte);
       realizado = realizado * fatorRealizado;
 
       const meta_calculada =
@@ -838,7 +885,7 @@ export const useMetasResultados = (
       // (< 50% da estimativa), mostra a estimativa pela alíquota efetiva dos últimos meses
       // fechados — igual ao Raio-X; sem histórico, cai na meta %. Um mês fechado com alíquota
       // real abaixo da estimativa mantém o valor real das guias.
-      const isMetaImposto = meta.categoria === 'custo_variavel' && nome.includes('impost');
+      const isMetaImposto = fonte === 'impostos' && meta.categoria === 'custo_variavel';
       let provisionado = false;
       if (isMetaImposto && meta.tipo_meta === 'percentual') {
         const estimativa = (aliquotaEfetiva.aliquota ?? (meta.meta_percentual || 0)) * basePercentual;
