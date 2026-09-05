@@ -182,7 +182,7 @@ export default function MetasOrcamentoPage() {
   const [includeCommercial, setIncludeCommercial] = useState(true);
   const [prorataFixos, setProrataFixos] = useState(true);
 
-  const { metasComResultado, execTotal, rateioFator, folhaComercialExcluida, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, aliquotaEfetiva, outrosCustos, comissoesFonte, comissoesAtualizadoEm, loadingPremiacao, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth, includeCommercial, prorataFixos);
+  const { metasComResultado, execTotal, rateioFator, folhaComercialExcluida, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, erros, dadosIncompletos, impostosDetalhe, aliquotaEfetiva, outrosCustos, comissoesFonte, comissoesAtualizadoEm, loadingPremiacao, saidasPecasOs, comprasPecasTotal, vendasBalcao } = useMetasResultados(selectedYear, selectedMonth, includeCommercial, prorataFixos);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -340,6 +340,35 @@ export default function MetasOrcamentoPage() {
         </div>
       </div>
 
+
+      {dadosIncompletos && (
+        <div className="rounded-md bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-700 dark:text-red-400 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <div>
+            <strong>Números incompletos.</strong> Parte dos dados não foi lida, então os totais e a margem
+            abaixo estão menores que a realidade. Clique em recarregar; não é falta de lançamento.
+            <ul className="mt-1 list-disc pl-4 text-xs opacity-90">
+              {erros.map(e => <li key={e.fonte}>{e.fonte}: {e.mensagem}</li>)}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {impostosDetalhe.parcelamentos > 0 && (
+        <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-3 text-sm text-amber-700 dark:text-amber-400 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <div>
+            Dentro de Impostos há <strong>{formatBRL(impostosDetalhe.parcelamentos)}</strong> de parcelamento
+            de dívida (não é imposto sobre a receita deste mês). Guias correntes:{' '}
+            <strong>{formatBRL(impostosDetalhe.correntes)}</strong>.
+            <ul className="mt-1 list-disc pl-4 text-xs opacity-90">
+              {impostosDetalhe.itensParcelamento.slice(0, 4).map((i, idx) => (
+                <li key={idx}>{i.descricao} — {formatBRL(i.valor)}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {osError && (
         <div className="rounded-md bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-700 dark:text-red-400 flex items-center gap-2">
