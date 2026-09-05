@@ -262,7 +262,10 @@ export const escolherComissoes = (
 const PLANO_PCM_CONTRATOS = '27867721';
 const PLANO_PCM_LOCACAO = '27867722';
 const PLANO_COMISSOES_ID = 'e7299b90-98d2-4d7a-a04c-78ba40cc847a';
-type PremiacaoTotais = { comissao_total: number; comissao_final: number; faturamento_premiacao: number };
+type PremiacaoTotais = {
+  comissao_total: number; comissao_final: number; faturamento_premiacao: number;
+  origem?: string; calculado_em?: string | null; degradado?: boolean;
+};
 const premiacaoCacheKey = (m: string) => `wedo:premiacao-totais:${m}`;
 const lerPremiacaoCache = (m: string): { valor: number; em: string } | null => {
   try {
@@ -275,6 +278,11 @@ const lerPremiacaoCache = (m: string): { valor: number; em: string } | null => {
 const gravarPremiacaoCache = (m: string, valor: number) => {
   try { localStorage.setItem(premiacaoCacheKey(m), JSON.stringify({ valor, em: new Date().toISOString() })); } catch { /* sem storage */ }
 };
+
+// Parcelamento/dívida antiga de imposto é caixa do mês, mas NÃO é imposto sobre a receita do
+// mês: se entrar na alíquota efetiva, infla a provisão dos meses seguintes.
+export const isParcelamentoImposto = (r: { descricao?: string | null; nome_fornecedor?: string | null }) =>
+  /parcelament|refis|pgfn|d[ií]vida\s*ativa|pert\b|reneg/i.test(`${r.descricao ?? ''} ${r.nome_fornecedor ?? ''}`);
 
 // ─── HOOK ──────────────────────────────────────────────────────────────────
 export const useMetasResultados = (
@@ -616,7 +624,7 @@ export const useMetasResultados = (
       const { data, error } = resultado as { data: any; error: any };
       if (error) throw error;
       if (!data || data.ok === false || typeof data.comissao_final !== 'number') throw new Error(data?.error || 'Falha ao buscar premiações');
-      gravarPremiacaoCache(monthStr, Number(data.comissao_final) || 0);
+      if (data.origem !== 'cache') gravarPremiacaoCache(monthStr, Number(data.comissao_final) || 0);
       return data as PremiacaoTotais;
     },
     staleTime: 10 * 60 * 1000,
@@ -631,11 +639,20 @@ export const useMetasResultados = (
       .filter(r => r.plano_contas_id === PLANO_COMISSOES_ID)
       .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0),
   [pagamentosImpostoRef]);
-  const comissoesEscolha = useMemo(() => escolherComissoes(
-    premiacaoTotais ? Number(premiacaoTotais.comissao_final) : null,
-    premiacaoTotais ? null : lerPremiacaoCache(monthStr),
-    comissoesPagasM1,
-  ), [premiacaoTotais, monthStr, comissoesPagasM1]);
+  // O cache agora vive no banco (fin_premiacao_cache): a edge devolve origem = 'cache' quando
+  // a Premiação está fora do ar. Isso precisa continuar sinalizado na tela — não pode passar
+  // por número recém-calculado.
+  const comissoesEscolha = useMemo(() => {
+    const doServidor = premiacaoTotais ? Number(premiacaoTotais.comissao_final) : null;
+    if (premiacaoTotais && premiacaoTotais.origem === 'cache') {
+      return {
+        valor: doServidor ?? 0,
+        fonte: 'cache' as ComissoesFonte,
+        em: premiacaoTotais.calculado_em ?? null,
+      };
+    }
+    return escolherComissoes(doServidor, premiacaoTotais ? null : lerPremiacaoCache(monthStr), comissoesPagasM1);
+  }, [premiacaoTotais, monthStr, comissoesPagasM1]);
   const comissoesPremiacao = comissoesEscolha.valor;
   const comissoesFonte = comissoesEscolha.fonte;
   const comissoesAtualizadoEm = comissoesEscolha.em;
@@ -675,7 +692,7 @@ export const useMetasResultados = (
       // O histórico anual estoura 1000 linhas facilmente: sem paginação a alíquota efetiva
       // era calculada sobre uma receita truncada (alíquota inflada).
       const [guias, os, pcm, vendas] = await Promise.all([
-        fetchAllRows<any>((f, t) => supabase.from('fin_pagamentos').select('id, valor, data_vencimento')
+        fetchAllRows<any>((f, t) => supabase.from('fin_pagamentos').select('id, valor, data_vencimento, descricao, nome_fornecedor')
           .in('plano_contas_id', [...PLANOS_IMPOSTO_IDS]).neq('status', 'cancelado')
           .gte('data_vencimento', guiasStart).lte('data_vencimento', guiasEnd)
           .order('id', { ascending: true }).range(f, t) as any),
@@ -697,6 +714,7 @@ export const useMetasResultados = (
       };
       const guiasPorMesRef: Record<string, number> = {};
       for (const g of dedupeBy(guias, r => String(r.id))) {
+        if (isParcelamentoImposto(g)) continue; // não é imposto da receita daquele mês
         const k = mesAnterior(mes(g.data_vencimento));
         guiasPorMesRef[k] = (guiasPorMesRef[k] || 0) + Math.abs(Number(g.valor) || 0);
       }
@@ -959,11 +977,30 @@ export const useMetasResultados = (
   }, [errMetas, errMap, errPlanos, errRec, errPag, errPagComp, errImpRef, errorOS, errVendas, errCompras, errGcRec, errGcPCM, errBalcao, errHist]);
   const dadosIncompletos = erros.length > 0;
 
+  // Impostos do mês de referência, separando guias correntes de parcelamentos de dívida.
+  const impostosDetalhe = useMemo(() => {
+    const linhas = pagamentosImpostoRef.filter(r => PLANOS_IMPOSTO_IDS.has(String(r.plano_contas_id)));
+    let correntes = 0;
+    let parcelamentos = 0;
+    const itensParcelamento: { descricao: string; valor: number }[] = [];
+    for (const r of linhas) {
+      const v = Math.abs(Number(r.valor) || 0);
+      if (isParcelamentoImposto(r)) {
+        parcelamentos += v;
+        itensParcelamento.push({ descricao: r.descricao || r.nome_fornecedor || '(sem descrição)', valor: v });
+      } else {
+        correntes += v;
+      }
+    }
+    itensParcelamento.sort((a, b) => b.valor - a.valor);
+    return { correntes, parcelamentos, itensParcelamento };
+  }, [pagamentosImpostoRef]);
+
   const refetch = useCallback(() => {
     refetchRec(); refetchPag(); refetchPagComp(); refetchImpRef(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchVendasBalcao(); refetchPremiacao(); refetchHist();
   }, [refetchRec, refetchPag, refetchPagComp, refetchImpRef, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchVendasBalcao, refetchPremiacao, refetchHist]);
 
   const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingImpRef || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingHist;
 
-  return { metasComResultado, execTotal, execTotalFull, rateioFator, folhaComercialExcluida, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, erros, dadosIncompletos, aliquotaEfetiva, outrosCustos, comissoesFonte, comissoesAtualizadoEm, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
+  return { metasComResultado, execTotal, execTotalFull, rateioFator, folhaComercialExcluida, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, erros, dadosIncompletos, impostosDetalhe, aliquotaEfetiva, outrosCustos, comissoesFonte, comissoesAtualizadoEm, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
 };
