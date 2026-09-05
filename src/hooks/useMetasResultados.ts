@@ -293,7 +293,7 @@ export const useMetasResultados = (
   const diasNoMes = new Date(year, month, 0).getDate();
   const fracaoProrata = prorataFixos && isCurrentMonth ? hoje.getDate() / diasNoMes : 1;
 
-  const { data: metas = [], isLoading: loadingMetas } = useQuery({
+  const { data: metas = [], isLoading: loadingMetas, error: errMetas } = useQuery({
     queryKey: ['fin_metas'],
     queryFn: async () => {
       const { data, error } = await supabase.from('fin_metas').select('*').eq('ativo', true);
@@ -303,7 +303,7 @@ export const useMetasResultados = (
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: mapeamentos = [], isLoading: loadingMap } = useQuery({
+  const { data: mapeamentos = [], isLoading: loadingMap, error: errMap } = useQuery({
     queryKey: ['fin_meta_plano_contas'],
     queryFn: async () => {
       const { data, error } = await supabase.from('fin_meta_plano_contas').select('*');
@@ -313,7 +313,7 @@ export const useMetasResultados = (
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: planos = { map: {}, nomes: {} }, isLoading: loadingPlanos } = useQuery({
+  const { data: planos = { map: {}, nomes: {} }, isLoading: loadingPlanos, error: errPlanos } = useQuery({
     queryKey: ['fin_plano_contas_gc_map_nomes'],
     queryFn: async () => {
       const { data, error } = await supabase.from('fin_plano_contas').select('id, gc_id, nome');
@@ -345,7 +345,7 @@ export const useMetasResultados = (
     staleTime: 10 * 60 * 1000,
   });
 
-  const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec } = useQuery({
+  const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec, error: errRec } = useQuery({
     queryKey: ['fin_recebimentos_metas', start, end],
     queryFn: async () => {
       const rows = await fetchAllRows<{ id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }>(
@@ -361,7 +361,7 @@ export const useMetasResultados = (
     },
   });
 
-  const { data: pagamentos = [], isLoading: loadingPag, refetch: refetchPag } = useQuery({
+  const { data: pagamentos = [], isLoading: loadingPag, refetch: refetchPag, error: errPag } = useQuery({
     queryKey: ['fin_pagamentos_metas', start, end],
     queryFn: async () => {
       const rows = await fetchAllRows<{ id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null; descricao: string | null; nome_fornecedor: string | null }>(
@@ -379,7 +379,7 @@ export const useMetasResultados = (
 
   // Pagamentos filtrados por DATA DE COMPETÊNCIA (para Comissões/Premiações e Despesas com Veículos).
   // Esses custos devem refletir o mês de competência, não o vencimento.
-  const { data: pagamentosCompetencia = [], isLoading: loadingPagComp, refetch: refetchPagComp } = useQuery({
+  const { data: pagamentosCompetencia = [], isLoading: loadingPagComp, refetch: refetchPagComp, error: errPagComp } = useQuery({
     queryKey: ['fin_pagamentos_metas_competencia', start, end],
     queryFn: async () => {
       const rows = await fetchAllRows<{ id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }>(
@@ -400,7 +400,7 @@ export const useMetasResultados = (
   const nextMonthYear = month === 12 ? year + 1 : year;
   const nextMonth = month === 12 ? 1 : month + 1;
   const { start: refStart, end: refEnd } = getPeriodRange(nextMonthYear, nextMonth);
-  const { data: pagamentosImpostoRef = [], isLoading: loadingImpRef, refetch: refetchImpRef } = useQuery({
+  const { data: pagamentosImpostoRef = [], isLoading: loadingImpRef, refetch: refetchImpRef, error: errImpRef } = useQuery({
     queryKey: ['fin_pagamentos_impostos_ref', refStart, refEnd],
     queryFn: async () => {
       const rows = await fetchAllRows<{ id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; descricao: string | null; nome_fornecedor: string | null }>(
@@ -458,7 +458,7 @@ export const useMetasResultados = (
   // Vendas: somente Concretizada (situacao_id = 7063585) entra no faturamento.
   // Mantemos no banco vendas Canceladas/Outras pra rastreabilidade, mas filtramos aqui.
   const VENDAS_SITUACAO_CONCRETIZADA = '7063585';
-  const { data: vendasConcretizadas = [], isLoading: loadingVendas, refetch: refetchVendas } = useQuery({
+  const { data: vendasConcretizadas = [], isLoading: loadingVendas, refetch: refetchVendas, error: errVendas } = useQuery({
     queryKey: ['gc_vendas_metas', start, end],
     queryFn: async () => {
       const rows = await fetchAllRows<any>((from, to) => supabase
@@ -477,7 +477,7 @@ export const useMetasResultados = (
   // 1675070 (Finalizado - mercadoria chegou) e 1675083 (COMPRADO - AG CHEGADA).
   // NÃO inclui "COMPRADO - AG CHEGADA PARA ESTOQUE" nem outras variantes.
   const COMPRAS_CUSTO_SITUACAO_IDS = ['1675070', '1675083'];
-  const { data: comprasFinalizadas = [], isLoading: loadingCompras, refetch: refetchCompras } = useQuery({
+  const { data: comprasFinalizadas = [], isLoading: loadingCompras, refetch: refetchCompras, error: errCompras } = useQuery({
     queryKey: ['gc_compras_metas', start, end],
     queryFn: async () => {
       const byData = await fetchAllRows<any>((from, to) => supabase
@@ -503,7 +503,7 @@ export const useMetasResultados = (
 
 
   // gc_recebimentos filtrado por competência (para categorias gerais)
-  const { data: gcRecebimentos = [], isLoading: loadingGcRec, refetch: refetchGcRec } = useQuery({
+  const { data: gcRecebimentos = [], isLoading: loadingGcRec, refetch: refetchGcRec, error: errGcRec } = useQuery({
     queryKey: ['gc_recebimentos_metas', start, end],
     queryFn: async () => {
       const rows = await fetchAllRows<any>((from, to) => supabase
@@ -520,7 +520,7 @@ export const useMetasResultados = (
   // Contratos PCM: APENAS Confirmado / Confirmado Manual (liquidado=true).
   // Atrasado/Em Aberto NÃO entra (cliente pode cancelar antes de pagar).
   const PCM_PLANO_IDS = ['27867721', '27867722'];
-  const { data: gcRecPCM = [], isLoading: loadingGcPCM, refetch: refetchGcPCM } = useQuery({
+  const { data: gcRecPCM = [], isLoading: loadingGcPCM, refetch: refetchGcPCM, error: errGcPCM } = useQuery({
     queryKey: ['gc_recebimentos_pcm', start, end],
     queryFn: async () => {
       const rows = await fetchAllRows<any>((from, to) => supabase
@@ -576,7 +576,7 @@ export const useMetasResultados = (
   // Venda de Balcão: situacao_id 7340612 ("Concretizada - Uso Interno / Maleta").
   // Faturamento = valor_produtos (exclui frete); custo = valor_custo do payload GC.
   const VENDAS_BALCAO_SITUACAO_IDS = ['7340612'];
-  const { data: vendasBalcaoRows = [], refetch: refetchVendasBalcao } = useQuery({
+  const { data: vendasBalcaoRows = [], refetch: refetchVendasBalcao, error: errBalcao } = useQuery({
     queryKey: ['gc_vendas_balcao', start, end],
     queryFn: async () => {
       const rows = await fetchAllRows<any>((from, to) => supabase
@@ -668,7 +668,7 @@ export const useMetasResultados = (
   const histEnd = getPeriodRange(histFim.y, histFim.m).end;
   const guiasStart = getPeriodRange(guiasIni.y, guiasIni.m).start;
   const guiasEnd = end;
-  const { data: historicoImpostos, isLoading: loadingHist } = useQuery({
+  const { data: historicoImpostos, isLoading: loadingHist, error: errHist, refetch: refetchHist } = useQuery({
     queryKey: ['impostos_aliquota_efetiva', histStart, histEnd],
     staleTime: 30 * 60 * 1000,
     queryFn: async () => {
@@ -934,11 +934,36 @@ export const useMetasResultados = (
   );
 
 
+  // Uma consulta que falhou NÃO é um total menor: a tela precisa dizer que o número está
+  // incompleto, em vez de mostrar margem calculada sobre dados que não chegaram.
+  const erros = useMemo(() => {
+    const lista: { fonte: string; mensagem: string }[] = [];
+    const add = (fonte: string, e: unknown) => {
+      if (e) lista.push({ fonte, mensagem: (e as Error).message || 'falha de leitura' });
+    };
+    add('Metas', errMetas);
+    add('Mapeamentos de plano de contas', errMap);
+    add('Plano de contas', errPlanos);
+    add('Contas a receber', errRec);
+    add('Contas a pagar', errPag);
+    add('Contas a pagar (competência)', errPagComp);
+    add('Guias de impostos', errImpRef);
+    add('Ordens de serviço', errorOS);
+    add('Vendas', errVendas);
+    add('Compras', errCompras);
+    add('Recebimentos GC', errGcRec);
+    add('Contratos / Locação', errGcPCM);
+    add('Vendas de balcão / uso interno', errBalcao);
+    add('Histórico de impostos', errHist);
+    return lista;
+  }, [errMetas, errMap, errPlanos, errRec, errPag, errPagComp, errImpRef, errorOS, errVendas, errCompras, errGcRec, errGcPCM, errBalcao, errHist]);
+  const dadosIncompletos = erros.length > 0;
+
   const refetch = useCallback(() => {
-    refetchRec(); refetchPag(); refetchPagComp(); refetchImpRef(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchPremiacao();
-  }, [refetchRec, refetchPag, refetchPagComp, refetchImpRef, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchPremiacao]);
+    refetchRec(); refetchPag(); refetchPagComp(); refetchImpRef(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchVendasBalcao(); refetchPremiacao(); refetchHist();
+  }, [refetchRec, refetchPag, refetchPagComp, refetchImpRef, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchVendasBalcao, refetchPremiacao, refetchHist]);
 
   const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingImpRef || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingHist;
 
-  return { metasComResultado, execTotal, execTotalFull, rateioFator, folhaComercialExcluida, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, aliquotaEfetiva, outrosCustos, comissoesFonte, comissoesAtualizadoEm, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
+  return { metasComResultado, execTotal, execTotalFull, rateioFator, folhaComercialExcluida, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, erros, dadosIncompletos, aliquotaEfetiva, outrosCustos, comissoesFonte, comissoesAtualizadoEm, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
 };
