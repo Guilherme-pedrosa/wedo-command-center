@@ -748,6 +748,25 @@ export const useMetasResultados = (
     return computeOutrosCustos(pagamentos, planosComMeta, nomesPlanos, includeCommercial);
   }, [metas, mapeamentos, pagamentos, nomesPlanos, includeCommercial]);
 
+  // Impostos do mês de referência, separando guias correntes de parcelamentos de dívida.
+  const impostosDetalhe = useMemo(() => {
+    const linhas = pagamentosImpostoRef.filter(r => PLANOS_IMPOSTO_IDS.has(String(r.plano_contas_id)));
+    let correntes = 0;
+    let parcelamentos = 0;
+    const itensParcelamento: { descricao: string; valor: number }[] = [];
+    for (const r of linhas) {
+      const v = Math.abs(Number(r.valor) || 0);
+      if (isParcelamentoImposto(r)) {
+        parcelamentos += v;
+        itensParcelamento.push({ descricao: r.descricao || r.nome_fornecedor || '(sem descrição)', valor: v });
+      } else {
+        correntes += v;
+      }
+    }
+    itensParcelamento.sort((a, b) => b.valor - a.valor);
+    return { correntes, parcelamentos, itensParcelamento };
+  }, [pagamentosImpostoRef]);
+
   const metasComResultado = useMemo((): MetaComResultado[] => {
     return metas.filter(meta => {
       // Modo "Apenas Serviços": sai receita e custo de venda de produtos (pela fonte, não pelo nome).
@@ -980,25 +999,6 @@ export const useMetasResultados = (
     return lista;
   }, [errMetas, errMap, errPlanos, errRec, errPag, errPagComp, errImpRef, errorOS, errVendas, errCompras, errGcRec, errGcPCM, errBalcao, errHist]);
   const dadosIncompletos = erros.length > 0;
-
-  // Impostos do mês de referência, separando guias correntes de parcelamentos de dívida.
-  const impostosDetalhe = useMemo(() => {
-    const linhas = pagamentosImpostoRef.filter(r => PLANOS_IMPOSTO_IDS.has(String(r.plano_contas_id)));
-    let correntes = 0;
-    let parcelamentos = 0;
-    const itensParcelamento: { descricao: string; valor: number }[] = [];
-    for (const r of linhas) {
-      const v = Math.abs(Number(r.valor) || 0);
-      if (isParcelamentoImposto(r)) {
-        parcelamentos += v;
-        itensParcelamento.push({ descricao: r.descricao || r.nome_fornecedor || '(sem descrição)', valor: v });
-      } else {
-        correntes += v;
-      }
-    }
-    itensParcelamento.sort((a, b) => b.valor - a.valor);
-    return { correntes, parcelamentos, itensParcelamento };
-  }, [pagamentosImpostoRef]);
 
   const refetch = useCallback(() => {
     refetchRec(); refetchPag(); refetchPagComp(); refetchImpRef(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchVendasBalcao(); refetchPremiacao(); refetchHist();
