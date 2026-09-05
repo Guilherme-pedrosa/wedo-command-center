@@ -179,7 +179,8 @@ Deno.serve(async (req) => {
   };
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
-  const dryRun = body?.dry_run !== false && body?.dry_run !== 0 ? body?.dry_run === true : false;
+  // Padrão seguro: dry-run. Só grava quando o chamador pedir dry_run: false explicitamente.
+  const dryRun = body?.dry_run !== false;
   const dateFrom = String(body?.date_from ?? "2026-01-01");
   const dateTo = String(body?.date_to ?? "2026-12-31");
   const batchLimit = Math.min(Number(body?.limit) || 120, 400);
@@ -283,7 +284,7 @@ Deno.serve(async (req) => {
       if (!dryRun) {
         const patch: Record<string, unknown> = {
           auvo_task_ids: taskIds.length ? taskIds : null,
-          auvo_task_id: taskIds[0] ?? os.auvo_task_id ?? null,
+          ...(taskIds.length ? { auvo_task_id: taskIds[0] } : {}),
           execucao_verificacao_status: decisao.status,
           execucao_verificacao_motivo: decisao.motivo,
           execucao_verificado_em: new Date().toISOString(),
