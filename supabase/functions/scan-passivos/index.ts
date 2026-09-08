@@ -175,16 +175,31 @@ serve(async (req) => {
     let inserted = 0;
     let skipped = 0;
     let removidos = 0;
+    let reabertos = 0;
 
     for (const p of found) {
       // Check if already exists
       const { data: existing } = await supabase
         .from("fin_residuos_negociacao")
-        .select("id")
+        .select("id, utilizado, valor_residual")
         .eq("gc_recebimento_id", p.gc_recebimento_id)
         .maybeSingle();
 
       if (existing?.id) {
+        // Passivo voltou a ficar aberto no GC (ex.: parcela reaberta numa nova negociação)
+        // → devolver para a lista de disponíveis com o valor atual
+        if (p.aberto && existing.utilizado) {
+          const { error: upErr } = await supabase
+            .from("fin_residuos_negociacao")
+            .update({ utilizado: false, valor_residual: p.valor })
+            .eq("id", existing.id);
+          if (!upErr) reabertos++;
+        } else if (p.aberto && Number(existing.valor_residual) !== p.valor) {
+          await supabase
+            .from("fin_residuos_negociacao")
+            .update({ valor_residual: p.valor })
+            .eq("id", existing.id);
+        }
         skipped++;
         continue;
       }
