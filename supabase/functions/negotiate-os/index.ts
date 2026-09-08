@@ -1388,7 +1388,12 @@ serve(async (req) => {
             }
           }
         } catch (stepDErr: any) {
-          console.warn(`[negotiate-os] STEP D error (non-fatal): ${stepDErr.message}`);
+          console.warn(`[negotiate-os] STEP D error: ${stepDErr.message}`);
+          pendencias.push({
+            os_codigo: os.codigo,
+            etapa: "marcacao_financeiro",
+            motivo: `Falha ao marcar/atualizar cobranças no GC: ${stepDErr.message}`,
+          });
         }
       }
       // ═══════════════════════════════════════════════════════════════
