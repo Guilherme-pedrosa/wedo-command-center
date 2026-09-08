@@ -472,6 +472,16 @@ export default function NegociacaoOSPage() {
       } else {
         toast.error(`${ok} OK, ${errs} erro(s). Verifique os resultados.`);
       }
+
+      const pendencias: Array<{ os_codigo: string; motivo: string }> = resultado.pendencias || [];
+      if (pendencias.length > 0) {
+        toast.error(
+          `⚠️ ${pendencias.length} cobrança(s) ficaram FORA da negociação: ${pendencias
+            .map((p) => `OS ${p.os_codigo}`)
+            .join(", ")}. Confira antes de cobrar o cliente.`,
+          { duration: 20000 }
+        );
+      }
     } catch (err) {
       toast.dismiss(progressToastId);
       const msg = await extractFnError(err, "Falha ao executar negociação");
