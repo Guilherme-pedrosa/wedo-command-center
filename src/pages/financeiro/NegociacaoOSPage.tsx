@@ -628,7 +628,7 @@ export default function NegociacaoOSPage() {
           ))}
           {filteredClients.length === 0 && !loading && (
             <p className="text-muted-foreground col-span-full text-center py-10">
-              Nenhum cliente com OS pendente de negociação.
+              Nenhum cliente com OS pendente de negociação ou passivo disponível.
             </p>
           )}
         </div>
