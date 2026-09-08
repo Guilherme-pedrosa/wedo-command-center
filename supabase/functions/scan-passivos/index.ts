@@ -176,6 +176,7 @@ serve(async (req) => {
     let skipped = 0;
     let removidos = 0;
     let reabertos = 0;
+    let baixados = 0;
 
     for (const p of found) {
       // Check if already exists
@@ -194,6 +195,13 @@ serve(async (req) => {
             .update({ utilizado: false, valor_residual: p.valor })
             .eq("id", existing.id);
           if (!upErr) reabertos++;
+        } else if (!p.aberto && !existing.utilizado) {
+          // Já recebido/liquidado (ou cancelado) no GC → não pode ficar disponível
+          const { error: baixaErr } = await supabase
+            .from("fin_residuos_negociacao")
+            .update({ utilizado: true })
+            .eq("id", existing.id);
+          if (!baixaErr) baixados++;
         } else if (p.aberto && Number(existing.valor_residual) !== p.valor) {
           await supabase
             .from("fin_residuos_negociacao")
@@ -203,6 +211,9 @@ serve(async (req) => {
         skipped++;
         continue;
       }
+
+      // Nunca criar passivo disponível a partir de parcela já recebida/cancelada no GC
+      if (!p.aberto) { skipped++; continue; }
 
       const descricaoNormalizada = p.descricao.toUpperCase().includes("PASSIVO")
         ? p.descricao
@@ -259,9 +270,19 @@ serve(async (req) => {
             // IMPORTANTE: NÃO remover por estar liquidado — passivos negociados ficam liquidados no GC
             const situacao = String(rec.situacao_nome || rec.situacao || '').toLowerCase();
             const cancelado = situacao.includes('cancelad') || situacao.includes('cancel');
+            const liquidado = String(rec.liquidado ?? '0') === '1'
+              || situacao.includes('recebid') || situacao.includes('liquidad');
 
             if (!cancelado) {
-              continue; // Ainda existe no GC (mesmo que liquidado) — manter residual
+              if (liquidado) {
+                // Já recebido no GC → sai da lista de disponíveis (mas mantém histórico)
+                const { error: bErr } = await supabase
+                  .from("fin_residuos_negociacao")
+                  .update({ utilizado: true })
+                  .eq("id", residuo.id);
+                if (!bErr) baixados++;
+              }
+              continue; // Ainda existe no GC — manter residual
             }
             console.log(`[scan-passivos] Residual gc_id=${residuo.gc_recebimento_id} está cancelado no GC — removendo`);
           }
@@ -292,13 +313,14 @@ serve(async (req) => {
       console.log(`[scan-passivos] Removidos ${orphanIds.length} resíduos sem gc_recebimento_id`);
     }
 
-    console.log(`[scan-passivos] Done: ${found.length} found, ${inserted} inserted, ${reabertos} reabertos, ${skipped} skipped, ${removidos} removidos`);
+    console.log(`[scan-passivos] Done: ${found.length} found, ${inserted} inserted, ${reabertos} reabertos, ${baixados} baixados, ${skipped} skipped, ${removidos} removidos`);
 
     return new Response(JSON.stringify({
       success: true,
       total_found: found.length,
       inserted,
       reabertos,
+      baixados,
       skipped,
       removidos,
       passivos: found.map(p => ({
