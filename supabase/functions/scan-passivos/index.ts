@@ -122,6 +122,14 @@ serve(async (req) => {
         const isPassive = descUpper.includes("PASSIVO") || isLegacyPassive || isExNegPassive;
         if (!isPassive) continue;
 
+        // Parcelas "ex-Neg" só entram como passivo disponível se ainda estiverem abertas
+        if (isExNegPassive && !descUpper.includes("PASSIVO")) {
+          const situacao = String(rec?.situacao_nome || rec?.situacao || "").toLowerCase();
+          const liquidado = String(rec?.liquidado ?? "0") === "1" || situacao.includes("recebid") || situacao.includes("liquidad");
+          if (liquidado || situacao.includes("cancel")) continue;
+        }
+
+
 
         // Extract NEG number from description (supports both formats)
         let negNumero: number | null = null;
