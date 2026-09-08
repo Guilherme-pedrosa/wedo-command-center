@@ -76,6 +76,36 @@ Deno.serve(async (req) => {
   let month = "";
   try {
     const body = await req.json().catch(() => ({}));
+
+    // Backfill: o cron quente só cuida do mês corrente, então meses passados ficavam sem
+    // valor no cache e o Raio-X Anual caía no fallback (comissões pagas em M+1, subestimado).
+    // A cada chamada pegamos o mês mais antigo do ano ainda sem valor e recalculamos em
+    // segundo plano — um por vez, para não sobrecarregar a Premiação do outro projeto.
+    const backfillAno = Number(body?.backfill_ano ?? body?.backfill_year);
+    if (backfillAno) {
+      const hoje = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      const limite = backfillAno < hoje.getFullYear() ? 12 : hoje.getMonth() + 1;
+      const alvos: string[] = [];
+      for (let m = 1; m <= limite; m++) alvos.push(`${backfillAno}-${String(m).padStart(2, "0")}`);
+      const { data: existentes } = await admin()
+        .from("fin_premiacao_cache")
+        .select("mes, comissao_final")
+        .in("mes", alvos);
+      const prontos = new Set(
+        (existentes ?? []).filter((r) => Number(r.comissao_final) > 0).map((r) => String(r.mes)),
+      );
+      const faltando = alvos.filter((m) => !prontos.has(m));
+      if (!faltando.length) return json({ ok: true, backfill: true, pendentes: 0 });
+      const alvo = faltando[0];
+      const rt = (globalThis as { EdgeRuntime?: { waitUntil: (p: Promise<unknown>) => void } }).EdgeRuntime;
+      const tarefa = recalcular(alvo).catch((e) => {
+        console.error(`[premiacao] backfill ${alvo} falhou: ${(e as Error).message}`);
+        return null;
+      });
+      if (rt?.waitUntil) rt.waitUntil(tarefa);
+      return json({ ok: true, backfill: true, mes: alvo, pendentes: faltando.length });
+    }
+
     month = String(body?.month || "");
     if (!month) {
       const y = Number(body?.year);
@@ -84,6 +114,7 @@ Deno.serve(async (req) => {
       month = `${y}-${String(m).padStart(2, "0")}`;
     }
     if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("month deve ser 'YYYY-MM'");
+
     // Esperar não é opção: a própria edge morre no limite de 150 s de idle. O cálculo roda
     // sempre em segundo plano (waitUntil, sobrevive à resposta) e a resposta usa o cache.
     const dispararRecalculo = () => {
