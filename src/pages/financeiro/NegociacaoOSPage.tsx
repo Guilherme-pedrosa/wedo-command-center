@@ -614,7 +614,11 @@ export default function NegociacaoOSPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
-                  <Badge variant="secondary">{client.os_list.length} OS</Badge>
+                  {client.os_list.length > 0 ? (
+                    <Badge variant="secondary">{client.os_list.length} OS</Badge>
+                  ) : (
+                    <Badge variant="outline">Só passivo</Badge>
+                  )}
                   <span className="text-sm font-semibold text-primary">
                     {formatCurrency(client.valor_total)}
                   </span>
