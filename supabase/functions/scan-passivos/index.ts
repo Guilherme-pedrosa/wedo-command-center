@@ -292,12 +292,13 @@ serve(async (req) => {
       console.log(`[scan-passivos] Removidos ${orphanIds.length} resíduos sem gc_recebimento_id`);
     }
 
-    console.log(`[scan-passivos] Done: ${found.length} found, ${inserted} inserted, ${skipped} skipped, ${removidos} removidos`);
+    console.log(`[scan-passivos] Done: ${found.length} found, ${inserted} inserted, ${reabertos} reabertos, ${skipped} skipped, ${removidos} removidos`);
 
     return new Response(JSON.stringify({
       success: true,
       total_found: found.length,
       inserted,
+      reabertos,
       skipped,
       removidos,
       passivos: found.map(p => ({
