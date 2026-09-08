@@ -1544,6 +1544,13 @@ serve(async (req) => {
 
               if (!recebimentoId) {
                 console.warn(`[negotiate-os] Grupo ${i + 1}: financeiro não encontrado para OS ${os.codigo} (${vencimento} / ${valorParcela.toFixed(2)})`);
+                pendencias.push({
+                  os_codigo: os.codigo,
+                  etapa: `vinculo_grupo_${i + 1}`,
+                  motivo: `Cobrança da OS ${os.codigo} não foi encontrada para vincular à parcela ${i + 1}/${parcelas} da Neg. nº${negociacao_numero}`,
+                  data_vencimento: vencimento,
+                  valor: valorParcela,
+                });
                 continue;
               }
 
