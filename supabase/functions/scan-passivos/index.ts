@@ -114,11 +114,22 @@ serve(async (req) => {
         const nomeCliente = String(rec?.nome_cliente || "").trim();
         const codigo = rec?.codigo ? String(rec.codigo) : null;
 
-        // Detectar passivo tanto pelo novo prefixo quanto por recebimentos legados do GC (2/2, 3/3, ...)
+        // Detectar passivo pelo prefixo novo, por recebimentos legados do GC (2/2, 3/3, ...)
+        // ou por parcelas remanescentes de negociações anteriores ("... ex-Neg.36")
         const parcelMatch = descricao.match(/\((\d+)\/(\d+)\)/);
         const isLegacyPassive = !!parcelMatch && Number(parcelMatch[2]) > 1 && Number(parcelMatch[1]) === Number(parcelMatch[2]);
-        const isPassive = descUpper.includes("PASSIVO") || isLegacyPassive;
+        const isExNegPassive = /ex[-\s]?neg\.?\s*\d+/i.test(descricao);
+        const isPassive = descUpper.includes("PASSIVO") || isLegacyPassive || isExNegPassive;
         if (!isPassive) continue;
+
+        // Parcelas "ex-Neg" só entram como passivo disponível se ainda estiverem abertas
+        if (isExNegPassive && !descUpper.includes("PASSIVO")) {
+          const situacao = String(rec?.situacao_nome || rec?.situacao || "").toLowerCase();
+          const liquidado = String(rec?.liquidado ?? "0") === "1" || situacao.includes("recebid") || situacao.includes("liquidad");
+          if (liquidado || situacao.includes("cancel")) continue;
+        }
+
+
 
         // Extract NEG number from description (supports both formats)
         let negNumero: number | null = null;
