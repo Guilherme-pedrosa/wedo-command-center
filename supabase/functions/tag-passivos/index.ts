@@ -1,4 +1,4 @@
-import { installGcUsuarioId } from "../_shared/gc-user.ts";
+import { GC_API_USER_ID, installGcUsuarioId } from "../_shared/gc-user.ts";
 installGcUsuarioId();
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -134,7 +134,7 @@ serve(async (req) => {
         conta_bancaria_id: recFull.conta_bancaria_id,
         valor: recFull.valor,
         data_competencia: recFull.data_competencia || recFull.data_vencimento,
-        usuario_id: "1320473", // usuário API GC — não atribuir ao humano logado
+        usuario_id: GC_API_USER_ID, // usuário API GC — não atribuir ao humano logado
       };
 
       console.log(`[tag-passivos] PUT ${recId} payload:`, JSON.stringify(putPayload));

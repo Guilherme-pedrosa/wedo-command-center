@@ -1,7 +1,7 @@
 // Worker que consome fin_gc_write_jobs e envia PUT pro GestãoClick.
 // Roda em loop interno respeitando rate limit (350ms entre requests ≈ 2.85 req/s, margem sobre 3 req/s do GC).
 // Marca status: pendente → processando → sucesso | erro_retentavel | erro_fatal
-import { installGcUsuarioId } from "../_shared/gc-user.ts";
+import { GC_API_USER_ID, installGcUsuarioId } from "../_shared/gc-user.ts";
 installGcUsuarioId();
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -317,7 +317,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
           "access-token": GC_ACCESS_TOKEN,
           "secret-access-token": GC_SECRET_TOKEN,
-          "usuario-id": "1320473",
+          "usuario-id": GC_API_USER_ID,
         },
       });
 
@@ -423,7 +423,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
           "access-token": GC_ACCESS_TOKEN,
           "secret-access-token": GC_SECRET_TOKEN,
-          "usuario-id": "1320473",
+          "usuario-id": GC_API_USER_ID,
         },
         body: JSON.stringify(putBody),
       });
@@ -440,7 +440,7 @@ Deno.serve(async (req) => {
             "Content-Type": "application/json",
             "access-token": GC_ACCESS_TOKEN,
             "secret-access-token": GC_SECRET_TOKEN,
-            "usuario-id": "1320473",
+            "usuario-id": GC_API_USER_ID,
           },
         });
         const verifyBody = await verifyRes.json().catch(() => null);
