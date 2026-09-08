@@ -42,6 +42,7 @@ serve(async (req) => {
       "access-token": gcAccessToken,
       "secret-access-token": gcSecretToken,
       "Content-Type": "application/json",
+      "usuario-id": GC_API_USER_ID,
     };
 
     const body = await req.json();
