@@ -123,12 +123,14 @@ serve(async (req) => {
         const isPassive = descUpper.includes("PASSIVO") || isLegacyPassive || isExNegPassive;
         if (!isPassive) continue;
 
+        // Situação atual no GC
+        const situacao = String(rec?.situacao_nome || rec?.situacao || "").toLowerCase();
+        const liquidadoGc = String(rec?.liquidado ?? "0") === "1" || situacao.includes("recebid") || situacao.includes("liquidad");
+        const canceladoGc = situacao.includes("cancel");
+        const aberto = !liquidadoGc && !canceladoGc;
+
         // Parcelas "ex-Neg" só entram como passivo disponível se ainda estiverem abertas
-        if (isExNegPassive && !descUpper.includes("PASSIVO")) {
-          const situacao = String(rec?.situacao_nome || rec?.situacao || "").toLowerCase();
-          const liquidado = String(rec?.liquidado ?? "0") === "1" || situacao.includes("recebid") || situacao.includes("liquidad");
-          if (liquidado || situacao.includes("cancel")) continue;
-        }
+        if (isExNegPassive && !descUpper.includes("PASSIVO") && !aberto) continue;
 
 
 
