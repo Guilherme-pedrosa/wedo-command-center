@@ -163,6 +163,7 @@ serve(async (req) => {
           nome_cliente: nomeCliente,
           negociacao_numero: negNumero,
           os_codigos: osCodigos,
+          aberto,
         });
       }
 
