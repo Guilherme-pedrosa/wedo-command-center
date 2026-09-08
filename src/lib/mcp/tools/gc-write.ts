@@ -1,3 +1,4 @@
+import { GC_API_USER_ID } from "../../../../supabase/functions/_shared/gc-user-id";
 import { defineTool, type ToolContext } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { errorResult, McpToolError, successResult } from "../shared/errors";
@@ -166,7 +167,6 @@ export const prepararCriacaoOrcamento = defineTool({
     cliente_id: z.string().trim().regex(/^\d+$/),
     situacao_id: z.string().trim().regex(/^\d+$/),
     loja_id: z.string().trim().regex(/^\d+$/).optional(),
-    usuario_id: z.string().trim().regex(/^\d+$/).optional(),
     vendedor_id: z.string().trim().regex(/^\d+$/).optional(),
     data: z.string().date(),
     validade: z.string().trim().max(60).optional(),
@@ -213,7 +213,7 @@ export const prepararCriacaoOrcamento = defineTool({
           produtos: buildLines(produtos, "produto"),
           servicos: buildLines(servicos, "servico"),
           ...(input.loja_id ? { loja_id: input.loja_id } : {}),
-          ...(input.usuario_id ? { usuario_id: input.usuario_id } : {}),
+          usuario_id: GC_API_USER_ID,
           ...(input.vendedor_id ? { vendedor_id: input.vendedor_id } : {}),
           ...(input.validade ? { validade: input.validade } : {}),
           ...(input.observacoes ? { observacoes: input.observacoes } : {}),
@@ -326,7 +326,6 @@ export const prepararCriacaoOrdemServico = defineTool({
     situacao_id: z.string().trim().regex(/^\d+$/),
     codigo: z.string().trim().max(40).optional(),
     loja_id: z.string().trim().regex(/^\d+$/).optional(),
-    usuario_id: z.string().trim().regex(/^\d+$/).optional(),
     vendedor_id: z.string().trim().regex(/^\d+$/).optional(),
     tecnico_id: z.string().trim().regex(/^\d+$/).optional(),
     centro_custo_id: z.string().trim().regex(/^\d+$/).optional(),
@@ -373,7 +372,7 @@ export const prepararCriacaoOrdemServico = defineTool({
           servicos: buildLines(servicos, "servico"),
           ...(input.codigo ? { codigo: input.codigo } : {}),
           ...(input.loja_id ? { loja_id: input.loja_id } : {}),
-          ...(input.usuario_id ? { usuario_id: input.usuario_id } : {}),
+          usuario_id: GC_API_USER_ID,
           ...(input.vendedor_id ? { vendedor_id: input.vendedor_id } : {}),
           ...(input.tecnico_id ? { tecnico_id: input.tecnico_id } : {}),
           ...(input.centro_custo_id ? { centro_custo_id: input.centro_custo_id } : {}),

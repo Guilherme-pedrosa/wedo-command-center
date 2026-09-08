@@ -3,7 +3,7 @@
 // descobre a tarefa de EXECUÇÃO (atributo GC 73344) de cada OS e confirma a execução real
 // pelo CHECKOUT da tarefa no Auvo. Atualiza apenas os campos locais de verificação de
 // os_index. Não toca em financeiro, não faz baixa, não executa PUT/POST nas origens.
-import { installGcUsuarioId } from "../_shared/gc-user.ts";
+import { GC_API_USER_ID, installGcUsuarioId } from "../_shared/gc-user.ts";
 installGcUsuarioId();
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -242,7 +242,7 @@ Deno.serve(async (req) => {
       let taskIds: string[] = [];
       let gcErro: string | null = null;
       try {
-        const res = await paced(`${GC_BASE_URL}/api/ordens_servicos/${os.os_id}?usuario_id=1320473`, { headers: gcHeaders });
+        const res = await paced(`${GC_BASE_URL}/api/ordens_servicos/${os.os_id}?usuario_id=${GC_API_USER_ID}`, { headers: gcHeaders });
         if (!res.ok) gcErro = `GC HTTP ${res.status}`;
         else {
           const json = await res.json();

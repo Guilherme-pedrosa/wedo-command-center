@@ -1154,7 +1154,6 @@ var clientOptionalShape = {
   fax: optionalText(30),
   email: emailSchema,
   ativo: z5.boolean().optional(),
-  usuario_id: idSchema.optional(),
   loja_id: idSchema.optional(),
   contatos: z5.array(contactSchema).max(20).optional(),
   enderecos: z5.array(addressSchema).max(10).optional()
@@ -1174,7 +1173,6 @@ var WRITABLE_FIELDS = [
   "fax",
   "email",
   "ativo",
-  "usuario_id",
   "loja_id",
   "contatos",
   "enderecos"
@@ -1283,7 +1281,7 @@ function creationPreview(payload) {
     telefone: payload.telefone || payload.celular || null,
     ativo: String(payload.ativo ?? "1") !== "0",
     loja_id: payload.loja_id ?? "matriz/padr\xE3o da credencial",
-    usuario_id: payload.usuario_id ?? "usu\xE1rio master/padr\xE3o da credencial",
+    usuario_id: GC_API_USER_ID,
     contatos: Array.isArray(payload.contatos) ? payload.contatos.length : 0,
     enderecos: Array.isArray(payload.enderecos) ? payload.enderecos.length : 0
   };
@@ -2295,7 +2293,6 @@ var prepararCriacaoOrcamento = defineTool8({
     cliente_id: z8.string().trim().regex(/^\d+$/),
     situacao_id: z8.string().trim().regex(/^\d+$/),
     loja_id: z8.string().trim().regex(/^\d+$/).optional(),
-    usuario_id: z8.string().trim().regex(/^\d+$/).optional(),
     vendedor_id: z8.string().trim().regex(/^\d+$/).optional(),
     data: z8.string().date(),
     validade: z8.string().trim().max(60).optional(),
@@ -2341,7 +2338,7 @@ var prepararCriacaoOrcamento = defineTool8({
         produtos: buildLines2(produtos, "produto"),
         servicos: buildLines2(servicos, "servico"),
         ...input.loja_id ? { loja_id: input.loja_id } : {},
-        ...input.usuario_id ? { usuario_id: input.usuario_id } : {},
+        usuario_id: GC_API_USER_ID,
         ...input.vendedor_id ? { vendedor_id: input.vendedor_id } : {},
         ...input.validade ? { validade: input.validade } : {},
         ...input.observacoes ? { observacoes: input.observacoes } : {}
@@ -2445,7 +2442,6 @@ var prepararCriacaoOrdemServico = defineTool8({
     situacao_id: z8.string().trim().regex(/^\d+$/),
     codigo: z8.string().trim().max(40).optional(),
     loja_id: z8.string().trim().regex(/^\d+$/).optional(),
-    usuario_id: z8.string().trim().regex(/^\d+$/).optional(),
     vendedor_id: z8.string().trim().regex(/^\d+$/).optional(),
     tecnico_id: z8.string().trim().regex(/^\d+$/).optional(),
     centro_custo_id: z8.string().trim().regex(/^\d+$/).optional(),
@@ -2491,7 +2487,7 @@ var prepararCriacaoOrdemServico = defineTool8({
         servicos: buildLines2(servicos, "servico"),
         ...input.codigo ? { codigo: input.codigo } : {},
         ...input.loja_id ? { loja_id: input.loja_id } : {},
-        ...input.usuario_id ? { usuario_id: input.usuario_id } : {},
+        usuario_id: GC_API_USER_ID,
         ...input.vendedor_id ? { vendedor_id: input.vendedor_id } : {},
         ...input.tecnico_id ? { tecnico_id: input.tecnico_id } : {},
         ...input.centro_custo_id ? { centro_custo_id: input.centro_custo_id } : {},
