@@ -68,6 +68,7 @@ serve(async (req) => {
       nome_cliente: string;
       negociacao_numero: number | null;
       os_codigos: string[];
+      aberto: boolean;
     }> = [];
 
     while (page <= totalPages) {
@@ -122,12 +123,14 @@ serve(async (req) => {
         const isPassive = descUpper.includes("PASSIVO") || isLegacyPassive || isExNegPassive;
         if (!isPassive) continue;
 
+        // Situação atual no GC
+        const situacao = String(rec?.situacao_nome || rec?.situacao || "").toLowerCase();
+        const liquidadoGc = String(rec?.liquidado ?? "0") === "1" || situacao.includes("recebid") || situacao.includes("liquidad");
+        const canceladoGc = situacao.includes("cancel");
+        const aberto = !liquidadoGc && !canceladoGc;
+
         // Parcelas "ex-Neg" só entram como passivo disponível se ainda estiverem abertas
-        if (isExNegPassive && !descUpper.includes("PASSIVO")) {
-          const situacao = String(rec?.situacao_nome || rec?.situacao || "").toLowerCase();
-          const liquidado = String(rec?.liquidado ?? "0") === "1" || situacao.includes("recebid") || situacao.includes("liquidad");
-          if (liquidado || situacao.includes("cancel")) continue;
-        }
+        if (isExNegPassive && !descUpper.includes("PASSIVO") && !aberto) continue;
 
 
 
@@ -160,6 +163,7 @@ serve(async (req) => {
           nome_cliente: nomeCliente,
           negociacao_numero: negNumero,
           os_codigos: osCodigos,
+          aberto,
         });
       }
 
@@ -171,16 +175,31 @@ serve(async (req) => {
     let inserted = 0;
     let skipped = 0;
     let removidos = 0;
+    let reabertos = 0;
 
     for (const p of found) {
       // Check if already exists
       const { data: existing } = await supabase
         .from("fin_residuos_negociacao")
-        .select("id")
+        .select("id, utilizado, valor_residual")
         .eq("gc_recebimento_id", p.gc_recebimento_id)
         .maybeSingle();
 
       if (existing?.id) {
+        // Passivo voltou a ficar aberto no GC (ex.: parcela reaberta numa nova negociação)
+        // → devolver para a lista de disponíveis com o valor atual
+        if (p.aberto && existing.utilizado) {
+          const { error: upErr } = await supabase
+            .from("fin_residuos_negociacao")
+            .update({ utilizado: false, valor_residual: p.valor })
+            .eq("id", existing.id);
+          if (!upErr) reabertos++;
+        } else if (p.aberto && Number(existing.valor_residual) !== p.valor) {
+          await supabase
+            .from("fin_residuos_negociacao")
+            .update({ valor_residual: p.valor })
+            .eq("id", existing.id);
+        }
         skipped++;
         continue;
       }
@@ -273,12 +292,13 @@ serve(async (req) => {
       console.log(`[scan-passivos] Removidos ${orphanIds.length} resíduos sem gc_recebimento_id`);
     }
 
-    console.log(`[scan-passivos] Done: ${found.length} found, ${inserted} inserted, ${skipped} skipped, ${removidos} removidos`);
+    console.log(`[scan-passivos] Done: ${found.length} found, ${inserted} inserted, ${reabertos} reabertos, ${skipped} skipped, ${removidos} removidos`);
 
     return new Response(JSON.stringify({
       success: true,
       total_found: found.length,
       inserted,
+      reabertos,
       skipped,
       removidos,
       passivos: found.map(p => ({
