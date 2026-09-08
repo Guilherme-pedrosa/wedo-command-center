@@ -162,15 +162,43 @@ export default function NegociacaoOSPage() {
         body: { action: "list", situacao_ids: selectedSituacoes },
       });
       if (error) throw error;
-      const groupedClients = (data.clients || [])
+      const groupedClients: ClientGroup[] = (data.clients || [])
         .map((c: ClientGroup) => {
           const osList = c.os_list.filter((os) => os.valor_total > 0);
           const valorTotal = osList.reduce((sum, os) => sum + os.valor_total, 0);
           return { ...c, os_list: osList, valor_total: valorTotal };
         })
         .filter((c: ClientGroup) => c.os_list.length >= 1 && c.valor_total > 0);
-      setClients(groupedClients);
-      if (groupedClients.length === 0) {
+
+      // Clientes que só têm passivo disponível (sem OS na situação) também
+      // precisam aparecer na busca — senão o passivo fica invisível.
+      const { data: residuos } = await supabase
+        .from("fin_residuos_negociacao")
+        .select("cliente_gc_id, nome_cliente, valor_residual")
+        .eq("utilizado", false)
+        .limit(5000);
+
+      const existentes = new Set(groupedClients.map((c) => String(c.cliente_id)));
+      const soPassivo = new Map<string, ClientGroup>();
+      for (const r of residuos || []) {
+        const id = String((r as any).cliente_gc_id || "");
+        if (!id || existentes.has(id)) continue;
+        const atual = soPassivo.get(id);
+        if (atual) {
+          atual.valor_total += Number((r as any).valor_residual) || 0;
+        } else {
+          soPassivo.set(id, {
+            cliente_id: id,
+            nome_cliente: String((r as any).nome_cliente || "—"),
+            os_list: [],
+            valor_total: Number((r as any).valor_residual) || 0,
+          });
+        }
+      }
+
+      const todos = [...groupedClients, ...soPassivo.values()];
+      setClients(todos);
+      if (todos.length === 0) {
         toast("Nenhum cliente com OS nas situações selecionadas", { icon: "ℹ️" });
       }
     } catch (err) {
