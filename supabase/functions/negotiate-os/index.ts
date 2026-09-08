@@ -1096,6 +1096,16 @@ serve(async (req) => {
       }>();
       const linkedReceivableIds = new Map<string, string>();
 
+      // Pendências: qualquer cobrança que não foi marcada/vinculada precisa aparecer,
+      // NUNCA falhar em silêncio (caso OS 9103 / NEG109).
+      const pendencias: Array<{
+        os_codigo: string;
+        etapa: string;
+        motivo: string;
+        data_vencimento?: string;
+        valor?: number;
+      }> = [];
+
       const buildReceivableKey = (osCodigo: string, dueDate: string, value: number, kind: "neg" | "passive") =>
         `${kind}:${osCodigo}:${dueDate}:${roundMoney(value).toFixed(2)}`;
 
