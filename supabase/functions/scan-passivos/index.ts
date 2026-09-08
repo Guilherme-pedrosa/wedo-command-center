@@ -68,6 +68,7 @@ serve(async (req) => {
       nome_cliente: string;
       negociacao_numero: number | null;
       os_codigos: string[];
+      aberto: boolean;
     }> = [];
 
     while (page <= totalPages) {
