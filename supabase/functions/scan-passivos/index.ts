@@ -176,6 +176,7 @@ serve(async (req) => {
     let skipped = 0;
     let removidos = 0;
     let reabertos = 0;
+    let baixados = 0;
 
     for (const p of found) {
       // Check if already exists
@@ -194,6 +195,13 @@ serve(async (req) => {
             .update({ utilizado: false, valor_residual: p.valor })
             .eq("id", existing.id);
           if (!upErr) reabertos++;
+        } else if (!p.aberto && !existing.utilizado) {
+          // Já recebido/liquidado (ou cancelado) no GC → não pode ficar disponível
+          const { error: baixaErr } = await supabase
+            .from("fin_residuos_negociacao")
+            .update({ utilizado: true })
+            .eq("id", existing.id);
+          if (!baixaErr) baixados++;
         } else if (p.aberto && Number(existing.valor_residual) !== p.valor) {
           await supabase
             .from("fin_residuos_negociacao")
@@ -203,6 +211,9 @@ serve(async (req) => {
         skipped++;
         continue;
       }
+
+      // Nunca criar passivo disponível a partir de parcela já recebida/cancelada no GC
+      if (!p.aberto) { skipped++; continue; }
 
       const descricaoNormalizada = p.descricao.toUpperCase().includes("PASSIVO")
         ? p.descricao
