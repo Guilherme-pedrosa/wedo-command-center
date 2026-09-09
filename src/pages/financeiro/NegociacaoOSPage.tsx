@@ -74,6 +74,8 @@ interface ClientGroup {
   nome_cliente: string;
   os_list: OSItem[];
   valor_total: number;
+  /** Soma de passivos disponíveis (usada quando o cliente não tem OS aberta) */
+  passivo_total?: number;
 }
 
 interface NegotiateResult {
@@ -185,16 +187,18 @@ export default function NegociacaoOSPage() {
         if (!id || existentes.has(id)) continue;
         const atual = soPassivo.get(id);
         if (atual) {
-          atual.valor_total += Number((r as any).valor_residual) || 0;
+          atual.passivo_total = (atual.passivo_total || 0) + (Number((r as any).valor_residual) || 0);
         } else {
           soPassivo.set(id, {
             cliente_id: id,
             nome_cliente: String((r as any).nome_cliente || "—"),
             os_list: [],
-            valor_total: Number((r as any).valor_residual) || 0,
+            valor_total: 0,
+            passivo_total: Number((r as any).valor_residual) || 0,
           });
         }
       }
+
 
       const todos = [...groupedClients, ...soPassivo.values()];
       setClients(todos);
@@ -531,7 +535,7 @@ export default function NegociacaoOSPage() {
               OS agrupadas por cliente ({selectedSituacoes.length} situação(ões) configurada(s))
               {clients.length > 0 && (
                 <span className="ml-2 font-medium text-foreground">
-                  — Total: R$ {clients.reduce((sum, c) => sum + c.valor_total, 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                  — Total: R$ {clients.reduce((sum, c) => sum + c.valor_total + (c.passivo_total || 0), 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                 </span>
               )}
             </p>
@@ -630,7 +634,7 @@ export default function NegociacaoOSPage() {
                     <Badge variant="outline">Só passivo</Badge>
                   )}
                   <span className="text-sm font-semibold text-primary">
-                    {formatCurrency(client.valor_total)}
+                    {formatCurrency(client.valor_total + (client.passivo_total || 0))}
                   </span>
                 </div>
               </CardContent>
