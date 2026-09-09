@@ -5,6 +5,7 @@ interface GCProxyRequest {
   method?: string;
   payload?: Record<string, unknown>;
   params?: Record<string, string>;
+  operation?: "receivable_nfse";
 }
 
 interface GCProxyResponse<T = unknown> {
