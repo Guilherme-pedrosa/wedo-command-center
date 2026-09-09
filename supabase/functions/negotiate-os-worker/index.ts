@@ -2,6 +2,7 @@
 // Pode ser chamado via cron (sem body) ou diretamente com { job_id } para processar 1 job específico.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decidirConclusao } from "../_shared/job-conclusao.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -180,9 +181,9 @@ serve(async (req) => {
       })
       .eq("id", job.id);
 
-    console.log(`[worker] Job ${job.id} ${concluiu ? "concluído" : "PARCIAL"}: ${okCount} OK / ${errCount} erros / ${pendencias.length} pendências`);
+    console.log(`[worker] Job ${job.id} ${concluiu ? "concluído" : "PARCIAL"}: ${okCount} OK / ${errCount} erros / ${pendencias} pendências`);
     return new Response(
-      JSON.stringify({ ok: concluiu, job_id: job.id, ok_count: okCount, erro_count: errCount, pendencias: pendencias.length }),
+      JSON.stringify({ ok: concluiu, job_id: job.id, ok_count: okCount, erro_count: errCount, pendencias }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
 
     );
