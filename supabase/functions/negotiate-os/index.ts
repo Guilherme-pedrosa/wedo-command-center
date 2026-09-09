@@ -561,16 +561,10 @@ serve(async (req) => {
 
       const normalizeMoney = (value: unknown): number => centsToMoney(moneyToCents(value));
 
-      // Generate due dates
-      const [startYear, startMonth] = mes_inicio.split("-").map(Number);
-      const dueDates: string[] = [];
-      for (let i = 0; i < parcelas; i++) {
-        const d = new Date(startYear, startMonth - 1 + i, dia_vencimento);
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, "0");
-        const dd = String(d.getDate()).padStart(2, "0");
-        dueDates.push(`${yyyy}-${mm}-${dd}`);
-      }
+      // Vencimentos: motor único compartilhado com o frontend (clamp do último
+      // dia do mês — dia 31 gera 31/01, 28/02, 31/03; 29/02 em ano bissexto).
+      const dueDates: string[] = gerarVencimentos(mes_inicio, Number(dia_vencimento), Number(parcelas));
+
 
       // Passivo vencimento = último dia útil do mês subsequente
       const lastNegotiatedDate = new Date(`${dueDates[dueDates.length - 1]}T00:00:00Z`);
