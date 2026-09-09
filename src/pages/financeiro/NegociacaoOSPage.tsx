@@ -634,7 +634,7 @@ export default function NegociacaoOSPage() {
                     <Badge variant="outline">Só passivo</Badge>
                   )}
                   <span className="text-sm font-semibold text-primary">
-                    {formatCurrency(client.valor_total)}
+                    {formatCurrency(client.valor_total + (client.passivo_total || 0))}
                   </span>
                 </div>
               </CardContent>
