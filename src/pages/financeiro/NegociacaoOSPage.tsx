@@ -74,6 +74,8 @@ interface ClientGroup {
   nome_cliente: string;
   os_list: OSItem[];
   valor_total: number;
+  /** Soma de passivos disponíveis (usada quando o cliente não tem OS aberta) */
+  passivo_total?: number;
 }
 
 interface NegotiateResult {
