@@ -3,6 +3,8 @@ installGcUsuarioId();
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { gerarVencimentos } from "../_shared/negociacao-plano.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -339,14 +341,48 @@ serve(async (req) => {
       "Content-Type": "application/json",
     };
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+
+    // ── Autorização antes de qualquer uso do service client ──
+    // Chamadas internas (worker/cron) usam a service key; ações de usuário
+    // exigem sessão válida com permissão financeira. Anônimo é sempre negado.
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const bearer = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const isServiceCall = !!bearer && bearer === SERVICE_KEY;
+    let actorUserId: string | null = null;
+
+    if (!isServiceCall) {
+      if (!bearer || bearer === ANON_KEY) {
+        return new Response(JSON.stringify({ error: "Não autenticado." }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const authClient = createClient(SUPABASE_URL, ANON_KEY, {
+        global: { headers: { Authorization: `Bearer ${bearer}` } },
+      });
+      const { data: userData } = await authClient.auth.getUser();
+      actorUserId = userData?.user?.id ?? null;
+      if (!actorUserId) {
+        return new Response(JSON.stringify({ error: "Sessão inválida." }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: permitido } = await authClient.rpc("has_financeiro_write", { _user_id: actorUserId });
+      if (!permitido) {
+        return new Response(JSON.stringify({ error: "Sem permissão financeira para negociar." }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
     const body: NegotiateRequest = await req.json();
     // Toda operação automática pertence ao usuário técnico, nunca ao perfil humano.
     const actingGcUserId = GC_API_USER_ID;
+
 
     // ─── LIST ──────────────────────────────────────────────
     if (body.action === "list") {
@@ -460,9 +496,80 @@ serve(async (req) => {
       delete payloadCopy.action;
       payloadCopy._gc_user = actingGcUserId; // preserva usuário que disparou para o worker
 
-      const totalCount =
-        (Array.isArray((payloadCopy as any).os_ids) ? (payloadCopy as any).os_ids.length : 0) +
-        (Array.isArray((payloadCopy as any).residual_ids) ? (payloadCopy as any).residual_ids.length : 0);
+      const osIdsEnq: string[] = Array.isArray((payloadCopy as any).os_ids) ? (payloadCopy as any).os_ids.map(String) : [];
+      const residualIdsEnq: string[] = Array.isArray((payloadCopy as any).residual_ids) ? (payloadCopy as any).residual_ids.map(String) : [];
+      const totalCount = osIdsEnq.length + residualIdsEnq.length;
+      const clienteEnq = (payloadCopy as any).cliente_gc_id ? String((payloadCopy as any).cliente_gc_id) : null;
+
+      // ── Titularidade e elegibilidade dos resíduos validadas NO SERVIDOR ──
+      if (residualIdsEnq.length > 0) {
+        const { data: residuos, error: resErr } = await supabase
+          .from("fin_residuos_negociacao")
+          .select("id, cliente_gc_id, estado, utilizado, reservado_job_id, valor_residual")
+          .in("id", residualIdsEnq);
+
+        if (resErr) {
+          return new Response(JSON.stringify({ error: `Falha ao validar passivos: ${resErr.message}` }), {
+            status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const encontrados = residuos ?? [];
+        const problemas: string[] = [];
+        for (const id of residualIdsEnq) {
+          const r = encontrados.find((x: any) => String(x.id) === id);
+          if (!r) { problemas.push(`Passivo ${id} não encontrado`); continue; }
+          if (clienteEnq && String(r.cliente_gc_id) !== clienteEnq) {
+            problemas.push(`Passivo ${id} pertence a outro cliente`);
+          }
+          if (r.utilizado || (r.estado && r.estado !== "disponivel")) {
+            problemas.push(`Passivo ${id} não está disponível (estado: ${r.estado ?? "utilizado"})`);
+          }
+          if (r.reservado_job_id) {
+            problemas.push(`Passivo ${id} já está reservado por outra negociação em andamento`);
+          }
+        }
+        if (problemas.length > 0) {
+          return new Response(JSON.stringify({
+            error: "Passivos inválidos para negociação.",
+            pendencias: problemas,
+          }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
+      // ── Idempotência: mesma requisição devolve o job existente ──
+      const chaveCanonica = JSON.stringify({
+        u: actorUserId ?? "service",
+        c: clienteEnq,
+        os: [...osIdsEnq].sort(),
+        res: [...residualIdsEnq].sort(),
+        p: (payloadCopy as any).parcelas ?? null,
+        d: (payloadCopy as any).dia_vencimento ?? null,
+        m: (payloadCopy as any).mes_inicio ?? null,
+        vp: (payloadCopy as any).valores_parcelas ?? null,
+        vn: (payloadCopy as any).valor_negociado ?? null,
+      });
+      const hashBytes = new Uint8Array(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(chaveCanonica))
+      );
+      const idempotencyKey = Array.from(hashBytes, (b) => b.toString(16).padStart(2, "0")).join("");
+
+      const { data: existente } = await supabase
+        .from("fin_negociacao_jobs")
+        .select("id, status")
+        .eq("idempotency_key", idempotencyKey)
+        .in("status", ["pendente", "processando", "concluido"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existente?.id) {
+        console.log(`[negotiate-os] enqueue idempotente — job existente ${existente.id} (${existente.status})`);
+        return new Response(
+          JSON.stringify({ success: true, job_id: existente.id, idempotente: true, status: existente.status }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
       const { data: job, error: jobErr } = await supabase
         .from("fin_negociacao_jobs")
@@ -471,11 +578,26 @@ serve(async (req) => {
           payload: payloadCopy,
           total_count: totalCount,
           progresso: "Aguardando processamento...",
+          idempotency_key: idempotencyKey,
+          created_by_user: actorUserId,
         })
         .select("id")
         .single();
 
       if (jobErr) {
+        // Corrida no índice único de idempotência → devolve o job vencedor
+        const { data: vencedor } = await supabase
+          .from("fin_negociacao_jobs")
+          .select("id, status")
+          .eq("idempotency_key", idempotencyKey)
+          .limit(1)
+          .maybeSingle();
+        if (vencedor?.id) {
+          return new Response(
+            JSON.stringify({ success: true, job_id: vencedor.id, idempotente: true, status: vencedor.status }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
         console.error("[negotiate-os] enqueue error:", jobErr.message);
         return new Response(
           JSON.stringify({ error: `Falha ao enfileirar negociação: ${jobErr.message}` }),
@@ -483,13 +605,52 @@ serve(async (req) => {
         );
       }
 
+      // ── Reserva atômica das origens: mesma origem não pode ser negociada
+      // por dois jobs ao mesmo tempo. ──
+      if (residualIdsEnq.length > 0) {
+        const { data: reservados, error: reservaErr } = await supabase
+          .from("fin_residuos_negociacao")
+          .update({
+            estado: "reservado",
+            reservado_job_id: job.id,
+            reservado_em: new Date().toISOString(),
+            estado_motivo: `Reservado pela negociação (job ${job.id})`,
+          })
+          .in("id", residualIdsEnq)
+          .eq("estado", "disponivel")
+          .is("reservado_job_id", null)
+          .select("id");
+
+        const reservadosIds = (reservados ?? []).map((r: any) => String(r.id));
+        if (reservaErr || reservadosIds.length !== residualIdsEnq.length) {
+          // Libera o que foi reservado por este job e cancela o job.
+          await supabase
+            .from("fin_residuos_negociacao")
+            .update({ estado: "disponivel", reservado_job_id: null, reservado_em: null, estado_motivo: "Reserva desfeita (concorrência)" })
+            .eq("reservado_job_id", job.id);
+          await supabase
+            .from("fin_negociacao_jobs")
+            .update({
+              status: "erro",
+              erro_msg: "Não foi possível reservar todos os passivos: outra negociação está usando as mesmas origens.",
+              finalizado_em: new Date().toISOString(),
+              progresso: "Cancelado antes de qualquer efeito externo",
+            })
+            .eq("id", job.id);
+          return new Response(JSON.stringify({
+            error: "Passivos já reservados por outra negociação em andamento.",
+            job_id: job.id,
+          }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
       // Dispara o worker imediatamente (fire-and-forget) para processar o job sem esperar o cron
       try {
-        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/negotiate-os-worker`, {
+        fetch(`${SUPABASE_URL}/functions/v1/negotiate-os-worker`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            "Authorization": `Bearer ${SERVICE_KEY}`,
           },
           body: JSON.stringify({ job_id: job.id }),
         }).catch(() => { /* fire-and-forget */ });
@@ -500,6 +661,7 @@ serve(async (req) => {
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
 
     // ─── EXECUTE ───────────────────────────────────────────
     if (body.action === "execute") {
@@ -527,16 +689,10 @@ serve(async (req) => {
 
       const normalizeMoney = (value: unknown): number => centsToMoney(moneyToCents(value));
 
-      // Generate due dates
-      const [startYear, startMonth] = mes_inicio.split("-").map(Number);
-      const dueDates: string[] = [];
-      for (let i = 0; i < parcelas; i++) {
-        const d = new Date(startYear, startMonth - 1 + i, dia_vencimento);
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, "0");
-        const dd = String(d.getDate()).padStart(2, "0");
-        dueDates.push(`${yyyy}-${mm}-${dd}`);
-      }
+      // Vencimentos: motor único compartilhado com o frontend (clamp do último
+      // dia do mês — dia 31 gera 31/01, 28/02, 31/03; 29/02 em ano bissexto).
+      const dueDates: string[] = gerarVencimentos(mes_inicio, Number(dia_vencimento), Number(parcelas));
+
 
       // Passivo vencimento = último dia útil do mês subsequente
       const lastNegotiatedDate = new Date(`${dueDates[dueDates.length - 1]}T00:00:00Z`);
@@ -1764,12 +1920,17 @@ serve(async (req) => {
               console.log(`[negotiate-os] Step 6: residual ${residual.id} vinculado ao grupo ${grupoIds[0]}`);
             }
 
-            // Marcar como utilizado
+            // Origem consumida: estado alocado e reserva liberada
             await supabase.from("fin_residuos_negociacao").update({
               utilizado: true,
               utilizado_em: new Date().toISOString(),
               gc_recebimento_id: gcRecId,
+              estado: "alocado",
+              reservado_job_id: null,
+              reservado_em: null,
+              estado_motivo: `Alocado na negociação ${negociacao_numero}`,
             }).eq("id", residual.id);
+
 
             residualResults.push({ id: residual.id, status: "ok" });
             console.log(`[negotiate-os] Residual ${residual.id} processado com sucesso`);

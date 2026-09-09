@@ -2,6 +2,7 @@
 // Pode ser chamado via cron (sem body) ou diretamente com { job_id } para processar 1 job específico.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decidirConclusao } from "../_shared/job-conclusao.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,6 +17,38 @@ serve(async (req) => {
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+
+  // ── Autenticação: só serviço (cron/server-to-server) ou usuário autenticado
+  // com permissão financeira podem acionar o worker. Nunca anônimo. ──
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const bearer = authHeader.replace(/^Bearer\s+/i, "").trim();
+  const isService = !!bearer && bearer === SERVICE_KEY;
+
+  if (!isService) {
+    if (!bearer || bearer === ANON_KEY) {
+      return new Response(JSON.stringify({ error: "Não autenticado." }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const authClient = createClient(SUPABASE_URL, ANON_KEY, {
+      global: { headers: { Authorization: `Bearer ${bearer}` } },
+    });
+    const { data: userData } = await authClient.auth.getUser();
+    const userId = userData?.user?.id;
+    if (!userId) {
+      return new Response(JSON.stringify({ error: "Sessão inválida." }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const { data: permitido } = await authClient.rpc("has_financeiro_write", { _user_id: userId });
+    if (!permitido) {
+      return new Response(JSON.stringify({ error: "Sem permissão financeira." }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
+
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
   let requestedJobId: string | null = null;
@@ -25,6 +58,7 @@ serve(async (req) => {
       requestedJobId = String(body.job_id);
     }
   } catch { /* sem body */ }
+
 
   // Reagenda jobs travados em "processando" há mais de 5 min como erro de timeout
   await supabase
@@ -129,27 +163,29 @@ serve(async (req) => {
       );
     }
 
-    const okCount = respJson?.summary?.ok || 0;
-    const errCount = respJson?.summary?.errors || 0;
+    const { concluiu, motivo, okCount, errCount, pendencias } = decidirConclusao(respJson);
+
 
     await supabase
       .from("fin_negociacao_jobs")
       .update({
-        status: "concluido",
+        status: concluiu ? "concluido" : "erro",
         resultado: respJson,
         ok_count: okCount,
         erro_count: errCount,
+        erro_msg: concluiu ? null : `Negociação parcial: ${motivo}. Revise antes de tentar novamente.`.slice(0, 1000),
         finalizado_em: new Date().toISOString(),
-        progresso: errCount === 0
+        progresso: concluiu
           ? `✅ ${okCount} OS negociada(s) com sucesso`
-          : `${okCount} OK, ${errCount} erro(s)`,
+          : `⚠️ Parcial — ${okCount} OK, ${motivo}`,
       })
       .eq("id", job.id);
 
-    console.log(`[worker] Job ${job.id} concluído: ${okCount} OK / ${errCount} erros`);
+    console.log(`[worker] Job ${job.id} ${concluiu ? "concluído" : "PARCIAL"}: ${okCount} OK / ${errCount} erros / ${pendencias} pendências`);
     return new Response(
-      JSON.stringify({ ok: true, job_id: job.id, ok_count: okCount, erro_count: errCount }),
+      JSON.stringify({ ok: concluiu, job_id: job.id, ok_count: okCount, erro_count: errCount, pendencias }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+
     );
   } catch (err) {
     const msg = (err as Error)?.message || String(err);
