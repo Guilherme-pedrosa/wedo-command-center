@@ -1920,12 +1920,17 @@ serve(async (req) => {
               console.log(`[negotiate-os] Step 6: residual ${residual.id} vinculado ao grupo ${grupoIds[0]}`);
             }
 
-            // Marcar como utilizado
+            // Origem consumida: estado alocado e reserva liberada
             await supabase.from("fin_residuos_negociacao").update({
               utilizado: true,
               utilizado_em: new Date().toISOString(),
               gc_recebimento_id: gcRecId,
+              estado: "alocado",
+              reservado_job_id: null,
+              reservado_em: null,
+              estado_motivo: `Alocado na negociação ${negociacao_numero}`,
             }).eq("id", residual.id);
+
 
             residualResults.push({ id: residual.id, status: "ok" });
             console.log(`[negotiate-os] Residual ${residual.id} processado com sucesso`);
