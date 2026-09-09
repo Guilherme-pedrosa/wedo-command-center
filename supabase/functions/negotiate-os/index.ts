@@ -339,14 +339,48 @@ serve(async (req) => {
       "Content-Type": "application/json",
     };
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+
+    // ── Autorização antes de qualquer uso do service client ──
+    // Chamadas internas (worker/cron) usam a service key; ações de usuário
+    // exigem sessão válida com permissão financeira. Anônimo é sempre negado.
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const bearer = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const isServiceCall = !!bearer && bearer === SERVICE_KEY;
+    let actorUserId: string | null = null;
+
+    if (!isServiceCall) {
+      if (!bearer || bearer === ANON_KEY) {
+        return new Response(JSON.stringify({ error: "Não autenticado." }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const authClient = createClient(SUPABASE_URL, ANON_KEY, {
+        global: { headers: { Authorization: `Bearer ${bearer}` } },
+      });
+      const { data: userData } = await authClient.auth.getUser();
+      actorUserId = userData?.user?.id ?? null;
+      if (!actorUserId) {
+        return new Response(JSON.stringify({ error: "Sessão inválida." }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: permitido } = await authClient.rpc("has_financeiro_write", { _user_id: actorUserId });
+      if (!permitido) {
+        return new Response(JSON.stringify({ error: "Sem permissão financeira para negociar." }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
     const body: NegotiateRequest = await req.json();
     // Toda operação automática pertence ao usuário técnico, nunca ao perfil humano.
     const actingGcUserId = GC_API_USER_ID;
+
 
     // ─── LIST ──────────────────────────────────────────────
     if (body.action === "list") {
