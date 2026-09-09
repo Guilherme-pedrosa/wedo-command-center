@@ -16,6 +16,38 @@ serve(async (req) => {
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+
+  // ── Autenticação: só serviço (cron/server-to-server) ou usuário autenticado
+  // com permissão financeira podem acionar o worker. Nunca anônimo. ──
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const bearer = authHeader.replace(/^Bearer\s+/i, "").trim();
+  const isService = !!bearer && bearer === SERVICE_KEY;
+
+  if (!isService) {
+    if (!bearer || bearer === ANON_KEY) {
+      return new Response(JSON.stringify({ error: "Não autenticado." }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const authClient = createClient(SUPABASE_URL, ANON_KEY, {
+      global: { headers: { Authorization: `Bearer ${bearer}` } },
+    });
+    const { data: userData } = await authClient.auth.getUser();
+    const userId = userData?.user?.id;
+    if (!userId) {
+      return new Response(JSON.stringify({ error: "Sessão inválida." }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const { data: permitido } = await authClient.rpc("has_financeiro_write", { _user_id: userId });
+    if (!permitido) {
+      return new Response(JSON.stringify({ error: "Sem permissão financeira." }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
+
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
   let requestedJobId: string | null = null;
@@ -25,6 +57,7 @@ serve(async (req) => {
       requestedJobId = String(body.job_id);
     }
   } catch { /* sem body */ }
+
 
   // Reagenda jobs travados em "processando" há mais de 5 min como erro de timeout
   await supabase
