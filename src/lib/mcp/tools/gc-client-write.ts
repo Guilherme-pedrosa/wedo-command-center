@@ -1,3 +1,4 @@
+import { GC_API_USER_ID } from "../../../../supabase/functions/_shared/gc-user-id";
 import { defineTool, type ToolContext } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { errorResult, McpToolError, successResult } from "../shared/errors";
@@ -67,7 +68,6 @@ const clientOptionalShape = {
   fax: optionalText(30),
   email: emailSchema,
   ativo: z.boolean().optional(),
-  usuario_id: idSchema.optional(),
   loja_id: idSchema.optional(),
   contatos: z.array(contactSchema).max(20).optional(),
   enderecos: z.array(addressSchema).max(10).optional(),
@@ -88,7 +88,6 @@ const WRITABLE_FIELDS = [
   "fax",
   "email",
   "ativo",
-  "usuario_id",
   "loja_id",
   "contatos",
   "enderecos",
@@ -220,7 +219,7 @@ function creationPreview(payload: JsonRecord) {
     telefone: payload.telefone || payload.celular || null,
     ativo: String(payload.ativo ?? "1") !== "0",
     loja_id: payload.loja_id ?? "matriz/padrão da credencial",
-    usuario_id: payload.usuario_id ?? "usuário master/padrão da credencial",
+    usuario_id: GC_API_USER_ID,
     contatos: Array.isArray(payload.contatos) ? payload.contatos.length : 0,
     enderecos: Array.isArray(payload.enderecos) ? payload.enderecos.length : 0,
   };

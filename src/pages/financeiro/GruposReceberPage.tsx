@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { addMonths, format as fnsFormat } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -14,10 +13,11 @@ import { Label } from "@/components/ui/label";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
-import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix, resyncRecebimentoFromGC, gcDelay, atualizarRecebimentoGC, registrarResidualNegociacao } from "@/api/financeiro";
+import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix, resyncRecebimentoFromGC, gcDelay, atualizarRecebimentoGC, solicitarCancelamentoNegociacao } from "@/api/financeiro";
 import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink, FileText, Link2, Plus, Upload, AlertTriangle, ShieldCheck, RefreshCw, Pencil, Trash2, CalendarIcon, Search, X, Minus, Sparkles, ScanSearch, Banknote, Check } from "lucide-react";
 import { SmartGroupDialog } from "@/components/financeiro/SmartGroupDialog";
 import toast from "react-hot-toast";
+import { negotiationReviewReasons } from "@/lib/negotiation-integrity";
 import { useNavigate } from "react-router-dom";
 
 export default function GruposReceberPage() {
@@ -26,101 +26,6 @@ export default function GruposReceberPage() {
   const GC_BASE = "https://gestaoclick.com";
 
   const roundMoney = (value: number) => Math.round(value * 100) / 100;
-
-  const findClosestSubsetAtOrBelow = (
-    items: Array<{ key: string; valor: number }>,
-    target: number,
-  ) => {
-    const sorted = [...items]
-      .filter((item) => item.valor > 0)
-      .sort((a, b) => b.valor - a.valor)
-      .slice(0, 30);
-
-    let bestKeys: string[] = [];
-    let bestSum = 0;
-    const tolerance = 0.02;
-
-    const search = (index: number, currentSum: number, chosen: string[]) => {
-      if (Math.abs(currentSum - target) <= tolerance) {
-        bestKeys = [...chosen];
-        bestSum = currentSum;
-        return true;
-      }
-
-      if (currentSum > bestSum && currentSum <= target + tolerance) {
-        bestSum = currentSum;
-        bestKeys = [...chosen];
-      }
-
-      if (index >= sorted.length) return false;
-
-      let remaining = 0;
-      for (let i = index; i < sorted.length; i++) remaining += sorted[i].valor;
-      if (currentSum + remaining < bestSum) return false;
-
-      for (let i = index; i < sorted.length; i++) {
-        const next = currentSum + sorted[i].valor;
-        if (next <= target + tolerance) {
-          chosen.push(sorted[i].key);
-          if (search(i + 1, next, chosen)) return true;
-          chosen.pop();
-        }
-      }
-
-      return false;
-    };
-
-    search(0, 0, []);
-    return new Set(bestKeys);
-  };
-
-  // Encontra o subconjunto cujo somatório seja >= target com o MENOR excedente.
-  // Garante que o grupo cubra integralmente o valor desejado pelo usuário.
-  const findClosestSubsetAtOrAbove = (
-    items: Array<{ key: string; valor: number }>,
-    target: number,
-  ) => {
-    const sorted = [...items]
-      .filter((item) => item.valor > 0)
-      .sort((a, b) => b.valor - a.valor)
-      .slice(0, 30);
-
-    const totalAll = sorted.reduce((s, i) => s + i.valor, 0);
-    if (totalAll <= target + 0.02) {
-      return new Set(sorted.map((i) => i.key));
-    }
-
-    let bestKeys: string[] = sorted.map((i) => i.key);
-    let bestSum = totalAll;
-    const tolerance = 0.02;
-
-    const search = (index: number, currentSum: number, chosen: string[]) => {
-      if (currentSum >= target - tolerance) {
-        if (currentSum < bestSum) {
-          bestSum = currentSum;
-          bestKeys = [...chosen];
-        }
-        return;
-      }
-      if (index >= sorted.length) return;
-
-      let remaining = 0;
-      for (let i = index; i < sorted.length; i++) remaining += sorted[i].valor;
-      if (currentSum + remaining < target - tolerance) return;
-
-      for (let i = index; i < sorted.length; i++) {
-        const next = currentSum + sorted[i].valor;
-        if (next < bestSum) {
-          chosen.push(sorted[i].key);
-          search(i + 1, next, chosen);
-          chosen.pop();
-        }
-      }
-    };
-
-    search(0, 0, []);
-    return new Set(bestKeys);
-  };
 
   const handleDownloadXml = async (filePath: string) => {
     try {
@@ -224,19 +129,15 @@ export default function GruposReceberPage() {
   const [editObs, setEditObs] = useState("");
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [cancelamentoMotivo, setCancelamentoMotivo] = useState("");
+  const financeiroBloqueado = (g: any) => Boolean(g?.bloqueio_financeiro || (g?.integridade_status && !["ok", "nao_verificado"].includes(g.integridade_status)));
   const [deleting, setDeleting] = useState(false);
   const [editItensToRemove, setEditItensToRemove] = useState<string[]>([]);
   const [editItensToAdd, setEditItensToAdd] = useState<any[]>([]);
-  const [searchReceb, setSearchReceb] = useState("");
-  const [searchingReceb, setSearchingReceb] = useState(false);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
   const [syncingGC, setSyncingGC] = useState(false);
   const [showSmartGroup, setShowSmartGroup] = useState(false);
   const [scanningPassivos, setScanningPassivos] = useState(false);
-  const [taggingPassivos, setTaggingPassivos] = useState(false);
-  const [markingPassivo, setMarkingPassivo] = useState<string | null>(null);
   const [editValorCobrar, setEditValorCobrar] = useState<number | null>(null);
-  const [editingItemValor, setEditingItemValor] = useState<string | null>(null);
   const [osIdMap, setOsIdMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -264,252 +165,31 @@ export default function GruposReceberPage() {
     if (!selectedGrupo) return;
     setSaving(true);
     try {
-      const { data: currentGroupItems, error: currentItemsError } = await supabase
-        .from("fin_grupo_receber_itens")
-        .select("id, recebimento_id, valor, os_codigo_original, fin_recebimentos(valor, os_codigo, descricao)")
-        .eq("grupo_id", selectedGrupo.id);
-
-      if (currentItemsError) throw currentItemsError;
-
-      const baseItems = (currentGroupItems || [])
-        .filter((item: any) => !editItensToRemove.includes(item.id))
-        .map((item: any) => ({
-          key: `existing:${item.id}`,
-          source: "existing" as const,
-          groupItemId: item.id,
-          recebimentoId: item.recebimento_id,
-          valor: Number(item.valor || item.fin_recebimentos?.valor || 0),
-          osCodigo: item.os_codigo_original || item.fin_recebimentos?.os_codigo || null,
-        }));
-
-      const addedItems = editItensToAdd.map((rec: any) => ({
-        key: `new:${rec.id}`,
-        source: "new" as const,
-        recebimentoId: rec.id,
-        valor: Number(rec.valor || 0),
-        osCodigo: rec.os_codigo || null,
-      }));
-
-      const candidateItems = [...baseItems, ...addedItems].filter((item) => item.valor > 0);
-      if (!candidateItems.length) {
-        throw new Error("O grupo precisa ter pelo menos um item.");
+      if (editItensToRemove.length || editItensToAdd.length || editValorCobrar !== null || editVencimento !== (selectedGrupo.data_vencimento || "")) {
+        throw new Error("Alterações de valor, composição e vencimento exigem nova negociação conferida no GestãoClick. Nesta tela edite nome e observação.");
       }
-
-      const totalItens = roundMoney(candidateItems.reduce((sum, item) => sum + item.valor, 0));
-      const valorDesejado = editValorCobrar !== null
-        ? Math.max(0.01, roundMoney(editValorCobrar))
-        : totalItens;
-
-      // Subset >= valorDesejado (menor excedente) — nunca reduz o valor pedido.
-      const keepKeys = editValorCobrar !== null && valorDesejado < totalItens - 0.02
-        ? findClosestSubsetAtOrAbove(candidateItems.map((item) => ({ key: item.key, valor: item.valor })), valorDesejado)
-        : new Set(candidateItems.map((item) => item.key));
-
-      const keptItems = candidateItems.filter((item) => keepKeys.has(item.key));
-      const removedItems = candidateItems.filter((item) => !keepKeys.has(item.key));
-
-      if (!keptItems.length) {
-        throw new Error("Nenhuma combinação de itens cobre o valor informado. Ajuste os itens do grupo.");
-      }
-
-      const removedExisting = removedItems.filter((item) => item.source === "existing");
-      if (removedExisting.length > 0) {
-        const recebimentoIds = removedExisting.map((item) => item.recebimentoId);
-        const groupItemIds = removedExisting.map((item) => item.groupItemId).filter(Boolean);
-
-        await supabase.from("fin_recebimentos").update({ grupo_id: null }).in("id", recebimentoIds);
-        if (groupItemIds.length > 0) {
-          await supabase.from("fin_grupo_receber_itens").delete().in("id", groupItemIds as string[]);
-        }
-      }
-
-      const keptNewItems = keptItems.filter((item) => item.source === "new");
-      if (keptNewItems.length > 0) {
-        await supabase.from("fin_grupo_receber_itens").insert(
-          keptNewItems.map((item) => {
-            const rec = editItensToAdd.find((entry: any) => entry.id === item.recebimentoId);
-            return {
-              grupo_id: selectedGrupo.id,
-              recebimento_id: item.recebimentoId,
-              valor: item.valor,
-              os_codigo_original: item.osCodigo,
-              gc_os_id: rec?.gc_id || null,
-              snapshot_valor: item.valor,
-              snapshot_data: rec?.data_vencimento || null,
-            };
-          }),
-        );
-        await supabase.from("fin_recebimentos").update({ grupo_id: selectedGrupo.id }).in("id", keptNewItems.map((item) => item.recebimentoId));
-      }
-
-      const somaItensMantidos = roundMoney(keptItems.reduce((sum, item) => sum + item.valor, 0));
-      // valor_total do grupo respeita EXATAMENTE o valor informado pelo usuário.
-      // Se itens somam mais que o desejado, o excedente vai para passivo.
-      // Se somam menos, o grupo ainda assim cobra o valor pedido (nunca reduz).
-      const valorGrupoFinal = editValorCobrar !== null
-        ? roundMoney(valorDesejado)
-        : somaItensMantidos;
-      const excedenteItensMantidos = roundMoney(Math.max(0, somaItensMantidos - valorGrupoFinal));
-      const valorRemovidos = roundMoney(removedItems.reduce((sum, item) => sum + item.valor, 0));
-      const valorSeparado = roundMoney(excedenteItensMantidos + valorRemovidos);
-      const osCodigos = Array.from(new Set(keptItems.map((item) => item.osCodigo).filter(Boolean)));
-      const osCodigosSeparados = Array.from(new Set([
-        ...removedItems.map((item) => item.osCodigo).filter(Boolean),
-        ...(excedenteItensMantidos > 0.01 ? keptItems.map((item) => item.osCodigo).filter(Boolean) : []),
-      ]));
-      const keptRecebimentoIds = keptItems.map((item) => item.recebimentoId);
-
-      const { error } = await supabase.from("fin_grupos_receber").update({
-        nome: editNome,
-        data_vencimento: editVencimento || null,
-        observacao: editObs || null,
-        valor_total: valorGrupoFinal,
-        itens_total: keptItems.length,
-        os_codigos: osCodigos.length > 0 ? osCodigos : null,
-        updated_at: new Date().toISOString(),
-      }).eq("id", selectedGrupo.id);
+      const { error } = await supabase.from("fin_grupos_receber").update({ nome: editNome.trim(), observacao: editObs || null, updated_at: new Date().toISOString() }).eq("id", selectedGrupo.id);
       if (error) throw error;
-
-      if (valorSeparado > 0.01 && selectedGrupo.cliente_gc_id) {
-        const { error: residualError } = await supabase.from("fin_residuos_negociacao").insert({
-          cliente_gc_id: selectedGrupo.cliente_gc_id,
-          nome_cliente: selectedGrupo.nome_cliente || "—",
-          valor_residual: valorSeparado,
-          negociacao_origem_numero: selectedGrupo.negociacao_numero || null,
-          os_codigos: osCodigosSeparados.length > 0 ? osCodigosSeparados : null,
-          observacao: `Passivo gerado na edição do grupo "${editNome}" — Valor cobrado: ${formatCurrency(valorGrupoFinal)} · Valor separado: ${formatCurrency(valorSeparado)}`,
-          utilizado: false,
-        });
-        if (residualError) throw residualError;
-      }
-
-
-      if (editVencimento && keptRecebimentoIds.length > 0) {
-        await supabase.from("fin_recebimentos").update({ data_vencimento: editVencimento }).in("id", keptRecebimentoIds);
-        
-        // Sync vencimento dos itens mantidos no GC
-        for (const item of keptItems) {
-          const rec = grupoItens?.find((gi: any) => gi.recebimento_id === item.recebimentoId)?.fin_recebimentos
-            || editItensToAdd.find((r: any) => r.id === item.recebimentoId);
-          if (rec?.gc_id && rec?.gc_payload_raw) {
-            try {
-              await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw as Record<string, unknown>, { data_vencimento: editVencimento });
-            } catch { /* ignore */ }
-            await gcDelay();
-          }
-        }
-      }
-
-      // Itens removidos do grupo: vencimento = 1 mês depois do grupo
-      if (editVencimento && removedExisting.length > 0) {
-        const vencPostergado = fnsFormat(addMonths(new Date(editVencimento + 'T12:00:00'), 1), "yyyy-MM-dd");
-        const removedRecIds = removedExisting.map((item) => item.recebimentoId);
-        await supabase.from("fin_recebimentos").update({ data_vencimento: vencPostergado }).in("id", removedRecIds);
-        
-        // Sync no GC
-        for (const item of removedExisting) {
-          const rec = grupoItens?.find((gi: any) => gi.recebimento_id === item.recebimentoId)?.fin_recebimentos;
-          if (rec?.gc_id && rec?.gc_payload_raw) {
-            try {
-              await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw as Record<string, unknown>, { data_vencimento: vencPostergado });
-            } catch { /* ignore */ }
-            await gcDelay();
-          }
-        }
-        toast.success(`${removedExisting.length} item(ns) removido(s) → venc. ${fnsFormat(addMonths(new Date(editVencimento + 'T12:00:00'), 1), "dd/MM/yyyy")}`);
-      }
-
-      toast.success(
-        valorSeparado > 0.01
-          ? `Grupo ajustado: ${formatCurrency(valorGrupoFinal)} no grupo e ${formatCurrency(valorSeparado)} em passivo`
-          : "Grupo atualizado",
-      );
+      toast.success("Nome e observação atualizados");
       setShowEditDialog(false);
-      setSelectedGrupo(null);
+      setSelectedGrupo((previous: any) => ({ ...previous, nome: editNome.trim(), observacao: editObs || null }));
       queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
-      queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens"] });
-      queryClient.invalidateQueries({ queryKey: ["fin-passivos-cliente"] });
-      queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
     finally { setSaving(false); }
-  };
-
-  const handleSearchRecebimentos = async (term: string) => {
-    setSearchReceb(term);
-    if (term.length < 2) { setSearchResults([]); return; }
-    setSearchingReceb(true);
-    try {
-      let q = supabase.from("fin_recebimentos")
-        .select("id, descricao, valor, os_codigo, gc_codigo, gc_id, data_vencimento, nome_cliente")
-        .is("grupo_id", null)
-        .order("data_vencimento", { ascending: false })
-        .limit(20);
-      
-      // Search by OS code, description, or gc_codigo
-      q = q.or(`os_codigo.ilike.%${term}%,descricao.ilike.%${term}%,gc_codigo.ilike.%${term}%`);
-      
-      const { data } = await q;
-      // Filter out already-added items
-      const addedIds = editItensToAdd.map(i => i.id);
-      setSearchResults((data || []).filter(r => !addedIds.includes(r.id)));
-    } catch { setSearchResults([]); }
-    finally { setSearchingReceb(false); }
   };
 
   const handleDeleteGroup = async () => {
     if (!selectedGrupo) return;
     setDeleting(true);
     try {
-      // Remove grupo_id from linked recebimentos
-      const { data: itens } = await supabase
-        .from("fin_grupo_receber_itens")
-        .select("recebimento_id")
-        .eq("grupo_id", selectedGrupo.id);
-      if (itens?.length) {
-        const ids = itens.map((i: any) => i.recebimento_id);
-        await supabase.from("fin_recebimentos").update({ grupo_id: null }).in("id", ids);
-      }
-      // Delete items then group
-      await supabase.from("fin_grupo_receber_itens").delete().eq("grupo_id", selectedGrupo.id);
-
-      // Rollback residuais: reverter passivos que foram utilizados nesta negociação
-      if (selectedGrupo.cliente_gc_id) {
-        const osCodigos = (selectedGrupo.os_codigos || []) as string[];
-        // Find residuals for this client that are used and have overlapping os_codigos
-        const { data: residuais } = await supabase
-          .from("fin_residuos_negociacao")
-          .select("id, os_codigos")
-          .eq("cliente_gc_id", selectedGrupo.cliente_gc_id)
-          .eq("utilizado", true);
-        
-        if (residuais?.length) {
-          // Filter residuals whose os_codigos overlap with the group's os_codigos
-          const idsToRevert = residuais
-            .filter((r: any) => {
-              const rCodes = (r.os_codigos || []) as string[];
-              return rCodes.some((c: string) => osCodigos.includes(c));
-            })
-            .map((r: any) => r.id);
-          
-          if (idsToRevert.length > 0) {
-            await supabase
-              .from("fin_residuos_negociacao")
-              .update({ utilizado: false, utilizado_em: null })
-              .in("id", idsToRevert);
-            console.log(`[delete-grupo] ${idsToRevert.length} residuais revertidos`);
-          }
-        }
-      }
-
-      await supabase.from("fin_grupos_receber").delete().eq("id", selectedGrupo.id);
-
-      toast.success("Grupo excluído");
-      setShowDeleteConfirm(false);
-      setSelectedGrupo(null);
+      await solicitarCancelamentoNegociacao([selectedGrupo.id], cancelamentoMotivo);
+      toast.success("Solicitação registrada. Grupo bloqueado para conferência do cancelamento.");
+      setShowDeleteConfirm(false); setCancelamentoMotivo(""); setSelectedGrupo(null);
       queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
     finally { setDeleting(false); }
   };
+
   const { data: grupos, isLoading } = useQuery({
     queryKey: ["fin-grupos-receber", statusFilter],
     queryFn: async () => {
@@ -541,11 +221,12 @@ export default function GruposReceberPage() {
     queryKey: ["fin-passivos-cliente", selectedGrupo?.cliente_gc_id],
     enabled: !!selectedGrupo?.cliente_gc_id,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data } = await (supabase as any)
         .from("fin_residuos_negociacao")
         .select("*")
         .eq("cliente_gc_id", selectedGrupo.cliente_gc_id)
         .eq("utilizado", false)
+        .eq("estado", "disponivel")
         .order("created_at", { ascending: false });
       return data || [];
     },
@@ -565,51 +246,6 @@ export default function GruposReceberPage() {
     }
   };
 
-  const handleTagPassivos = async () => {
-    if (!selectedGrupo?.cliente_gc_id || !selectedGrupo?.os_codigos?.length) {
-      toast.error("Grupo sem cliente ou OS vinculadas");
-      return;
-    }
-    setTaggingPassivos(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("tag-passivos", {
-        body: {
-          cliente_gc_id: selectedGrupo.cliente_gc_id,
-          negociacao_numero: selectedGrupo.negociacao_numero || 0,
-          os_codigos: selectedGrupo.os_codigos,
-        },
-      });
-      if (error) throw error;
-      const msg = `${data.tagged} passivo(s) tageado(s) no GC`;
-      const scanMsg = data.scan_result?.inserted ? `, ${data.scan_result.inserted} importado(s)` : '';
-      const errMsg = data.errors?.length ? ` (${data.errors.length} erros)` : '';
-      toast.success(`${msg}${scanMsg}${errMsg}`);
-      refetchPassivos();
-      queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
-    } catch (err) {
-      toast.error(`Erro: ${(err as Error).message}`);
-    } finally {
-      setTaggingPassivos(false);
-    }
-  };
-
-  const handleMarcarPassivoUtilizado = async (passivoId: string) => {
-    setMarkingPassivo(passivoId);
-    try {
-      const { error } = await supabase
-        .from("fin_residuos_negociacao")
-        .update({ utilizado: true, utilizado_em: new Date().toISOString() })
-        .eq("id", passivoId);
-      if (error) throw error;
-      toast.success("Passivo marcado como utilizado");
-      refetchPassivos();
-    } catch (err) {
-      toast.error(`Erro: ${(err as Error).message}`);
-    } finally {
-      setMarkingPassivo(null);
-    }
-  };
-
   const statusBadge = (s: string) => {
     const map: Record<string, string> = { 
       aberto: "bg-muted/50 text-muted-foreground", 
@@ -618,7 +254,7 @@ export default function GruposReceberPage() {
       pago_parcial: "bg-orange-500/10 text-orange-500 border-orange-500/30", 
       cancelado: "bg-muted/50 text-muted-foreground" 
     };
-    return <Badge variant="outline" className={`${map[s] || ""} text-[10px]`}>{s.replace("_", " ")}</Badge>;
+    return <Badge variant="outline" className={`${map[s] || ""} text-[10px]`}>{s === "pago" ? "Quitado no GC" : s === "pago_parcial" ? "GC parcial" : s.replace("_", " ")}</Badge>;
   };
 
   const handleGerarPix = async (grupoId: string) => {
@@ -905,7 +541,7 @@ export default function GruposReceberPage() {
                   </div>
                 </td>
                 <td className="p-3 text-center text-xs">{g.itens_baixados ?? 0}/{g.itens_total ?? 0}</td>
-                <td className="p-3 text-center">{statusBadge(g.status)}</td>
+                <td className="p-3 text-center">{statusBadge(g.status)}{financeiroBloqueado(g) && <Badge variant="destructive" className="ml-1">Conferir</Badge>}</td>
                 <td className="p-3 text-center">
                   {g.inter_pago_em ? (
                     <span className="text-emerald-500 text-[10px] flex items-center gap-1 justify-center">
@@ -920,7 +556,7 @@ export default function GruposReceberPage() {
                   {g.gc_baixado ? (
                     <span className="text-emerald-500 text-[10px]">✅ {g.gc_baixado_em ? formatDate(g.gc_baixado_em) : ""}</span>
                   ) : g.inter_pago_em && !g.gc_baixado ? (
-                    <Button size="sm" variant="outline" className="text-orange-500 border-orange-500/30 text-[10px] h-7" onClick={() => { setBaixaGrupoId(g.id); setShowBaixa(true); }}>
+                    <Button size="sm" variant="outline" className="text-orange-500 border-orange-500/30 text-[10px] h-7" disabled={financeiroBloqueado(g)} onClick={() => { setBaixaGrupoId(g.id); setShowBaixa(true); }}>
                       <Zap className="h-3 w-3 mr-1" />Baixar GC
                     </Button>
                   ) : (
@@ -940,8 +576,6 @@ export default function GruposReceberPage() {
                         setEditObs(g.observacao || "");
                         setEditItensToRemove([]);
                         setEditItensToAdd([]);
-                        setSearchReceb("");
-                        setSearchResults([]);
                         setEditValorCobrar(null);
                         setShowEditDialog(true);
                       }}>
@@ -955,7 +589,7 @@ export default function GruposReceberPage() {
                       <Trash2 className="h-3 w-3" />
                     </Button>
                     {(g.status === "aberto" || g.status === "aguardando_pagamento") && !g.inter_txid && (
-                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => handleGerarPix(g.id)} disabled={generatingPix === g.id}>
+                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => handleGerarPix(g.id)} disabled={financeiroBloqueado(g) || generatingPix === g.id}>
                         {generatingPix === g.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <QrCode className="h-3 w-3" />}
                       </Button>
                     )}
@@ -976,6 +610,13 @@ export default function GruposReceberPage() {
               <SheetHeader>
                 <div className="flex items-center justify-between">
                   <SheetTitle>{selectedGrupo.nome}</SheetTitle>
+                  <div className="mt-2 space-y-2 text-sm">
+                    <Badge variant={financeiroBloqueado(selectedGrupo) ? "destructive" : "outline"}>Conferência: {selectedGrupo.integridade_status || "não verificada"}</Badge>
+                    {financeiroBloqueado(selectedGrupo) && <p className="text-amber-600">Cobrança e baixa bloqueadas até resolver a conferência.</p>}
+                    {negotiationReviewReasons(selectedGrupo.integridade_motivos).map((motivo: string, index: number) => <p key={index}>{motivo}</p>)}
+                    <p>Recebimento bancário conciliado: {selectedGrupo.valor_recebido == null ? "não comprovado neste grupo" : formatCurrency(Number(selectedGrupo.valor_recebido))}</p>
+                    <p className="text-xs text-muted-foreground">Quitação no GC e recebimento bancário são conferências distintas. Descontos do título não alteram o valor original do acordo.</p>
+                  </div>
                   {canEditGroup(selectedGrupo) && (
                     <div className="flex items-center gap-1">
                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
@@ -984,8 +625,6 @@ export default function GruposReceberPage() {
                         setEditObs(selectedGrupo.observacao || "");
                         setEditItensToRemove([]);
                         setEditItensToAdd([]);
-                        setSearchReceb("");
-                        setSearchResults([]);
                         setEditValorCobrar(null);
                         setShowEditDialog(true);
                       }}>
@@ -1125,9 +764,9 @@ export default function GruposReceberPage() {
                   <div className="rounded-lg bg-orange-500/10 border border-orange-500/30 p-4 space-y-3">
                     <div className="flex items-center gap-2 text-sm">
                       <Zap className="h-4 w-4 text-orange-500" />
-                      Inter confirmou em {formatDateTime(selectedGrupo.inter_pago_em)}. Clique para baixar no GC.
+                      Inter confirmou em {formatDateTime(selectedGrupo.inter_pago_em)}. A baixa exige vincular esse recebimento aos títulos e conferir a composição.
                     </div>
-                    <Button variant="destructive" onClick={() => { setBaixaGrupoId(selectedGrupo.id); setShowBaixa(true); }}>
+                    <Button variant="destructive" disabled={financeiroBloqueado(selectedGrupo)} onClick={() => { setBaixaGrupoId(selectedGrupo.id); setShowBaixa(true); }}>
                       Enviar Baixa para GC
                     </Button>
                   </div>
@@ -1144,14 +783,14 @@ export default function GruposReceberPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={handleTagPassivos}
-                    disabled={taggingPassivos}
+                    onClick={handleScanPassivos}
+                    disabled={scanningPassivos}
                     className="w-full"
                   >
-                    {taggingPassivos
+                    {scanningPassivos
                       ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
                       : <Banknote className="h-3.5 w-3.5 mr-1.5" />}
-                    Atualizar Passivos no GC
+                    Conferir saldos no GC
                   </Button>
                 )}
 
@@ -1189,16 +828,7 @@ export default function GruposReceberPage() {
                               <p className="text-[10px] text-muted-foreground mt-1 truncate">{p.observacao}</p>
                             )}
                           </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs ml-2 shrink-0 border-amber-500/30 hover:bg-amber-500/20"
-                            disabled={markingPassivo === p.id}
-                            onClick={() => handleMarcarPassivoUtilizado(p.id)}
-                          >
-                            {markingPassivo === p.id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Check className="h-3 w-3 mr-1" />}
-                            Utilizado
-                          </Button>
+                          <Badge variant="outline" className="text-xs">Disponível para negociação</Badge>
                         </div>
                       ))}
                     </div>
@@ -1238,12 +868,7 @@ export default function GruposReceberPage() {
                               if (success) ok++; else fail++;
                               await gcDelay();
                             }
-                            const { data: updatedItens } = await supabase
-                              .from("fin_grupo_receber_itens")
-                              .select("valor")
-                              .eq("grupo_id", selectedGrupo.id);
-                            const novoTotal = (updatedItens || []).reduce((s: number, i: any) => s + Number(i.valor || 0), 0);
-                            await supabase.from("fin_grupos_receber").update({ valor_total: novoTotal, updated_at: new Date().toISOString() }).eq("id", selectedGrupo.id);
+                            // O valor original do acordo e seus snapshots permanecem preservados.
 
                             toast.success(`Atualizado ${ok}/${itensComGcId.length} itens do GC`);
                             if (fail) toast.error(`${fail} item(ns) falharam`);
@@ -1344,61 +969,9 @@ export default function GruposReceberPage() {
                               </td>
                               <td className="p-2 truncate max-w-[150px]">{rec?.descricao}</td>
                               <td className="p-2 text-right font-medium">
-                                {editingItemValor === i.id ? (
-                                  <Input
-                                    className="h-6 w-24 text-xs text-right ml-auto"
-                                    defaultValue={Number(i.valor || rec?.valor).toFixed(2).replace('.', ',')}
-                                    autoFocus
-                                    onKeyDown={async (e) => {
-                                      if (e.key === 'Enter') {
-                                        try {
-                                          const val = (e.target as HTMLInputElement).value;
-                                          const parsed = parseFloat(val.replace(/\./g, "").replace(",", "."));
-                                          const valorAtual = Number(i.valor || rec?.valor || 0);
-                                          if (isNaN(parsed) || parsed <= 0) { toast.error("Valor inválido"); return; }
-                                          if (parsed > valorAtual) { toast.error(`Máximo: ${formatCurrency(valorAtual)}`); return; }
-                                          if (Math.abs(parsed - valorAtual) <= 0.009) { setEditingItemValor(null); return; }
-
-                                          // Registra resíduo localmente (não mexe no GC)
-                                          await registrarResidualNegociacao({
-                                            recebimentoId: i.recebimento_id,
-                                            valorOriginal: valorAtual,
-                                            valorNegociado: parsed,
-                                            clienteGcId: selectedGrupo?.cliente_gc_id || null,
-                                            nomeCliente: selectedGrupo?.nome_cliente || null,
-                                            osCodigo: rec?.os_codigo || null,
-                                            gcRecebimentoId: rec?.gc_id || null,
-                                            gcCodigo: rec?.gc_codigo || null,
-                                          });
-
-                                          await supabase.from("fin_grupo_receber_itens").update({ valor: parsed }).eq("id", i.id);
-                                          const { data: allItens } = await supabase.from("fin_grupo_receber_itens").select("valor").eq("grupo_id", selectedGrupo.id);
-                                          const novoTotal = (allItens || []).reduce((s: number, it: any) => s + Number(it.valor || 0), 0);
-                                          await supabase.from("fin_grupos_receber").update({ valor_total: novoTotal, updated_at: new Date().toISOString() }).eq("id", selectedGrupo.id);
-                                          setSelectedGrupo((prev: any) => prev ? { ...prev, valor_total: novoTotal } : prev);
-                                          toast.success(`Valor atualizado para ${formatCurrency(parsed)}`);
-                                          queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens"] });
-                                          queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
-                                          queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
-                                          setEditingItemValor(null);
-                                        } catch (err) {
-                                          toast.error(err instanceof Error ? err.message : "Erro ao desmembrar item");
-                                        }
-                                      }
-                                      if (e.key === 'Escape') setEditingItemValor(null);
-                                    }}
-                                    onBlur={() => setEditingItemValor(null)}
-                                  />
-                                ) : (
-                                  <span
-                                    className="cursor-pointer hover:text-primary inline-flex items-center gap-1 justify-end"
-                                    onClick={() => setEditingItemValor(i.id)}
-                                    title="Clique para editar valor"
-                                  >
-                                    {formatCurrency(Number(i.valor || rec?.valor))}
-                                    <Pencil className="h-2.5 w-2.5 text-muted-foreground" />
-                                  </span>
-                                )}
+                                <span title="Valor acordado preservado. Alterações financeiras exigem negociação conferida.">
+                                  {formatCurrency(Number(i.valor ?? rec?.valor ?? 0))}
+                                </span>
                               </td>
                               <td className="p-2 text-center">{rec?.pago_sistema ? "✅" : "—"}</td>
                               <td className="p-2 text-center">{i.gc_baixado ? "✅" : "⏳"}</td>
@@ -1564,7 +1137,7 @@ export default function GruposReceberPage() {
               </div>
               <div className="space-y-2">
                 <Label>Data de Vencimento</Label>
-                <Input type="date" value={editVencimento} onChange={e => setEditVencimento(e.target.value)} />
+                <Input type="date" value={editVencimento} readOnly disabled />
               </div>
             </div>
             <div className="space-y-2">
@@ -1572,138 +1145,8 @@ export default function GruposReceberPage() {
               <Input value={editObs} onChange={e => setEditObs(e.target.value)} placeholder="Opcional" />
             </div>
 
-            {/* Current items */}
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold">Itens do Grupo</Label>
-              <div className="rounded-md border border-border overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="p-2 text-left">OS</th>
-                      <th className="p-2 text-left">Descrição</th>
-                      <th className="p-2 text-right">Valor</th>
-                      <th className="p-2 w-8"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {grupoItens?.filter((i: any) => !editItensToRemove.includes(i.id)).map((i: any) => {
-                      const rec = i.fin_recebimentos;
-                      return (
-                        <tr key={i.id} className="border-t border-border">
-                          <td className="p-2 font-mono">{i.os_codigo_original || rec?.os_codigo || "—"}</td>
-                          <td className="p-2 truncate max-w-[200px]">{rec?.descricao || "—"}</td>
-                          <td className="p-2 text-right font-medium">{formatCurrency(Number(i.valor || rec?.valor))}</td>
-                          <td className="p-2">
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive" onClick={() => setEditItensToRemove(prev => [...prev, i.id])}>
-                              <Minus className="h-3 w-3" />
-                            </Button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {editItensToAdd.map((rec: any) => (
-                      <tr key={rec.id} className="border-t border-border bg-emerald-500/5">
-                        <td className="p-2 font-mono">{rec.os_codigo || "—"}</td>
-                        <td className="p-2 truncate max-w-[200px]">{rec.descricao || "—"}</td>
-                        <td className="p-2 text-right font-medium">{formatCurrency(Number(rec.valor))}</td>
-                        <td className="p-2">
-                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive" onClick={() => setEditItensToAdd(prev => prev.filter(r => r.id !== rec.id))}>
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                    {(!grupoItens?.length && !editItensToAdd.length) && (
-                      <tr><td colSpan={4} className="p-3 text-center text-muted-foreground">Nenhum item</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              {editItensToRemove.length > 0 && (
-                <p className="text-xs text-destructive">{editItensToRemove.length} item(ns) será(ão) removido(s)</p>
-              )}
-            </div>
-
-            {/* Add new items */}
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold">Adicionar Recebimentos</Label>
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar por OS, código GC ou descrição..."
-                  value={searchReceb}
-                  onChange={e => handleSearchRecebimentos(e.target.value)}
-                  className="pl-8 h-9 text-xs"
-                />
-                {searchingReceb && <Loader2 className="absolute right-2.5 top-2.5 h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-              </div>
-              {searchResults.length > 0 && (
-                <div className="rounded-md border border-border max-h-[200px] overflow-y-auto">
-                  {searchResults.map((rec: any) => (
-                    <div key={rec.id} className="flex items-center justify-between px-3 py-2 hover:bg-muted/50 border-b border-border last:border-0 text-xs">
-                      <div className="flex-1 min-w-0">
-                        <span className="font-mono mr-2">{rec.os_codigo || rec.gc_codigo || "—"}</span>
-                        <span className="text-muted-foreground truncate">{rec.descricao}</span>
-                        {rec.nome_cliente && <span className="text-muted-foreground ml-2">• {rec.nome_cliente}</span>}
-                      </div>
-                      <div className="flex items-center gap-2 ml-2 shrink-0">
-                        <span className="font-medium">{formatCurrency(Number(rec.valor))}</span>
-                        <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={() => {
-                          setEditItensToAdd(prev => [...prev, rec]);
-                          setSearchResults(prev => prev.filter(r => r.id !== rec.id));
-                        }}>
-                          <Plus className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Valor a Cobrar / Passivo */}
-            {(() => {
-              const currentItensTotal = (grupoItens || [])
-                .filter((i: any) => !editItensToRemove.includes(i.id))
-                .reduce((s: number, i: any) => s + Number(i.valor || i.fin_recebimentos?.valor || 0), 0);
-              const addedTotal = editItensToAdd.reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
-              const editTotalItens = Math.round((currentItensTotal + addedTotal) * 100) / 100;
-              const valorCobrar = editValorCobrar ?? editTotalItens;
-              const residual = Math.round((editTotalItens - valorCobrar) * 100) / 100;
-
-              return editTotalItens > 0 ? (
-                <div className="space-y-2 rounded-lg border border-border p-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Total dos itens:</span>
-                    <span className="font-semibold">{formatCurrency(editTotalItens)}</span>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Valor a Cobrar</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min={0.01}
-                      max={editTotalItens}
-                      value={valorCobrar}
-                      onChange={(e) => {
-                        const v = Math.min(Number(e.target.value), editTotalItens);
-                        setEditValorCobrar(Math.round(v * 100) / 100);
-                      }}
-                      className="h-9"
-                    />
-                  </div>
-                  {residual > 0.01 && (
-                    <div className="flex items-center justify-between rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        <Banknote className="h-4 w-4 text-amber-500" />
-                        <span className="text-muted-foreground">Passivo (valor residual):</span>
-                      </div>
-                      <span className="font-semibold text-amber-500">{formatCurrency(residual)}</span>
-                    </div>
-                  )}
-                </div>
-              ) : null;
-            })()}
+            <p className="text-sm text-muted-foreground">Valor, itens e vencimento pertencem ao acordo original. Para alterá-los, use uma negociação com divisão dos títulos conferida no GestãoClick.</p>
+            <div className="rounded-md border p-3 text-sm">Valor acordado: <strong>{formatCurrency(Number(selectedGrupo?.valor_total || 0))}</strong></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancelar</Button>
@@ -1719,16 +1162,18 @@ export default function GruposReceberPage() {
       <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Excluir Grupo</DialogTitle>
+            <DialogTitle>Solicitar cancelamento</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Tem certeza que deseja excluir o grupo <strong className="text-foreground">{selectedGrupo?.nome}</strong>? Os recebimentos serão desvinculados mas não excluídos.
+            A solicitação bloqueia <strong className="text-foreground">{selectedGrupo?.nome}</strong> para conferência. O acordo, os títulos e os comprovantes permanecem no histórico até a conclusão do cancelamento.
           </p>
+          <Label htmlFor="cancelamento-motivo">Motivo</Label>
+          <Input id="cancelamento-motivo" value={cancelamentoMotivo} onChange={e => setCancelamentoMotivo(e.target.value)} placeholder="Descreva o motivo (mínimo 10 caracteres)" />
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleDeleteGroup} disabled={deleting}>
+            <Button variant="destructive" onClick={handleDeleteGroup} disabled={deleting || cancelamentoMotivo.trim().length < 10}>
               {deleting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
-              Excluir
+              Solicitar cancelamento
             </Button>
           </DialogFooter>
         </DialogContent>

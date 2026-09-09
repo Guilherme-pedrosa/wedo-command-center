@@ -178,6 +178,7 @@ async function fetchPaginatedGC<T>(
   const allRecords: T[] = [];
   let page = 1;
   let totalPages = 1;
+  let retries = 0;
 
   while (page <= totalPages) {
     const res = await callGC<GCApiResponse<T>>({
@@ -187,11 +188,13 @@ async function fetchPaginatedGC<T>(
 
     if (res.status === 401) throw new Error("GC_AUTH_ERROR");
     if (res.status === 429) {
+      if (++retries > 3) throw new Error("GC temporariamente indisponível (429); sincronização incompleta, histórico preservado.");
       await gcDelay(2000);
       continue;
     }
     if (res.status >= 500) throw new Error(`GC server error: ${res.status}`);
 
+    retries = 0;
     const gcResponse = res.data;
     if (!gcResponse?.data) {
       // Resposta inesperada: abortar em vez de devolver lista parcial
@@ -364,9 +367,8 @@ export async function atualizarRecebimentoGC(
 }
 
 /**
- * Registra o resíduo de uma seleção parcial na tabela fin_residuos_negociacao.
- * NÃO altera o financeiro no GC — segue a mesma abordagem do negotiate-os:
- * o valor parcial é rastreado apenas localmente no item do grupo.
+ * Impede que clientes antigos criem passivo apenas localmente.
+ * A divisão de título pertence ao executor de negociação com reserva e plano.
  */
 export async function registrarResidualNegociacao(params: {
   recebimentoId: string;
@@ -379,107 +381,45 @@ export async function registrarResidualNegociacao(params: {
   gcCodigo: string | null;
   negociacaoNumero?: number | null;
 }): Promise<void> {
-  const valorResidual = roundMoney(params.valorOriginal - params.valorNegociado);
-  if (valorResidual <= 0.009) return;
+  if (Math.round(params.valorOriginal * 100) !== Math.round(params.valorNegociado * 100)) {
+    throw new Error("Alteração parcial bloqueada: o título precisa ser dividido e conferido no GestãoClick antes de gerar saldo residual.");
+  }
+}
 
-  await supabase.from("fin_residuos_negociacao" as any).insert({
-    cliente_gc_id: params.clienteGcId || "0",
-    nome_cliente: params.nomeCliente || "Cliente",
-    valor_residual: valorResidual,
-    negociacao_origem_numero: params.negociacaoNumero ?? null,
-    gc_recebimento_id: params.gcRecebimentoId ?? null,
-    gc_codigo: params.gcCodigo ?? null,
-    os_codigos: params.osCodigo ? [params.osCodigo] : null,
-    observacao: `Resíduo de seleção parcial — Original: R$ ${params.valorOriginal.toFixed(2)}, Negociado: R$ ${params.valorNegociado.toFixed(2)}, Restante: R$ ${valorResidual.toFixed(2)}`,
-    utilizado: false,
-  });
+async function bloquearGruposComTituloAusente(recebimentoIds: string[]): Promise<void> {
+  if (!recebimentoIds.length) return;
+  const { data: links, error: linkError } = await supabase.from("fin_grupo_receber_itens").select("grupo_id").in("recebimento_id", recebimentoIds);
+  if (linkError) throw linkError;
+  const groupIds = [...new Set((links || []).map(link => link.grupo_id))];
+  if (!groupIds.length) return;
+  const { data: groups, error: groupError } = await supabase.from("fin_grupos_receber").select("*").in("id", groupIds);
+  if (groupError) throw groupError;
+  for (const group of (groups || []) as any[]) {
+    const previous = Array.isArray(group.integridade_motivos) ? group.integridade_motivos : [];
+    const reason = { codigo: "titulo_ausente_gc", mensagem: "Título vinculado não existe mais no GC. Confira sua identidade; o acordo e os comprovantes foram preservados." };
+    const reasons = previous.some((entry: any) => entry?.codigo === reason.codigo) ? previous : [...previous, reason];
+    const { error } = await supabase.from("fin_grupos_receber").update({ integridade_status: "pendente", bloqueio_financeiro: true, integridade_motivos: reasons, updated_at: new Date().toISOString() } as any).eq("id", group.id);
+    if (error) throw error;
+  }
 }
 
 // ─── Re-sync individual recebimento from GC by gc_id ─────────────────
 export async function resyncRecebimentoFromGC(gcId: string, osCodigo?: string | null, clienteGcId?: string | null): Promise<boolean> {
-  let res = await callGC<any>({
-    endpoint: `/api/recebimentos/${gcId}`,
-  });
-
-  let raw = res.data?.data ?? res.data;
-
-  // If the old gc_id no longer exists, search by cliente + OS code across all pages
-  if ((res.status >= 400 || !raw?.id) && osCodigo) {
-    console.warn(`[resync] gc_id ${gcId} não encontrado, buscando pela OS ${osCodigo}${clienteGcId ? ` cliente=${clienteGcId}` : ''}...`);
-    
-    let match: any = null;
-    let page = 1;
-    let totalPages = 1;
-
-    while (page <= totalPages && !match) {
-      const params: Record<string, string> = { limite: "100", pagina: String(page) };
-      if (clienteGcId) params.cliente_id = clienteGcId;
-
-      const searchRes = await callGC<any>({
-        endpoint: "/api/recebimentos",
-        params,
-      });
-
-      const lista = Array.isArray(searchRes.data?.data) ? searchRes.data.data : [];
-      totalPages = searchRes.data?.meta?.total_paginas || 1;
-
-      match = lista.find((item: any) => {
-        const rec = item?.Recebimento || item?.recebimento || item;
-        const desc = String(rec?.descricao || "").toLowerCase();
-        return desc.includes(`os ${osCodigo.toLowerCase()}`) 
-          || desc.includes(`nº ${osCodigo}`)
-          || desc.includes(`nº${osCodigo}`)
-          || extrairOsCodigo(desc) === osCodigo;
-      });
-
-      if (match) {
-        // Unwrap if nested
-        match = match?.Recebimento || match?.recebimento || match;
-      }
-
-      page++;
+  const res = await callGC<any>({ endpoint: `/api/recebimentos/${gcId}` });
+  const raw = res.data?.data ?? res.data;
+  if (res.status >= 400 || !raw?.id || String(raw.id) !== String(gcId)) {
+    if (res.status === 404) {
+      const { data: missing } = await supabase.from("fin_recebimentos").select("id").eq("gc_id", gcId).maybeSingle();
+      if (missing) await bloquearGruposComTituloAusente([missing.id]);
     }
-
-    if (!match) {
-      console.error(`[resync] OS ${osCodigo} não encontrada nos recebimentos do GC`);
-      return false;
-    }
-
-    raw = match;
-    const newGcId = String(match.id);
-    const newGcCodigo = match.codigo ? String(match.codigo) : null;
-    console.log(`[resync] OS ${osCodigo} encontrada com novo gc_id=${newGcId} codigo=${newGcCodigo}`);
-
-    // Update the gc_id reference in fin_recebimentos
-    const { error: refError } = await supabase
-      .from("fin_recebimentos")
-      .update({ gc_id: newGcId, gc_codigo: newGcCodigo })
-      .eq("gc_id", gcId);
-
-    if (refError) {
-      console.error(`[resync] Erro ao atualizar referência gc_id:`, refError.message);
-      return false;
-    }
-
-    // Update gc_os_id in grupo items
-    const { data: recRow } = await supabase
-      .from("fin_recebimentos")
-      .select("id")
-      .eq("gc_id", newGcId)
-      .single();
-
-    if (recRow) {
-      await supabase
-        .from("fin_grupo_receber_itens")
-        .update({ gc_os_id: newGcId })
-        .eq("recebimento_id", recRow.id);
-    }
-
-    // Continue with the normal update flow using the new data
-    gcId = newGcId;
-  } else if (res.status >= 400 || !raw?.id) {
-    console.error(`[resync] Erro ao buscar recebimento ${gcId}: HTTP ${res.status}`);
+    await supabase.from("fin_sync_log" as any).insert({
+      tipo: "gc_recebimento_pendente", status: "partial",
+      resposta: { gc_id: gcId, os_codigo: osCodigo, http_status: res.status, motivo: "Identidade GC não confirmada; referências e conciliação preservadas" },
+    });
     return false;
+  }
+  if (clienteGcId && String(raw.cliente_id || "") !== String(clienteGcId)) {
+    throw new Error("Cliente do título no GestãoClick diverge do grupo. A vinculação deve ser conferida.");
   }
 
   const valor = parseFloat(String(raw.valor_total ?? raw.valor ?? "0"));
@@ -509,20 +449,7 @@ export async function resyncRecebimentoFromGC(gcId: string, osCodigo?: string | 
     return false;
   }
 
-  // Update snapshot_valor in fin_grupo_receber_itens (reference only)
-  // NOTE: Do NOT update item.valor — that holds the negotiated/allocated amount
-  const { data: rec } = await supabase
-    .from("fin_recebimentos")
-    .select("id")
-    .eq("gc_id", gcId)
-    .single();
-
-  if (rec) {
-    await supabase
-      .from("fin_grupo_receber_itens")
-      .update({ snapshot_valor: valor })
-      .eq("recebimento_id", rec.id);
-  }
+  // O snapshot original e o valor alocado registram o acordo; sincronização atualiza só o título.
 
   return true;
 }
@@ -622,98 +549,101 @@ export async function baixarGrupoReceberNoGC(
   dataLiquidacao: string,
   onItemDone?: (ok: boolean, gcId: string, erro?: string) => void
 ): Promise<{ sucesso: number; falha: number }> {
-  const { data: itens } = await supabase
-    .from("fin_grupo_receber_itens" as any)
-    .select("id, recebimento_id, tentativas")
-    .eq("grupo_id", grupoId)
-    .eq("gc_baixado", false);
+  if (!grupoId || !/^\d{4}-\d{2}-\d{2}$/.test(dataLiquidacao)) throw new Error("Grupo e data de liquidação válidos são obrigatórios.");
+  const [{ data: grupo, error: grupoError }, { data: itens, error: itensError }] = await Promise.all([
+    supabase.from("fin_grupos_receber").select("*").eq("id", grupoId).single(),
+    supabase.from("fin_grupo_receber_itens").select("*, fin_recebimentos(*)").eq("grupo_id", grupoId),
+  ]);
+  if (grupoError || itensError) throw new Error(grupoError?.message || itensError?.message);
+  const group = grupo as any;
+  const allItems = (itens || []) as any[];
+  if (!group || group.bloqueio_financeiro || (group.integridade_status && !["ok", "nao_verificado"].includes(group.integridade_status))) {
+    throw new Error("Grupo bloqueado para conferência financeira. Resolva os motivos de integridade antes da baixa.");
+  }
+  if (!allItems.length || (Number(group.itens_total) > 0 && allItems.length !== Number(group.itens_total))) {
+    throw new Error("Composição incompleta: nenhum título será baixado.");
+  }
+  const expectedOS = (group.os_codigos || []).map(String);
+  const actualOS = new Set(allItems.map(i => String(i.os_codigo_original || i.fin_recebimentos?.os_codigo || "")));
+  if (expectedOS.some((code: string) => !actualOS.has(code))) throw new Error("Há OS do acordo sem título vinculado. Confira a composição.");
+  const allocatedCents = allItems.reduce((sum, i) => sum + Math.round(Number(i.valor) * 100), 0);
+  if (!Number.isFinite(allocatedCents) || allocatedCents !== Math.round(Number(group.valor_total) * 100)) {
+    throw new Error("O valor dos itens diverge do acordo. A baixa exige composição conferida, inclusive descontos.");
+  }
+  if (new Set(allItems.map(i => i.recebimento_id)).size !== allItems.length) throw new Error("Título duplicado na composição.");
 
-  let sucesso = 0;
-  let falha = 0;
-
-  for (const item of (itens as any[]) ?? []) {
-    const { data: rec } = await supabase
-      .from("fin_recebimentos" as any)
-      .select("gc_id, gc_payload_raw")
-      .eq("id", item.recebimento_id)
-      .single() as any;
-
-    const recData = rec as any;
-    if (!recData?.gc_id || !recData?.gc_payload_raw) {
-      falha++;
-      onItemDone?.(false, "unknown", "Dados GC ausentes");
-      continue;
+  // Confira todos os títulos antes da primeira escrita, inclusive os já marcados pagos localmente.
+  const validated: Array<{ item: any; raw: any; paid: boolean; cents: number }> = [];
+  for (const item of allItems) {
+    const rec = item.fin_recebimentos;
+    if (!rec?.gc_id) throw new Error("Item sem referência GC; confira a vinculação antes da baixa.");
+    const response = await callGC<any>({ endpoint: `/api/recebimentos/${rec.gc_id}` });
+    const raw = response.data?.data ?? response.data;
+    if (response.status >= 400 || String(raw?.id || "") !== String(rec.gc_id)) throw new Error(`Título GC ${rec.gc_id} não pôde ser confirmado; nada foi baixado.`);
+    if (!group.cliente_gc_id || String(raw.cliente_id || "") !== String(group.cliente_gc_id)) throw new Error(`Cliente divergente no título GC ${rec.gc_id}.`);
+    const liveCents = Math.round(Number(raw.valor_total ?? raw.valor) * 100);
+    const itemCents = Math.round(Number(item.valor) * 100);
+    if (!Number.isFinite(liveCents) || liveCents <= 0 || liveCents !== itemCents) throw new Error(`Título GC ${rec.gc_id} difere do valor alocado ou tem valor inválido; confira descontos e composição antes da baixa.`);
+    const paid = isLiquidadoGC(raw.liquidado);
+    if (!paid && (item.gc_baixado || rec.liquidado || rec.status === "pago")) throw new Error(`Baixa local do título ${rec.gc_id} diverge do GC; confira antes de repetir.`);
+    validated.push({ item, raw, paid, cents: liveCents });
+  }
+  const pending = validated.filter(v => !v.paid);
+  if (pending.length) {
+    const { data: links, error } = await supabase.from("fin_extrato_lancamentos" as any)
+      .select("*, fin_extrato_inter(reconciliado)").in("lancamento_id", pending.map(v => v.item.recebimento_id))
+      .in("tabela", ["recebimentos", "fin_recebimentos"]);
+    if (error) throw new Error(error.message);
+    for (const entry of pending) {
+      const confirmed = (links || []).filter((link: any) => link.lancamento_id === entry.item.recebimento_id && link.fin_extrato_inter?.reconciliado === true)
+        .reduce((sum: number, link: any) => sum + Math.round(Number(link.valor_alocado || 0) * 100), 0);
+      if (confirmed < entry.cents) throw new Error(`Título ${entry.raw.id} sem recebimento bancário conciliado suficiente. Vincule o comprovante antes da baixa.`);
     }
-
-    try {
-      await baixarRecebimentoNoGC(
-        recData.gc_id as string,
-        recData.gc_payload_raw as Record<string, unknown>,
-        dataLiquidacao
-      );
-
-      await supabase
-        .from("fin_grupo_receber_itens" as any)
-        .update({
-          gc_baixado: true,
-          gc_baixado_em: new Date().toISOString(),
-          tentativas: (item.tentativas ?? 0) + 1,
-        })
-        .eq("id", item.id);
-
-      await supabase
-        .from("fin_recebimentos" as any)
-        .update({
-          gc_baixado: true,
-          gc_baixado_em: new Date().toISOString(),
-          liquidado: true,
-          status: "pago",
-          data_liquidacao: dataLiquidacao,
-        })
-        .eq("gc_id", recData.gc_id);
-
-      sucesso++;
-      onItemDone?.(true, recData.gc_id as string);
-    } catch (e) {
-      const erro = e instanceof Error ? e.message : String(e);
-      await supabase
-        .from("fin_grupo_receber_itens" as any)
-        .update({
-          tentativas: (item.tentativas ?? 0) + 1,
-          ultimo_erro: erro,
-        })
-        .eq("id", item.id);
-      falha++;
-      onItemDone?.(false, recData.gc_id as string, erro);
-    }
-    await gcDelay();
   }
 
-  const { data: allItens } = await supabase
-    .from("fin_grupo_receber_itens" as any)
-    .select("gc_baixado")
-    .eq("grupo_id", grupoId);
-  const allDone = (allItens as any[])?.every((i) => i.gc_baixado) ?? false;
-
-  await supabase
-    .from("fin_grupos_receber" as any)
-    .update({
-      status: falha === 0 ? "pago" : "pago_parcial",
-      gc_baixado: allDone,
-      gc_baixado_em: allDone ? new Date().toISOString() : null,
-      itens_baixados: sucesso,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", grupoId);
-
-  await supabase.from("fin_sync_log" as any).insert({
-    tipo: "gc_baixa_grupo_receber",
-    referencia_id: grupoId,
-    status: falha === 0 ? "success" : "partial",
-    resposta: { sucesso, falha, data_liquidacao: dataLiquidacao },
-  });
-
+  await conferirGrupoNegociacao(grupoId);
+  let sucesso = 0, falha = 0;
+  for (const { item, raw, paid } of validated) {
+    try {
+      let settledRaw = raw;
+      if (!paid) {
+        await baixarRecebimentoNoGC(String(raw.id), raw, dataLiquidacao);
+        const check = await callGC<any>({ endpoint: `/api/recebimentos/${raw.id}` });
+        const confirmed = check.data?.data ?? check.data;
+        if (check.status >= 400 || String(confirmed?.id) !== String(raw.id) || !isLiquidadoGC(confirmed.liquidado)) throw new Error("GC não confirmou a liquidação; conferência necessária antes de repetir.");
+        settledRaw = confirmed;
+      }
+      const paidAt = settledRaw.data_liquidacao || null;
+      const { error: recError } = await supabase.from("fin_recebimentos").update({ liquidado: true, status: "pago", gc_baixado: true, gc_baixado_em: paidAt, data_liquidacao: paidAt }).eq("id", item.recebimento_id);
+      if (recError) throw recError;
+      const { error: itemError } = await supabase.from("fin_grupo_receber_itens").update({ gc_baixado: true, gc_baixado_em: paidAt, tentativas: (item.tentativas || 0) + (paid ? 0 : 1), ultimo_erro: null }).eq("id", item.id);
+      if (itemError) throw itemError;
+      sucesso++; onItemDone?.(true, String(raw.id));
+    } catch (error) {
+      falha++;
+      const message = error instanceof Error ? error.message : String(error);
+      await supabase.from("fin_grupo_receber_itens").update({ ultimo_erro: message, tentativas: (item.tentativas || 0) + 1 }).eq("id", item.id);
+      onItemDone?.(false, String(raw.id), message);
+    }
+  }
+  // Status e contagens do grupo pertencem ao trigger/RPC; o navegador não força quitação.
+  const { error: refreshError } = await supabase.from("fin_grupos_receber").select("status, itens_baixados, gc_baixado").eq("id", grupoId).single();
+  if (refreshError) throw new Error(`Títulos conferidos, mas não foi possível reler o grupo: ${refreshError.message}`);
+  await supabase.from("fin_sync_log" as any).insert({ tipo: "gc_baixa_grupo_receber", referencia_id: grupoId, status: falha ? "partial" : "success", resposta: { sucesso, falha, data_liquidacao: dataLiquidacao } });
+  if (falha) throw new Error(`${falha} título(s) sem confirmação completa. Confira o histórico antes de repetir.`);
   return { sucesso, falha };
+}
+
+export async function conferirGrupoNegociacao(grupoId: string): Promise<void> {
+  const { data, error } = await supabase.functions.invoke("negotiate-os", { body: { action: "verify_group", grupo_id: grupoId } });
+  if (error) throw error;
+  if (data?.success !== true || data?.integrity_verified !== true) throw new Error(data?.error || "A conferência do grupo não foi concluída no servidor.");
+}
+
+export async function solicitarCancelamentoNegociacao(grupoIds: string[], motivo: string): Promise<void> {
+  if (!grupoIds.length || motivo.trim().length < 10) throw new Error("Informe o motivo do cancelamento (mínimo de 10 caracteres).");
+  const { error } = await (supabase.rpc as any)("fin_solicitar_cancelamento_negociacao", { p_grupo_ids: grupoIds, p_motivo: motivo.trim() });
+  if (error) throw new Error(error.message);
 }
 
 export async function baixarGrupoPagarNoGC(
@@ -1350,11 +1280,13 @@ export async function syncRecebimentosGC(
       const { trueOrphans } = await probeOrphansFromGC("recebimentos", orphanCandidates, pcMap, ccMap, fpMap);
       if (trueOrphans.length > 0) {
         const orphanIds = trueOrphans.map((o: any) => o.id);
-        extratosResetados = await resetExtratosByLancamentos(orphanIds, ["recebimentos", "fin_recebimentos"]);
-        await supabase.from("fin_grupo_receber_itens" as any).delete().in("recebimento_id", orphanIds);
-        await supabase.from("fin_recebimentos" as any).delete().in("id", orphanIds);
-        orphansRemoved = orphanIds.length;
-        console.log(`[syncRecebimentosGC] Removed ${orphansRemoved} truly orphaned local records; reset ${extratosResetados} extratos`);
+        // Ausência no GC vira pendência; nunca apaga o acordo ou desfaz conciliação.
+        erros += orphanIds.length;
+        await bloquearGruposComTituloAusente(orphanIds);
+        await supabase.from("fin_sync_log" as any).insert({
+          tipo: "gc_recebimentos_ausentes", status: "partial",
+          resposta: { recebimento_ids: orphanIds, motivo: "GC 404; histórico, vínculos e extratos preservados" },
+        });
       }
     }
   }
@@ -1967,11 +1899,34 @@ export async function gerarCobrancaPix(grupoId: string): Promise<{
 }> {
   const { data: grupo } = await supabase
     .from("fin_grupos_receber" as any)
-    .select("valor_total, nome_cliente, cliente_gc_id, data_vencimento")
+    .select("*")
     .eq("id", grupoId)
     .single();
 
   if (!grupo) throw new Error("Grupo não encontrado");
+
+  const checkedGroup = grupo as any;
+  if (checkedGroup.bloqueio_financeiro || (checkedGroup.integridade_status && !["ok", "nao_verificado"].includes(checkedGroup.integridade_status)) || ["pago", "pago_parcial", "cancelado"].includes(checkedGroup.status)) {
+    throw new Error("Cobrança bloqueada: confira a composição, as pendências e os pagamentos do grupo.");
+  }
+  const { data: items, error: itemsError } = await supabase.from("fin_grupo_receber_itens").select("valor, os_codigo_original, fin_recebimentos(gc_id, os_codigo, liquidado, status)").eq("grupo_id", grupoId);
+  if (itemsError) throw itemsError;
+  if (!items?.length || items.length !== Number(checkedGroup.itens_total) || items.some((item: any) => item.fin_recebimentos?.liquidado || item.fin_recebimentos?.status === "pago") || items.reduce((sum: number, item: any) => sum + Math.round(Number(item.valor) * 100), 0) !== Math.round(Number(checkedGroup.valor_total) * 100)) {
+    throw new Error("Cobrança bloqueada: os títulos não representam integralmente um acordo em aberto.");
+  }
+
+  const itemOS = new Set(items.map((item: any) => String(item.os_codigo_original || item.fin_recebimentos?.os_codigo || "")));
+  if ((checkedGroup.os_codigos || []).some((code: string) => !itemOS.has(String(code)))) throw new Error("Há OS sem título no grupo. Confira antes de cobrar.");
+  for (const item of items as any[]) {
+    const gcId = item.fin_recebimentos?.gc_id;
+    if (!gcId) throw new Error("Há título sem referência GC. Cobrança bloqueada.");
+    const { status, data } = await callGC<any>({ endpoint: `/api/recebimentos/${gcId}` });
+    const fresh = data?.data ?? data;
+    if (status >= 400 || String(fresh?.id || "") !== String(gcId) || String(fresh.cliente_id || "") !== String(checkedGroup.cliente_gc_id) || isLiquidadoGC(fresh.liquidado) || Math.round(Number(fresh.valor_total ?? fresh.valor) * 100) !== Math.round(Number(item.valor) * 100)) {
+      throw new Error("Título pago, ausente ou divergente no GC. Confira antes de gerar cobrança PIX.");
+    }
+  }
+  await conferirGrupoNegociacao(grupoId);
 
   const txid = `WEDO${grupoId.replace(/-/g, "").substring(0, 26).toUpperCase()}`;
 
@@ -2028,16 +1983,17 @@ export async function gerarCobrancaPix(grupoId: string): Promise<{
   const endpoint = comVencimento ? `/pix/v2/cobv/${txid}` : `/pix/v2/cob/${txid}`;
   const resp = await interRequest<any>(endpoint, "PUT", payload);
 
-  await supabase
+  const { error: saveError } = await supabase
     .from("fin_grupos_receber" as any)
     .update({
       inter_txid: resp.txid ?? txid,
       inter_qrcode: resp.pixCopiaECola ?? resp.qrcode ?? "",
       inter_copia_cola: resp.pixCopiaECola ?? "",
-      status: "aguardando_pagamento",
       updated_at: new Date().toISOString(),
     })
     .eq("id", grupoId);
+
+  if (saveError) throw new Error(`PIX ${txid} criado no Inter, mas vínculo local não confirmado. Confira essa cobrança antes de repetir: ${saveError.message}`);
 
   await supabase.from("fin_sync_log" as any).insert({
     tipo: "inter_cobranca_pix",

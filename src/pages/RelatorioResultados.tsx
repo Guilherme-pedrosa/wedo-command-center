@@ -52,7 +52,7 @@ export default function RelatorioResultados() {
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [includeCommercial, setIncludeCommercial] = useState(true);
 
-  const { metasComResultado, execTotal, rateioFator, isLoading, custoVendasProdutos, outrosCustos } = useMetasResultados(selectedYear, selectedMonth, includeCommercial);
+  const { metasComResultado, execTotal, rateioFator, isLoading, custoVendasProdutos, outrosCustos, erros, dadosIncompletos } = useMetasResultados(selectedYear, selectedMonth, includeCommercial);
 
   const receitas = metasComResultado.filter(m => m.categoria === 'receita');
   const custosVar = metasComResultado.filter(m => m.categoria === 'custo_variavel');
@@ -112,6 +112,19 @@ export default function RelatorioResultados() {
             Modo Apenas Serviços: custos fixos e impostos rateados a {formatPct(rateioFator)} — participação dos
             serviços na receita total do mês.
           </p>
+        )}
+
+        {dadosIncompletos && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div>
+              <strong>Números incompletos.</strong> Parte dos dados não foi lida — os totais e a margem
+              abaixo estão menores que a realidade.
+              <ul className="mt-1 list-disc pl-4 text-xs opacity-90">
+                {erros.map(e => <li key={e.fonte}>{e.fonte}: {e.mensagem}</li>)}
+              </ul>
+            </div>
+          </div>
         )}
 
         {isLoading ? (

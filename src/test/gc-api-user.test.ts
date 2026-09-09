@@ -89,7 +89,8 @@ describe("auditoria estática dos consumidores do GestãoClick", () => {
     const source = readFileSync(join(root, "supabase", "functions", "gc-proxy", "index.ts"), "utf8");
     expect(source).toContain('url.searchParams.set("usuario_id", GC_API_USER_ID)');
     expect(source).toContain('"usuario-id": GC_API_USER_ID');
-    expect(source).toContain("{ ...payload, usuario_id: GC_API_USER_ID }");
+    expect(source).toContain("{ ...verifiedPayload, usuario_id: GC_API_USER_ID }");
+    expect(source.indexOf("{ ...verifiedPayload, usuario_id: GC_API_USER_ID }")).toBeGreaterThan(source.indexOf("assertNegotiationSettlement(admin"));
   });
 
   it("limita a TV a quinze minutos e usa cache com trava no backend", () => {

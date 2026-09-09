@@ -1,0 +1,30 @@
+name: Negotiation integrity
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.18.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test -- --run
+      - run: node --experimental-strip-types --test supabase/functions/_shared/negotiation-regression.test.ts
+      - run: node --experimental-vm-modules scripts/negotiation-regression.mjs supabase/functions/negotiate-os/index.ts src/api/financeiro.ts --finance-only
+      - run: >-
+          npx --yes deno@2.9.6 check --no-lock
+          supabase/functions/negotiate-os/index.ts
+          supabase/functions/negotiate-os-worker/index.ts
+          supabase/functions/scan-passivos/index.ts
+          supabase/functions/tag-passivos/index.ts
+          supabase/functions/sync-all/index.ts
+          supabase/functions/argus-baixa-confirmada/index.ts
+          supabase/functions/gc-proxy/index.ts
+      - run: npm run build

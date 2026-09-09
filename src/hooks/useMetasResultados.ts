@@ -4,6 +4,7 @@ import { useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { classificarPlanoSemMeta } from '@/lib/raioXAnual';
+import { fetchAllRows, dedupeBy } from '@/lib/supabasePaginate';
 
 // ─── TIPOS ─────────────────────────────────────────────────────────────────
 export interface Meta {
@@ -13,6 +14,7 @@ export interface Meta {
   tipo_meta: 'absoluto' | 'percentual';
   meta_valor: number | null;
   meta_percentual: number | null;
+  fonte?: string | null;
 }
 
 export interface MetaPlanoContas {
@@ -31,6 +33,45 @@ export interface MetaComResultado extends Meta {
   progresso: number;
   provisionado?: boolean;
 }
+
+// Classificação da meta. A regra vem de fin_metas.fonte (coluna explícita), NUNCA do nome:
+// heurística por substring é instável — 'at' casava com "Contratos", e renomear uma meta na tela
+// trocava silenciosamente a fórmula do realizado.
+export type MetaFonte =
+  | 'receita_pcm' | 'receita_locacao' | 'receita_servicos' | 'receita_ecolab' | 'receita_produtos'
+  | 'custo_venda_produtos' | 'custo_pecas_operacao' | 'comissoes' | 'impostos' | 'prolabore' | 'generico';
+
+const FONTES_VALIDAS = new Set<MetaFonte>([
+  'receita_pcm', 'receita_locacao', 'receita_servicos', 'receita_ecolab', 'receita_produtos',
+  'custo_venda_produtos', 'custo_pecas_operacao', 'comissoes', 'impostos', 'prolabore', 'generico',
+]);
+
+/** Fallback só para metas novas ainda sem `fonte` gravada. */
+const inferirFonteLegado = (meta: Pick<Meta, 'nome' | 'categoria'>): MetaFonte => {
+  const n = meta.nome.toLowerCase();
+  const receita = meta.categoria === 'receita';
+  if (!receita && (n.includes('comiss') || n.includes('premia'))) return 'comissoes';
+  if (!receita && n.includes('impost')) return 'impostos';
+  if (!receita && n.includes('labore')) return 'prolabore';
+  if (!receita && n.includes('venda') && n.includes('produto')) return 'custo_venda_produtos';
+  if (!receita && meta.categoria === 'custo_variavel' && isMetaPecasOperacao(n)) return 'custo_pecas_operacao';
+  if (receita && (n.includes('contrato') || n.includes('pcm'))) return 'receita_pcm';
+  if (receita && n.includes('loca')) return 'receita_locacao';
+  if (receita && (n.includes('ecolab') || n.includes('chamado'))) return 'receita_ecolab';
+  if (receita && (n.includes('coifa') || n.includes('execu') || n.includes('higieniza'))) return 'receita_servicos';
+  if (receita && (n.includes('venda') || n.includes('produto') || n.includes('peça'))) return 'receita_produtos';
+  return 'generico';
+};
+
+export const classificarMeta = (meta: Pick<Meta, 'nome' | 'categoria' | 'fonte'>): MetaFonte => {
+  const f = String(meta.fonte || '').trim() as MetaFonte;
+  if (FONTES_VALIDAS.has(f) && f !== 'generico') return f;
+  if (f === 'generico') return 'generico';
+  return inferirFonteLegado(meta);
+};
+
+// Receitas de venda de produtos/peças — excluídas do modo "Apenas Serviços".
+const FONTES_COMERCIAL = new Set<MetaFonte>(['receita_produtos', 'custo_venda_produtos']);
 
 // ─── UTILITÁRIOS ────────────────────────────────────────────────────────────
 export const formatBRL = (v: number) =>
@@ -146,10 +187,11 @@ export const computeAjustesMeta = (
   rateioFator: number,
   fracaoProrata: number,
   includeCommercial: boolean = true,
+  fonte?: MetaFonte,
 ) => {
-  const nomeLower = nome.toLowerCase();
-  const isImposto = categoria === 'custo_variavel' && nomeLower.includes('impost');
-  const isProlabore = categoria === 'custo_fixo' && nomeLower.includes('labore');
+  const efetiva = fonte ?? inferirFonteLegado({ nome, categoria });
+  const isImposto = categoria === 'custo_variavel' && efetiva === 'impostos';
+  const isProlabore = categoria === 'custo_fixo' && efetiva === 'prolabore';
   const fatorComercial = !includeCommercial && isProlabore ? 1 - PROLABORE_FRACAO_COMERCIAL : 1;
   const prorata = categoria === 'custo_fixo' ? fracaoProrata : 1;
   return {
@@ -217,8 +259,13 @@ export const escolherComissoes = (
   return { valor: pagasM1, fonte: 'pagas_m1', em: null };
 };
 
+const PLANO_PCM_CONTRATOS = '27867721';
+const PLANO_PCM_LOCACAO = '27867722';
 const PLANO_COMISSOES_ID = 'e7299b90-98d2-4d7a-a04c-78ba40cc847a';
-type PremiacaoTotais = { comissao_total: number; comissao_final: number; faturamento_premiacao: number };
+type PremiacaoTotais = {
+  comissao_total: number; comissao_final: number; faturamento_premiacao: number;
+  origem?: string; calculado_em?: string | null; degradado?: boolean;
+};
 const premiacaoCacheKey = (m: string) => `wedo:premiacao-totais:${m}`;
 const lerPremiacaoCache = (m: string): { valor: number; em: string } | null => {
   try {
@@ -231,6 +278,11 @@ const lerPremiacaoCache = (m: string): { valor: number; em: string } | null => {
 const gravarPremiacaoCache = (m: string, valor: number) => {
   try { localStorage.setItem(premiacaoCacheKey(m), JSON.stringify({ valor, em: new Date().toISOString() })); } catch { /* sem storage */ }
 };
+
+// Parcelamento/dívida antiga de imposto é caixa do mês, mas NÃO é imposto sobre a receita do
+// mês: se entrar na alíquota efetiva, infla a provisão dos meses seguintes.
+export const isParcelamentoImposto = (r: { descricao?: string | null; nome_fornecedor?: string | null }) =>
+  /parcelament|refis|pgfn|d[ií]vida\s*ativa|pert\b|reneg/i.test(`${r.descricao ?? ''} ${r.nome_fornecedor ?? ''}`);
 
 // ─── HOOK ──────────────────────────────────────────────────────────────────
 export const useMetasResultados = (
@@ -249,7 +301,7 @@ export const useMetasResultados = (
   const diasNoMes = new Date(year, month, 0).getDate();
   const fracaoProrata = prorataFixos && isCurrentMonth ? hoje.getDate() / diasNoMes : 1;
 
-  const { data: metas = [], isLoading: loadingMetas } = useQuery({
+  const { data: metas = [], isLoading: loadingMetas, error: errMetas } = useQuery({
     queryKey: ['fin_metas'],
     queryFn: async () => {
       const { data, error } = await supabase.from('fin_metas').select('*').eq('ativo', true);
@@ -259,7 +311,7 @@ export const useMetasResultados = (
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: mapeamentos = [], isLoading: loadingMap } = useQuery({
+  const { data: mapeamentos = [], isLoading: loadingMap, error: errMap } = useQuery({
     queryKey: ['fin_meta_plano_contas'],
     queryFn: async () => {
       const { data, error } = await supabase.from('fin_meta_plano_contas').select('*');
@@ -269,7 +321,7 @@ export const useMetasResultados = (
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: planos = { map: {}, nomes: {} }, isLoading: loadingPlanos } = useQuery({
+  const { data: planos = { map: {}, nomes: {} }, isLoading: loadingPlanos, error: errPlanos } = useQuery({
     queryKey: ['fin_plano_contas_gc_map_nomes'],
     queryFn: async () => {
       const { data, error } = await supabase.from('fin_plano_contas').select('id, gc_id, nome');
@@ -301,47 +353,53 @@ export const useMetasResultados = (
     staleTime: 10 * 60 * 1000,
   });
 
-  const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec } = useQuery({
+  const { data: recebimentos = [], isLoading: loadingRec, refetch: refetchRec, error: errRec } = useQuery({
     queryKey: ['fin_recebimentos_metas', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_recebimentos')
-        .select('id, plano_contas_id, centro_custo_id, valor, status')
-        .neq('status', 'cancelado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
-      if (error) throw error;
-      return data as { id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
+      const rows = await fetchAllRows<{ id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }>(
+        (from, to) => supabase
+          .from('fin_recebimentos')
+          .select('id, plano_contas_id, centro_custo_id, valor, status')
+          .neq('status', 'cancelado')
+          .gte('data_vencimento', start)
+          .lte('data_vencimento', end)
+          .order('id', { ascending: true })
+          .range(from, to) as any);
+      return dedupeBy(rows, r => r.id);
     },
   });
 
-  const { data: pagamentos = [], isLoading: loadingPag, refetch: refetchPag } = useQuery({
+  const { data: pagamentos = [], isLoading: loadingPag, refetch: refetchPag, error: errPag } = useQuery({
     queryKey: ['fin_pagamentos_metas', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_pagamentos')
-        .select('id, plano_contas_id, centro_custo_id, valor, status, data_liquidacao, descricao, nome_fornecedor')
-        .neq('status', 'cancelado')
-        .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
-      if (error) throw error;
-      return data as { id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null; descricao: string | null; nome_fornecedor: string | null }[];
+      const rows = await fetchAllRows<{ id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; data_liquidacao: string | null; descricao: string | null; nome_fornecedor: string | null }>(
+        (from, to) => supabase
+          .from('fin_pagamentos')
+          .select('id, plano_contas_id, centro_custo_id, valor, status, data_liquidacao, descricao, nome_fornecedor')
+          .neq('status', 'cancelado')
+          .gte('data_vencimento', start)
+          .lte('data_vencimento', end)
+          .order('id', { ascending: true })
+          .range(from, to) as any);
+      return dedupeBy(rows, r => r.id);
     },
   });
 
   // Pagamentos filtrados por DATA DE COMPETÊNCIA (para Comissões/Premiações e Despesas com Veículos).
   // Esses custos devem refletir o mês de competência, não o vencimento.
-  const { data: pagamentosCompetencia = [], isLoading: loadingPagComp, refetch: refetchPagComp } = useQuery({
+  const { data: pagamentosCompetencia = [], isLoading: loadingPagComp, refetch: refetchPagComp, error: errPagComp } = useQuery({
     queryKey: ['fin_pagamentos_metas_competencia', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_pagamentos')
-        .select('id, plano_contas_id, centro_custo_id, valor, status')
-        .neq('status', 'cancelado')
-        .gte('data_competencia', start)
-        .lte('data_competencia', end);
-      if (error) throw error;
-      return data as { id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
+      const rows = await fetchAllRows<{ id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }>(
+        (from, to) => supabase
+          .from('fin_pagamentos')
+          .select('id, plano_contas_id, centro_custo_id, valor, status')
+          .neq('status', 'cancelado')
+          .gte('data_competencia', start)
+          .lte('data_competencia', end)
+          .order('id', { ascending: true })
+          .range(from, to) as any);
+      return dedupeBy(rows, r => r.id);
     },
   });
 
@@ -350,17 +408,19 @@ export const useMetasResultados = (
   const nextMonthYear = month === 12 ? year + 1 : year;
   const nextMonth = month === 12 ? 1 : month + 1;
   const { start: refStart, end: refEnd } = getPeriodRange(nextMonthYear, nextMonth);
-  const { data: pagamentosImpostoRef = [], isLoading: loadingImpRef, refetch: refetchImpRef } = useQuery({
+  const { data: pagamentosImpostoRef = [], isLoading: loadingImpRef, refetch: refetchImpRef, error: errImpRef } = useQuery({
     queryKey: ['fin_pagamentos_impostos_ref', refStart, refEnd],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fin_pagamentos')
-        .select('id, plano_contas_id, centro_custo_id, valor, status')
-        .neq('status', 'cancelado')
-        .gte('data_vencimento', refStart)
-        .lte('data_vencimento', refEnd);
-      if (error) throw error;
-      return data as { id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null }[];
+      const rows = await fetchAllRows<{ id: string; plano_contas_id: string; centro_custo_id: string | null; valor: number; status: string | null; descricao: string | null; nome_fornecedor: string | null }>(
+        (from, to) => supabase
+          .from('fin_pagamentos')
+          .select('id, plano_contas_id, centro_custo_id, valor, status, descricao, nome_fornecedor')
+          .neq('status', 'cancelado')
+          .gte('data_vencimento', refStart)
+          .lte('data_vencimento', refEnd)
+          .order('id', { ascending: true })
+          .range(from, to) as any);
+      return dedupeBy(rows, r => r.id);
     },
   });
 
@@ -382,14 +442,16 @@ export const useMetasResultados = (
   const { data: osExecutadas = [], isLoading: loadingOS, refetch: refetchOS, dataUpdatedAt: osDataUpdatedAt, error: errorOS } = useQuery({
     queryKey: ['os_executadas_metas', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const raw = await fetchAllRows<any>((from, to) => supabase
         .from('os_index')
-        .select('os_id, os_codigo, nome_cliente, nome_situacao, nome_vendedor, valor_total, valor_pecas, valor_pecas_custo, data_saida, data_execucao_real')
+        .select('os_id, os_codigo, nome_cliente, nome_situacao, nome_vendedor, valor_total, valor_pecas, valor_pecas_custo, data_saida, data_execucao_real, execucao_verificacao_status, execucao_verificacao_motivo')
         .in('nome_situacao', OS_EXECUTADOS_STATUS)
         .gte('data_saida', start)
-        .lte('data_saida', end);
-      if (error) throw error;
-      const rows = (data ?? []) as { os_id: string; os_codigo: string; nome_cliente: string | null; nome_situacao: string | null; nome_vendedor: string | null; valor_total: number | null; valor_pecas: number | null; valor_pecas_custo: number | null; data_saida: string | null; data_execucao_real: string | null }[];
+        .lte('data_saida', end)
+        .order('os_id', { ascending: true })
+        .range(from, to) as any);
+      // Uma OS pode ter vários orçamentos vinculados: a chave canônica é os_id.
+      const rows = dedupeBy(raw, r => String(r.os_id)) as { os_id: string; os_codigo: string; nome_cliente: string | null; nome_situacao: string | null; nome_vendedor: string | null; valor_total: number | null; valor_pecas: number | null; valor_pecas_custo: number | null; data_saida: string | null; data_execucao_real: string | null; execucao_verificacao_status: string | null; execucao_verificacao_motivo: string | null }[];
       // Exclui apenas OS com execução real antiga, anterior ao período analisado.
       // Ex: OS faturada (data_saida) em Maio mas executada em Nov/2025 não deve contar em Maio/2026.
       // OS com execução real posterior ao período permanece, pois consta no relatório do GC por data_saida.
@@ -404,17 +466,18 @@ export const useMetasResultados = (
   // Vendas: somente Concretizada (situacao_id = 7063585) entra no faturamento.
   // Mantemos no banco vendas Canceladas/Outras pra rastreabilidade, mas filtramos aqui.
   const VENDAS_SITUACAO_CONCRETIZADA = '7063585';
-  const { data: vendasConcretizadas = [], isLoading: loadingVendas, refetch: refetchVendas } = useQuery({
+  const { data: vendasConcretizadas = [], isLoading: loadingVendas, refetch: refetchVendas, error: errVendas } = useQuery({
     queryKey: ['gc_vendas_metas', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const rows = await fetchAllRows<any>((from, to) => supabase
         .from('gc_vendas')
         .select('gc_id, codigo, nome_cliente, nome_situacao, situacao_id, valor_total, valor_produtos, data, gc_payload_raw')
         .eq('situacao_id', VENDAS_SITUACAO_CONCRETIZADA)
         .gte('data', start)
-        .lte('data', end);
-      if (error) throw error;
-      return data as { gc_id: string; codigo: string; nome_cliente: string | null; nome_situacao: string | null; situacao_id: string | null; valor_total: number | null; valor_produtos: number | null; data: string | null; gc_payload_raw: any }[];
+        .lte('data', end)
+        .order('gc_id', { ascending: true })
+        .range(from, to) as any);
+      return dedupeBy(rows, r => String(r.gc_id)) as { gc_id: string; codigo: string; nome_cliente: string | null; nome_situacao: string | null; situacao_id: string | null; valor_total: number | null; valor_produtos: number | null; data: string | null; gc_payload_raw: any }[];
     },
   });
 
@@ -422,57 +485,62 @@ export const useMetasResultados = (
   // 1675070 (Finalizado - mercadoria chegou) e 1675083 (COMPRADO - AG CHEGADA).
   // NÃO inclui "COMPRADO - AG CHEGADA PARA ESTOQUE" nem outras variantes.
   const COMPRAS_CUSTO_SITUACAO_IDS = ['1675070', '1675083'];
-  const { data: comprasFinalizadas = [], isLoading: loadingCompras, refetch: refetchCompras } = useQuery({
+  const { data: comprasFinalizadas = [], isLoading: loadingCompras, refetch: refetchCompras, error: errCompras } = useQuery({
     queryKey: ['gc_compras_metas', start, end],
     queryFn: async () => {
-      const { data: byData, error: err1 } = await supabase
+      const byData = await fetchAllRows<any>((from, to) => supabase
         .from('gc_compras' as any)
         .select('gc_id, codigo, nome_fornecedor, nome_situacao, situacao_id, valor_total, data, cadastrado_em')
         .in('situacao_id', COMPRAS_CUSTO_SITUACAO_IDS)
         .gte('data', start)
-        .lte('data', end);
-      if (!err1 && byData && byData.length > 0) return byData as any[];
-      const { data: byCad, error: err2 } = await supabase
+        .lte('data', end)
+        .order('gc_id', { ascending: true })
+        .range(from, to) as any);
+      if (byData.length > 0) return dedupeBy(byData, r => String(r.gc_id));
+      const byCad = await fetchAllRows<any>((from, to) => supabase
         .from('gc_compras' as any)
         .select('gc_id, codigo, nome_fornecedor, nome_situacao, situacao_id, valor_total, data, cadastrado_em')
         .in('situacao_id', COMPRAS_CUSTO_SITUACAO_IDS)
         .gte('cadastrado_em', start)
-        .lte('cadastrado_em', end + 'T23:59:59');
-      if (err2) throw err2;
-      return (byCad as any[]) ?? [];
+        .lte('cadastrado_em', end + 'T23:59:59')
+        .order('gc_id', { ascending: true })
+        .range(from, to) as any);
+      return dedupeBy(byCad, r => String(r.gc_id));
     },
   });
 
 
   // gc_recebimentos filtrado por competência (para categorias gerais)
-  const { data: gcRecebimentos = [], isLoading: loadingGcRec, refetch: refetchGcRec } = useQuery({
+  const { data: gcRecebimentos = [], isLoading: loadingGcRec, refetch: refetchGcRec, error: errGcRec } = useQuery({
     queryKey: ['gc_recebimentos_metas', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const rows = await fetchAllRows<any>((from, to) => supabase
         .from('gc_recebimentos')
         .select('gc_id, gc_codigo, descricao, valor, plano_contas_id, centro_custo_id, data_vencimento, liquidado')
         .gte('data_competencia', start)
-        .lte('data_competencia', end);
-      if (error) throw error;
-      return data as { gc_id: string; gc_codigo: string; descricao: string | null; valor: number; plano_contas_id: string | null; centro_custo_id: string | null; data_vencimento: string | null; liquidado: boolean }[];
+        .lte('data_competencia', end)
+        .order('gc_id', { ascending: true })
+        .range(from, to) as any);
+      return dedupeBy(rows, r => String(r.gc_id)) as { gc_id: string; gc_codigo: string; descricao: string | null; valor: number; plano_contas_id: string | null; centro_custo_id: string | null; data_vencimento: string | null; liquidado: boolean }[];
     },
   });
 
   // Contratos PCM: APENAS Confirmado / Confirmado Manual (liquidado=true).
   // Atrasado/Em Aberto NÃO entra (cliente pode cancelar antes de pagar).
   const PCM_PLANO_IDS = ['27867721', '27867722'];
-  const { data: gcRecPCM = [], isLoading: loadingGcPCM, refetch: refetchGcPCM } = useQuery({
+  const { data: gcRecPCM = [], isLoading: loadingGcPCM, refetch: refetchGcPCM, error: errGcPCM } = useQuery({
     queryKey: ['gc_recebimentos_pcm', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const rows = await fetchAllRows<any>((from, to) => supabase
         .from('gc_recebimentos')
         .select('gc_id, gc_codigo, descricao, valor, plano_contas_id, centro_custo_id, data_vencimento, liquidado')
         .in('plano_contas_id', PCM_PLANO_IDS)
         .eq('liquidado', true)
         .gte('data_vencimento', start)
-        .lte('data_vencimento', end);
-      if (error) throw error;
-      return data as { gc_id: string; gc_codigo: string; descricao: string | null; valor: number; plano_contas_id: string | null; centro_custo_id: string | null; data_vencimento: string | null; liquidado: boolean }[];
+        .lte('data_vencimento', end)
+        .order('gc_id', { ascending: true })
+        .range(from, to) as any);
+      return dedupeBy(rows, r => String(r.gc_id)) as { gc_id: string; gc_codigo: string; descricao: string | null; valor: number; plano_contas_id: string | null; centro_custo_id: string | null; data_vencimento: string | null; liquidado: boolean }[];
     },
   });
 
@@ -516,17 +584,18 @@ export const useMetasResultados = (
   // Venda de Balcão: situacao_id 7340612 ("Concretizada - Uso Interno / Maleta").
   // Faturamento = valor_produtos (exclui frete); custo = valor_custo do payload GC.
   const VENDAS_BALCAO_SITUACAO_IDS = ['7340612'];
-  const { data: vendasBalcaoRows = [], refetch: refetchVendasBalcao } = useQuery({
+  const { data: vendasBalcaoRows = [], refetch: refetchVendasBalcao, error: errBalcao } = useQuery({
     queryKey: ['gc_vendas_balcao', start, end],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const rows = await fetchAllRows<any>((from, to) => supabase
         .from('gc_vendas')
         .select('gc_id, valor_produtos, gc_payload_raw, data, situacao_id')
         .in('situacao_id', VENDAS_BALCAO_SITUACAO_IDS)
         .gte('data', start)
-        .lte('data', end);
-      if (error) throw error;
-      return (data ?? []) as { valor_produtos: number | null; gc_payload_raw: any }[];
+        .lte('data', end)
+        .order('gc_id', { ascending: true })
+        .range(from, to) as any);
+      return dedupeBy(rows, r => String(r.gc_id)) as { valor_produtos: number | null; gc_payload_raw: any }[];
     },
   });
   const vendasBalcao = useMemo(() => {
@@ -555,7 +624,7 @@ export const useMetasResultados = (
       const { data, error } = resultado as { data: any; error: any };
       if (error) throw error;
       if (!data || data.ok === false || typeof data.comissao_final !== 'number') throw new Error(data?.error || 'Falha ao buscar premiações');
-      gravarPremiacaoCache(monthStr, Number(data.comissao_final) || 0);
+      if (data.origem !== 'cache') gravarPremiacaoCache(monthStr, Number(data.comissao_final) || 0);
       return data as PremiacaoTotais;
     },
     staleTime: 10 * 60 * 1000,
@@ -570,11 +639,20 @@ export const useMetasResultados = (
       .filter(r => r.plano_contas_id === PLANO_COMISSOES_ID)
       .reduce((acc, r) => acc + Math.abs(r.valor || 0), 0),
   [pagamentosImpostoRef]);
-  const comissoesEscolha = useMemo(() => escolherComissoes(
-    premiacaoTotais ? Number(premiacaoTotais.comissao_final) : null,
-    premiacaoTotais ? null : lerPremiacaoCache(monthStr),
-    comissoesPagasM1,
-  ), [premiacaoTotais, monthStr, comissoesPagasM1]);
+  // O cache agora vive no banco (fin_premiacao_cache): a edge devolve origem = 'cache' quando
+  // a Premiação está fora do ar. Isso precisa continuar sinalizado na tela — não pode passar
+  // por número recém-calculado.
+  const comissoesEscolha = useMemo(() => {
+    const doServidor = premiacaoTotais ? Number(premiacaoTotais.comissao_final) : null;
+    if (premiacaoTotais && premiacaoTotais.origem === 'cache') {
+      return {
+        valor: doServidor ?? 0,
+        fonte: 'cache' as ComissoesFonte,
+        em: premiacaoTotais.calculado_em ?? null,
+      };
+    }
+    return escolherComissoes(doServidor, premiacaoTotais ? null : lerPremiacaoCache(monthStr), comissoesPagasM1);
+  }, [premiacaoTotais, monthStr, comissoesPagasM1]);
   const comissoesPremiacao = comissoesEscolha.valor;
   const comissoesFonte = comissoesEscolha.fonte;
   const comissoesAtualizadoEm = comissoesEscolha.em;
@@ -607,41 +685,44 @@ export const useMetasResultados = (
   const histEnd = getPeriodRange(histFim.y, histFim.m).end;
   const guiasStart = getPeriodRange(guiasIni.y, guiasIni.m).start;
   const guiasEnd = end;
-  const { data: historicoImpostos, isLoading: loadingHist } = useQuery({
+  const { data: historicoImpostos, isLoading: loadingHist, error: errHist, refetch: refetchHist } = useQuery({
     queryKey: ['impostos_aliquota_efetiva', histStart, histEnd],
     staleTime: 30 * 60 * 1000,
     queryFn: async () => {
+      // O histórico anual estoura 1000 linhas facilmente: sem paginação a alíquota efetiva
+      // era calculada sobre uma receita truncada (alíquota inflada).
       const [guias, os, pcm, vendas] = await Promise.all([
-        supabase.from('fin_pagamentos').select('valor, data_vencimento')
+        fetchAllRows<any>((f, t) => supabase.from('fin_pagamentos').select('id, valor, data_vencimento, descricao, nome_fornecedor')
           .in('plano_contas_id', [...PLANOS_IMPOSTO_IDS]).neq('status', 'cancelado')
-          .gte('data_vencimento', guiasStart).lte('data_vencimento', guiasEnd),
-        supabase.from('os_index').select('valor_total, data_saida')
-          .in('nome_situacao', OS_EXECUTADOS_STATUS).gte('data_saida', histStart).lte('data_saida', histEnd),
-        supabase.from('gc_recebimentos').select('valor, data_vencimento')
+          .gte('data_vencimento', guiasStart).lte('data_vencimento', guiasEnd)
+          .order('id', { ascending: true }).range(f, t) as any),
+        fetchAllRows<any>((f, t) => supabase.from('os_index').select('os_id, valor_total, data_saida')
+          .in('nome_situacao', OS_EXECUTADOS_STATUS).gte('data_saida', histStart).lte('data_saida', histEnd)
+          .order('os_id', { ascending: true }).range(f, t) as any),
+        fetchAllRows<any>((f, t) => supabase.from('gc_recebimentos').select('gc_id, valor, data_vencimento')
           .in('plano_contas_id', PCM_PLANO_IDS).eq('liquidado', true)
-          .gte('data_vencimento', histStart).lte('data_vencimento', histEnd),
-        supabase.from('gc_vendas').select('valor_total, data')
-          .eq('situacao_id', VENDAS_SITUACAO_CONCRETIZADA).gte('data', histStart).lte('data', histEnd),
+          .gte('data_vencimento', histStart).lte('data_vencimento', histEnd)
+          .order('gc_id', { ascending: true }).range(f, t) as any),
+        fetchAllRows<any>((f, t) => supabase.from('gc_vendas').select('gc_id, valor_total, data')
+          .eq('situacao_id', VENDAS_SITUACAO_CONCRETIZADA).gte('data', histStart).lte('data', histEnd)
+          .order('gc_id', { ascending: true }).range(f, t) as any),
       ]);
-      if (guias.error) throw guias.error;
-      if (os.error) throw os.error;
-      if (pcm.error) throw pcm.error;
-      if (vendas.error) throw vendas.error;
       const mes = (d: string | null) => String(d || '').slice(0, 7);
       const mesAnterior = (m: string) => {
         const [y, mm] = m.split('-').map(Number);
         return mm === 1 ? `${y - 1}-12` : `${y}-${String(mm - 1).padStart(2, '0')}`;
       };
       const guiasPorMesRef: Record<string, number> = {};
-      for (const g of guias.data || []) {
+      for (const g of dedupeBy(guias, r => String(r.id))) {
+        if (isParcelamentoImposto(g)) continue; // não é imposto da receita daquele mês
         const k = mesAnterior(mes(g.data_vencimento));
         guiasPorMesRef[k] = (guiasPorMesRef[k] || 0) + Math.abs(Number(g.valor) || 0);
       }
       const receitaPorMes: Record<string, number> = {};
       const add = (k: string, v: number) => { receitaPorMes[k] = (receitaPorMes[k] || 0) + v; };
-      for (const o of os.data || []) add(mes(o.data_saida), Number(o.valor_total) || 0);
-      for (const p of pcm.data || []) add(mes(p.data_vencimento), Number(p.valor) || 0);
-      for (const v of vendas.data || []) add(mes(v.data), Number(v.valor_total) || 0);
+      for (const o of dedupeBy(os, r => String(r.os_id))) add(mes(o.data_saida), Number(o.valor_total) || 0);
+      for (const p of dedupeBy(pcm, r => String(r.gc_id))) add(mes(p.data_vencimento), Number(p.valor) || 0);
+      for (const v of dedupeBy(vendas, r => String(r.gc_id))) add(mes(v.data), Number(v.valor_total) || 0);
       return { guiasPorMesRef, receitaPorMes };
     },
   });
@@ -667,15 +748,29 @@ export const useMetasResultados = (
     return computeOutrosCustos(pagamentos, planosComMeta, nomesPlanos, includeCommercial);
   }, [metas, mapeamentos, pagamentos, nomesPlanos, includeCommercial]);
 
+  // Impostos do mês de referência, separando guias correntes de parcelamentos de dívida.
+  const impostosDetalhe = useMemo(() => {
+    const linhas = pagamentosImpostoRef.filter(r => PLANOS_IMPOSTO_IDS.has(String(r.plano_contas_id)));
+    let correntes = 0;
+    let parcelamentos = 0;
+    const itensParcelamento: { descricao: string; valor: number }[] = [];
+    for (const r of linhas) {
+      const v = Math.abs(Number(r.valor) || 0);
+      if (isParcelamentoImposto(r)) {
+        parcelamentos += v;
+        itensParcelamento.push({ descricao: r.descricao || r.nome_fornecedor || '(sem descrição)', valor: v });
+      } else {
+        correntes += v;
+      }
+    }
+    itensParcelamento.sort((a, b) => b.valor - a.valor);
+    return { correntes, parcelamentos, itensParcelamento };
+  }, [pagamentosImpostoRef]);
+
   const metasComResultado = useMemo((): MetaComResultado[] => {
     return metas.filter(meta => {
-      if (!includeCommercial) {
-        const nome = meta.nome.toLowerCase();
-        // Ignora meta de custo de venda de produtos se comercial estiver desativado
-        if (meta.categoria === 'custo_variavel' && nome.includes('venda') && nome.includes('produto')) return false;
-        // Ignora meta de receita de venda de produtos se comercial estiver desativado
-        if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto'))) return false;
-      }
+      // Modo "Apenas Serviços": sai receita e custo de venda de produtos (pela fonte, não pelo nome).
+      if (!includeCommercial && FONTES_COMERCIAL.has(classificarMeta(meta))) return false;
       return true;
     }).map(meta => {
       const rawLinks = mapeamentos.filter(m => m.meta_id === meta.id);
@@ -693,17 +788,26 @@ export const useMetasResultados = (
       const countedRecords = new Set<string>();
       let realizado = 0;
       const nome = meta.nome.toLowerCase();
+      const fonte = classificarMeta(meta);
 
       // Comissões / Premiações (Técnicos): fonte oficial = tela de Premiação (Auvo GC Sync)
-      if (meta.categoria !== 'receita' && (nome.includes('comiss') || nome.includes('premia'))) {
+      if (fonte === 'comissoes') {
         realizado = comissoesPremiacao;
       }
-      else if (meta.categoria === 'receita' && (nome.includes('contrato') || nome.includes('pcm'))) {
+      else if (fonte === 'receita_pcm') {
         realizado = gcRecPCM
-          .filter(r => r.plano_contas_id === '27867721')
+          .filter(r => r.plano_contas_id === PLANO_PCM_CONTRATOS)
           .reduce((acc, r) => acc + (r.valor || 0), 0);
       }
-      else if (meta.categoria === 'receita' && (nome.includes('at') || nome.includes('coifa') || nome.includes('higienização'))) {
+      // Locação de Equipamentos vem do MESMO conjunto do card de contratos (recebimentos
+      // liquidados no plano de locação). Antes caía no genérico (fin_recebimentos por
+      // vencimento) e divergia do card por causa de outra base.
+      else if (fonte === 'receita_locacao') {
+        realizado = gcRecPCM
+          .filter(r => r.plano_contas_id === PLANO_PCM_LOCACAO)
+          .reduce((acc, r) => acc + (r.valor || 0), 0);
+      }
+      else if (fonte === 'receita_servicos') {
         const EXEC_SERVICO_STATUS = [
           'EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA',
           'EXECUTADO - AGUARDANDO PAGAMENTO',
@@ -714,7 +818,7 @@ export const useMetasResultados = (
           .filter(os => EXEC_SERVICO_STATUS.includes(os.nome_situacao ?? ''))
           .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
       }
-      else if (meta.categoria === 'receita' && (nome.includes('ecolab') || nome.includes('chamado'))) {
+      else if (fonte === 'receita_ecolab') {
         const ECOLAB_STATUS = [
           'EXECUTADO - FECHADO CHAMADO',
           'CHAMADO FECHADO - FATURADO'
@@ -723,14 +827,14 @@ export const useMetasResultados = (
           .filter(os => ECOLAB_STATUS.includes(os.nome_situacao ?? ''))
           .reduce((acc, os) => acc + (os.valor_total ?? 0), 0);
       }
-      else if (meta.categoria === 'receita' && (nome.includes('venda') || nome.includes('produto') || nome.includes('peça'))) {
+      else if (fonte === 'receita_produtos') {
         realizado = vendasConcretizadas.reduce((acc, v) => acc + (v.valor_total ?? 0), 0);
       }
-      else if (meta.categoria === 'custo_variavel' && nome.includes('venda') && nome.includes('produto')) {
+      else if (fonte === 'custo_venda_produtos') {
         // Custo real (valor_custo GC) das vendas de produtos concretizadas no período
         realizado = custoVendasProdutos;
       }
-      else if (meta.categoria === 'custo_variavel' && isMetaPecasOperacao(nome)) {
+      else if (fonte === 'custo_pecas_operacao') {
         // Custo da operação = custo REAL das peças que saíram do estoque para OS no período
         // + custo das saídas internas (Uso Interno / Maleta) que também consomem estoque.
         // Excluímos peças de 'Ecolab / Chamados' do custo de operação/serviços.
@@ -781,11 +885,9 @@ export const useMetasResultados = (
       // - Comissões/Premiações: Ecolab + Execução Serviços/Coifas
       // - Custo de peças/operações: APENAS Execução + Coifas (não inclui PCM, Vendas, Ecolab)
       // - Demais: Faturamento Executado total
-      const isComissao = nome.includes('comiss') || nome.includes('premia');
-      const isCustoVendaProdutos =
-        meta.categoria === 'custo_variavel' && nome.includes('venda') && nome.includes('produto');
-      const isCustoPecasOperacao =
-        !isCustoVendaProdutos && meta.categoria === 'custo_variavel' && isMetaPecasOperacao(nome);
+      const isComissao = fonte === 'comissoes';
+      const isCustoVendaProdutos = fonte === 'custo_venda_produtos';
+      const isCustoPecasOperacao = fonte === 'custo_pecas_operacao';
 
       const baseExecCoifa = osExecutadas
         .filter(os =>
@@ -807,7 +909,7 @@ export const useMetasResultados = (
 
       // Rateio (Apenas Serviços) e pró-rata (mês corrente) — fixos e impostos.
       // Metas percentuais não recebem rateio: a base (execTotal) já encolhe no modo serviços.
-      const { fatorRealizado, fatorMetaAbsoluta } = computeAjustesMeta(meta.categoria, nome, rateioFator, fracaoProrata, includeCommercial);
+      const { fatorRealizado, fatorMetaAbsoluta } = computeAjustesMeta(meta.categoria, nome, rateioFator, fracaoProrata, includeCommercial, fonte);
       realizado = realizado * fatorRealizado;
 
       const meta_calculada =
@@ -820,12 +922,16 @@ export const useMetasResultados = (
       // (< 50% da estimativa), mostra a estimativa pela alíquota efetiva dos últimos meses
       // fechados — igual ao Raio-X; sem histórico, cai na meta %. Um mês fechado com alíquota
       // real abaixo da estimativa mantém o valor real das guias.
-      const isMetaImposto = meta.categoria === 'custo_variavel' && nome.includes('impost');
+      const isMetaImposto = fonte === 'impostos' && meta.categoria === 'custo_variavel';
       let provisionado = false;
       if (isMetaImposto && meta.tipo_meta === 'percentual') {
         const estimativa = (aliquotaEfetiva.aliquota ?? (meta.meta_percentual || 0)) * basePercentual;
-        if (realizado < estimativa * 0.5) {
-          realizado = estimativa;
+        // Parcelamento de dívida antiga não indica que a guia do mês já foi lançada: se entrar
+        // nessa comparação, a provisão deixa de aparecer e o imposto do mês fica subestimado.
+        const parcelamentoAjustado = impostosDetalhe.parcelamentos * fatorRealizado;
+        const correntes = Math.max(0, realizado - parcelamentoAjustado);
+        if (correntes < estimativa * 0.5) {
+          realizado = estimativa + parcelamentoAjustado;
           provisionado = true;
         }
       }
@@ -839,7 +945,7 @@ export const useMetasResultados = (
 
       return { ...meta, realizado, meta_calculada, delta, pct_faturamento, status, progresso, provisionado };
     });
-  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, pagamentosImpostoRef, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, execTotal, baseComissoes, comissoesPremiacao, planoContasMap, centrosCustoMap, includeCommercial, rateioFator, fracaoProrata, aliquotaEfetiva]);
+  }, [metas, mapeamentos, recebimentos, pagamentos, pagamentosCompetencia, pagamentosImpostoRef, gcRecebimentos, gcRecPCM, osExecutadas, vendasConcretizadas, custoVendasProdutos, vendasBalcaoRows, comprasFinalizadas, execTotal, baseComissoes, comissoesPremiacao, planoContasMap, centrosCustoMap, includeCommercial, rateioFator, fracaoProrata, aliquotaEfetiva, impostosDetalhe]);
 
   const hasOsData = osExecutadas.length > 0 && osExecutadas.some(os => os.data_saida);
   // Erro de leitura (ex.: statement timeout com o banco lento) NÃO é tabela vazia: a tela
@@ -869,11 +975,36 @@ export const useMetasResultados = (
   );
 
 
+  // Uma consulta que falhou NÃO é um total menor: a tela precisa dizer que o número está
+  // incompleto, em vez de mostrar margem calculada sobre dados que não chegaram.
+  const erros = useMemo(() => {
+    const lista: { fonte: string; mensagem: string }[] = [];
+    const add = (fonte: string, e: unknown) => {
+      if (e) lista.push({ fonte, mensagem: (e as Error).message || 'falha de leitura' });
+    };
+    add('Metas', errMetas);
+    add('Mapeamentos de plano de contas', errMap);
+    add('Plano de contas', errPlanos);
+    add('Contas a receber', errRec);
+    add('Contas a pagar', errPag);
+    add('Contas a pagar (competência)', errPagComp);
+    add('Guias de impostos', errImpRef);
+    add('Ordens de serviço', errorOS);
+    add('Vendas', errVendas);
+    add('Compras', errCompras);
+    add('Recebimentos GC', errGcRec);
+    add('Contratos / Locação', errGcPCM);
+    add('Vendas de balcão / uso interno', errBalcao);
+    add('Histórico de impostos', errHist);
+    return lista;
+  }, [errMetas, errMap, errPlanos, errRec, errPag, errPagComp, errImpRef, errorOS, errVendas, errCompras, errGcRec, errGcPCM, errBalcao, errHist]);
+  const dadosIncompletos = erros.length > 0;
+
   const refetch = useCallback(() => {
-    refetchRec(); refetchPag(); refetchPagComp(); refetchImpRef(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchPremiacao();
-  }, [refetchRec, refetchPag, refetchPagComp, refetchImpRef, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchPremiacao]);
+    refetchRec(); refetchPag(); refetchPagComp(); refetchImpRef(); refetchGcRec(); refetchGcPCM(); refetchOS(); refetchVendas(); refetchCompras(); refetchVendasBalcao(); refetchPremiacao(); refetchHist();
+  }, [refetchRec, refetchPag, refetchPagComp, refetchImpRef, refetchGcRec, refetchGcPCM, refetchOS, refetchVendas, refetchCompras, refetchVendasBalcao, refetchPremiacao, refetchHist]);
 
   const isLoading = loadingMetas || loadingMap || loadingPlanos || loadingRec || loadingPag || loadingPagComp || loadingImpRef || loadingGcRec || loadingGcPCM || loadingOS || loadingVendas || loadingCompras || loadingHist;
 
-  return { metasComResultado, execTotal, execTotalFull, rateioFator, folhaComercialExcluida, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, aliquotaEfetiva, outrosCustos, comissoesFonte, comissoesAtualizadoEm, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
+  return { metasComResultado, execTotal, execTotalFull, rateioFator, folhaComercialExcluida, fracaoProrata, isCurrentMonth, diasNoMes, isLoading, refetch, hasOsData, osError, erros, dadosIncompletos, impostosDetalhe, aliquotaEfetiva, outrosCustos, comissoesFonte, comissoesAtualizadoEm, osExecutadas, saidasPecasOs, comprasPecasTotal, vendasBalcao, custoVendasProdutos, comissoesPremiacao, premiacaoTotais, loadingPremiacao, dataUpdatedAt: osDataUpdatedAt };
 };

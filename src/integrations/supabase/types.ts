@@ -1729,6 +1729,8 @@ export type Database = {
       }
       fin_grupos_receber: {
         Row: {
+          bloqueio_financeiro: boolean
+          bloqueio_motivo: string | null
           cliente_gc_id: string | null
           created_at: string | null
           created_by: string | null
@@ -1738,6 +1740,9 @@ export type Database = {
           gc_baixado_em: string | null
           gc_baixado_por: string | null
           id: string
+          integridade_motivos: Json
+          integridade_status: string
+          integridade_verificado_em: string | null
           inter_copia_cola: string | null
           inter_pagador: string | null
           inter_pago_em: string | null
@@ -1760,6 +1765,8 @@ export type Database = {
           valor_total: number | null
         }
         Insert: {
+          bloqueio_financeiro?: boolean
+          bloqueio_motivo?: string | null
           cliente_gc_id?: string | null
           created_at?: string | null
           created_by?: string | null
@@ -1769,6 +1776,9 @@ export type Database = {
           gc_baixado_em?: string | null
           gc_baixado_por?: string | null
           id?: string
+          integridade_motivos?: Json
+          integridade_status?: string
+          integridade_verificado_em?: string | null
           inter_copia_cola?: string | null
           inter_pagador?: string | null
           inter_pago_em?: string | null
@@ -1791,6 +1801,8 @@ export type Database = {
           valor_total?: number | null
         }
         Update: {
+          bloqueio_financeiro?: boolean
+          bloqueio_motivo?: string | null
           cliente_gc_id?: string | null
           created_at?: string | null
           created_by?: string | null
@@ -1800,6 +1812,9 @@ export type Database = {
           gc_baixado_em?: string | null
           gc_baixado_por?: string | null
           id?: string
+          integridade_motivos?: Json
+          integridade_status?: string
+          integridade_verificado_em?: string | null
           inter_copia_cola?: string | null
           inter_pagador?: string | null
           inter_pago_em?: string | null
@@ -1820,6 +1835,42 @@ export type Database = {
           updated_at?: string | null
           valor_recebido?: number | null
           valor_total?: number | null
+        }
+        Relationships: []
+      }
+      fin_job_locks: {
+        Row: {
+          cursor_value: string | null
+          expires_at: string
+          heartbeat_at: string
+          locked_at: string
+          nome: string
+          payload: Json | null
+          run_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          cursor_value?: string | null
+          expires_at?: string
+          heartbeat_at?: string
+          locked_at?: string
+          nome: string
+          payload?: Json | null
+          run_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          cursor_value?: string | null
+          expires_at?: string
+          heartbeat_at?: string
+          locked_at?: string
+          nome?: string
+          payload?: Json | null
+          run_id?: string | null
+          status?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -1866,6 +1917,7 @@ export type Database = {
           ativo: boolean | null
           categoria: string
           created_at: string | null
+          fonte: string | null
           id: string
           meta_percentual: number | null
           meta_valor: number | null
@@ -1877,6 +1929,7 @@ export type Database = {
           ativo?: boolean | null
           categoria: string
           created_at?: string | null
+          fonte?: string | null
           id?: string
           meta_percentual?: number | null
           meta_valor?: number | null
@@ -1888,6 +1941,7 @@ export type Database = {
           ativo?: boolean | null
           categoria?: string
           created_at?: string | null
+          fonte?: string | null
           id?: string
           meta_percentual?: number | null
           meta_valor?: number | null
@@ -1964,13 +2018,18 @@ export type Database = {
         Row: {
           created_at: string | null
           created_by: string | null
+          created_by_user: string | null
           erro_count: number | null
           erro_msg: string | null
+          etapas: Json
           finalizado_em: string | null
           id: string
+          idempotency_key: string | null
           iniciado_em: string | null
+          negociacao_numero: number | null
           ok_count: number | null
           payload: Json
+          plano: Json | null
           progresso: string | null
           resultado: Json | null
           status: string
@@ -1981,13 +2040,18 @@ export type Database = {
         Insert: {
           created_at?: string | null
           created_by?: string | null
+          created_by_user?: string | null
           erro_count?: number | null
           erro_msg?: string | null
+          etapas?: Json
           finalizado_em?: string | null
           id?: string
+          idempotency_key?: string | null
           iniciado_em?: string | null
+          negociacao_numero?: number | null
           ok_count?: number | null
           payload: Json
+          plano?: Json | null
           progresso?: string | null
           resultado?: Json | null
           status?: string
@@ -1998,13 +2062,18 @@ export type Database = {
         Update: {
           created_at?: string | null
           created_by?: string | null
+          created_by_user?: string | null
           erro_count?: number | null
           erro_msg?: string | null
+          etapas?: Json
           finalizado_em?: string | null
           id?: string
+          idempotency_key?: string | null
           iniciado_em?: string | null
+          negociacao_numero?: number | null
           ok_count?: number | null
           payload?: Json
+          plano?: Json | null
           progresso?: string | null
           resultado?: Json | null
           status?: string
@@ -2152,6 +2221,57 @@ export type Database = {
           storage_path?: string
           valor_produtos?: number | null
           valor_total?: number | null
+        }
+        Relationships: []
+      }
+      fin_os_execucao_log: {
+        Row: {
+          auvo_task_ids: string[] | null
+          created_at: string
+          data_execucao_antes: string | null
+          data_execucao_depois: string | null
+          dry_run: boolean
+          evidencia: Json | null
+          id: string
+          motivo: string | null
+          origem_antes: string | null
+          origem_depois: string | null
+          os_codigo: string | null
+          os_id: string
+          run_id: string
+          status: string
+        }
+        Insert: {
+          auvo_task_ids?: string[] | null
+          created_at?: string
+          data_execucao_antes?: string | null
+          data_execucao_depois?: string | null
+          dry_run?: boolean
+          evidencia?: Json | null
+          id?: string
+          motivo?: string | null
+          origem_antes?: string | null
+          origem_depois?: string | null
+          os_codigo?: string | null
+          os_id: string
+          run_id: string
+          status: string
+        }
+        Update: {
+          auvo_task_ids?: string[] | null
+          created_at?: string
+          data_execucao_antes?: string | null
+          data_execucao_depois?: string | null
+          dry_run?: boolean
+          evidencia?: Json | null
+          id?: string
+          motivo?: string | null
+          origem_antes?: string | null
+          origem_depois?: string | null
+          os_codigo?: string | null
+          os_id?: string
+          run_id?: string
+          status?: string
         }
         Relationships: []
       }
@@ -2486,6 +2606,42 @@ export type Database = {
           id?: string
           politica_id?: string
           tipo_id?: string
+        }
+        Relationships: []
+      }
+      fin_premiacao_cache: {
+        Row: {
+          calculado_em: string
+          comissao_final: number
+          comissao_total: number | null
+          created_at: string
+          faturamento_premiacao: number | null
+          mes: string
+          origem: string
+          updated_at: string
+          versao: number
+        }
+        Insert: {
+          calculado_em?: string
+          comissao_final: number
+          comissao_total?: number | null
+          created_at?: string
+          faturamento_premiacao?: number | null
+          mes: string
+          origem?: string
+          updated_at?: string
+          versao?: number
+        }
+        Update: {
+          calculado_em?: string
+          comissao_final?: number
+          comissao_total?: number | null
+          created_at?: string
+          faturamento_premiacao?: number | null
+          mes?: string
+          origem?: string
+          updated_at?: string
+          versao?: number
         }
         Relationships: []
       }
@@ -2891,6 +3047,8 @@ export type Database = {
           cliente_gc_id: string
           created_at: string | null
           created_by: string | null
+          estado: string
+          estado_motivo: string | null
           gc_codigo: string | null
           gc_recebimento_id: string | null
           id: string
@@ -2898,14 +3056,19 @@ export type Database = {
           nome_cliente: string
           observacao: string | null
           os_codigos: string[] | null
+          reservado_em: string | null
+          reservado_job_id: string | null
           utilizado: boolean | null
           utilizado_em: string | null
+          valor_alocado: number
           valor_residual: number
         }
         Insert: {
           cliente_gc_id: string
           created_at?: string | null
           created_by?: string | null
+          estado?: string
+          estado_motivo?: string | null
           gc_codigo?: string | null
           gc_recebimento_id?: string | null
           id?: string
@@ -2913,14 +3076,19 @@ export type Database = {
           nome_cliente: string
           observacao?: string | null
           os_codigos?: string[] | null
+          reservado_em?: string | null
+          reservado_job_id?: string | null
           utilizado?: boolean | null
           utilizado_em?: string | null
+          valor_alocado?: number
           valor_residual: number
         }
         Update: {
           cliente_gc_id?: string
           created_at?: string | null
           created_by?: string | null
+          estado?: string
+          estado_motivo?: string | null
           gc_codigo?: string | null
           gc_recebimento_id?: string | null
           id?: string
@@ -2928,8 +3096,11 @@ export type Database = {
           nome_cliente?: string
           observacao?: string | null
           os_codigos?: string[] | null
+          reservado_em?: string | null
+          reservado_job_id?: string | null
           utilizado?: boolean | null
           utilizado_em?: string | null
+          valor_alocado?: number
           valor_residual?: number
         }
         Relationships: []
@@ -4597,11 +4768,17 @@ export type Database = {
         Row: {
           agrupado: boolean | null
           auvo_task_id: string | null
+          auvo_task_ids: string[] | null
           built_at: string | null
+          data_execucao_anterior: string | null
+          data_execucao_estimada: string | null
           data_execucao_origem: string | null
           data_execucao_real: string | null
           data_execucao_sincronizada_em: string | null
           data_saida: string | null
+          execucao_verificacao_motivo: string | null
+          execucao_verificacao_status: string | null
+          execucao_verificado_em: string | null
           id: string
           nome_cliente: string | null
           nome_situacao: string | null
@@ -4620,11 +4797,17 @@ export type Database = {
         Insert: {
           agrupado?: boolean | null
           auvo_task_id?: string | null
+          auvo_task_ids?: string[] | null
           built_at?: string | null
+          data_execucao_anterior?: string | null
+          data_execucao_estimada?: string | null
           data_execucao_origem?: string | null
           data_execucao_real?: string | null
           data_execucao_sincronizada_em?: string | null
           data_saida?: string | null
+          execucao_verificacao_motivo?: string | null
+          execucao_verificacao_status?: string | null
+          execucao_verificado_em?: string | null
           id?: string
           nome_cliente?: string | null
           nome_situacao?: string | null
@@ -4643,11 +4826,17 @@ export type Database = {
         Update: {
           agrupado?: boolean | null
           auvo_task_id?: string | null
+          auvo_task_ids?: string[] | null
           built_at?: string | null
+          data_execucao_anterior?: string | null
+          data_execucao_estimada?: string | null
           data_execucao_origem?: string | null
           data_execucao_real?: string | null
           data_execucao_sincronizada_em?: string | null
           data_saida?: string | null
+          execucao_verificacao_motivo?: string | null
+          execucao_verificacao_status?: string | null
+          execucao_verificado_em?: string | null
           id?: string
           nome_cliente?: string | null
           nome_situacao?: string | null
@@ -5116,6 +5305,7 @@ export type Database = {
         Returns: Json
       }
       fn_dashboard_stats: { Args: never; Returns: Json }
+      has_financeiro_write: { Args: { _user_id: string }; Returns: boolean }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

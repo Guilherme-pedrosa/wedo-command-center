@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { callGC } from "@/lib/gc-client";
@@ -13,6 +13,7 @@ import { Loader2, Search, HandshakeIcon, AlertCircle, CheckCircle2, ArrowLeft, S
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import toast from "react-hot-toast";
+import { negotiationDueDates, buildNegotiationPlan } from "../../../supabase/functions/_shared/negotiation-plan";
 
 // Extrai mensagem detalhada de erros vindos de supabase.functions.invoke
 // (FunctionsHttpError engole o body — precisamos ler manualmente)
@@ -74,6 +75,8 @@ interface ClientGroup {
   nome_cliente: string;
   os_list: OSItem[];
   valor_total: number;
+  /** Soma de passivos disponíveis (usada quando o cliente não tem OS aberta) */
+  passivo_total?: number;
 }
 
 interface NegotiateResult {
@@ -93,16 +96,35 @@ const DEFAULT_SITUACAO = "7116099"; // Executado - Ag Negociação Financeira
 const toCents = (value: number) => Math.round((Number.isFinite(value) ? value : 0) * 100);
 const fromCents = (value: number) => value / 100;
 const splitEvenlyCents = (totalCents: number, parts: number) => {
-  if (parts <= 0) return [];
-  const base = Math.floor(totalCents / parts);
-  const remainder = totalCents - base * parts;
-  return Array.from({ length: parts }, (_, index) => (index === parts - 1 ? base + remainder : base));
+  const count = Number.isInteger(parts) && parts > 0 && parts <= 60 ? parts : 0;
+  if (!count || totalCents <= 0) return Array(count).fill(0);
+  return buildNegotiationPlan([{ key: "preview", availableCents: totalCents }], totalCents, undefined, parts).installmentCents;
 };
+const pendingStorageKey = (userId: string) => `wedo:negociacao:pending:${userId}`;
+
+
+async function clearRejectedDraft(error: unknown, userId: string): Promise<boolean> {
+  const response = (error as any)?.context;
+  if (!response || ![400, 401, 403, 409, 422].includes(response.status)) return false;
+  try {
+    const body = await response.clone().json();
+    // O servidor confirmou recusa anterior à execução; timeout e resultado ambíguo preservam o pedido.
+    if (body.success !== false || body.pending_reconciliation !== false) return false;
+    const key = pendingStorageKey(userId);
+    const stored = localStorage.getItem(key);
+    if (stored && JSON.parse(stored).job_id) return false;
+    localStorage.removeItem(key);
+    return true;
+  } catch { return false; }
+}
 
 export default function NegociacaoOSPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
+  const [pendingJob, setPendingJob] = useState<string | null>(null);
+  const [canResume, setCanResume] = useState(false);
+  const recoveryStarted = useRef(false);
   const [clients, setClients] = useState<ClientGroup[]>([]);
   const [selectedClient, setSelectedClient] = useState<ClientGroup | null>(null);
   const [selectedOSIds, setSelectedOSIds] = useState<Set<string>>(new Set());
@@ -121,8 +143,8 @@ export default function NegociacaoOSPage() {
   const [diaVencimento, setDiaVencimento] = useState(10);
   const [mesInicio, setMesInicio] = useState(() => {
     const d = new Date();
-    d.setMonth(d.getMonth() + 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
   });
   const [valoresParcelas, setValoresParcelas] = useState<number[]>([]);
   const [valorNegociado, setValorNegociado] = useState<number>(0);
@@ -162,15 +184,46 @@ export default function NegociacaoOSPage() {
         body: { action: "list", situacao_ids: selectedSituacoes },
       });
       if (error) throw error;
-      const groupedClients = (data.clients || [])
+      const groupedClients: ClientGroup[] = (data.clients || [])
         .map((c: ClientGroup) => {
           const osList = c.os_list.filter((os) => os.valor_total > 0);
           const valorTotal = osList.reduce((sum, os) => sum + os.valor_total, 0);
           return { ...c, os_list: osList, valor_total: valorTotal };
         })
         .filter((c: ClientGroup) => c.os_list.length >= 1 && c.valor_total > 0);
-      setClients(groupedClients);
-      if (groupedClients.length === 0) {
+
+      // Clientes que só têm passivo disponível (sem OS na situação) também
+      // precisam aparecer na busca — senão o passivo fica invisível.
+      const { data: residuos } = await (supabase as any)
+        .from("fin_residuos_negociacao")
+        .select("cliente_gc_id, nome_cliente, valor_residual")
+        .eq("utilizado", false)
+        .eq("estado", "disponivel")
+        .limit(5000);
+
+      const existentes = new Set(groupedClients.map((c) => String(c.cliente_id)));
+      const soPassivo = new Map<string, ClientGroup>();
+      for (const r of residuos || []) {
+        const id = String((r as any).cliente_gc_id || "");
+        if (!id || existentes.has(id)) continue;
+        const atual = soPassivo.get(id);
+        if (atual) {
+          atual.passivo_total = (atual.passivo_total || 0) + (Number((r as any).valor_residual) || 0);
+        } else {
+          soPassivo.set(id, {
+            cliente_id: id,
+            nome_cliente: String((r as any).nome_cliente || "—"),
+            os_list: [],
+            valor_total: 0,
+            passivo_total: Number((r as any).valor_residual) || 0,
+          });
+        }
+      }
+
+
+      const todos = [...groupedClients, ...soPassivo.values()];
+      setClients(todos);
+      if (todos.length === 0) {
         toast("Nenhum cliente com OS nas situações selecionadas", { icon: "ℹ️" });
       }
     } catch (err) {
@@ -245,11 +298,12 @@ export default function NegociacaoOSPage() {
     setSelectedClient(client);
     setSelectedOSIds(new Set(client.os_list.map((os) => os.id)));
     // Fetch residuals for this client
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from("fin_residuos_negociacao")
       .select("*")
       .eq("cliente_gc_id", client.cliente_id)
       .eq("utilizado", false)
+        .eq("estado", "disponivel")
       .order("created_at", { ascending: false });
     const residuals = (data as ResidualItem[]) || [];
     setClientResiduais(residuals);
@@ -362,96 +416,117 @@ export default function NegociacaoOSPage() {
     setValoresParcelas(updatedCents.map(fromCents));
   };
 
-  const handleExecute = async () => {
-    if (selectedOSIds.size === 0 && selectedResidualIds.size === 0) return;
-    setExecuting(true);
-    setResults(null);
-
-    const progressToastId = toast.loading("Enfileirando negociação...", { duration: Infinity });
-
+  const watchJob = useCallback(async (jobId: string, userId: string, osMap: Record<string, string>) => {
+    setPendingJob(jobId); setCanResume(false);
+    const toastId = toast.loading("Acompanhando negociação no GestãoClick...", { duration: Infinity });
     try {
-      // 1. Enfileira o job (resposta em ~50ms, sem risco de timeout 504)
-      const { data: enqueueData, error: enqueueErr } = await supabase.functions.invoke("negotiate-os", {
-        body: {
-          action: "enqueue",
-          os_ids: Array.from(selectedOSIds),
-          parcelas,
-          dia_vencimento: diaVencimento,
-          mes_inicio: mesInicio,
-          valores_parcelas: valoresParcelas,
-          valor_negociado: valorNegociado,
-          valor_residual: valorResidual > 0.01 ? valorResidual : 0,
-          nome_cliente: selectedClient?.nome_cliente,
-          cliente_gc_id: selectedClient?.cliente_id,
-          situacao_ids: selectedSituacoes,
-          residual_ids: Array.from(selectedResidualIds),
-        },
-      });
-
-      if (enqueueErr) throw enqueueErr;
-      const jobId = enqueueData?.job_id;
-      if (!jobId) throw new Error("Servidor não retornou job_id");
-
-      toast.loading("Processando negociação no GestãoClick (pode levar até 3 min)...", {
-        id: progressToastId,
-        duration: Infinity,
-      });
-
-      // 2. Polling no status do job a cada 3s, máx 6 min
-      const maxAttempts = 120; // 120 * 3s = 6 min
-      let finalJob: any = null;
-      for (let i = 0; i < maxAttempts; i++) {
-        await new Promise((r) => setTimeout(r, 3000));
-        const { data: jobRow, error: pollErr } = await supabase
-          .from("fin_negociacao_jobs")
-          .select("status, progresso, resultado, ok_count, erro_count, erro_msg")
-          .eq("id", jobId)
-          .maybeSingle();
-        if (pollErr) continue;
-        if (!jobRow) continue;
-        if (jobRow.progresso) {
-          toast.loading(jobRow.progresso, { id: progressToastId, duration: Infinity });
+      for (let attempt = 0; attempt < 120; attempt++) {
+        const { data: job, error } = await supabase.from("fin_negociacao_jobs")
+          .select("status, progresso, resultado, ok_count, erro_count, erro_msg").eq("id", jobId).maybeSingle();
+        if (error) throw error;
+        if (job?.progresso) toast.loading(job.progresso, { id: toastId, duration: Infinity });
+        if (job && ["concluido", "erro", "pendente", "pendente_conferencia"].includes(job.status)) {
+          setCanResume(job.status === "erro");
+          const result = (job.resultado || {}) as any;
+          setResults((result.results || []).map((entry: NegotiateResult) => ({ ...entry, os_id: osMap[entry.os_id] || entry.os_id })));
+          if (job.status === "concluido" && result.success === true && result.integrity_verified === true && Number(job.erro_count || 0) === 0 && !(result.pendencias || []).length) {
+            localStorage.removeItem(pendingStorageKey(userId)); setPendingJob(null);
+            toast.success("Negociação concluída e composição conferida.");
+          } else {
+            toast.error(job.erro_msg || result.error || "Negociação com conferência pendente. Consulte o resultado antes de tentar outra operação.", { duration: 15000 });
+          }
+          return;
         }
-        if (jobRow.status === "concluido" || jobRow.status === "erro") {
-          finalJob = jobRow;
-          break;
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+      toast("A negociação continua no servidor. O acompanhamento será retomado ao abrir esta página.", { duration: 10000 });
+    } finally { toast.dismiss(toastId); }
+  }, []);
+
+  useEffect(() => {
+    if (recoveryStarted.current) return;
+    recoveryStarted.current = true;
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (!data.user) return;
+      const saved = localStorage.getItem(pendingStorageKey(data.user.id));
+      if (!saved) return;
+      const pending = JSON.parse(saved);
+      if (!pending.idempotency_key || !pending.payload) return;
+      setExecuting(true); setPendingJob(pending.job_id || "Confirmação do envio pendente");
+      try {
+        let jobId = pending.job_id;
+        if (!jobId) {
+          // Uma resposta perdida repete a mesma chave e o mesmo pedido, nunca cria outro acordo.
+          const { data: enqueued, error } = await supabase.functions.invoke("negotiate-os", { body: { ...pending.payload, action: "enqueue", idempotency_key: pending.idempotency_key } });
+          if (error) throw error;
+          jobId = enqueued?.job_id;
+          if (!jobId) throw new Error("Envio ainda sem confirmação; pedido preservado para acompanhamento.");
+          localStorage.setItem(pendingStorageKey(data.user.id), JSON.stringify({ ...pending, job_id: jobId }));
         }
+        await watchJob(jobId, data.user.id, pending.os_map || {});
+      } catch (error) {
+        if (await clearRejectedDraft(error, data.user.id)) setPendingJob(null);
+        toast.error(await extractFnError(error, "Falha ao retomar acompanhamento"));
       }
+      finally { setExecuting(false); }
+    })().catch(error => toast.error(error instanceof Error ? error.message : "Falha ao recuperar negociação"));
+  }, [watchJob]);
 
-      toast.dismiss(progressToastId);
+  const handleResume = async () => {
+    if (!pendingJob || !canResume || executing) return;
+    setExecuting(true);
+    try {
+      const { data } = await supabase.auth.getUser();
+      if (!data.user) throw new Error("Sessão expirada.");
+      const stored = localStorage.getItem(pendingStorageKey(data.user.id));
+      const pending = stored ? JSON.parse(stored) : null;
+      if (pending?.job_id !== pendingJob) throw new Error("Não foi possível confirmar a identidade do pedido salvo.");
+      const { error } = await supabase.functions.invoke("negotiate-os", { body: { action: "resume", job_id: pendingJob } });
+      if (error) throw error;
+      await watchJob(pendingJob, data.user.id, pending.os_map || {});
+    } catch (error) { toast.error(await extractFnError(error, "Não foi possível retomar a conferência")); }
+    finally { setExecuting(false); }
+  };
 
-      if (!finalJob) {
-        toast.error("⏱️ Negociação ainda em processamento — atualize a tela em alguns minutos.", { duration: 10000 });
-        return;
+  const handleExecute = async () => {
+    if (executing || (!selectedOSIds.size && !selectedResidualIds.size)) return;
+    setExecuting(true); setResults(null);
+    let actorId: string | null = null;
+    try {
+      negotiationDueDates(mesInicio, diaVencimento, parcelas);
+      buildNegotiationPlan([{ key: "preview", availableCents: selectedTotalCents }], valorNegociadoCents, valoresParcelas.map(toCents), parcelas);
+      const { data, error: authError } = await supabase.auth.getUser();
+      if (authError || !data.user) throw new Error("Sua sessão expirou. Entre novamente antes de negociar.");
+      actorId = data.user.id;
+      const payload = {
+        os_ids: Array.from(selectedOSIds).sort(), residual_ids: Array.from(selectedResidualIds).sort(),
+        parcelas, dia_vencimento: diaVencimento, mes_inicio: mesInicio,
+        valores_parcelas: valoresParcelas, valor_negociado: valorNegociado,
+        nome_cliente: selectedClient?.nome_cliente, cliente_gc_id: selectedClient?.cliente_id,
+        situacao_ids: [...selectedSituacoes].sort(),
+      };
+      const storageKey = pendingStorageKey(data.user.id);
+      const stored = localStorage.getItem(storageKey);
+      let pending = stored ? JSON.parse(stored) : null;
+      if (pending && JSON.stringify(pending.payload) !== JSON.stringify(payload)) throw new Error("Há uma negociação anterior aguardando conferência. Consulte o acompanhamento antes de enviar outra.");
+      if (!pending) pending = { idempotency_key: crypto.randomUUID(), payload, os_map: selectedOsCodeMap };
+      // Persistir antes do envio garante a mesma identidade mesmo após reload/timeout.
+      localStorage.setItem(storageKey, JSON.stringify(pending));
+      let jobId = pending.job_id;
+      if (!jobId) {
+        const { data: enqueueData, error } = await supabase.functions.invoke("negotiate-os", { body: { action: "enqueue", ...pending.payload, idempotency_key: pending.idempotency_key } });
+        if (error) throw error;
+        jobId = enqueueData?.job_id;
+        if (!jobId) throw new Error("Servidor não confirmou o pedido. A chave foi preservada para retomar com segurança.");
+        localStorage.setItem(storageKey, JSON.stringify({ ...pending, job_id: jobId }));
       }
-
-      if (finalJob.status === "erro") {
-        toast.error(`Erro: ${finalJob.erro_msg || "Falha desconhecida"}`, { duration: 12000 });
-        return;
-      }
-
-      // Sucesso
-      const resultado = finalJob.resultado || {};
-      setResults((resultado.results || []).map((result: NegotiateResult) => ({
-        ...result,
-        os_id: selectedOsCodeMap[result.os_id] || result.os_id,
-      })));
-
-      const ok = finalJob.ok_count || 0;
-      const errs = finalJob.erro_count || 0;
-      if (errs === 0) {
-        toast.success(`✅ ${ok} OS negociada(s) com sucesso!`);
-      } else {
-        toast.error(`${ok} OK, ${errs} erro(s). Verifique os resultados.`);
-      }
-    } catch (err) {
-      toast.dismiss(progressToastId);
-      const msg = await extractFnError(err, "Falha ao executar negociação");
-      toast.error(`Erro: ${msg}`, { duration: 10000 });
-      console.error("[NegociacaoOS][execute] erro detalhado:", err);
-    } finally {
-      setExecuting(false);
+      await watchJob(jobId, data.user.id, pending.os_map || {});
+    } catch (error) {
+      if (actorId && await clearRejectedDraft(error, actorId)) setPendingJob(null);
+      toast.error(await extractFnError(error, "Falha ao executar negociação"), { duration: 12000 });
     }
+    finally { setExecuting(false); }
   };
 
   const handleCloseResults = () => {
@@ -467,18 +542,18 @@ export default function NegociacaoOSPage() {
 
   // Generate preview dates
   const previewDates = (() => {
-    if (!mesInicio || !parcelas) return [];
-    const [y, m] = mesInicio.split("-").map(Number);
-    const dates: string[] = [];
-    for (let i = 0; i < Math.min(parcelas, 24); i++) {
-      const d = new Date(y, m - 1 + i, diaVencimento);
-      dates.push(d.toLocaleDateString("pt-BR"));
-    }
-    return dates;
+    try { return negotiationDueDates(mesInicio, diaVencimento, parcelas).map(date => date.split("-").reverse().join("/")); }
+    catch { return []; }
   })();
 
   return (
     <div className="space-y-6">
+      {pendingJob && <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+        <p>Negociação em acompanhamento: {pendingJob}</p>
+        <p>O resultado pode exigir conferência. Reabrir esta página retoma o mesmo pedido.</p>
+        {canResume && <Button variant="outline" disabled={executing} onClick={handleResume}>Retomar conferência</Button>}
+        <Button variant="link" onClick={() => navigate("/financeiro/negociacoes")}>Ver negociações e pendências</Button>
+      </div>}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={handleBack}>
@@ -493,7 +568,7 @@ export default function NegociacaoOSPage() {
               OS agrupadas por cliente ({selectedSituacoes.length} situação(ões) configurada(s))
               {clients.length > 0 && (
                 <span className="ml-2 font-medium text-foreground">
-                  — Total: R$ {clients.reduce((sum, c) => sum + c.valor_total, 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                  — Total: R$ {clients.reduce((sum, c) => sum + c.valor_total + (c.passivo_total || 0), 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                 </span>
               )}
             </p>
@@ -509,11 +584,12 @@ export default function NegociacaoOSPage() {
                 toast.success(`Scan concluído: ${data.inserted} passivo(s) importado(s), ${data.skipped} já existente(s)`);
                 // Refresh residuals if client is selected
                 if (selectedClient) {
-                  const { data: residuals } = await supabase
+                  const { data: residuals } = await (supabase as any)
                     .from("fin_residuos_negociacao")
                     .select("*")
                     .eq("cliente_gc_id", selectedClient.cliente_id)
                     .eq("utilizado", false)
+        .eq("estado", "disponivel")
                     .order("created_at", { ascending: false });
                   const resList = (residuals as ResidualItem[]) || [];
                   setClientResiduais(resList);
@@ -586,9 +662,13 @@ export default function NegociacaoOSPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
-                  <Badge variant="secondary">{client.os_list.length} OS</Badge>
+                  {client.os_list.length > 0 ? (
+                    <Badge variant="secondary">{client.os_list.length} OS</Badge>
+                  ) : (
+                    <Badge variant="outline">Só passivo</Badge>
+                  )}
                   <span className="text-sm font-semibold text-primary">
-                    {formatCurrency(client.valor_total)}
+                    {formatCurrency(client.valor_total + (client.passivo_total || 0))}
                   </span>
                 </div>
               </CardContent>
@@ -596,7 +676,7 @@ export default function NegociacaoOSPage() {
           ))}
           {filteredClients.length === 0 && !loading && (
             <p className="text-muted-foreground col-span-full text-center py-10">
-              Nenhum cliente com OS pendente de negociação.
+              Nenhum cliente com OS pendente de negociação ou passivo disponível.
             </p>
           )}
         </div>

@@ -7,6 +7,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // redeploy: 2026-03-13-v4-consolidated
 
 const corsHeaders = {
+  "X-Wedo-Negotiation-Protocol": "20260909-v2",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
@@ -1288,7 +1289,7 @@ serve(async (req) => {
         // 1. fin_recebimentos: soft-delete
         const { data: localRecs } = await supabase
           .from("fin_recebimentos")
-          .select("id, gc_id, gc_codigo, valor, data_vencimento, nome_cliente, status")
+          .select("id, gc_id, gc_codigo, valor, data_vencimento, nome_cliente, status, grupo_id")
           .not("gc_id", "is", null)
           .gte("data_vencimento", dataInicio)
           .lte("data_vencimento", dataFim)
@@ -1297,26 +1298,28 @@ serve(async (req) => {
         const orphansCandidatos = (localRecs ?? []).filter((r: any) => !apiGcIds.has(String(r.gc_id)));
         const orphans = await filtrarOrfaosConfirmados("/api/recebimentos", orphansCandidatos as any[], gcHeaders);
         if (orphans.length > 0) {
-          recCancelledIds = orphans.map((o: any) => o.id);
-          const { error: cancelErr } = await supabase
-            .from("fin_recebimentos")
-            .update({
-              status: "cancelado",
-              liquidado: false,
-              observacao: `Cancelado automaticamente em ${new Date().toISOString()} — ausente da API GestãoClick na sincronização da janela ${dataInicio}→${dataFim}.`,
-              last_synced_at: new Date().toISOString(),
-            })
-            .in("id", recCancelledIds);
-          if (cancelErr) {
-            console.error(`[sync-all] reconcile fin_recebimentos error: ${cancelErr.message}`);
-            recErrorMessages.add(`reconcile fin: ${cancelErr.message}`);
-          } else {
-            recCancelled = orphans.length;
-            console.log(`[sync-all] 🧹 fin_recebimentos: ${recCancelled} órfãos marcados como cancelado`);
-            for (const o of orphans.slice(0, 20)) {
-              console.log(`  ↳ gc_id=${o.gc_id} cod=${o.gc_codigo} cli=${o.nome_cliente} venc=${o.data_vencimento} val=${o.valor}`);
-            }
+          // A missing external title is evidence for review, never proof of cancellation
+          // or permission to erase paid state, composition, snapshots or bank links.
+          const orphanIds = orphans.map((o: any) => o.id);
+          const { data: itemLinks, error: linksError } = await supabase.from("fin_grupo_receber_itens")
+            .select("grupo_id").in("recebimento_id", orphanIds);
+          if (linksError) throw linksError;
+          const groupIds = [...new Set([...orphans.map((o: any) => o.grupo_id), ...(itemLinks || []).map((i: any) => i.grupo_id)].filter(Boolean))];
+          if (groupIds.length) {
+            const { error: markError } = await supabase.from("fin_grupos_receber").update({
+              integridade_status: "pendente", bloqueio_financeiro: true,
+              bloqueio_motivo: "Título ausente no GC; histórico preservado para conferência",
+            }).in("id", groupIds);
+            if (markError) throw markError;
           }
+          const { error: auditError } = await supabase.from("fin_audit_log").insert({
+            acao: "gc_receipts_missing_preserved", ator: "sync-all", entidade_tipo: "fin_recebimentos",
+            depois: { recebimento_ids: orphanIds, grupo_ids: groupIds, janela: [dataInicio, dataFim] },
+            justificativa: "GET individual não encontrou título. Histórico, baixa e conciliação preservados.",
+          });
+          if (auditError) throw auditError;
+          recErrorMessages.add(`${orphans.length} títulos ausentes preservados para conferência`);
+          recErrors += orphans.length;
         }
 
         // 2. gc_recebimentos: hard-delete (espelho da API)

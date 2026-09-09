@@ -11,8 +11,11 @@ installGcUsuarioId();
 
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { financialActor } from "../_shared/financial-auth.ts";
+import { assertNegotiationSettlement } from "../_shared/negotiation-settlement.ts";
 
 const corsHeaders = {
+  "X-Wedo-Negotiation-Protocol": "20260909-v2",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
@@ -131,9 +134,9 @@ async function buscarRegistroGC(
     const text = await res.text();
     let body: any = null;
     try { body = JSON.parse(text); } catch { /* resposta não JSON */ }
-    if (!res.ok) return { ok: false, erro: `GET HTTP ${res.status}: ${text.substring(0, 200)}` };
+    if (!res.ok || Number(body?.code ?? 200) >= 400 || ["error", "erro"].includes(body?.status) || body?.success === false) return { ok: false, erro: `GET HTTP ${res.status}: ${text.substring(0, 200)}` };
     const registro = unwrapGcRecord(body, endpoint);
-    if (!registro) return { ok: false, erro: "GET do GC não retornou um financeiro válido" };
+    if (!registro || String(registro.id) !== gcId) return { ok: false, erro: "GET do GC não retornou a identidade financeira solicitada" };
     return { ok: true, registro };
   } catch (error) {
     return { ok: false, erro: error instanceof Error ? error.message : String(error) };
@@ -243,6 +246,14 @@ async function baixarNoGC(
   if (liquidadoAntes) {
     const dataConfirmada = String(payloadAtual.data_liquidacao ?? "").substring(0, 10) || dataLiquidacao;
     return { ok: true, dataLiquidacaoConfirmada: dataConfirmada, jaLiquidado: true };
+  }
+  if (endpoint === "recebimentos") {
+    try { await assertNegotiationSettlement(supabase, gcId, payloadAtual, async (id) => {
+      const checked = await buscarRegistroGC("recebimentos", id);
+      if (!checked.ok || !checked.registro || String(checked.registro.id) !== id) throw new Error(`Título ${id} não pôde ser conferido antes da baixa.`);
+      return checked.registro;
+    }); }
+    catch (error) { return { ok: false, erro: String(error), retryable: false }; }
   }
 
   // Mantém a montagem do contexto para os logs locais. O endpoint financeiro do GC
@@ -744,6 +755,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    await financialActor(req, supabase, SUPABASE_SERVICE_ROLE_KEY);
     const body = await req.json().catch(() => ({}));
     const mode: "auto" | "links" = body.mode === "auto" ? "auto" : "links";
     const background = body.background === true;
