@@ -164,25 +164,44 @@ serve(async (req) => {
 
     const okCount = respJson?.summary?.ok || 0;
     const errCount = respJson?.summary?.errors || 0;
+    const pendencias = Array.isArray(respJson?.pendencias) ? respJson.pendencias : [];
+    const sucesso = respJson?.success !== false;
+    const composicaoCompleta = respJson?.composicao_incompleta !== true;
+
+    // Nunca declarar "concluido" com erros, success=false, pendências de
+    // vínculo ou composição incompleta — isso mascara negociação parcial.
+    const concluiu = errCount === 0 && sucesso && composicaoCompleta && pendencias.length === 0;
+
+    const motivo = !sucesso
+      ? "A função de negociação retornou success=false"
+      : errCount > 0
+        ? `${errCount} erro(s) na execução`
+        : !composicaoCompleta
+          ? "Composição da negociação incompleta"
+          : pendencias.length > 0
+            ? `${pendencias.length} pendência(s) de vínculo`
+            : "";
 
     await supabase
       .from("fin_negociacao_jobs")
       .update({
-        status: "concluido",
+        status: concluiu ? "concluido" : "erro",
         resultado: respJson,
         ok_count: okCount,
         erro_count: errCount,
+        erro_msg: concluiu ? null : `Negociação parcial: ${motivo}. Revise antes de tentar novamente.`.slice(0, 1000),
         finalizado_em: new Date().toISOString(),
-        progresso: errCount === 0
+        progresso: concluiu
           ? `✅ ${okCount} OS negociada(s) com sucesso`
-          : `${okCount} OK, ${errCount} erro(s)`,
+          : `⚠️ Parcial — ${okCount} OK, ${motivo}`,
       })
       .eq("id", job.id);
 
-    console.log(`[worker] Job ${job.id} concluído: ${okCount} OK / ${errCount} erros`);
+    console.log(`[worker] Job ${job.id} ${concluiu ? "concluído" : "PARCIAL"}: ${okCount} OK / ${errCount} erros / ${pendencias.length} pendências`);
     return new Response(
-      JSON.stringify({ ok: true, job_id: job.id, ok_count: okCount, erro_count: errCount }),
+      JSON.stringify({ ok: concluiu, job_id: job.id, ok_count: okCount, erro_count: errCount, pendencias: pendencias.length }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+
     );
   } catch (err) {
     const msg = (err as Error)?.message || String(err);
