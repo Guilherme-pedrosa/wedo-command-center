@@ -187,16 +187,18 @@ export default function NegociacaoOSPage() {
         if (!id || existentes.has(id)) continue;
         const atual = soPassivo.get(id);
         if (atual) {
-          atual.valor_total += Number((r as any).valor_residual) || 0;
+          atual.passivo_total = (atual.passivo_total || 0) + (Number((r as any).valor_residual) || 0);
         } else {
           soPassivo.set(id, {
             cliente_id: id,
             nome_cliente: String((r as any).nome_cliente || "—"),
             os_list: [],
-            valor_total: Number((r as any).valor_residual) || 0,
+            valor_total: 0,
+            passivo_total: Number((r as any).valor_residual) || 0,
           });
         }
       }
+
 
       const todos = [...groupedClients, ...soPassivo.values()];
       setClients(todos);
