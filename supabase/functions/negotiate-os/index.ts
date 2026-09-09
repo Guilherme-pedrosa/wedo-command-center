@@ -1096,6 +1096,16 @@ serve(async (req) => {
       }>();
       const linkedReceivableIds = new Map<string, string>();
 
+      // Pendências: qualquer cobrança que não foi marcada/vinculada precisa aparecer,
+      // NUNCA falhar em silêncio (caso OS 9103 / NEG109).
+      const pendencias: Array<{
+        os_codigo: string;
+        etapa: string;
+        motivo: string;
+        data_vencimento?: string;
+        valor?: number;
+      }> = [];
+
       const buildReceivableKey = (osCodigo: string, dueDate: string, value: number, kind: "neg" | "passive") =>
         `${kind}:${osCodigo}:${dueDate}:${roundMoney(value).toFixed(2)}`;
 
@@ -1378,7 +1388,12 @@ serve(async (req) => {
             }
           }
         } catch (stepDErr: any) {
-          console.warn(`[negotiate-os] STEP D error (non-fatal): ${stepDErr.message}`);
+          console.warn(`[negotiate-os] STEP D error: ${stepDErr.message}`);
+          pendencias.push({
+            os_codigo: os.codigo,
+            etapa: "marcacao_financeiro",
+            motivo: `Falha ao marcar/atualizar cobranças no GC: ${stepDErr.message}`,
+          });
         }
       }
       // ═══════════════════════════════════════════════════════════════
@@ -1529,6 +1544,13 @@ serve(async (req) => {
 
               if (!recebimentoId) {
                 console.warn(`[negotiate-os] Grupo ${i + 1}: financeiro não encontrado para OS ${os.codigo} (${vencimento} / ${valorParcela.toFixed(2)})`);
+                pendencias.push({
+                  os_codigo: os.codigo,
+                  etapa: `vinculo_grupo_${i + 1}`,
+                  motivo: `Cobrança da OS ${os.codigo} não foi encontrada para vincular à parcela ${i + 1}/${parcelas} da Neg. nº${negociacao_numero}`,
+                  data_vencimento: vencimento,
+                  valor: valorParcela,
+                });
                 continue;
               }
 
@@ -1817,11 +1839,36 @@ serve(async (req) => {
       const okCount = gcUpdateResults.filter((r) => r.status === "ok").length;
       const errCount = gcUpdateResults.filter((r) => r.status === "error").length;
 
+      // Registrar pendências (cobranças que ficaram fora do grupo/sem marcação)
+      if (pendencias.length > 0) {
+        console.warn(`[negotiate-os] ${pendencias.length} pendência(s) de vínculo na Neg. nº${negociacao_numero}`);
+        for (const p of pendencias) {
+          await supabase.from("fin_acoes_pendentes").insert({
+            tipo: "negociacao_vinculo_incompleto",
+            destinatario_role: "gerente_financeiro",
+            titulo: `Neg. nº${negociacao_numero}: cobrança da OS ${p.os_codigo} não vinculada`,
+            descricao: p.motivo,
+            payload: {
+              negociacao_numero,
+              os_codigo: p.os_codigo,
+              etapa: p.etapa,
+              data_vencimento: p.data_vencimento ?? null,
+              valor: p.valor ?? null,
+              grupo_ids: grupoIds,
+              cliente_gc_id: cliente_gc_id || null,
+            },
+            entidade_tipo: "negociacao",
+            entidade_id: String(negociacao_numero),
+            status: "pendente",
+          });
+        }
+      }
+
       await supabase.from("fin_sync_log").insert({
         tipo: "negotiate-os",
-        status: errCount > 0 ? (okCount > 0 ? "partial" : "erro") : "ok",
+        status: (errCount > 0 || pendencias.length > 0) ? (okCount > 0 ? "partial" : "erro") : "ok",
         payload: { os_ids, parcelas, dia_vencimento, mes_inicio, cliente_gc_id, valorNegociado },
-        resposta: { gcUpdateResults, grupoIds, total_negociado: totalNegotiatedSuccess, total_passivo: totalResidualSuccess },
+        resposta: { gcUpdateResults, grupoIds, total_negociado: totalNegotiatedSuccess, total_passivo: totalResidualSuccess, pendencias },
         duracao_ms: Date.now() - startTime,
       });
 
@@ -1833,7 +1880,8 @@ serve(async (req) => {
           grupos_criados: grupoIds.length,
           grupo_ids: grupoIds,
           negociacao_numero,
-          summary: { total: os_ids.length, ok: okCount, errors: errCount },
+          pendencias,
+          summary: { total: os_ids.length, ok: okCount, errors: errCount, pendencias: pendencias.length },
           duration_ms: Date.now() - startTime,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

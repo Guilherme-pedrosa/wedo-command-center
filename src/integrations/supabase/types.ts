@@ -1823,6 +1823,42 @@ export type Database = {
         }
         Relationships: []
       }
+      fin_job_locks: {
+        Row: {
+          cursor_value: string | null
+          expires_at: string
+          heartbeat_at: string
+          locked_at: string
+          nome: string
+          payload: Json | null
+          run_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          cursor_value?: string | null
+          expires_at?: string
+          heartbeat_at?: string
+          locked_at?: string
+          nome: string
+          payload?: Json | null
+          run_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          cursor_value?: string | null
+          expires_at?: string
+          heartbeat_at?: string
+          locked_at?: string
+          nome?: string
+          payload?: Json | null
+          run_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       fin_meta_plano_contas: {
         Row: {
           centro_custo_id: string | null
@@ -1866,6 +1902,7 @@ export type Database = {
           ativo: boolean | null
           categoria: string
           created_at: string | null
+          fonte: string | null
           id: string
           meta_percentual: number | null
           meta_valor: number | null
@@ -1877,6 +1914,7 @@ export type Database = {
           ativo?: boolean | null
           categoria: string
           created_at?: string | null
+          fonte?: string | null
           id?: string
           meta_percentual?: number | null
           meta_valor?: number | null
@@ -1888,6 +1926,7 @@ export type Database = {
           ativo?: boolean | null
           categoria?: string
           created_at?: string | null
+          fonte?: string | null
           id?: string
           meta_percentual?: number | null
           meta_valor?: number | null
@@ -2152,6 +2191,57 @@ export type Database = {
           storage_path?: string
           valor_produtos?: number | null
           valor_total?: number | null
+        }
+        Relationships: []
+      }
+      fin_os_execucao_log: {
+        Row: {
+          auvo_task_ids: string[] | null
+          created_at: string
+          data_execucao_antes: string | null
+          data_execucao_depois: string | null
+          dry_run: boolean
+          evidencia: Json | null
+          id: string
+          motivo: string | null
+          origem_antes: string | null
+          origem_depois: string | null
+          os_codigo: string | null
+          os_id: string
+          run_id: string
+          status: string
+        }
+        Insert: {
+          auvo_task_ids?: string[] | null
+          created_at?: string
+          data_execucao_antes?: string | null
+          data_execucao_depois?: string | null
+          dry_run?: boolean
+          evidencia?: Json | null
+          id?: string
+          motivo?: string | null
+          origem_antes?: string | null
+          origem_depois?: string | null
+          os_codigo?: string | null
+          os_id: string
+          run_id: string
+          status: string
+        }
+        Update: {
+          auvo_task_ids?: string[] | null
+          created_at?: string
+          data_execucao_antes?: string | null
+          data_execucao_depois?: string | null
+          dry_run?: boolean
+          evidencia?: Json | null
+          id?: string
+          motivo?: string | null
+          origem_antes?: string | null
+          origem_depois?: string | null
+          os_codigo?: string | null
+          os_id?: string
+          run_id?: string
+          status?: string
         }
         Relationships: []
       }
@@ -2486,6 +2576,42 @@ export type Database = {
           id?: string
           politica_id?: string
           tipo_id?: string
+        }
+        Relationships: []
+      }
+      fin_premiacao_cache: {
+        Row: {
+          calculado_em: string
+          comissao_final: number
+          comissao_total: number | null
+          created_at: string
+          faturamento_premiacao: number | null
+          mes: string
+          origem: string
+          updated_at: string
+          versao: number
+        }
+        Insert: {
+          calculado_em?: string
+          comissao_final: number
+          comissao_total?: number | null
+          created_at?: string
+          faturamento_premiacao?: number | null
+          mes: string
+          origem?: string
+          updated_at?: string
+          versao?: number
+        }
+        Update: {
+          calculado_em?: string
+          comissao_final?: number
+          comissao_total?: number | null
+          created_at?: string
+          faturamento_premiacao?: number | null
+          mes?: string
+          origem?: string
+          updated_at?: string
+          versao?: number
         }
         Relationships: []
       }
@@ -4597,11 +4723,17 @@ export type Database = {
         Row: {
           agrupado: boolean | null
           auvo_task_id: string | null
+          auvo_task_ids: string[] | null
           built_at: string | null
+          data_execucao_anterior: string | null
+          data_execucao_estimada: string | null
           data_execucao_origem: string | null
           data_execucao_real: string | null
           data_execucao_sincronizada_em: string | null
           data_saida: string | null
+          execucao_verificacao_motivo: string | null
+          execucao_verificacao_status: string | null
+          execucao_verificado_em: string | null
           id: string
           nome_cliente: string | null
           nome_situacao: string | null
@@ -4620,11 +4752,17 @@ export type Database = {
         Insert: {
           agrupado?: boolean | null
           auvo_task_id?: string | null
+          auvo_task_ids?: string[] | null
           built_at?: string | null
+          data_execucao_anterior?: string | null
+          data_execucao_estimada?: string | null
           data_execucao_origem?: string | null
           data_execucao_real?: string | null
           data_execucao_sincronizada_em?: string | null
           data_saida?: string | null
+          execucao_verificacao_motivo?: string | null
+          execucao_verificacao_status?: string | null
+          execucao_verificado_em?: string | null
           id?: string
           nome_cliente?: string | null
           nome_situacao?: string | null
@@ -4643,11 +4781,17 @@ export type Database = {
         Update: {
           agrupado?: boolean | null
           auvo_task_id?: string | null
+          auvo_task_ids?: string[] | null
           built_at?: string | null
+          data_execucao_anterior?: string | null
+          data_execucao_estimada?: string | null
           data_execucao_origem?: string | null
           data_execucao_real?: string | null
           data_execucao_sincronizada_em?: string | null
           data_saida?: string | null
+          execucao_verificacao_motivo?: string | null
+          execucao_verificacao_status?: string | null
+          execucao_verificado_em?: string | null
           id?: string
           nome_cliente?: string | null
           nome_situacao?: string | null

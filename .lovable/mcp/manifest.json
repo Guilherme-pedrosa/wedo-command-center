@@ -812,11 +812,6 @@
             "ativo": {
               "type": "boolean"
             },
-            "usuario_id": {
-              "type": "string",
-              "maxLength": 30,
-              "pattern": "^\\d+$"
-            },
             "loja_id": {
               "type": "string",
               "maxLength": 30,
@@ -1040,11 +1035,6 @@
             },
             "ativo": {
               "type": "boolean"
-            },
-            "usuario_id": {
-              "type": "string",
-              "maxLength": 30,
-              "pattern": "^\\d+$"
             },
             "loja_id": {
               "type": "string",
@@ -1804,10 +1794,6 @@
               "type": "string",
               "pattern": "^\\d+$"
             },
-            "usuario_id": {
-              "type": "string",
-              "pattern": "^\\d+$"
-            },
             "vendedor_id": {
               "type": "string",
               "pattern": "^\\d+$"
@@ -1977,10 +1963,6 @@
               "maxLength": 40
             },
             "loja_id": {
-              "type": "string",
-              "pattern": "^\\d+$"
-            },
-            "usuario_id": {
               "type": "string",
               "pattern": "^\\d+$"
             },

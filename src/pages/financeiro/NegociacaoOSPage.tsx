@@ -74,6 +74,8 @@ interface ClientGroup {
   nome_cliente: string;
   os_list: OSItem[];
   valor_total: number;
+  /** Soma de passivos disponíveis (usada quando o cliente não tem OS aberta) */
+  passivo_total?: number;
 }
 
 interface NegotiateResult {
@@ -162,15 +164,45 @@ export default function NegociacaoOSPage() {
         body: { action: "list", situacao_ids: selectedSituacoes },
       });
       if (error) throw error;
-      const groupedClients = (data.clients || [])
+      const groupedClients: ClientGroup[] = (data.clients || [])
         .map((c: ClientGroup) => {
           const osList = c.os_list.filter((os) => os.valor_total > 0);
           const valorTotal = osList.reduce((sum, os) => sum + os.valor_total, 0);
           return { ...c, os_list: osList, valor_total: valorTotal };
         })
         .filter((c: ClientGroup) => c.os_list.length >= 1 && c.valor_total > 0);
-      setClients(groupedClients);
-      if (groupedClients.length === 0) {
+
+      // Clientes que só têm passivo disponível (sem OS na situação) também
+      // precisam aparecer na busca — senão o passivo fica invisível.
+      const { data: residuos } = await supabase
+        .from("fin_residuos_negociacao")
+        .select("cliente_gc_id, nome_cliente, valor_residual")
+        .eq("utilizado", false)
+        .limit(5000);
+
+      const existentes = new Set(groupedClients.map((c) => String(c.cliente_id)));
+      const soPassivo = new Map<string, ClientGroup>();
+      for (const r of residuos || []) {
+        const id = String((r as any).cliente_gc_id || "");
+        if (!id || existentes.has(id)) continue;
+        const atual = soPassivo.get(id);
+        if (atual) {
+          atual.passivo_total = (atual.passivo_total || 0) + (Number((r as any).valor_residual) || 0);
+        } else {
+          soPassivo.set(id, {
+            cliente_id: id,
+            nome_cliente: String((r as any).nome_cliente || "—"),
+            os_list: [],
+            valor_total: 0,
+            passivo_total: Number((r as any).valor_residual) || 0,
+          });
+        }
+      }
+
+
+      const todos = [...groupedClients, ...soPassivo.values()];
+      setClients(todos);
+      if (todos.length === 0) {
         toast("Nenhum cliente com OS nas situações selecionadas", { icon: "ℹ️" });
       }
     } catch (err) {
@@ -444,6 +476,16 @@ export default function NegociacaoOSPage() {
       } else {
         toast.error(`${ok} OK, ${errs} erro(s). Verifique os resultados.`);
       }
+
+      const pendencias: Array<{ os_codigo: string; motivo: string }> = resultado.pendencias || [];
+      if (pendencias.length > 0) {
+        toast.error(
+          `⚠️ ${pendencias.length} cobrança(s) ficaram FORA da negociação: ${pendencias
+            .map((p) => `OS ${p.os_codigo}`)
+            .join(", ")}. Confira antes de cobrar o cliente.`,
+          { duration: 20000 }
+        );
+      }
     } catch (err) {
       toast.dismiss(progressToastId);
       const msg = await extractFnError(err, "Falha ao executar negociação");
@@ -493,7 +535,7 @@ export default function NegociacaoOSPage() {
               OS agrupadas por cliente ({selectedSituacoes.length} situação(ões) configurada(s))
               {clients.length > 0 && (
                 <span className="ml-2 font-medium text-foreground">
-                  — Total: R$ {clients.reduce((sum, c) => sum + c.valor_total, 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                  — Total: R$ {clients.reduce((sum, c) => sum + c.valor_total + (c.passivo_total || 0), 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                 </span>
               )}
             </p>
@@ -586,9 +628,13 @@ export default function NegociacaoOSPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
-                  <Badge variant="secondary">{client.os_list.length} OS</Badge>
+                  {client.os_list.length > 0 ? (
+                    <Badge variant="secondary">{client.os_list.length} OS</Badge>
+                  ) : (
+                    <Badge variant="outline">Só passivo</Badge>
+                  )}
                   <span className="text-sm font-semibold text-primary">
-                    {formatCurrency(client.valor_total)}
+                    {formatCurrency(client.valor_total + (client.passivo_total || 0))}
                   </span>
                 </div>
               </CardContent>
@@ -596,7 +642,7 @@ export default function NegociacaoOSPage() {
           ))}
           {filteredClients.length === 0 && !loading && (
             <p className="text-muted-foreground col-span-full text-center py-10">
-              Nenhum cliente com OS pendente de negociação.
+              Nenhum cliente com OS pendente de negociação ou passivo disponível.
             </p>
           )}
         </div>

@@ -320,7 +320,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
           "access-token": GC_ACCESS_TOKEN,
           "secret-access-token": GC_SECRET_TOKEN,
-          "usuario-id": "1320473",
+          "usuario-id": GC_API_USER_ID,
         },
       });
 
@@ -426,7 +426,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
           "access-token": GC_ACCESS_TOKEN,
           "secret-access-token": GC_SECRET_TOKEN,
-          "usuario-id": "1320473",
+          "usuario-id": GC_API_USER_ID,
         },
         body: JSON.stringify(putBody),
       });
@@ -443,7 +443,7 @@ Deno.serve(async (req) => {
             "Content-Type": "application/json",
             "access-token": GC_ACCESS_TOKEN,
             "secret-access-token": GC_SECRET_TOKEN,
-            "usuario-id": "1320473",
+            "usuario-id": GC_API_USER_ID,
           },
         });
         const verifyBody = await verifyRes.json().catch(() => null);
