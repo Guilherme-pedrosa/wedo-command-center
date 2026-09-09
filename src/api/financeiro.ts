@@ -304,41 +304,71 @@ export async function baixarRecebimentoGC(
 // ─── Atualizar recebimento no GC (sem baixa) ─────────────────────────
 export async function atualizarRecebimentoGC(
   gcId: string,
-  gcPayloadRaw: Record<string, unknown>,
+  _gcPayloadRaw: Record<string, unknown>,
   campos: {
     data_vencimento?: string;
     descricao?: string;
     observacao?: string;
     nf_numero?: string;
     atributos?: Array<{ atributo_id: number; valor: string } | { id: number; valor: string }>;
-  }
+  },
+  expected?: { expectedValue?: number; expectedClientId?: string },
 ): Promise<{ status: number; data: unknown; duration_ms: number }> {
-
-  // PUT /recebimentos/{id} exige 7 campos obrigatórios
-  // Extrair APENAS esses do cache, sem mandar campos readonly
+  const endpoint = `/api/recebimentos/${gcId}`;
+  const checkedBody = (response: { status: number; data: unknown }) => {
+    const body = typeof response.data === "string" ? JSON.parse(response.data) : response.data as any;
+    if (response.status >= 400 || Number(body?.code ?? 200) >= 400 || ["error", "erro"].includes(body?.status) || body?.success === false) {
+      throw new Error(body?.data?.mensagem || body?.message || `GC não confirmou o título ${gcId}.`);
+    }
+    return body;
+  };
+  const read = async () => {
+    const response = await callGC({ endpoint });
+    const body = checkedBody(response);
+    const raw = body?.data?.data ?? body?.data ?? body;
+    if (String(raw?.id) !== String(gcId)) throw new Error(`Identidade do título ${gcId} não confirmada pelo GC.`);
+    return { response, raw };
+  };
+  const fresh = await read();
+  const gcPayloadRaw = fresh.raw;
+  const cents = (value: unknown) => Math.round(Number(value) * 100);
+  const originalCents = cents(gcPayloadRaw.valor ?? gcPayloadRaw.valor_total);
+  if (!Number.isSafeInteger(originalCents) || originalCents < 0) throw new Error("Valor atual do GC inválido.");
+  if (expected && (![false, 0, "0"].includes(gcPayloadRaw.liquidado) || /cancel/i.test(String(gcPayloadRaw.situacao_nome ?? gcPayloadRaw.situacao ?? "")))) {
+    throw new Error("O título já foi liquidado, cancelado ou não tem situação confirmada no GC.");
+  }
+  if ((expected?.expectedValue !== undefined && originalCents !== cents(expected.expectedValue)) ||
+      (expected?.expectedClientId && String(gcPayloadRaw.cliente_id) !== expected.expectedClientId)) {
+    throw new Error("Valor ou cliente mudou no GC. Atualize a seleção antes de agrupar.");
+  }
+  if (!Object.keys(campos).length) return fresh.response;
+  // Required fields come from a current GET, never the stale local mirror.
   const payload: Record<string, unknown> = {
     descricao:          campos.descricao          ?? gcPayloadRaw.descricao ?? '',
     data_vencimento:    campos.data_vencimento    ?? gcPayloadRaw.data_vencimento,
-    valor:              gcPayloadRaw.valor,
+    valor:              gcPayloadRaw.valor ?? gcPayloadRaw.valor_total,
     data_competencia:   gcPayloadRaw.data_competencia ?? gcPayloadRaw.data_vencimento,
     plano_contas_id:    gcPayloadRaw.plano_contas_id,
     forma_pagamento_id: gcPayloadRaw.forma_pagamento_id,
     conta_bancaria_id:  gcPayloadRaw.conta_bancaria_id,
   };
 
-  // Campos opcionais que existem na API (só se presentes no cache)
-  if (gcPayloadRaw.cliente_id)      payload.cliente_id = gcPayloadRaw.cliente_id;
-  if (gcPayloadRaw.entidade)        payload.entidade = gcPayloadRaw.entidade;
-  if (gcPayloadRaw.centro_custo_id) payload.centro_custo_id = gcPayloadRaw.centro_custo_id;
-  if (gcPayloadRaw.juros)           payload.juros = gcPayloadRaw.juros;
-  if (gcPayloadRaw.desconto)        payload.desconto = gcPayloadRaw.desconto;
+  for (const key of ["data_vencimento", "data_competencia", "plano_contas_id", "forma_pagamento_id", "conta_bancaria_id"]) {
+    if (!payload[key]) throw new Error(`Título ${gcId}: ${key} ausente no GC; atualização interrompida.`);
+  }
+  for (const key of ["cliente_id", "entidade", "centro_custo_id", "juros", "multa", "desconto", "taxa_banco", "taxa_operadora", "funcionario_id", "transportadora_id", "rateios", "atributos"]) {
+    if (gcPayloadRaw[key] !== undefined && gcPayloadRaw[key] !== null) payload[key] = gcPayloadRaw[key];
+  }
 
   // Atributos (campos extras financeiros) — se enviados
   if (campos.atributos?.length) {
-    payload.atributos = campos.atributos.map((a) => ({
+    const replacements = campos.atributos.map((a) => ({
       atributo_id: "atributo_id" in a ? a.atributo_id : (a as any).id,
       valor: String(a.valor ?? ""),
     }));
+    const ids = new Set(replacements.map(a => String(a.atributo_id)));
+    const existing = Array.isArray(gcPayloadRaw.atributos) ? gcPayloadRaw.atributos : [];
+    payload.atributos = [...existing.filter((a: any) => !ids.has(String(a.atributo_id ?? a.id ?? a.atributo?.atributo_id))), ...replacements];
   }
 
   const res = await callGC({
@@ -347,20 +377,13 @@ export async function atualizarRecebimentoGC(
     payload,
   });
 
-  let embeddedCode: number | null = null;
-  let embeddedStatus: string | null = null;
-  let embeddedMessage: string | null = null;
-  try {
-    const body = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
-    embeddedCode = body?.code ?? null;
-    embeddedStatus = body?.status ?? null;
-    embeddedMessage = body?.data?.mensagem || body?.message || null;
-  } catch { /* ignore */ }
-
-  if (res.status >= 400 || (embeddedCode !== null && embeddedCode >= 400) || embeddedStatus === "error") {
-    throw new Error(
-      embeddedMessage || `Erro ao atualizar recebimento ${gcId}: HTTP ${res.status}`
-    );
+  checkedBody(res);
+  const confirmed = (await read()).raw;
+  if (cents(confirmed.valor ?? confirmed.valor_total) !== originalCents ||
+      String(confirmed.cliente_id ?? "") !== String(gcPayloadRaw.cliente_id ?? "") ||
+      (campos.data_vencimento && String(confirmed.data_vencimento).slice(0, 10) !== campos.data_vencimento) ||
+      (campos.descricao !== undefined && confirmed.descricao !== campos.descricao)) {
+    throw new Error(`O GC não confirmou valor, cliente ou alteração do título ${gcId}. Confira antes de repetir.`);
   }
 
   return res;
