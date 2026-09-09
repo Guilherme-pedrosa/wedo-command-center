@@ -1,7 +1,8 @@
 // Worker que consome fin_gc_write_jobs e envia PUT pro GestãoClick.
 // Roda em loop interno respeitando rate limit (350ms entre requests ≈ 2.85 req/s, margem sobre 3 req/s do GC).
 // Marca status: pendente → processando → sucesso | erro_retentavel | erro_fatal
-import { installGcUsuarioId } from "../_shared/gc-user.ts";
+import { GC_API_USER_ID, installGcUsuarioId } from "../_shared/gc-user.ts";
+import { forceGcApiUserInRequest } from "../_shared/gc-user-core.ts";
 installGcUsuarioId();
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -31,7 +32,9 @@ async function gcFetch(url: string, init: RequestInit): Promise<Response> {
   const elapsed = Date.now() - lastGcCallAt;
   if (elapsed < RATE_LIMIT_MS) await sleep(RATE_LIMIT_MS - elapsed);
   lastGcCallAt = Date.now();
-  return fetch(url, init);
+  // GC_BASE_URL pode usar o host legado; mantenha a atribuição mesmo nesse caso.
+  const request = await forceGcApiUserInRequest(url, init, GC_API_USER_ID);
+  return fetch(request, init.signal ? { signal: init.signal } : undefined);
 }
 
 function numericOrNull(v: unknown): number | null {
