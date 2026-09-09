@@ -10,6 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Loader2, Search, HandshakeIcon, ArrowLeft, Eye, RefreshCw, ChevronDown, ChevronRight, Trash2, Pencil } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import toast from "react-hot-toast";
+import { negotiationReviewReasons } from "@/lib/negotiation-integrity";
+import { solicitarCancelamentoNegociacao } from "@/api/financeiro";
 
 interface GrupoReceber {
   id: string;
@@ -27,6 +29,9 @@ interface GrupoReceber {
   gc_baixado: boolean | null;
   inter_pago_em: string | null;
   valor_recebido: number | null;
+  integridade_status?: string | null;
+  integridade_motivos?: unknown;
+  bloqueio_financeiro?: boolean | null;
 }
 
 interface Negociacao {
@@ -49,6 +54,8 @@ export default function NegociacoesPage() {
   const [expandedNeg, setExpandedNeg] = useState<Set<number>>(new Set());
   const [selectedNeg, setSelectedNeg] = useState<Negociacao | null>(null);
   const [deleteNeg, setDeleteNeg] = useState<Negociacao | null>(null);
+  const [cancelamentoMotivo, setCancelamentoMotivo] = useState("");
+  const bloqueado = (p: GrupoReceber) => Boolean(p.bloqueio_financeiro || (p.integridade_status && !["ok", "nao_verificado"].includes(p.integridade_status)));
   const [deleting, setDeleting] = useState(false);
 
   const fetchGrupos = async () => {
@@ -146,9 +153,9 @@ export default function NegociacoesPage() {
   const statusBadge = (status: string | null) => {
     switch (status) {
       case "pago":
-        return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Pago</Badge>;
+        return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Quitado no GC</Badge>;
       case "pago_parcial":
-        return <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">Parcial</Badge>;
+        return <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">GC parcial</Badge>;
       default:
         return <Badge variant="outline">Aberto</Badge>;
     }
@@ -161,18 +168,14 @@ export default function NegociacoesPage() {
   const handleDelete = async (neg: Negociacao) => {
     setDeleting(true);
     try {
-      const ids = neg.parcelas.map((p) => p.id);
-      const { error } = await supabase
-        .from("fin_grupos_receber")
-        .delete()
-        .in("id", ids);
-      if (error) throw error;
-      toast.success(`Negociação #${neg.numero} apagada (${ids.length} grupos)`);
+      await solicitarCancelamentoNegociacao(neg.parcelas.map(p => p.id), cancelamentoMotivo);
+      toast.success(`Solicitação da negociação #${neg.numero} registrada para conferência`);
+      setCancelamentoMotivo("");
       setDeleteNeg(null);
       setSelectedNeg(null);
       fetchGrupos();
     } catch (err) {
-      toast.error(`Erro ao apagar: ${(err as Error).message}`);
+      toast.error(`Erro ao solicitar cancelamento: ${(err as Error).message}`);
     } finally {
       setDeleting(false);
     }
@@ -311,7 +314,7 @@ export default function NegociacoesPage() {
                     <TableCell className="text-right font-semibold">
                       {formatCurrency(neg.valor_total)}
                     </TableCell>
-                    <TableCell>{statusBadge(neg.status)}</TableCell>
+                    <TableCell>{statusBadge(neg.status)}{neg.parcelas.some(bloqueado) && <Badge variant="destructive" className="ml-1">Conferência pendente</Badge>}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {neg.created_at ? new Date(neg.created_at).toLocaleDateString("pt-BR") : "—"}
                     </TableCell>
@@ -347,8 +350,7 @@ export default function NegociacoesPage() {
                             e.stopPropagation();
                             setDeleteNeg(neg);
                           }}
-                          title="Apagar negociação"
-                          disabled={neg.status === "pago"}
+                          title="Solicitar cancelamento"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -366,6 +368,8 @@ export default function NegociacoesPage() {
                         </TableCell>
                         <TableCell className="text-sm truncate max-w-[200px]">
                           {p.nome}
+                          {bloqueado(p) && <p className="text-xs text-amber-600">Conferência: {negotiationReviewReasons(p.integridade_motivos).join(" · ") || p.integridade_status}</p>}
+                          <p className="text-xs text-muted-foreground">Banco conciliado: {p.valor_recebido == null ? "não comprovado" : formatCurrency(p.valor_recebido)}</p>
                         </TableCell>
                         <TableCell />
                         <TableCell>
@@ -478,10 +482,9 @@ export default function NegociacoesPage() {
                 <Button
                   variant="destructive"
                   onClick={() => setDeleteNeg(selectedNeg)}
-                  disabled={selectedNeg.status === "pago"}
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
-                  Apagar
+                  Solicitar cancelamento
                 </Button>
                 <Button variant="outline" onClick={() => setSelectedNeg(null)}>
                   Fechar
@@ -496,21 +499,21 @@ export default function NegociacoesPage() {
       <AlertDialog open={!!deleteNeg} onOpenChange={() => setDeleteNeg(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Apagar Negociação #{deleteNeg?.numero}?</AlertDialogTitle>
+            <AlertDialogTitle>Solicitar cancelamento da negociação #{deleteNeg?.numero}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Isso vai remover {deleteNeg?.total_parcelas} grupo(s) de recebimento vinculados a esta negociação.
-              Esta ação não pode ser desfeita. Os financeiros no GestãoClick NÃO serão alterados.
+              A solicitação bloqueia os {deleteNeg?.total_parcelas} grupo(s) para conferência. Títulos, acordos e comprovantes permanecem no histórico; o cancelamento ainda precisa ser concluído.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <Input aria-label="Motivo do cancelamento" value={cancelamentoMotivo} onChange={e => setCancelamentoMotivo(e.target.value)} placeholder="Motivo (mínimo 10 caracteres)" />
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleteNeg && handleDelete(deleteNeg)}
-              disabled={deleting}
+              disabled={deleting || cancelamentoMotivo.trim().length < 10}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
-              Apagar
+              Solicitar cancelamento
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
