@@ -8,6 +8,8 @@ permissions:
 jobs:
   regression:
     runs-on: ubuntu-latest
+    env:
+      TZ: America/Sao_Paulo
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
