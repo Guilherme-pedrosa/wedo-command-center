@@ -45,26 +45,26 @@ describe("vencimentos dia 31", () => {
 describe("conservação em centavos", () => {
   it("saldo 600 integral em 2x300 não infla o grupo", () => {
     const plano = construirPlano({
-      origens: [{ id: "os1", tipo: "os", valorOriginalCents: moneyToCents(600) }],
-      valorNegociadoCents: moneyToCents(600),
+      origens: [{ id: "os1", tipo: "os", valorCents: moneyToCents(600) }],
+      montanteNegociadoCents: moneyToCents(600),
       parcelas: 2,
       mesInicio: "2026-01",
       diaVencimento: 10,
     });
     expect(plano.parcelas.map((p) => p.valorCents)).toEqual([30000, 30000]);
-    expect(plano.totalAlocadoCents).toBe(60000);
-    expect(plano.restanteCents).toBe(0);
+    expect(plano.totalNegociadoCents).toBe(60000);
+    expect(plano.totalRestanteCents).toBe(0);
   });
 
   it("parcial 300 de 600 deixa 300 de restante e consome só 300", () => {
     const plano = construirPlano({
-      origens: [{ id: "os1", tipo: "os", valorOriginalCents: moneyToCents(600) }],
-      valorNegociadoCents: moneyToCents(300),
+      origens: [{ id: "os1", tipo: "os", valorCents: moneyToCents(600) }],
+      montanteNegociadoCents: moneyToCents(300),
       parcelas: 1,
       mesInicio: "2026-01",
       diaVencimento: 10,
     });
-    expect(plano.totalAlocadoCents).toBe(30000);
-    expect(plano.restanteCents).toBe(30000);
+    expect(plano.totalNegociadoCents).toBe(30000);
+    expect(plano.totalRestanteCents).toBe(30000);
   });
 });
