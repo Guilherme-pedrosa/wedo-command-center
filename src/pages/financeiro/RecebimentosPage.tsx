@@ -18,7 +18,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
-import { syncByMonthChunks, atualizarRecebimentoGC, gcDelay, type SyncDateFilter } from "@/api/financeiro";
+import { syncByMonthChunks, type SyncDateFilter } from "@/api/financeiro";
+import { createVerifiedReceivableGroup } from "@/api/receivable-group";
 import { SyncPeriodDialog } from "@/components/financeiro/SyncPeriodDialog";
 import { cn } from "@/lib/utils";
 import { isGcSettled } from "@/lib/financial-reconciliation";
@@ -253,85 +254,29 @@ export default function RecebimentosPage() {
     }
   };
 
+  const groupRequestId = useRef<string | null>(null);
   const handleCreateGroup = async () => {
     if (!groupName.trim()) return;
-    const items = selectedItems;
-    const clientes = new Set(items.map((r: any) => r.nome_cliente || ""));
-    if (clientes.size > 1) {
-      toast.error("Não é possível criar grupo com clientes diferentes.");
-      return;
-    }
     setCreating(true);
     try {
-      const total = items.reduce((s: number, r: any) => s + Number(r.valor || 0), 0);
-      const { data: grupo, error: gErr } = await supabase.from("fin_grupos_receber").insert({
-        nome: groupName,
-        nome_cliente: (items[0] as any)?.nome_cliente,
-        valor_total: total,
-        itens_total: items.length,
-        data_vencimento: groupDate ? format(groupDate, "yyyy-MM-dd") : null,
-        observacao: groupObs || null,
-      }).select().single();
-      if (gErr) throw gErr;
-
-      // Create items with snapshot
-      const grupoItens = items.map((r: any) => ({
-        grupo_id: (grupo as any).id,
-        recebimento_id: r.id,
-        valor: Number(r.valor),
-        os_codigo_original: r.os_codigo || null,
-        gc_os_id: r.gc_id || null,
-        snapshot_valor: Number(r.valor),
-        snapshot_data: r.data_vencimento || null,
-      }));
-      await supabase.from("fin_grupo_receber_itens").insert(grupoItens);
-      const updateData: Record<string, any> = { grupo_id: (grupo as any).id };
-      if (groupDate) updateData.data_vencimento = format(groupDate, "yyyy-MM-dd");
-      await supabase.from("fin_recebimentos").update(updateData as any).in("id", items.map((r: any) => r.id));
-
-      // Sync vencimento pro GC automaticamente
-      if (groupDate) {
-        const venc = format(groupDate, "yyyy-MM-dd");
-        let gcSyncOk = 0;
-        let gcSyncFail = 0;
-        for (const r of items as any[]) {
-          if (r.gc_id && r.gc_payload_raw) {
-            try {
-              await atualizarRecebimentoGC(r.gc_id, r.gc_payload_raw, { data_vencimento: venc });
-              gcSyncOk++;
-            } catch { gcSyncFail++; }
-            await gcDelay();
-          }
-        }
-        if (gcSyncFail > 0) {
-          toast.error(`${gcSyncFail} recebimento(s) não atualizaram no GC`);
-        } else if (gcSyncOk > 0) {
-          toast(`${gcSyncOk} vencimento(s) atualizados no GC`, { icon: "✅" });
-        }
-      }
-
-      // Atualiza situação das OS no GC: EXECUTADO - FECHADO CHAMADO → CHAMADO FECHADO - FATURADO
-      // Não toca em financeiros (omite pagamentos/parcelas no payload).
-      supabase.functions.invoke("update-os-faturado", {
-        body: { grupo_id: (grupo as any).id },
-      }).then(({ data, error }) => {
-        if (error) { console.warn("[update-os-faturado] erro:", error); return; }
-        const d: any = data;
-        if (d?.atualizadas > 0) toast(`${d.atualizadas} OS marcada(s) como Faturada no GC`, { icon: "✅" });
-      }).catch((e) => console.warn("[update-os-faturado] falha:", e));
-
-      toast.success(`Grupo criado com ${items.length} itens · ${formatCurrency(total)}`);
-      setSelected(new Set());
-      setShowCreateGroup(false);
-      setGroupName("");
-      setGroupObs("");
-      setGroupDate(undefined);
-      queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro");
-    } finally {
-      setCreating(false);
-    }
+      groupRequestId.current ||= crypto.randomUUID();
+      const result = await createVerifiedReceivableGroup({
+        id: groupRequestId.current, name: groupName, observation: groupObs,
+        dueDate: groupDate ? format(groupDate, "yyyy-MM-dd") : null,
+        receipts: selectedItems,
+      });
+      if (!result.reused) supabase.functions.invoke("update-os-faturado", { body: { grupo_id: result.id } })
+        .then(({ error, data }) => { if (error || data?.success === false) toast("Grupo confirmado; atualização da situação das OS ficou pendente."); })
+        .catch(() => toast("Grupo confirmado; atualização da situação das OS ficou pendente."));
+      toast.success(`Grupo confirmado com ${selectedItems.length} itens · ${formatCurrency(result.total)}`);
+      groupRequestId.current = null;
+      setSelected(new Set()); setShowCreateGroup(false); setGroupName(""); setGroupObs(""); setGroupDate(undefined);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] }),
+        queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] }),
+      ]);
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Grupo não confirmado. Confira a pendência."); }
+    finally { setCreating(false); }
   };
 
   const handleSaveNew = async () => {

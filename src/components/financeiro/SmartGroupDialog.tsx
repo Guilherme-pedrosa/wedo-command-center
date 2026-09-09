@@ -1,5 +1,5 @@
-import { useState, useMemo, useCallback } from "react";
-import { addMonths } from "date-fns";
+import { useState, useMemo, useCallback, useRef } from "react";
+
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { atualizarRecebimentoGC, registrarResidualNegociacao, gcDelay } from "@/api/financeiro";
+import { createVerifiedReceivableGroup } from "@/api/receivable-group";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -114,7 +114,7 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
     queryFn: async () => {
       const { data } = await supabase
         .from("fin_recebimentos")
-        .select("id, descricao, valor, os_codigo, gc_codigo, gc_id, data_vencimento, nome_cliente, gc_payload_raw, liquidado, grupo_id, status")
+        .select("id, descricao, valor, os_codigo, gc_codigo, gc_id, data_vencimento, nome_cliente, gc_payload_raw, liquidado, grupo_id, status, cliente_gc_id")
         .eq("cliente_gc_id", clienteId)
         .is("grupo_id", null)
         .eq("liquidado", false)
@@ -177,142 +177,33 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
     }
   };
 
+  const groupRequestId = useRef<string | null>(null);
   const handleCreate = async () => {
     if (!groupName.trim() || selectedItems.length === 0) return;
     setCreating(true);
     try {
-      const hasPartialSelection = selectedItems.some((r: any) => getItemValor(r) < Number(r.valor || 0) - 0.01);
-      if (hasPartialSelection && !groupDate) {
-        throw new Error("Informe o vencimento da negociação para desmembrar os valores parciais.");
-      }
-
-      const total = selectedTotal;
-      const { data: grupo, error: gErr } = await supabase.from("fin_grupos_receber").insert({
-        nome: groupName,
-        nome_cliente: clienteNome,
-        cliente_gc_id: clienteId,
-        valor_total: total,
-        itens_total: selectedItems.length,
-        data_vencimento: groupDate ? format(groupDate, "yyyy-MM-dd") : null,
-        observacao: groupObs || null,
-      }).select().single();
-      if (gErr) throw gErr;
-
-      const vencGrupo = groupDate ? format(groupDate, "yyyy-MM-dd") : null;
-      const vencResidual = groupDate ? format(addMonths(groupDate, 1), "yyyy-MM-dd") : null;
-      const grupoItens: Array<{
-        grupo_id: string;
-        recebimento_id: string;
-        valor: number;
-        os_codigo_original: string | null;
-        gc_os_id: string | null;
-        snapshot_valor: number;
-        snapshot_data: string | null;
-      }> = [];
-
-      for (const r of selectedItems as any[]) {
-        const valorSelecionado = getItemValor(r);
-        const valorOriginal = Number(r.valor || 0);
-        const isPartial = valorSelecionado < valorOriginal - 0.01;
-
-        if (isPartial) {
-          // Não mexe no GC — apenas rastreia o valor parcial no item do grupo
-          // e registra o resíduo localmente (igual negotiate-os)
-          const updateData: Record<string, any> = { grupo_id: (grupo as any).id };
-          if (vencGrupo) updateData.data_vencimento = vencGrupo;
-          await supabase.from("fin_recebimentos").update(updateData as any).eq("id", r.id);
-
-          if (vencGrupo && r.gc_id && r.gc_payload_raw) {
-            try {
-              await atualizarRecebimentoGC(r.gc_id, r.gc_payload_raw, { data_vencimento: vencGrupo });
-            } catch { /* ignore */ }
-            await gcDelay();
-          }
-
-          await registrarResidualNegociacao({
-            recebimentoId: r.id,
-            valorOriginal,
-            valorNegociado: valorSelecionado,
-            clienteGcId: clienteId || null,
-            nomeCliente: clienteNome || null,
-            osCodigo: r.os_codigo || null,
-            gcRecebimentoId: r.gc_id || null,
-            gcCodigo: r.gc_codigo || null,
-          });
-        } else {
-          const updateData: Record<string, any> = { grupo_id: (grupo as any).id };
-          if (vencGrupo) updateData.data_vencimento = vencGrupo;
-          await supabase.from("fin_recebimentos").update(updateData as any).eq("id", r.id);
-
-          if (vencGrupo && r.gc_id && r.gc_payload_raw) {
-            try {
-              await atualizarRecebimentoGC(r.gc_id, r.gc_payload_raw, { data_vencimento: vencGrupo });
-            } catch { /* ignore */ }
-            await gcDelay();
-          }
-        }
-
-        grupoItens.push({
-          grupo_id: (grupo as any).id,
-          recebimento_id: r.id,
-          valor: valorSelecionado,
-          os_codigo_original: r.os_codigo || null,
-          gc_os_id: r.gc_id || null,
-          snapshot_valor: valorOriginal,
-          snapshot_data: r.data_vencimento || null,
-        });
-      }
-
-      await supabase.from("fin_grupo_receber_itens").insert(grupoItens);
-
-      // Recebimentos NÃO selecionados: vencimento = 1 mês após o vencimento do grupo
-      if (groupDate) {
-        const excludedItems = recebimentos.filter((r: any) => !selectedIds.has(r.id));
-        if (excludedItems.length > 0) {
-          const vencExcluidos = format(addMonths(groupDate, 1), "yyyy-MM-dd");
-          
-          // Atualizar local
-          await supabase
-            .from("fin_recebimentos")
-            .update({ data_vencimento: vencExcluidos })
-            .in("id", excludedItems.map((r: any) => r.id));
-
-          // Sync no GC
-          for (const r of excludedItems as any[]) {
-            if (r.gc_id && r.gc_payload_raw) {
-              try {
-                await atualizarRecebimentoGC(r.gc_id, r.gc_payload_raw, { data_vencimento: vencExcluidos });
-              } catch { /* ignore */ }
-              await gcDelay();
-            }
-          }
-          toast.success(`${excludedItems.length} recebimento(s) restante(s) → vencimento ${format(addMonths(groupDate, 1), "dd/MM/yyyy")}`);
-        }
-      }
-
-      // Atualiza situação das OS no GC: EXECUTADO - FECHADO CHAMADO → CHAMADO FECHADO - FATURADO
-      // Não toca em financeiros (omite pagamentos/parcelas no payload).
-      supabase.functions.invoke("update-os-faturado", {
-        body: { grupo_id: (grupo as any).id },
-      }).then(({ data, error }) => {
-        if (error) { console.warn("[update-os-faturado] erro:", error); return; }
-        const d: any = data;
-        if (d?.atualizadas > 0) toast.success(`${d.atualizadas} OS marcada(s) como Faturada no GC`);
-      }).catch((e) => console.warn("[update-os-faturado] falha:", e));
-
-      toast.success(`Grupo criado com ${selectedItems.length} itens · ${formatCurrency(total)}`);
-      queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] });
-      queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] });
-      handleReset();
-      onOpenChange(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro ao criar grupo");
-    } finally {
-      setCreating(false);
-    }
+      groupRequestId.current ||= crypto.randomUUID();
+      const result = await createVerifiedReceivableGroup({
+        id: groupRequestId.current, name: groupName, observation: groupObs,
+        dueDate: groupDate ? format(groupDate, "yyyy-MM-dd") : null,
+        receipts: selectedItems.map((r: any) => ({ ...r, selectedValue: getItemValor(r) })),
+      });
+      if (!result.reused) supabase.functions.invoke("update-os-faturado", { body: { grupo_id: result.id } })
+        .then(({ error, data }) => { if (error || data?.success === false) toast("Grupo confirmado; atualização da situação das OS ficou pendente."); })
+        .catch(() => toast("Grupo confirmado; atualização da situação das OS ficou pendente."));
+      toast.success(`Grupo confirmado com ${selectedItems.length} itens · ${formatCurrency(result.total)}`);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["fin-grupos-receber"] }),
+        queryClient.invalidateQueries({ queryKey: ["fin-recebimentos"] }),
+        queryClient.invalidateQueries({ queryKey: ["fin-recebimentos-smart"] }),
+      ]);
+      handleReset(); onOpenChange(false);
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Grupo não confirmado. Confira a pendência."); }
+    finally { setCreating(false); }
   };
 
   const handleReset = () => {
+    groupRequestId.current = null;
     setClienteId("");
     setValorAlvo("");
     setGroupName("");
@@ -513,6 +404,9 @@ export function SmartGroupDialog({ open, onOpenChange }: SmartGroupDialogProps) 
                 <Label className="text-xs">Observação</Label>
                 <Textarea value={groupObs} onChange={(e) => setGroupObs(e.target.value)} rows={2} />
               </div>
+              {selectedItems.some((r: any) => getItemValor(r) !== Number(r.valor)) && (
+                <p className="text-sm text-amber-600">A divisão precisa gerar títulos separados no GC. <a className="underline" href="/financeiro/negociacao-os">Abrir negociação</a> para informar as parcelas e o saldo restante.</p>
+              )}
             </>
           )}
         </div>
