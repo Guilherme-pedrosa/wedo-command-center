@@ -971,7 +971,13 @@ export async function baixarLinksGCConfirmados(
   return data;
 }
 
-async function resetExtratosByLancamentos(
+/**
+ * @deprecated O sync NÃO usa mais isto: alocações de extrato precisam sobreviver
+ * ao desaparecimento do título no GC. Mantido apenas para correções manuais
+ * auditadas (desfazer conciliação explicitamente pelo operador).
+ */
+export async function resetExtratosByLancamentos(
+
   lancamentoIds: string[],
   tabelas: string[]
 ): Promise<number> {
@@ -1271,6 +1277,110 @@ async function probeOrphansFromGC(
   return { trueOrphans, refreshed: refreshRows.length };
 }
 
+/**
+ * Título desapareceu do GC (404 confirmado no probe individual).
+ * NÃO apagamos nada: preservamos identidade local, composição do acordo e
+ * alocações de extrato, e registramos pendência auditável para associação
+ * comprovada. Grupos afetados ficam com integridade "pendente" e bloqueio
+ * financeiro até revisão humana.
+ */
+export async function marcarTitulosAusentesGC(
+  scope: "recebimentos" | "pagamentos",
+  orphans: Array<{ id: string; gc_id?: string | null }>
+): Promise<{ pendencias: number; gruposMarcados: number }> {
+  if (orphans.length === 0) return { pendencias: 0, gruposMarcados: 0 };
+
+  const tabela = scope === "recebimentos" ? "fin_recebimentos" : "fin_pagamentos";
+  const itensTabela = scope === "recebimentos" ? "fin_grupo_receber_itens" : "fin_grupo_pagar_itens";
+  const fkItem = scope === "recebimentos" ? "recebimento_id" : "pagamento_id";
+  const ids = orphans.map((o) => o.id);
+
+  // Snapshot do estado atual antes de qualquer marcação (auditoria).
+  const { data: snapshots } = await supabase
+    .from(tabela as any)
+    .select("*")
+    .in("id", ids) as any;
+
+  const { data: itens } = await supabase
+    .from(itensTabela as any)
+    .select(`id, grupo_id, ${fkItem}`)
+    .in(fkItem, ids) as any;
+
+  const grupoIds = Array.from(
+    new Set(((itens ?? []) as any[]).map((i) => i.grupo_id).filter(Boolean))
+  );
+
+  const pendencias = orphans.map((o) => ({
+    tipo: "sync_titulo_ausente_gc",
+    titulo: `Título ${scope} ${o.gc_id ?? o.id} não existe mais no GestãoClick`,
+    descricao:
+      "O sync confirmou 404 no GC. Nada foi apagado: o registro local, a composição do acordo e as alocações de extrato foram preservados. Reassocie manualmente (ID comprovado) ou cancele de forma auditável.",
+    payload: {
+      scope,
+      local_id: o.id,
+      gc_id: o.gc_id ?? null,
+      grupos_afetados: grupoIds,
+      snapshot: ((snapshots ?? []) as any[]).find((s) => s.id === o.id) ?? null,
+      detectado_em: new Date().toISOString(),
+    },
+    entidade_tipo: tabela,
+    entidade_id: String(o.id),
+    status: "pendente",
+  }));
+
+  const { error: pendErr } = await supabase.from("fin_acoes_pendentes" as any).insert(pendencias);
+  if (pendErr) console.error(`[marcarTitulosAusentesGC] pendência: ${pendErr.message}`);
+
+  let gruposMarcados = 0;
+  if (scope === "recebimentos" && grupoIds.length > 0) {
+    const { data: grupos } = await supabase
+      .from("fin_grupos_receber" as any)
+      .select("id, integridade_motivos")
+      .in("id", grupoIds) as any;
+
+    for (const grupo of ((grupos ?? []) as any[])) {
+      const motivos = Array.isArray(grupo.integridade_motivos) ? grupo.integridade_motivos : [];
+      motivos.push({
+        codigo: "titulo_ausente_gc",
+        motivo: `Título(s) do grupo não existem mais no GC: ${orphans.map((o) => o.gc_id ?? o.id).join(", ")}`,
+        em: new Date().toISOString(),
+      });
+      const { error } = await supabase
+        .from("fin_grupos_receber" as any)
+        .update({
+          integridade_status: "pendente",
+          integridade_motivos: motivos,
+          integridade_verificado_em: new Date().toISOString(),
+          bloqueio_financeiro: true,
+          bloqueio_motivo: "Título ausente no GC — revisão manual necessária",
+        })
+        .eq("id", grupo.id);
+      if (!error) gruposMarcados += 1;
+    }
+  }
+
+  try {
+    await supabase.rpc("log_audit_event" as any, {
+      _action_type: "sync",
+      _action: "titulos_ausentes_gc_marcados",
+      _table_name: tabela,
+      _record_id: ids.join(","),
+      _before: { snapshots: snapshots ?? [] } as any,
+      _after: { pendencias: pendencias.length, grupos_marcados: gruposMarcados } as any,
+      _context: { scope } as any,
+      _severity: "warning",
+    } as any);
+  } catch { /* auditoria best-effort */ }
+
+  console.warn(
+    `[marcarTitulosAusentesGC:${scope}] ${orphans.length} título(s) ausente(s) no GC — preservados e marcados como pendência (${gruposMarcados} grupo(s) bloqueado(s))`
+  );
+
+  return { pendencias: pendencias.length, gruposMarcados };
+}
+
+
+
 
 export async function syncRecebimentosGC(
   onProgress?: (atual: number, total: number) => void,
@@ -1326,10 +1436,10 @@ export async function syncRecebimentosGC(
     }
   }
 
-  let orphansRemoved = 0;
-  let extratosResetados = 0;
+  let pendenciasAusentes = 0;
+  let gruposBloqueados = 0;
 
-  // ── Cleanup: remove local records whose gc_id no longer exists in GC ──
+  // ── Título ausente no GC: NUNCA apagar. Preservar e marcar pendência. ──
   if (raws.length > 0 && filtros?.dataInicio && filtros?.dataFim) {
     const gcIdsFromGC = new Set(raws.map((r) => String(r.id)));
 
@@ -1345,29 +1455,31 @@ export async function syncRecebimentosGC(
     );
 
     if (orphanCandidates.length > 0) {
-      // Probe each candidate via per-id GET — if GC still has it, refresh
-      // (data_vencimento may have shifted out of the fetched window).
+      // Probe individual: só 404 confirma ausência (vencimento pode ter mudado).
       const { trueOrphans } = await probeOrphansFromGC("recebimentos", orphanCandidates, pcMap, ccMap, fpMap);
       if (trueOrphans.length > 0) {
-        const orphanIds = trueOrphans.map((o: any) => o.id);
-        extratosResetados = await resetExtratosByLancamentos(orphanIds, ["recebimentos", "fin_recebimentos"]);
-        await supabase.from("fin_grupo_receber_itens" as any).delete().in("recebimento_id", orphanIds);
-        await supabase.from("fin_recebimentos" as any).delete().in("id", orphanIds);
-        orphansRemoved = orphanIds.length;
-        console.log(`[syncRecebimentosGC] Removed ${orphansRemoved} truly orphaned local records; reset ${extratosResetados} extratos`);
+        const resultado = await marcarTitulosAusentesGC("recebimentos", trueOrphans);
+        pendenciasAusentes = resultado.pendencias;
+        gruposBloqueados = resultado.gruposMarcados;
       }
     }
   }
 
-
-
-
   await supabase.from("fin_sync_log" as any).insert({
     tipo: "gc_import_recebimentos",
     status: erros === 0 ? "success" : "partial",
-    resposta: { importados, atualizados, erros, total: raws.length, orphans_removed: orphansRemoved, extratos_resetados: extratosResetados },
+    resposta: {
+      importados,
+      atualizados,
+      erros,
+      total: raws.length,
+      titulos_ausentes_gc: pendenciasAusentes,
+      grupos_bloqueados: gruposBloqueados,
+      exclusao_destrutiva: false,
+    },
     duracao_ms: Date.now() - inicio,
   });
+
 
   return { importados, atualizados, erros };
 }
@@ -1426,11 +1538,9 @@ export async function syncPagamentosGC(
     }
   }
 
-  let orphansRemoved = 0;
-  let extratosResetados = 0;
+  let pendenciasAusentes = 0;
 
-  // Backfill recipient_document from fin_fornecedores (batched)
-  // ── Cleanup: remove local pagamentos whose gc_id no longer exists in GC ──
+  // ── Título ausente no GC: NUNCA apagar. Preservar e marcar pendência. ──
   if (raws.length > 0 && filtros?.dataInicio && filtros?.dataFim) {
     const gcIdsFromGC = new Set(raws.map((r) => String(r.id)));
     const { data: localPags } = await supabase
@@ -1444,20 +1554,14 @@ export async function syncPagamentosGC(
       (r: any) => r.gc_id && !gcIdsFromGC.has(String(r.gc_id))
     );
     if (orphanCandidates.length > 0) {
-      // Probe each candidate via per-id GET — if GC still has it, refresh
-      // (data_vencimento may have shifted out of the fetched window).
       const { trueOrphans } = await probeOrphansFromGC("pagamentos", orphanCandidates, pcMap, ccMap, fpMap);
       if (trueOrphans.length > 0) {
-        const orphanIds = trueOrphans.map((o: any) => o.id);
-        extratosResetados = await resetExtratosByLancamentos(orphanIds, ["pagamentos", "fin_pagamentos"]);
-        await supabase.from("fin_grupo_pagar_itens" as any).delete().in("pagamento_id", orphanIds);
-        await supabase.from("fin_pagamentos" as any).delete().in("id", orphanIds);
-        orphansRemoved = orphanIds.length;
-        console.log(`[syncPagamentosGC] Removed ${orphansRemoved} truly orphaned local pagamentos; reset ${extratosResetados} extratos`);
+        const resultado = await marcarTitulosAusentesGC("pagamentos", trueOrphans);
+        pendenciasAusentes = resultado.pendencias;
       }
     }
-
   }
+
 
   try {
     const { data: fornecedores } = await supabase
@@ -1500,7 +1604,7 @@ export async function syncPagamentosGC(
   await supabase.from("fin_sync_log" as any).insert({
     tipo: "gc_import_pagamentos",
     status: erros === 0 ? "success" : "partial",
-    resposta: { importados, atualizados, erros, total: raws.length, orphans_removed: orphansRemoved, extratos_resetados: extratosResetados },
+    resposta: { importados, atualizados, erros, total: raws.length, titulos_ausentes_gc: pendenciasAusentes, exclusao_destrutiva: false },
     duracao_ms: Date.now() - inicio,
   });
 

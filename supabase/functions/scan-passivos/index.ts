@@ -48,8 +48,16 @@ serve(async (req) => {
       "Content-Type": "application/json",
     };
 
-    // Search GC for receivables with "PASSIVO" in description
-    // We search recent months
+    // ── Modo degradado: qualquer falha de leitura do GC (429/500/503/timeout/
+    // JSON inesperado) NUNCA pode mudar o estado dos passivos locais. ──
+    let degradado = false;
+    const falhas: string[] = [];
+    const marcarDegradado = (motivo: string) => {
+      degradado = true;
+      if (falhas.length < 20) falhas.push(motivo);
+      console.error(`[scan-passivos] DEGRADADO: ${motivo}`);
+    };
+
     const now = new Date();
     const dataInicio = new Date(now.getFullYear(), now.getMonth() - 6, 1)
       .toISOString().slice(0, 10);
@@ -69,6 +77,8 @@ serve(async (req) => {
       negociacao_numero: number | null;
       os_codigos: string[];
       aberto: boolean;
+      liquidado: boolean;
+      cancelado: boolean;
     }> = [];
 
     while (page <= totalPages) {
@@ -79,25 +89,54 @@ serve(async (req) => {
         data_fim: dataFim,
       });
 
-      const resp = await rateLimitedFetch(
-        `${GC_BASE_URL}/api/recebimentos?${params.toString()}`,
-        { headers: gcHeaders }
-      );
-
-      if (resp.status === 429) {
-        await new Promise((r) => setTimeout(r, 2000));
-        continue;
-      }
-
-      if (!resp.ok) {
-        console.error(`[scan-passivos] GC error: ${resp.status}`);
+      let resp: Response;
+      try {
+        resp = await rateLimitedFetch(
+          `${GC_BASE_URL}/api/recebimentos?${params.toString()}`,
+          { headers: gcHeaders }
+        );
+      } catch (err) {
+        marcarDegradado(`falha de rede na página ${page}: ${(err as Error).message}`);
         break;
       }
 
-      const data = await resp.json();
-      const records = Array.isArray(data?.data) ? data.data : [];
-      const meta = data?.meta || {};
-      totalPages = meta?.total_paginas || 1;
+      if (resp.status === 429 || resp.status === 500 || resp.status === 503) {
+        // Uma tentativa de backoff; persistindo, entra em modo degradado.
+        await new Promise((r) => setTimeout(r, 3000));
+        let retry: Response | null = null;
+        try {
+          retry = await rateLimitedFetch(
+            `${GC_BASE_URL}/api/recebimentos?${params.toString()}`,
+            { headers: gcHeaders }
+          );
+        } catch { retry = null; }
+        if (!retry || !retry.ok) {
+          marcarDegradado(`GC ${resp.status} na página ${page} (retry falhou)`);
+          break;
+        }
+        resp = retry;
+      }
+
+      if (!resp.ok) {
+        marcarDegradado(`GC ${resp.status} na página ${page}`);
+        break;
+      }
+
+      let data: any;
+      try {
+        data = await resp.json();
+      } catch (err) {
+        marcarDegradado(`JSON inesperado na página ${page}: ${(err as Error).message}`);
+        break;
+      }
+
+      if (!data || !Array.isArray(data?.data)) {
+        marcarDegradado(`resposta sem lista de dados na página ${page}`);
+        break;
+      }
+
+      const records = data.data;
+      totalPages = data?.meta?.total_paginas || 1;
 
       for (const item of records) {
         const rec = item?.Recebimento || item?.recebimento || item;
@@ -115,39 +154,29 @@ serve(async (req) => {
         const nomeCliente = String(rec?.nome_cliente || "").trim();
         const codigo = rec?.codigo ? String(rec.codigo) : null;
 
-        // Detectar passivo pelo prefixo novo, por recebimentos legados do GC (2/2, 3/3, ...)
-        // ou por parcelas remanescentes de negociações anteriores ("... ex-Neg.36")
         const parcelMatch = descricao.match(/\((\d+)\/(\d+)\)/);
         const isLegacyPassive = !!parcelMatch && Number(parcelMatch[2]) > 1 && Number(parcelMatch[1]) === Number(parcelMatch[2]);
         const isExNegPassive = /ex[-\s]?neg\.?\s*\d+/i.test(descricao);
         const isPassive = descUpper.includes("PASSIVO") || isLegacyPassive || isExNegPassive;
         if (!isPassive) continue;
 
-        // Situação atual no GC
         const situacao = String(rec?.situacao_nome || rec?.situacao || "").toLowerCase();
         const liquidadoGc = String(rec?.liquidado ?? "0") === "1" || situacao.includes("recebid") || situacao.includes("liquidad");
         const canceladoGc = situacao.includes("cancel");
         const aberto = !liquidadoGc && !canceladoGc;
 
-        // Parcelas "ex-Neg" só entram como passivo disponível se ainda estiverem abertas
         if (isExNegPassive && !descUpper.includes("PASSIVO") && !aberto) continue;
 
-
-
-        // Extract NEG number from description (supports both formats)
         let negNumero: number | null = null;
         const negMatch = descricao.match(/NEG\s*(\d+)/i)
           || descricao.match(/negocia[çc][ãa]o\s+(\d+)/i);
         if (negMatch) negNumero = parseInt(negMatch[1], 10);
 
-        // Extract OS codes from description
         const osCodigos: string[] = [];
         const osMatches = descricao.matchAll(/OS\s+(\d+)/gi);
         for (const m of osMatches) {
           if (m[1] && !osCodigos.includes(m[1])) osCodigos.push(m[1]);
         }
-
-        // Fallback: descrição legada do GC "Ordem de serviço de nº 8963 (2/2)"
         if (osCodigos.length === 0) {
           const legacyOsMatch = descricao.match(/ordem\s+de\s+servi[cç]o\s+de\s+n[ºo]\s*(\d+)/i);
           if (legacyOsMatch?.[1]) osCodigos.push(legacyOsMatch[1]);
@@ -164,6 +193,8 @@ serve(async (req) => {
           negociacao_numero: negNumero,
           os_codigos: osCodigos,
           aberto,
+          liquidado: liquidadoGc,
+          cancelado: canceladoGc,
         });
       }
 
@@ -171,38 +202,91 @@ serve(async (req) => {
       page++;
     }
 
-    // Upsert into fin_residuos_negociacao
+    // ── Acordo ativo? Um passivo com alocação/reserva/acordo vivo não volta
+    // para "disponível" só porque o título está aberto no GC. ──
+    async function temAcordoAtivo(gcRecebimentoId: string | null): Promise<boolean> {
+      if (!gcRecebimentoId) return false;
+      const { data: local } = await supabase
+        .from("fin_recebimentos")
+        .select("id")
+        .eq("gc_id", gcRecebimentoId)
+        .maybeSingle();
+      if (!local?.id) return false;
+
+      const { data: itens } = await supabase
+        .from("fin_grupo_receber_itens")
+        .select("grupo_id, gc_baixado")
+        .eq("recebimento_id", local.id);
+
+      if (!itens || itens.length === 0) return false;
+      if (itens.some((i: any) => i.gc_baixado)) return true;
+
+      const grupoIds = itens.map((i: any) => i.grupo_id).filter(Boolean);
+      if (grupoIds.length === 0) return false;
+      const { data: grupos } = await supabase
+        .from("fin_grupos_receber")
+        .select("id, status")
+        .in("id", grupoIds);
+      return (grupos || []).some((g: any) => g.status !== "cancelado");
+    }
+
     let inserted = 0;
     let skipped = 0;
-    let removidos = 0;
     let reabertos = 0;
     let baixados = 0;
+    let pendentes = 0;
+    let bloqueadosPorAcordo = 0;
 
     for (const p of found) {
-      // Check if already exists
       const { data: existing } = await supabase
         .from("fin_residuos_negociacao")
-        .select("id, utilizado, valor_residual")
+        .select("id, utilizado, valor_residual, estado, reservado_job_id")
         .eq("gc_recebimento_id", p.gc_recebimento_id)
         .maybeSingle();
 
       if (existing?.id) {
-        // Passivo voltou a ficar aberto no GC (ex.: parcela reaberta numa nova negociação)
-        // → devolver para a lista de disponíveis com o valor atual
-        if (p.aberto && existing.utilizado) {
-          const { error: upErr } = await supabase
+        const estado = String(existing.estado || (existing.utilizado ? "alocado" : "disponivel"));
+
+        if (p.liquidado || p.cancelado) {
+          // Quitado/cancelado no GC → sai da seleção, histórico preservado.
+          if (estado !== "liquidado") {
+            const { error } = await supabase
+              .from("fin_residuos_negociacao")
+              .update({
+                estado: "liquidado",
+                utilizado: true,
+                estado_motivo: p.cancelado ? "Cancelado no GC" : "Quitado no GC",
+              })
+              .eq("id", existing.id);
+            if (!error) baixados++;
+          }
+          skipped++;
+          continue;
+        }
+
+        if (p.aberto && (existing.utilizado || estado !== "disponivel")) {
+          const travado = estado === "reservado" || estado === "alocado" || !!existing.reservado_job_id;
+          const acordoAtivo = travado ? true : await temAcordoAtivo(p.gc_recebimento_id);
+          if (travado || acordoAtivo) {
+            bloqueadosPorAcordo++;
+            skipped++;
+            continue;
+          }
+          const { error } = await supabase
             .from("fin_residuos_negociacao")
-            .update({ utilizado: false, valor_residual: p.valor })
+            .update({
+              estado: "disponivel",
+              utilizado: false,
+              valor_residual: p.valor,
+              estado_motivo: "Título reaberto no GC sem acordo ativo",
+            })
             .eq("id", existing.id);
-          if (!upErr) reabertos++;
-        } else if (!p.aberto && !existing.utilizado) {
-          // Já recebido/liquidado (ou cancelado) no GC → não pode ficar disponível
-          const { error: baixaErr } = await supabase
-            .from("fin_residuos_negociacao")
-            .update({ utilizado: true })
-            .eq("id", existing.id);
-          if (!baixaErr) baixados++;
-        } else if (p.aberto && Number(existing.valor_residual) !== p.valor) {
+          if (!error) reabertos++;
+          skipped++;
+          continue;
+        }
+
+        if (p.aberto && Number(existing.valor_residual) !== p.valor) {
           await supabase
             .from("fin_residuos_negociacao")
             .update({ valor_residual: p.valor })
@@ -212,7 +296,6 @@ serve(async (req) => {
         continue;
       }
 
-      // Nunca criar passivo disponível a partir de parcela já recebida/cancelada no GC
       if (!p.aberto) { skipped++; continue; }
 
       const descricaoNormalizada = p.descricao.toUpperCase().includes("PASSIVO")
@@ -227,6 +310,7 @@ serve(async (req) => {
         gc_recebimento_id: p.gc_recebimento_id,
         gc_codigo: p.gc_codigo,
         os_codigos: p.os_codigos,
+        estado: "disponivel",
         observacao: `Importado via scan — ${descricaoNormalizada}\nVencimento: ${p.data_vencimento}`,
         utilizado: false,
       });
@@ -238,92 +322,121 @@ serve(async (req) => {
       }
     }
 
-    // ── Validar resíduos existentes: remover os que não existem mais no GC ──
-    const gcIdsFound = new Set(found.map(p => p.gc_recebimento_id));
+    // ── Revalidação dos resíduos que não apareceram na varredura ──
+    // Regra: NADA é apagado. 404 confirmado marca em_revisao + pendência.
+    if (degradado) {
+      console.warn("[scan-passivos] Varredura degradada — revalidação individual ignorada para preservar linhas");
+    } else {
+      const gcIdsFound = new Set(found.map((p) => p.gc_recebimento_id));
 
-    const { data: allResiduos } = await supabase
-      .from("fin_residuos_negociacao")
-      .select("id, gc_recebimento_id, utilizado")
-      .eq("utilizado", false);
+      const { data: allResiduos } = await supabase
+        .from("fin_residuos_negociacao")
+        .select("id, gc_recebimento_id, utilizado, estado, nome_cliente, valor_residual")
+        .in("estado", ["disponivel", "pendente_vinculo"]);
 
-    const residuosComGcId = (allResiduos ?? []).filter(
-      (r: any) => r.gc_recebimento_id && r.gc_recebimento_id.trim() !== ""
+      for (const residuo of (allResiduos ?? []) as any[]) {
+        const gcId = residuo.gc_recebimento_id ? String(residuo.gc_recebimento_id).trim() : "";
+
+        if (!gcId) {
+          if (residuo.estado !== "pendente_vinculo") {
+            await supabase
+              .from("fin_residuos_negociacao")
+              .update({ estado: "pendente_vinculo", estado_motivo: "Sem ID do título no GC" })
+              .eq("id", residuo.id);
+            pendentes++;
+          }
+          continue;
+        }
+
+        if (gcIdsFound.has(gcId)) continue;
+
+        let checkResp: Response | null = null;
+        try {
+          checkResp = await rateLimitedFetch(
+            `${GC_BASE_URL}/api/recebimentos/${gcId}`,
+            { headers: gcHeaders }
+          );
+        } catch (err) {
+          marcarDegradado(`falha de rede ao revalidar ${gcId}: ${(err as Error).message}`);
+          continue; // preserva a linha
+        }
+
+        if (checkResp.status === 404) {
+          await supabase
+            .from("fin_residuos_negociacao")
+            .update({
+              estado: "em_revisao",
+              estado_motivo: "Título não existe mais no GC (404 confirmado) — histórico preservado",
+            })
+            .eq("id", residuo.id);
+          await supabase.from("fin_acoes_pendentes").insert({
+            tipo: "passivo_titulo_ausente_gc",
+            titulo: `Passivo sem título no GC (${gcId})`,
+            descricao: `Passivo de ${residuo.nome_cliente ?? "cliente"} no valor de R$ ${Number(residuo.valor_residual || 0).toFixed(2)} teve 404 confirmado no GC. Nada foi apagado; precisa de reassociação comprovada ou baixa auditável.`,
+            payload: { residuo_id: residuo.id, gc_recebimento_id: gcId, snapshot: residuo },
+            entidade_tipo: "fin_residuos_negociacao",
+            entidade_id: String(residuo.id),
+            status: "pendente",
+          });
+          pendentes++;
+          continue;
+        }
+
+        if (!checkResp.ok) {
+          marcarDegradado(`GC ${checkResp.status} ao revalidar ${gcId}`);
+          continue; // preserva a linha
+        }
+
+        let checkData: any;
+        try {
+          checkData = await checkResp.json();
+        } catch (err) {
+          marcarDegradado(`JSON inesperado ao revalidar ${gcId}: ${(err as Error).message}`);
+          continue;
+        }
+
+        const rec = checkData?.data?.[0] || checkData?.data || checkData?.Recebimento || checkData;
+        if (!rec?.id) {
+          marcarDegradado(`resposta sem título ao revalidar ${gcId}`);
+          continue;
+        }
+
+        const situacao = String(rec.situacao_nome || rec.situacao || "").toLowerCase();
+        const cancelado = situacao.includes("cancel");
+        const liquidado = String(rec.liquidado ?? "0") === "1"
+          || situacao.includes("recebid") || situacao.includes("liquidad");
+
+        if (liquidado || cancelado) {
+          const { error } = await supabase
+            .from("fin_residuos_negociacao")
+            .update({
+              estado: "liquidado",
+              utilizado: true,
+              estado_motivo: cancelado ? "Cancelado no GC" : "Quitado no GC",
+            })
+            .eq("id", residuo.id);
+          if (!error) baixados++;
+        }
+      }
+    }
+
+    console.log(
+      `[scan-passivos] Done: ${found.length} found, ${inserted} inserted, ${reabertos} reabertos, ${baixados} baixados, ${pendentes} pendentes, ${bloqueadosPorAcordo} bloqueados por acordo, ${skipped} skipped, degradado=${degradado}`
     );
 
-    // Check each existing residual against GC individually
-    for (const residuo of residuosComGcId as any[]) {
-      if (gcIdsFound.has(residuo.gc_recebimento_id)) continue; // Still exists in GC scan
-
-      // Double-check with a direct GC GET to avoid false positives from date range limits
-      try {
-        const checkResp = await rateLimitedFetch(
-          `${GC_BASE_URL}/api/recebimentos/${residuo.gc_recebimento_id}`,
-          { headers: gcHeaders }
-        );
-
-        if (checkResp.ok) {
-          const checkData = await checkResp.json();
-          const rec = checkData?.data?.[0] || checkData?.data || checkData?.Recebimento || checkData;
-
-          if (rec?.id) {
-            // Verificar se está cancelado (único motivo para remover)
-            // IMPORTANTE: NÃO remover por estar liquidado — passivos negociados ficam liquidados no GC
-            const situacao = String(rec.situacao_nome || rec.situacao || '').toLowerCase();
-            const cancelado = situacao.includes('cancelad') || situacao.includes('cancel');
-            const liquidado = String(rec.liquidado ?? '0') === '1'
-              || situacao.includes('recebid') || situacao.includes('liquidad');
-
-            if (!cancelado) {
-              if (liquidado) {
-                // Já recebido no GC → sai da lista de disponíveis (mas mantém histórico)
-                const { error: bErr } = await supabase
-                  .from("fin_residuos_negociacao")
-                  .update({ utilizado: true })
-                  .eq("id", residuo.id);
-                if (!bErr) baixados++;
-              }
-              continue; // Ainda existe no GC — manter residual
-            }
-            console.log(`[scan-passivos] Residual gc_id=${residuo.gc_recebimento_id} está cancelado no GC — removendo`);
-          }
-          // rec sem id — não existe mais, cai no delete
-        }
-        // checkResp não ok (404 etc.) — não existe mais, cai no delete
-      } catch {
-        continue; // erro de rede — manter por segurança
-      }
-
-      // Remove do Supabase
-      await supabase.from("fin_residuos_negociacao").delete().eq("id", residuo.id);
-      removidos++;
-      console.log(`[scan-passivos] Removido resíduo órfão: gc_recebimento_id=${residuo.gc_recebimento_id}`);
-    }
-
-    // Also clean up residuals that have no gc_recebimento_id (orphans from broken creation)
-    const { data: orphanResiduos } = await supabase
-      .from("fin_residuos_negociacao")
-      .select("id, gc_recebimento_id")
-      .eq("utilizado", false)
-      .is("gc_recebimento_id", null);
-
-    if (orphanResiduos && orphanResiduos.length > 0) {
-      const orphanIds = orphanResiduos.map((r: any) => r.id);
-      await supabase.from("fin_residuos_negociacao").delete().in("id", orphanIds);
-      removidos += orphanIds.length;
-      console.log(`[scan-passivos] Removidos ${orphanIds.length} resíduos sem gc_recebimento_id`);
-    }
-
-    console.log(`[scan-passivos] Done: ${found.length} found, ${inserted} inserted, ${reabertos} reabertos, ${baixados} baixados, ${skipped} skipped, ${removidos} removidos`);
-
     return new Response(JSON.stringify({
-      success: true,
+      success: !degradado,
+      degradado,
+      falhas,
       total_found: found.length,
       inserted,
       reabertos,
       baixados,
+      pendentes,
+      bloqueados_por_acordo: bloqueadosPorAcordo,
       skipped,
-      removidos,
-      passivos: found.map(p => ({
+      removidos: 0,
+      passivos: found.map((p) => ({
         gc_codigo: p.gc_codigo,
         descricao: p.descricao,
         valor: p.valor,
