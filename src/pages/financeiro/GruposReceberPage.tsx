@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmarBaixaModal } from "@/components/financeiro/ConfirmarBaixaModal";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
-import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix, resyncRecebimentoFromGC, gcDelay, atualizarRecebimentoGC, solicitarCancelamentoNegociacao } from "@/api/financeiro";
+import { baixarGrupoReceberNoGC, gerarCobrancaPix, verificarCobrancaPix, resyncRecebimentoFromGC, gcDelay, vincularNfseRecebimentoGC, solicitarCancelamentoNegociacao } from "@/api/financeiro";
 import { Layers, Zap, Loader2, QrCode, Copy, CheckCircle, Eye, ExternalLink, FileText, Link2, Plus, Upload, AlertTriangle, ShieldCheck, RefreshCw, Pencil, Trash2, CalendarIcon, Search, X, Minus, Sparkles, ScanSearch, Banknote, Check } from "lucide-react";
 import { SmartGroupDialog } from "@/components/financeiro/SmartGroupDialog";
 import toast from "react-hot-toast";
@@ -347,40 +347,21 @@ export default function GruposReceberPage() {
       if (grupoItens?.length) {
         for (const item of grupoItens) {
           const rec = item.fin_recebimentos as any;
-          if (!rec?.gc_id || !rec?.gc_payload_raw) { erros++; continue; }
-
-          const nfTag = `NF${selectedGrupo.nfse_numero}`;
-          const originalDesc = (rec.descricao || "").trim();
-          // Nunca substituir a descrição original! Apenas adicionar tags como prefixo
-          const hasNegTag = /NEG\s*\d+/i.test(originalDesc);
-          const hasNfTag = originalDesc.includes(nfTag);
-          let novaDescricao = originalDesc;
-          if (!hasNfTag) {
-            // Adicionar NF tag após NEG tag se existir, senão no início
-            if (hasNegTag) {
-              novaDescricao = originalDesc.replace(/(NEG\s*\d+)/i, `$1 ${nfTag}`);
-            } else {
-              novaDescricao = `${nfTag} ${originalDesc}`;
-            }
-          }
+          if (!rec?.gc_id) { erros++; continue; }
           
           try {
-            await atualizarRecebimentoGC(rec.gc_id, rec.gc_payload_raw, {
-              descricao: novaDescricao,
-              observacao: `NFS-e ${selectedGrupo.nfse_numero} vinculada via ARGUS`,
-              data_vencimento: selectedGrupo.data_vencimento || undefined,
-              nf_numero: selectedGrupo.nfse_numero,
-              atributos: [{ atributo_id: 8928, valor: selectedGrupo.nfse_numero }],
-            });
+            const confirmed = await vincularNfseRecebimentoGC(rec.gc_id, selectedGrupo.nfse_numero);
             await gcDelay();
 
-            await supabase.from("fin_recebimentos")
+            const { error: mirrorError } = await supabase.from("fin_recebimentos")
               .update({ 
-                descricao: novaDescricao, 
+                descricao: confirmed.descricao,
                 nfe_numero: selectedGrupo.nfse_numero,
-                data_vencimento: selectedGrupo.data_vencimento || undefined,
+                gc_payload_raw: confirmed,
+                last_synced_at: new Date().toISOString(),
               })
               .eq("id", item.recebimento_id);
+            if (mirrorError) throw mirrorError;
             ok++;
           } catch (e) {
             console.error(`Erro sync GC item ${rec.gc_codigo}:`, e);
@@ -392,7 +373,8 @@ export default function GruposReceberPage() {
 
 
       queryClient.invalidateQueries({ queryKey: ["fin-grupo-receber-itens", selectedGrupo.id] });
-      toast.success(`NFS-e sincronizada no GC: ${ok} atualizados${erros ? `, ${erros} erros` : ""}`);
+      if (erros || !ok) toast.error(`NFS-e: ${ok} confirmados no GC; ${erros || 1} pendentes. Confira os títulos antes de repetir.`);
+      else toast.success(`NFS-e confirmada em ${ok} título(s) no GC.`);
     } catch (err) {
       toast.error("Erro ao sincronizar NFS-e no GC");
     } finally {

@@ -302,6 +302,17 @@ export async function baixarRecebimentoGC(
 }
 
 // ─── Atualizar recebimento no GC (sem baixa) ─────────────────────────
+export async function vincularNfseRecebimentoGC(gcId: string, nfseNumero: string): Promise<Record<string, any>> {
+  const res = await callGC<any>({ endpoint: `/api/recebimentos/${gcId}`, method: "PUT",
+    operation: "receivable_nfse", payload: { nfse_numero: nfseNumero } });
+  const body = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
+  const raw = body?.data?.data ?? body?.data ?? body;
+  if (res.status >= 400 || Number(body?.code ?? 200) >= 400 || String(raw?.id) !== gcId) {
+    throw new Error("A vinculação da NFS-e não foi confirmada no GC.");
+  }
+  return raw;
+}
+
 export async function atualizarRecebimentoGC(
   gcId: string,
   _gcPayloadRaw: Record<string, unknown>,
