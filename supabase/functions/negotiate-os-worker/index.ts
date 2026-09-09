@@ -162,25 +162,8 @@ serve(async (req) => {
       );
     }
 
-    const okCount = respJson?.summary?.ok || 0;
-    const errCount = respJson?.summary?.errors || 0;
-    const pendencias = Array.isArray(respJson?.pendencias) ? respJson.pendencias : [];
-    const sucesso = respJson?.success !== false;
-    const composicaoCompleta = respJson?.composicao_incompleta !== true;
+    const { concluiu, motivo, okCount, errCount, pendencias } = decidirConclusao(respJson);
 
-    // Nunca declarar "concluido" com erros, success=false, pendências de
-    // vínculo ou composição incompleta — isso mascara negociação parcial.
-    const concluiu = errCount === 0 && sucesso && composicaoCompleta && pendencias.length === 0;
-
-    const motivo = !sucesso
-      ? "A função de negociação retornou success=false"
-      : errCount > 0
-        ? `${errCount} erro(s) na execução`
-        : !composicaoCompleta
-          ? "Composição da negociação incompleta"
-          : pendencias.length > 0
-            ? `${pendencias.length} pendência(s) de vínculo`
-            : "";
 
     await supabase
       .from("fin_negociacao_jobs")
