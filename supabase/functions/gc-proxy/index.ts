@@ -1,4 +1,4 @@
-// NFSe annotation preserves financial fields
+// NFSe annotation preserves financial fields v2
 import { GC_API_USER_ID, installGcUsuarioId } from "../_shared/gc-user.ts";
 installGcUsuarioId();
 
