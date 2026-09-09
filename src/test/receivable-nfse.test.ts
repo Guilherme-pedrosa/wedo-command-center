@@ -11,7 +11,7 @@ describe("NFS-e não é quitação nem renegociação", () => {
     const payload = buildReceivableNfsePayload(before, { nfse_numero: "3286" });
     expect(payload).toMatchObject({ valor: "13771.45", data_vencimento: "2026-09-23", desconto: "0.00", juros: "0.00" });
     expect(payload).not.toHaveProperty("liquidado");
-    expect(payload.atributos).toEqual([{ atributo_id: 17, valor: "original" }, { atributo_id: 8928, valor: "3286" }]);
+    expect(payload.atributos).toEqual([{ atributo: { atributo_id: "17", conteudo: "original" } }, { atributo: { atributo_id: "8928", conteudo: "3286" } }]);
     expect(() => assertReceivableNfseConfirmed(before, { ...before, ...payload }, payload)).not.toThrow();
   });
   it.each(["valor", "data_vencimento", "liquidado", "desconto", "cliente_id"])("recusa %s enviado junto com a nota", field => {
