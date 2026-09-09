@@ -10,7 +10,7 @@ import { buildReceivableNfsePayload, assertReceivableNfseConfirmed } from "../_s
 
 const corsHeaders = {
   "X-Wedo-Negotiation-Protocol": "20260909-v2",
-  "X-Wedo-Nfse-Protocol": "20260909-v1",
+  "X-Wedo-Nfse-Protocol": "20260909-v2",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",

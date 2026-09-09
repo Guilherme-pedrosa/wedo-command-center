@@ -23,9 +23,9 @@ export function buildReceivableNfsePayload(fresh: Receipt, request: Receipt) {
   if (fresh.atributos != null && !Array.isArray(fresh.atributos)) throw new Error("Campos extras não puderam ser preservados.");
   payload.atributos = (fresh.atributos || []).filter((a: Receipt) => attributeId(a) !== "8928").map((a: Receipt) => {
     if (!/^\d+$/.test(attributeId(a))) throw new Error("Identidade de campo extra desconhecida.");
-    return { atributo_id: Number(attributeId(a)), valor: attributeValue(a) };
+    return { atributo: { atributo_id: attributeId(a), conteudo: attributeValue(a) } };
   });
-  payload.atributos.push({ atributo_id: 8928, valor: number });
+  payload.atributos.push({ atributo: { atributo_id: "8928", conteudo: number } });
   return payload;
 }
 
@@ -45,7 +45,7 @@ export function assertReceivableNfseConfirmed(before: Receipt, after: Receipt, p
   const paid = (r: Receipt) => ["1", 1, true].includes(r.liquidado);
   if (!["0", "1", 0, 1, false, true].includes(after.liquidado) || paid(before) !== paid(after)) throw new Error("Quitação mudou durante vinculação da NFS-e.");
   if (after.descricao !== payload.descricao || !Array.isArray(after.atributos) || payload.atributos.some((expected: Receipt) =>
-    !after.atributos.some((actual: Receipt) => attributeId(actual) === String(expected.atributo_id) && attributeValue(actual) === expected.valor))) {
+    !after.atributos.some((actual: Receipt) => attributeId(actual) === attributeId(expected) && attributeValue(actual) === attributeValue(expected)))) {
     throw new Error("GC não confirmou a descrição e os campos extras da NFS-e.");
   }
 }
