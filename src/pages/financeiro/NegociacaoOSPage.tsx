@@ -102,6 +102,14 @@ const splitEvenlyCents = (totalCents: number, parts: number) => {
 };
 const pendingStorageKey = (userId: string) => `wedo:negociacao:pending:${userId}`;
 
+function waitForJobUpdate(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise(resolve => {
+    const finish = () => { clearTimeout(timer); signal.removeEventListener("abort", finish); resolve(); };
+    const timer = setTimeout(finish, 3000);
+    signal.addEventListener("abort", finish, { once: true });
+  });
+}
 
 async function clearRejectedDraft(error: unknown, userId: string): Promise<boolean> {
   const response = (error as any)?.context;
@@ -123,8 +131,15 @@ export default function NegociacaoOSPage() {
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [pendingJob, setPendingJob] = useState<string | null>(null);
+  const [jobProgress, setJobProgress] = useState("");
   const [canResume, setCanResume] = useState(false);
   const recoveryStarted = useRef(false);
+  const jobWatcher = useRef<AbortController | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; jobWatcher.current?.abort(); };
+  }, []);
   const [clients, setClients] = useState<ClientGroup[]>([]);
   const [selectedClient, setSelectedClient] = useState<ClientGroup | null>(null);
   const [selectedOSIds, setSelectedOSIds] = useState<Set<string>>(new Set());
@@ -417,15 +432,38 @@ export default function NegociacaoOSPage() {
   };
 
   const watchJob = useCallback(async (jobId: string, userId: string, osMap: Record<string, string>) => {
-    setPendingJob(jobId); setCanResume(false);
+    if (!mounted.current) return;
+    jobWatcher.current?.abort();
+    const controller = new AbortController();
+    jobWatcher.current = controller;
+    const { signal } = controller;
+    setPendingJob(jobId); setCanResume(false); setResults(null);
+    setJobProgress("Pedido aceito. Aguardando o início do processamento.");
     const toastId = toast.loading("Acompanhando negociação no GestãoClick...", { duration: Infinity });
     try {
-      for (let attempt = 0; attempt < 120; attempt++) {
-        const { data: job, error } = await supabase.from("fin_negociacao_jobs")
-          .select("status, progresso, resultado, ok_count, erro_count, erro_msg").eq("id", jobId).maybeSingle();
-        if (error) throw error;
-        if (job?.progresso) toast.loading(job.progresso, { id: toastId, duration: Infinity });
-        if (job && ["concluido", "erro", "pendente", "pendente_conferencia"].includes(job.status)) {
+      while (!signal.aborted) {
+        let job;
+        try {
+          const response = await supabase.from("fin_negociacao_jobs")
+            .select("status, progresso, resultado, ok_count, erro_count, erro_msg").eq("id", jobId).maybeSingle();
+          if (response.error) throw response.error;
+          job = response.data;
+        } catch {
+          if (signal.aborted) return;
+          const message = "Não foi possível consultar o andamento. Tentando novamente; o pedido permanece salvo.";
+          setJobProgress(message);
+          toast.loading(message, { id: toastId, duration: Infinity });
+          await waitForJobUpdate(signal);
+          continue;
+        }
+        if (signal.aborted) return;
+        const progress = job?.progresso || (job?.status === "processando"
+          ? "Negociação em processamento no GestãoClick."
+          : "Pedido aceito. Aguardando o início do processamento.");
+        setJobProgress(progress);
+        toast.loading(progress, { id: toastId, duration: Infinity });
+        // 'pendente' is the accepted queue state, not a reconciliation failure.
+        if (job && ["concluido", "erro", "pendente_conferencia"].includes(job.status)) {
           setCanResume(job.status === "erro");
           const result = (job.resultado || {}) as any;
           setResults((result.results || []).map((entry: NegotiateResult) => ({ ...entry, os_id: osMap[entry.os_id] || entry.os_id })));
@@ -433,14 +471,18 @@ export default function NegociacaoOSPage() {
             localStorage.removeItem(pendingStorageKey(userId)); setPendingJob(null);
             toast.success("Negociação concluída e composição conferida.");
           } else {
-            toast.error(job.erro_msg || result.error || "Negociação com conferência pendente. Consulte o resultado antes de tentar outra operação.", { duration: 15000 });
+            const message = job.erro_msg || result.error || "Negociação com conferência pendente. Consulte o resultado antes de tentar outra operação.";
+            setJobProgress(message);
+            toast.error(message, { duration: 15000 });
           }
           return;
         }
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await waitForJobUpdate(signal);
       }
-      toast("A negociação continua no servidor. O acompanhamento será retomado ao abrir esta página.", { duration: 10000 });
-    } finally { toast.dismiss(toastId); }
+    } finally {
+      toast.dismiss(toastId);
+      if (jobWatcher.current === controller) jobWatcher.current = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -448,7 +490,7 @@ export default function NegociacaoOSPage() {
     recoveryStarted.current = true;
     (async () => {
       const { data } = await supabase.auth.getUser();
-      if (!data.user) return;
+      if (!data.user || !mounted.current) return;
       const saved = localStorage.getItem(pendingStorageKey(data.user.id));
       if (!saved) return;
       const pending = JSON.parse(saved);
@@ -546,14 +588,24 @@ export default function NegociacaoOSPage() {
     catch { return []; }
   })();
 
+  const jobStatusPanel = pendingJob && (
+    <div className={`rounded-md border p-3 text-sm ${executing ? "border-primary/40 bg-primary/5" : "border-amber-500/40 bg-amber-500/10"}`}>
+      <div role="status" aria-live="polite" aria-atomic="true">
+        <p className="flex items-center gap-2 font-medium">
+          {executing && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+          {executing ? "Negociação em andamento" : "Negociação em acompanhamento"}
+        </p>
+        <p>{jobProgress || "Aguardando a confirmação do envio."}</p>
+      </div>
+      <p className="mt-1 text-muted-foreground">O pedido está salvo. Se sair desta página, o acompanhamento será retomado ao voltar.</p>
+      {canResume && <Button variant="outline" disabled={executing} onClick={handleResume}>Retomar conferência</Button>}
+      <Button variant="link" onClick={() => navigate("/financeiro/negociacoes")}>Ver negociações e pendências</Button>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
-      {pendingJob && <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-        <p>Negociação em acompanhamento: {pendingJob}</p>
-        <p>O resultado pode exigir conferência. Reabrir esta página retoma o mesmo pedido.</p>
-        {canResume && <Button variant="outline" disabled={executing} onClick={handleResume}>Retomar conferência</Button>}
-        <Button variant="link" onClick={() => navigate("/financeiro/negociacoes")}>Ver negociações e pendências</Button>
-      </div>}
+      {!showNegotiate && jobStatusPanel}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={handleBack}>
@@ -879,7 +931,15 @@ export default function NegociacaoOSPage() {
             </DialogDescription>
           </DialogHeader>
 
-          {!results ? (
+          {jobStatusPanel}
+          {executing ? (
+            <div className="space-y-4">
+              {!pendingJob && <p role="status">Enviando pedido de negociação...</p>}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowNegotiate(false)}>Fechar acompanhamento</Button>
+              </DialogFooter>
+            </div>
+          ) : !results ? (
             <div className="space-y-4">
               {/* Valor Negociado + Residual */}
               <div className="space-y-2">
