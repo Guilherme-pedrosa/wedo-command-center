@@ -55,6 +55,7 @@ const finBanco = [
 ];
 
 const finRelatorios = [
+  { title: "Comissões de vendedores", url: "/financeiro/comissoes", icon: Users },
   { title: "📈 DRE", url: "/financeiro/dre", icon: BarChart3 },
   { title: "📉 Fluxo Caixa", url: "/financeiro/fluxo-caixa", icon: LineChart },
   { title: "🎯 Resultados Operação", url: "/financeiro/metas", icon: FileText },

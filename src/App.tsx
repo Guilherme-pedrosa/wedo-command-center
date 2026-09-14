@@ -48,6 +48,7 @@ const FinFaturaCartao = lazy(lazyImportWithRetry(() => import("@/pages/financeir
 const FinNegociacaoOS = lazy(lazyImportWithRetry(() => import("@/pages/financeiro/NegociacaoOSPage")));
 const FinNegociacoes = lazy(lazyImportWithRetry(() => import("@/pages/financeiro/NegociacoesPage")));
 const FinPrecificacao = lazy(lazyImportWithRetry(() => import("@/pages/financeiro/PrecificacaoPage")));
+const FinComissoes = lazy(lazyImportWithRetry(() => import("@/pages/financeiro/ComissoesVendedoresPage")));
 const FinPrecPoliticas = lazy(lazyImportWithRetry(() => import("@/pages/financeiro/precificacao/PoliticasPage")));
 const FinApuracaoFiscal = lazy(lazyImportWithRetry(() => import("@/pages/financeiro/ApuracaoFiscalPage")));
 const FinPickerDescartes = lazy(lazyImportWithRetry(() => import("@/pages/financeiro/PickerDescartesPage")));
@@ -126,6 +127,7 @@ const App = () => (
               <Route path="/financeiro/negociacao-os" element={<Suspense fallback={<LazyFallback />}><FinNegociacaoOS /></Suspense>} />
               <Route path="/financeiro/negociacoes" element={<Suspense fallback={<LazyFallback />}><FinNegociacoes /></Suspense>} />
               <Route path="/financeiro/precificacao" element={<Suspense fallback={<LazyFallback />}><FinPrecificacao /></Suspense>} />
+              <Route path="/financeiro/comissoes" element={<Suspense fallback={<LazyFallback />}><FinComissoes /></Suspense>} />
               <Route path="/financeiro/precificacao/politicas" element={<Suspense fallback={<LazyFallback />}><FinPrecPoliticas /></Suspense>} />
               <Route path="/financeiro/apuracao-fiscal" element={<Suspense fallback={<LazyFallback />}><FinApuracaoFiscal /></Suspense>} />
               <Route path="/financeiro/picker-descartes" element={<Suspense fallback={<LazyFallback />}><FinPickerDescartes /></Suspense>} />

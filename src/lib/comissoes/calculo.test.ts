@@ -1,0 +1,27 @@
+import { describe,it,expect } from 'vitest';
+import { calcularVenda, assinaturaVenda, faixaComissao, periodoComissao, type DadosVenda, type Parametros } from './calculo';
+import { DEFAULT_ANALYSIS_CONFIG, defaultExtras } from './analisePickPack';
+const p:Parametros={config:{...DEFAULT_ANALYSIS_CONFIG,impostoPct:0,custoFixoPct:0,garantiaPct:0},margemAposComissao:false,origem:'teste'};
+function venda(custo=70):DadosVenda {return {venda:{id:'local',gc_id:'gc',codigo:'1',data:'2026-09-14',nome_situacao:'Concretizada',nome_cliente:'Cliente',valor_total:100,gc_payload_raw:{nome_vendedor:'Maria',valor_total:'100.00',produtos:[{produto:{nome_produto:'Produto',quantidade:'1',valor_venda:'100',valor_total:'100',valor_custo:String(custo)}}]}},recebimentos:[],pagamentos:[],conferencia:{venda_id:'local',conferido:false,ajustes:{extras:{...defaultExtras(p.config),considerarAlimentacao:false,considerarAdmin:false,considerarPremiacao:false,considerarParcelamento:false}}}};}
+describe('faixas contratuais de comissão',()=>{
+  it('venda de adesivo usa custo GC 6,736 sem adicionar alimentação ou administração',()=>{
+    const d=venda(6.736); d.conferencia=null; d.venda.valor_total=9.21; const raw=d.venda.gc_payload_raw; raw.valor_total='9.21'; Object.assign(raw.produtos[0].produto,{valor_venda:'9.2054',valor_total:'9.21'});
+    const r=calcularVenda(d,{...p,config:{...p.config,impostoPct:14}});
+    expect(r.a.custoProdutos).toBe(6.736);expect(r.a.extras.total).toBe(0);expect(r.a.imposto).toBeCloseTo(1.2894);expect(r.lucroAntes).toBe(1.18);expect(r.percentual).toBe(3);expect(r.comissao).toBe(0.28);
+  });
+  it.each([[20.01,5],[20,3],[19.99,3],[12,3],[11.99,0],[0,0],[-5,0],[null,0],[NaN,0]])('margem %s gera %s%%',(m,r)=>expect(faixaComissao(m)).toBe(r));
+  it('comissão é sobre a venda, e custos definem a margem',()=>{const r=calcularVenda(venda(75),p);expect(r.margemAntes).toBe(25);expect(r.comissao).toBe(5);expect(r.margemFinal).toBe(20);});
+  it('opção após comissão escolhe uma faixa que respeita o resultado final',()=>{const r=calcularVenda(venda(76),{...p,margemAposComissao:true});expect(r.percentual).toBe(3);expect(r.margemFinal).toBe(21);});
+  it('não remunera abaixo da margem mínima após a comissão',()=>{expect(calcularVenda(venda(86),{...p,margemAposComissao:true}).comissao).toBe(0);});
+  it('inclui impostos, rateio fixo e garantia',()=>{const r=calcularVenda(venda(60),{...p,config:{...p.config,impostoPct:14,custoFixoPct:3,garantiaPct:2}});expect(r.margemAntes).toBe(21);expect(r.comissao).toBe(5);});
+  it('preserva receita zero de brinde e inclui seu custo',()=>{const v=venda(70);v.venda.gc_payload_raw.produtos.push({produto:{nome_produto:'Brinde',quantidade:'1',valor_venda:'20',valor_total:'0.00',valor_custo:'15'}});const r=calcularVenda(v,p);expect(r.a.receitaProdutos).toBe(100);expect(r.a.custoProdutos).toBe(85);expect(r.margemAntes).toBe(15);expect(r.comissao).toBe(3);});
+  it('rateia desconto e exclui serviços e frete da base',()=>{const v=venda(30);v.venda.valor_total=180;v.venda.gc_payload_raw.servicos=[{servico:{nome_servico:'Instalação',quantidade:1,valor_total:80,valor_custo:10}}];v.venda.gc_payload_raw.valor_frete=20;v.venda.gc_payload_raw.desconto_valor=20;const r=calcularVenda(v,p);expect(r.base).toBe(90);expect(r.comissao).toBe(4.5);});
+  it.each([0,-1])('custo ausente ou inválido %s bloqueia cálculo',c=>{const r=calcularVenda(venda(c),p);expect(r.comissao).toBe(0);expect(r.margemAntes).toBeNull();});
+  it('venda cancelada não comissiona',()=>{const v=venda();v.venda.nome_situacao='Cancelada';expect(calcularVenda(v,p).comissao).toBe(0);});
+  it('previsto no plano de pagamento não comprova recebimento',()=>{const v=venda();v.venda.gc_payload_raw.pagamentos=[{pagamento:{valor:100,nome_forma_pagamento:'PIX'}}];const r=calcularVenda(v,p);expect(r.recebido).toBe(0);expect(r.recebimento).toBe('Financeiro pendente de consulta');expect(r.formas).toEqual(['PIX']);});
+  it('diferencia recebimento parcial, completo e incompleto',()=>{const v=venda();v.recebimentos=[{valor_total:50,liquidado:true,nome_forma_pagamento:'PIX'},{valor_total:50,liquidado:false}];expect(calcularVenda(v,p).recebimento).toBe('Parcial');v.recebimentos[1].liquidado=true;expect(calcularVenda(v,p).recebimento).toBe('Recebido');v.recebimentos.pop();expect(calcularVenda(v,p).recebimento).toBe('Conferir valores do financeiro');});
+  it('sinaliza usuário de integração como vendedor pendente',()=>{const v=venda();v.venda.gc_payload_raw.nome_vendedor='API GC WEDO';expect(calcularVenda(v,p).avisos).toContain('Identificar o vendedor responsável');});
+  it('preserva pagamentos anteriores ao recalcular custos',()=>{const v=venda(80);v.pagamentos=[{id:'p',venda_id:'local',valor:5,data_pagamento:'2026-09-14',forma_pagamento:'PIX',observacao:''}];expect(calcularVenda(v,p).saldo).toBe(-2);});
+  it('exige nova conferência quando custo ou parâmetro muda',()=>{const v=venda();v.conferencia!.conferido=true;v.conferencia!.assinatura=assinaturaVenda(v,p);expect(calcularVenda(v,p).conferidaAtual).toBe(true);expect(calcularVenda(v,{...p,config:{...p.config,impostoPct:14}}).conferidaAtual).toBe(false);v.venda.gc_payload_raw.produtos[0].produto.valor_custo='90';expect(calcularVenda(v,p).conferidaAtual).toBe(false);});
+  it('quinzenas respeitam fevereiro bissexto',()=>{expect(periodoComissao('2028-02','segunda')).toEqual({inicio:'2028-02-16',fim:'2028-02-29'});expect(periodoComissao('2026-02','primeira').fim).toBe('2026-02-15');});
+});

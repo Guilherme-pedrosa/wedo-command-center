@@ -52,7 +52,7 @@ describe("recuperação da negociação pela página real", () => {
     mocks.job = { status: "pendente", progresso: "Origens reservadas; aguardando execução" };
     await act(async () => { mount(); });
     await act(async () => { fireEvent.click(screen.getByText("Cliente de teste")); });
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Negociar", exact: true })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Negociar" })); });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Executar Negociação" })); });
     expect(enqueueCalls()).toHaveLength(1);
     expect(screen.getByRole("status")).toHaveTextContent("Origens reservadas; aguardando execução");
