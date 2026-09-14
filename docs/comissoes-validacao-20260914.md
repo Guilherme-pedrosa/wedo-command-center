@@ -1,4 +1,4 @@
-# Comissões de vendedores — validação local em 14/09/2026
+# Comissões de vendedores — validação em 14/09/2026
 
 Base: `348a3a078e3ad5905989eea3e1d84c908d251436`, branch `codex/comissoes-vendedores-20260914`.
 
@@ -31,15 +31,35 @@ Base: `348a3a078e3ad5905989eea3e1d84c908d251436`, branch `codex/comissoes-vended
 
 ## Verificações e limites
 
-- Suite: 280 testes passaram e 5 testes existentes estão ignorados.
+- Suite: 281 testes passaram e 5 testes existentes estão ignorados.
 - Typecheck real: `npx tsc --noEmit -p tsconfig.app.json`.
 - Build: `npm run build`, incluindo recomposição do MCP. Alteração incidental do banner gerado não faz parte da entrega.
 - A tabela de vendas existente é sincronizada pelo fluxo atual do sistema e contém apenas as situações importadas por esse fluxo; esta mudança não amplia silenciosamente o escopo do sincronizador global.
-- A consulta nova pelo proxy GC tem testes de paginação/identidade/falha. Sua integração autenticada em produção e as políticas da nova migration ainda dependem da instalação autorizada e da verificação após publicação. A prévia usa dados consultados, não executa esse proxy ao vivo.
+- A consulta nova pelo proxy GC tem testes de paginação/identidade/falha. Integração autenticada validada após publicação do commit 1c994097: períodos explícitos, títulos conhecidos preservados e casos reais descritos abaixo. A prévia local continua separada e não executa o proxy ao vivo.
 - Não se executaram transferências, baixas, emissão de boleto ou pagamentos fictícios como teste.
 
-## Instalação pendente
+## Instalação em produção — 14/09/2026
 
-A migration `20260914160000_comissoes_vendedores.sql` não foi aplicada. A revisão automática de aprovação rejeitou a criação de tabelas, RLS, permissões, triggers e funções em produção por exigir autorização explícita. A consulta posterior confirmou ausência da tabela de configuração.
+- Autorização explícita do usuário para migration, integração GitHub e publicação, sem mensagem ao agente Lovable.
+- Migration aplicada em transação pela ferramenta direta do banco. Quatro tabelas com RLS ativo e duas RPCs verificadas.
+- RPC de agosto retorna 2 títulos para 1773530751 e 1 título para cada venda 1773530754/1773530740. Fontes de frete: 456 compras e 1.107 pagamentos candidatos do cache.
+- Branch conectado confirmado na configuração Git: `feature/wedo-chatgpt-mcp`. Avanço direto de `348a3a07` para `accd9954`, sem force-push ou merge.
+- Build remoto de `accd9954` confirmado pelo projeto. Publicação solicitada pela ferramenta direta e a rota pública passou a exigir login, em vez do 404 da versão antiga.
+- Validação do proxy GC na tela publicada concluída após o usuário abrir a sessão, conforme evidências abaixo. Nenhuma credencial foi extraída e nenhum pagamento fictício foi registrado.
 
-Antes de publicar: obter autorização para essa migration e publicação; conferir novamente SHA/base; instalar e validar tabelas/políticas/RPC; integrar o código e publicar pelas ferramentas diretas. Nenhuma mensagem deve ser enviada ao agente do Lovable.
+## Correção do recorte financeiro implícito do GC
+
+- Em 14/09, captura da chamada autenticada `gc-proxy` mostrou que GET `/api/recebimentos` sem datas devolvia somente setembro: 439 títulos. A consulta por cliente 49132537 retornou lista vazia e metadados nulos apesar de o título 587580801 existir, pago em agosto.
+- GC consultado pela tela: recebimento 40920, venda 1773530705, 105,63, boleto 90798868124, confirmado pelo Inter em 20/08/2026. A RPC local já continha esse título.
+- Causa: a listagem sem parâmetros de período foi tratada como histórico completo e substituiu os vínculos existentes.
+- Commit `1c994097`: datas explícitas 2000-01-01 a 2100-12-31 para recebimentos e pagamentos, independentes do filtro de vendas; consulta por ID de qualquer título conhecido omitido pela listagem; falha nessa confirmação preserva a leitura anterior e deixa pendência. Consulta global também expõe progresso das páginas.
+- Testes de integração simulada reproduzem o contrato observado do GC e a preservação por ID. 11 testes financeiros, typecheck e build passaram. Validação autenticada da publicação concluída, conforme evidências abaixo.
+
+## Verificação final autenticada — commit 1c994097
+
+- Capturadas as requisições da tela pública: data_inicio=2000-01-01 e data_fim=2100-12-31. Leitura completa de 14.348 pagamentos em 144 páginas, substituindo o antigo recorte de 424 pagamentos em 5 páginas. Recebimentos consultados por cliente e fallback de 44 páginas.
+- Julho, venda 1773530705: linha pública mostra Recebido, 105,63, 1 título, Boleto Banco Inter - WD. Drawer identifica #40920, vencimento e baixa em 20/08/2026. Confirmado contra a página real do título 587580801 no GC.
+- Setembro, venda 1773530806: 6 títulos em aberto na tela pública.
+- Agosto, venda 1773530751: 2 títulos em aberto e aviso de cobrança em cliente diferente; 1773530754: recebido 3.207,58 e despesas 657,38; 1773530740: recebido 724,35 e despesas 128,25.
+- Catálogo público de fretes: 529 fontes. Pedido 4684 apresenta 756,86 baixados, um único título atual #42395 / GC 599081401, MANDA LA, data 01/09. O título antigo não foi somado em duplicidade.
+- Nenhum título, baixa, transferência, conferência ou pagamento de comissão foi criado como teste. Nenhuma mensagem foi enviada ao agente do Lovable.
