@@ -9,6 +9,13 @@ export interface FonteFrete {
 }
 const moeda = (n:number) => Math.round((n+Number.EPSILON)*100)/100;
 const frete = (s:unknown) => /frete|transporte(?: de carga)?|carreto/i.test(String(s??''));
+const normalizar = (s:unknown) => String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+const transportador = (s:unknown) => /\b(?:transportes?|transportadoras?|logistica|logistic|carretos?|fretes?)\b/.test(normalizar(s));
+// O fornecedor sozinho não comprova frete: exigir também a operação descrita.
+const pagamentoDeFrete = (p:Registro) => frete(p.descricao) || (
+  transportador(p.nome_fornecedor??p.gc_payload_raw?.nome_fornecedor)
+  && /\b(?:entrega|coleta|reembolso|reemsolso)\b/.test(normalizar(p.descricao))
+);
 const rawCompra = (r:Registro) => r.gc_payload_raw?.Compra??r.gc_payload_raw??r;
 const valorPagamento = (r:Registro) => parseMoney(r.gc_payload_raw?.valor_total??r.valor_total??r.valor);
 const codigoCompra = (r:Registro) => String(r.descricao??'').match(/\bcompra\s+de\s+n[^0-9]*([0-9]+)/i)?.[1];
@@ -29,7 +36,7 @@ export function analisarFretes(compras:Registro[], pagamentos:Registro[]):FonteF
     const cabecalho=parseMoney(c.valor_frete);
     const itensFrete=itens.filter((i:Registro)=>frete(i.nome_produto??i.nome_servico)).reduce((s:number,i:Registro)=>s+parseMoney(i.valor_total),0);
     const relacionados=pagamentos.filter(p=>codigoCompra(p)===codigo);
-    const titulos=relacionados.filter(p=>transporteIntegral||frete(p.descricao)||(
+    const titulos=relacionados.filter(p=>transporteIntegral||pagamentoDeFrete(p)||(
       // A listagem da API omite a observação da parcela. Exigir a parcela de
       // frete com valor/data exatos e um único título correspondente.
       parcelas.some((parcela:Registro)=>frete(parcela.observacao)&&Math.abs(parseMoney(parcela.valor)-valorPagamento(p))<0.01&&parcela.data_vencimento===p.data_vencimento&&relacionados.filter(outro=>Math.abs(valorPagamento(outro)-valorPagamento(p))<0.01&&outro.data_vencimento===p.data_vencimento).length===1)
@@ -47,7 +54,7 @@ export function analisarFretes(compras:Registro[], pagamentos:Registro[]):FonteF
     resultado.push({id:`compra:${id}`,compraCodigo:codigo,compraId:id,descricao,fornecedor:c.nome_fornecedor??compra.nome_fornecedor,valor,pago:moeda(titulos.filter(p=>p.liquidado===true).reduce((s,p)=>s+valorPagamento(p),0)),pagamentos:titulos,avisos,referenciasVendas:referencias([descricao,...titulos.map(p=>p.descricao)].join(' ')),pedidosRelacionados:campos.filter((p:Registro)=>/frete.*pedidos.*compras/i.test(p.descricao)).flatMap((p:Registro)=>String(p.conteudo).match(/\d+/g)??[]),produtoIds:itens.map((p:Registro)=>String(p.produto_id??'')).filter(Boolean),atualizadoEm:compra.last_synced_at});
   }
   for (const p of pagamentos) {
-    if (usados.has(String(p.gc_id))||!frete(p.descricao)) continue;
+    if (usados.has(String(p.gc_id))||!pagamentoDeFrete(p)) continue;
     resultado.push({id:`pagamento:${p.gc_id}`,compraCodigo:codigoCompra(p)??'',compraId:'',descricao:p.descricao,fornecedor:p.nome_fornecedor,valor:valorPagamento(p),pago:p.liquidado===true?valorPagamento(p):0,pagamentos:[p],avisos:['Pedido de compra não localizado na consulta; conferir origem'],referenciasVendas:referencias(p.descricao),pedidosRelacionados:[],produtoIds:[],atualizadoEm:p.last_synced_at});
   }
   for(const f of resultado) {
@@ -61,6 +68,16 @@ export function analisarFretes(compras:Registro[], pagamentos:Registro[]):FonteF
 
 export function indiciosFrete(f:FonteFrete,venda:Registro):string[] {
   if (f.referenciasVendas.includes(String(venda.codigo))) return ['Código da venda na descrição do frete'];
+  const numero = (s:string) => s.replace(/^0+(?=\d)/,'');
+  const orcamentos=(venda.gc_payload_raw?.atributos??[]).map((a:Registro)=>a.atributo??a)
+    .filter((a:Registro)=>/\borcamento\b/.test(normalizar(a.descricao)))
+    .map((a:Registro)=>normalizar(a.conteudo).trim().match(/^(?:(?:orcamento|or)\s*)?(?:n(?:umero|[ºo°.])?\s*)?[-:#]?\s*(\d+)$/)?.[1])
+    .filter(Boolean).map(numero);
+  // "OS" na descrição pode referir-se ao orçamento. Exigir o atributo da
+  // venda e o número completo; continua sendo indício sujeito a conferência.
+  const texto=normalizar([f.descricao,...f.pagamentos.map(p=>p.descricao)].join(' '));
+  const referenciasOrcamento=[...texto.matchAll(/\b(?:o\.?\s*s\.?|orcamento|or)\s*(?:n(?:umero|[ºo°.])?\s*)?[-:#]?\s*(\d+)\b/g)].map(m=>numero(m[1]));
+  if(orcamentos.some((n:string)=>referenciasOrcamento.includes(n))) return ['Número do orçamento citado no frete: confirmar vínculo com esta venda'];
   const ids=(venda.gc_payload_raw?.produtos??[]).map((p:Registro)=>String((p.produto??p).produto_id??''));
   return f.produtoIds.some(id=>ids.includes(id))?['Mesmo produto no pedido; confirmar quantidade e destino']:[];
 }

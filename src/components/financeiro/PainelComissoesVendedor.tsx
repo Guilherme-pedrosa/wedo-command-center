@@ -1,6 +1,8 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ResumoCustosComissao } from './ResumoCustosComissao';
+import { resumirCustosComissao } from '@/lib/comissoes/resumoCustos';
 import { formatBRL } from '@/lib/comissoes/analisePickPack';
 import { centavos, type calcularVenda } from '@/lib/comissoes/calculo';
 
@@ -61,6 +63,12 @@ function CardVendedor({ nome, linhas, onConferir, onAlterarSituacao, isAdmin }: 
   const total = (ler: (linha: LinhaComissao) => number) => centavos(linhas.reduce((soma, linha) => soma + ler(linha), 0));
   const saldoAConferir = total(linha => Math.max(0, -linha.saldo));
   const retiradas = linhas.filter(linha => linha.retirada).length;
+  const custos = linhas.map(resumirCustosComissao);
+  const fretesPendentes = custos.filter(c => c.fretePendente).length;
+  const custosIncompletos = linhas.some(l => !l.custosValidos);
+  const totalCustos = centavos(custos.reduce((s, c) => s + c.totalCustosAntesComissao, 0));
+  const totalFrete = centavos(custos.reduce((s, c) => s + c.custoFrete, 0));
+  const lucroFinal = centavos(custos.reduce((s, c) => s + c.lucroFinal, 0));
   const indicadores = [
     ['Total vendido', total(linha => linha.a.receitaLiquida)],
     ['Comissão calculada', total(linha => linha.comissaoCalculada)],
@@ -96,6 +104,12 @@ function CardVendedor({ nome, linhas, onConferir, onAlterarSituacao, isAdmin }: 
         <dd className={`mt-1 font-semibold tabular-nums ${rotulo === 'Saldo a pagar' ? 'text-primary' : ''}`}>{formatBRL(valor)}</dd>
       </div>)}
     </dl>
+    <dl className="grid grid-cols-2 gap-3 border-t bg-muted/10 px-4 py-3 lg:grid-cols-4" aria-label={`Custos e frete de ${nome}`}>
+      <div><dt className="text-xs text-muted-foreground">Custos antes da comissão{custosIncompletos ? ' (parciais)' : ''}</dt><dd className="font-semibold tabular-nums">{formatBRL(totalCustos)}</dd></div>
+      <div><dt className="text-xs text-muted-foreground">Frete adicional rateado (dentro dos custos)</dt><dd className="font-semibold tabular-nums">{formatBRL(totalFrete)}</dd></div>
+      <div><dt className="text-xs text-muted-foreground">Lucro após comissão{custosIncompletos || fretesPendentes ? ' (provisório)' : ''}</dt><dd className="font-semibold tabular-nums">{custosIncompletos ? 'Custos pendentes' : formatBRL(lucroFinal)}</dd></div>
+      <div><dt className="text-xs text-muted-foreground">Conferência do frete</dt><dd className={fretesPendentes ? 'text-sm text-amber-500' : 'text-sm'}>{fretesPendentes ? `${fretesPendentes} venda(s) com frete a conferir` : 'Rateios registrados'}</dd></div>
+    </dl>
     {saldoAConferir > 0 && <p className="mx-4 mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-sm text-amber-600 dark:text-amber-400">
       <b>{formatBRL(saldoAConferir)} em pagamentos acima das comissões devidas.</b> Conferir os registros das vendas; esse valor não foi descontado do saldo a pagar de outras vendas.
     </p>}
@@ -121,7 +135,7 @@ function CardVendedor({ nome, linhas, onConferir, onAlterarSituacao, isAdmin }: 
         </div>}
 
         <div className="hidden grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1.6fr)_auto] gap-4 border-t bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground lg:grid" aria-hidden="true">
-          <span>Venda / cliente</span><span>Valor da venda</span><span>Comissão</span><span>Pagamento do cliente</span><span className="w-36">Ações</span>
+          <span>Venda / cliente / produtos</span><span>Valor da venda</span><span>Comissão</span><span>Pagamento do cliente</span><span className="w-36">Ações</span>
         </div>
 
         <ul>
@@ -136,6 +150,8 @@ function CardVendedor({ nome, linhas, onConferir, onAlterarSituacao, isAdmin }: 
                   <a className="font-medium text-primary underline" href={`https://gestaoclick.com/pedidos/vendas/vendas_produtos/visualizar/${encodeURIComponent(linha.venda.gc_id)}`} target="_blank" rel="noreferrer">Venda {linha.venda.codigo}</a>
                   <p className="break-words">{linha.venda.nome_cliente || 'Cliente não informado'}</p>
                   <p className="text-xs text-muted-foreground">{dataBR(linha.venda.data)} · {linha.venda.nome_situacao || 'Situação no GC não informada'}</p>
+                  <ul className="mt-1 space-y-1 text-xs text-muted-foreground">{linha.a.linhas.filter(l => l.tipo === 'produto').slice(0, 2).map((l, i) => <li key={i}>{l.quantidade} × {l.nome}</li>)}</ul>
+                  {linha.a.linhas.filter(l => l.tipo === 'produto').length > 2 && <p className="text-xs text-muted-foreground">Mais {linha.a.linhas.filter(l => l.tipo === 'produto').length - 2} produto(s) em Conferir</p>}
                 </div>
               </div>
               <div className="text-sm">
@@ -163,6 +179,7 @@ function CardVendedor({ nome, linhas, onConferir, onAlterarSituacao, isAdmin }: 
                 {isAdmin && <Button type="button" variant="ghost" size="sm" aria-label={`${linha.retirada ? 'Reincluir' : 'Retirar'} comissão da venda ${linha.venda.codigo}`}
                   onClick={() => alterar([linha], !linha.retirada)}>{linha.retirada ? 'Reincluir comissão' : 'Retirar comissão'}</Button>}
               </div>
+              <div className="min-w-0 lg:col-span-5"><ResumoCustosComissao linha={linha} /></div>
             </li>;
           })}
         </ul>

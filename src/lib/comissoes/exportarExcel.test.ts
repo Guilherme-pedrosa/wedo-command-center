@@ -30,4 +30,20 @@ describe('exportação Excel da conferência',()=>{
     expect(resumo.getCell('H5').numFmt).toContain('R$');expect(resumo.getTable('ResumoVendedores')).toBeTruthy();
   });
 
+  it('separa frete cobrado, rateio adicional e custo já incluído no Excel',async()=>{
+    const fonte={id:'compra:100',compraId:'100',compraCodigo:'45',descricao:'Entrega',fornecedor:'Transportadora',valor:60,pago:60,pagamentos:[{liquidado:true}],avisos:[],referenciasVendas:[],pedidosRelacionados:[],produtoIds:[]};
+    const dados={venda:{id:'rateada',codigo:'1',data:'2026-09-10',valor_total:1000,nome_cliente:'Cliente',nome_situacao:'Concretizada',gc_payload_raw:{vendedor_id:'1',nome_vendedor:'Ana',valor_frete:100,produtos:[{produto:{nome_produto:'Produto',quantidade:1,valor_total:900,valor_venda:900,valor_custo:400}}]}},recebimentos:[],pagamentos:[],fretes:[fonte],conferencia:{venda_id:'rateada',ajustes:{fretes:[{fonteId:fonte.id,valor:30,limite:60,incluidoNoCusto:false,justificativa:'Metade da entrega'}]},conferido:false}};
+    const parametros={config:{...DEFAULT_ANALYSIS_CONFIG,impostoPct:0},margemAposComissao:false,origem:'teste'};
+    const adicional=calcularVenda(dados,parametros);
+    const incluido=calcularVenda({...dados,venda:{...dados.venda,id:'incluida',codigo:'2'},conferencia:{...dados.conferencia,ajustes:{fretes:[{...dados.conferencia.ajustes.fretes[0],incluidoNoCusto:true}]}}},parametros);
+    const pendente=calcularVenda({...dados,venda:{...dados.venda,id:'pendente',codigo:'3'},conferencia:null},parametros);
+    const original=await criarExcelComissoes([adicional,incluido,pendente],{inicio:'2026-09-01',fim:'2026-09-30',vendedores:[],situacoesGC:[],pagamentos:[],busca:''});
+    const w=new ExcelJS.Workbook();await w.xlsx.load(await original.xlsx.writeBuffer());const s=w.getWorksheet('Custos e fretes')!;
+    expect(s.getCell('I5').value).toBe(30);expect(s.getCell('J5').value).toBe(0);expect(s.getCell('K5').value).toBe(430);expect(s.getCell('L5').value).toBe(100);
+    expect(s.getCell('I6').value).toBe(0);expect(s.getCell('J6').value).toBe(30);expect(s.getCell('K6').value).toBe(400);expect(String(s.getCell('N6').value)).toContain('Já incluído');
+    expect(s.getCell('I7').value).toBeNull();expect(s.getCell('J7').value).toBeNull();expect(s.getCell('M7').value).toContain('nenhum custo vinculado');expect(s.getCell('N5').value).toContain('Pedido 45');
+    expect(s.getCell('N5').value).toContain('Baixa integral no GC');expect(s.getCell('N5').value).toContain('60,00');expect(s.getCell('U5').value).toBe(0);
+    expect(s.getCell('I5').numFmt).toContain('R$');expect(s.getTable('CustosFretesComissoes')).toBeTruthy();
+  });
+
 });

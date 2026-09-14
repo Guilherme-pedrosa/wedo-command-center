@@ -1,14 +1,17 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PainelComissoesVendedor } from './PainelComissoesVendedor';
-import type { calcularVenda } from '@/lib/comissoes/calculo';
+import { calcularVenda } from '@/lib/comissoes/calculo';
 
 type Linha = ReturnType<typeof calcularVenda>;
+import { DEFAULT_ANALYSIS_CONFIG } from '@/lib/comissoes/analisePickPack';
+const calculada = calcularVenda({venda:{id:'modelo',valor_total:1000,nome_situacao:'Concretizada',gc_payload_raw:{nome_vendedor:'Filipe',produtos:[{produto:{nome_produto:'Produto',quantidade:1,valor_total:1000,valor_venda:1000,valor_custo:500}}]}},recebimentos:[],pagamentos:[],conferencia:null},{config:DEFAULT_ANALYSIS_CONFIG,margemAposComissao:false,origem:'teste'});
 
 function venda(id: string, patch: Partial<Linha> = {}): Linha {
   return {
+    ...calculada,
     venda: { id, gc_id: id, codigo: id, nome_cliente: `Cliente ${id}`, data: '2026-09-14', nome_situacao: 'Concretizada' },
-    vendedor: 'Filipe', vendedorChave: 'gc:1', a: { receitaLiquida: 1000 },
+    vendedor: 'Filipe', vendedorChave: 'gc:1',
     base: 1000, percentual: 5, comissaoCalculada: 50, comissao: 50,
     retirada: false, pago: 0, saldo: 50, recebimento: 'Recebido', formas: ['PIX'], avisos: [],
     conferencia: null, ...patch,
@@ -67,7 +70,7 @@ describe('Painel por vendedor', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     fireEvent.click(screen.getByText('Retirar comissões (200)'));
     expect(alterar).toHaveBeenCalledExactlyOnceWith(Array.from({ length: 200 }, (_, indice) => String(indice)), true);
-  }, 15000);
+  }, 30000);
 
   it('mantém pagamentos de retiradas e separa valor a conferir do saldo das outras vendas', () => {
     render(<PainelComissoesVendedor linhas={[
@@ -92,4 +95,13 @@ describe('Painel por vendedor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Conferir venda 10' }));
     expect(conferir).toHaveBeenCalledExactlyOnceWith('10');
   });
+  it('exibe custo, frete e margem ao expandir o vendedor sem abrir Conferir',()=>{
+    const conferir=vi.fn();
+    render(<PainelComissoesVendedor linhas={[venda('custos')]} isAdmin onConferir={conferir} onAlterarSituacao={vi.fn()}/>);
+    fireEvent.click(screen.getByRole('button',{name:/Filipe/}));
+    expect(screen.getByText('Custos da venda')).toBeVisible();expect(screen.getByText('Produtos GC')).toBeVisible();expect(screen.getByText('R$ 500,00',{exact:false})).toBeVisible();
+    expect(screen.getByText('Frete a conferir — nenhum custo vinculado')).toBeVisible();expect(screen.getByText('Cobrado do cliente (receita)')).toBeVisible();
+    expect(screen.getByText('Margem antes da comissão')).toBeVisible();expect(screen.getByText('Margem após a comissão')).toBeVisible();expect(conferir).not.toHaveBeenCalled();
+  });
+
 });

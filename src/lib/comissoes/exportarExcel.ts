@@ -1,7 +1,9 @@
 import type { calcularVenda } from './calculo';
 import { centavos } from './calculo';
+import { resumirCustosComissao } from './resumoCustos';
 
 type Linha=ReturnType<typeof calcularVenda>;
+const formatarValor=(valor:number)=>valor.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 export interface FiltrosExcel { inicio:string; fim:string; vendedores:string[]; situacoesGC:string[]; pagamentos:string[]; busca:string }
 
 export async function criarExcelComissoes(linhas: Linha[], filtros: FiltrosExcel) {
@@ -53,6 +55,18 @@ export async function criarExcelComissoes(linhas: Linha[], filtros: FiltrosExcel
   resumo.addTable({name:'ResumoVendedores',ref:'A4',headerRow:true,totalsRow:true,style:{theme:'TableStyleMedium2',showRowStripes:true},columns:['Vendedor','Vendas','Valor vendido','Comissão calculada','Comissão retirada','Comissão devida','Comissão paga','Saldo a pagar','Pago acima do devido'].map((name,i)=>({name,filterButton:true,...(i?{totalsRowFunction:'sum' as const}:{totalsRowLabel:'TOTAL VISÍVEL'})})),rows:[...grupos.values()].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(g=>[g.nome,g.quantidade,...[g.vendas,g.calculada,g.retirada,g.devida,g.paga,g.saldo,g.ajuste].map(centavos)])});
   resumo.getRow(4).height=40;resumo.getRow(4).alignment={wrapText:true,vertical:'middle'};
   for(let row=5;row<=5+grupos.size;row++){resumo.getRow(row).height=28;for(let col=3;col<=9;col++)resumo.getCell(row,col).numFmt=moeda;}
+  const custos=workbook.addWorksheet('Custos e fretes',{views:[{state:'frozen',xSplit:3,ySplit:4,showGridLines:false}]});
+  custos.columns=[19,27,43,22,22,20,24,24,25,28,25,25,48,60,60,22,22,22,20,20,22].map(width=>({width}));
+  custos.mergeCells('A1:U1');custos.getCell('A1').value='WeDo · Custos, fretes e margem por venda';custos.getCell('A1').font={bold:true,size:18};custos.getRow(1).height=32;
+  custos.mergeCells('A2:U2');custos.getCell('A2').value=`Vendas de ${br(filtros.inicio)} a ${br(filtros.fim)}. Mesmos filtros das demais abas.`;
+  custos.mergeCells('A3:U3');custos.getCell('A3').value='Frete cobrado é receita. Frete já incluído nos produtos não soma novamente. Sem rateio não comprova custo zero; lucro e margem permanecem provisórios enquanto houver pendências.';custos.getRow(3).height=32;custos.getRow(3).alignment={wrapText:true};
+  custos.addTable({name:'CustosFretesComissoes',ref:'A4',headerRow:true,totalsRow:true,style:{theme:'TableStyleMedium2',showRowStripes:true},columns:['Venda GC','Vendedor','Cliente','Custo produtos GC','Custo serviços GC','Impostos','Descontos e taxas recebimento','Demais despesas','Frete adicional rateado','Frete incluído nos produtos (não somar)','Custos antes da comissão','Frete cobrado do cliente (receita)','Conferência do frete','Fontes de frete atribuídas','Indícios e pendências de frete','Lucro antes da comissão','Comissão devida','Lucro após comissão','Margem antes da comissão','Margem após comissão','Ajuste de arredondamento'].map((name,i)=>({name,filterButton:true,...(i===0?{totalsRowLabel:'TOTAL VISÍVEL'}:([3,4,5,6,7,8,9,10,11,15,16,17,20].includes(i)?{totalsRowFunction:'sum' as const}:{}))})),rows:linhas.map(r=>{
+    const c=resumirCustosComissao(r);
+    return [String(r.venda.codigo),r.vendedor||'Não informado',String(r.venda.nome_cliente||''),c.custoProdutos,c.custoServicos,c.impostos,c.taxasRecebimento,c.demaisDespesas,c.fontesAtribuidas.length?c.custoFrete:null,c.fontesAtribuidas.length?c.freteIncluidoNoCusto:null,c.totalCustosAntesComissao,c.receitaFrete,c.situacaoFrete,
+      c.fontesAtribuidas.map(f=>`${f.rotulo} · ${f.fonte?.fornecedor||'Fonte não localizada'} · Atribuído ${formatarValor(f.valor)}${f.incluidoNoCusto?' · Já incluído no custo dos produtos':''} · ${f.situacaoPagamento}${f.pagoNaFonte!==null?' '+formatarValor(f.pagoNaFonte)+' de '+formatarValor(f.valorTotalFonte!):''}`).join('\n'),[...c.avisosFrete,...c.fontesCandidatas.map(f=>`Possível ${f.compraCodigo?'pedido '+f.compraCodigo:f.id} · ${f.fornecedor} · Fonte ${formatarValor(f.valor)} · ${f.pagamentos.length?'Baixado na fonte '+formatarValor(f.pago):'Baixa não localizada'} · Ainda não atribuído à venda`)].join('\n'),r.custosValidos?c.lucroAntes:null,r.comissao,r.custosValidos?c.lucroFinal:null,c.margemAntes===null?null:c.margemAntes/100,c.margemFinal===null?null:c.margemFinal/100,c.ajusteArredondamento];
+  })});
+  custos.getRow(4).height=48;custos.getRow(4).alignment={wrapText:true,vertical:'middle'};
+  for(let row=5;row<=5+linhas.length;row++){const linha=custos.getRow(row);linha.height=Math.max(60,16*Math.max(...[13,14,15].map(col=>String(linha.getCell(col).value||'').split('\n').length)));linha.alignment={wrapText:true,vertical:'top'};[4,5,6,7,8,9,10,11,12,16,17,18,21].forEach(col=>{linha.getCell(col).numFmt=moeda;});[19,20].forEach(col=>{linha.getCell(col).numFmt='0.00%;[Red](0.00%)';});}
   return workbook;
 }
 
