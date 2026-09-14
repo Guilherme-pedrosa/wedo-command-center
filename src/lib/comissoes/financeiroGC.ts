@@ -2,6 +2,10 @@ import type { DadosVenda, Registro } from './calculo';
 
 export type Consulta = (request: { endpoint: string; params: Record<string,string> }) => Promise<{status:number;data:any}>;
 
+// Sem datas explícitas, o GC lista apenas o mês corrente, mesmo com cliente_id.
+// O período da tela filtra vendas; suas parcelas e fretes podem vencer em outro ano.
+const PERIODO_FINANCEIRO = { data_inicio: '2000-01-01', data_fim: '2100-12-31' };
+
 export async function buscarPagamentosGC(consultar:Consulta, progresso?:(n:number,total:number)=>void):Promise<Registro[]> {
   return buscarColecaoFinanceira('/api/pagamentos',consultar,progresso);
 }
@@ -9,7 +13,7 @@ export async function buscarPagamentosGC(consultar:Consulta, progresso?:(n:numbe
 async function buscarColecaoFinanceira(endpoint:string,consultar:Consulta,progresso?:(n:number,total:number)=>void):Promise<Registro[]> {
   const encontrados=new Map<string,Registro>();
   for(let pagina=1;pagina<=500;pagina++) {
-    const request={endpoint,params:{limite:'100',pagina:String(pagina)}};
+    const request={endpoint,params:{...PERIODO_FINANCEIRO,limite:'100',pagina:String(pagina)}};
     let resposta=await consultar(request);
     for(let tentativa=0;resposta.status===429&&tentativa<2;tentativa++){
       await new Promise(resolve=>setTimeout(resolve,1000*(tentativa+1)));resposta=await consultar(request);
@@ -31,7 +35,7 @@ async function buscarColecaoFinanceira(endpoint:string,consultar:Consulta,progre
 export async function buscarTitulosCliente(cliente: string, consultar: Consulta): Promise<Registro[]> {
   const encontrados = new Map<string,Registro>();
   for (let pagina=1; pagina<=100; pagina++) {
-    const request={endpoint:'/api/recebimentos',params:{cliente_id:cliente,limite:'100',pagina:String(pagina)}};
+    const request={endpoint:'/api/recebimentos',params:{...PERIODO_FINANCEIRO,cliente_id:cliente,limite:'100',pagina:String(pagina)}};
     let resposta=await consultar(request);
     for(let tentativa=0;resposta.status===429&&tentativa<2;tentativa++) {
       await new Promise(resolve=>setTimeout(resolve,1000*(tentativa+1)));
@@ -67,7 +71,7 @@ export function vincularTitulos(venda: Registro, titulos: Registro[], vendasClie
   });
 }
 
-export async function conferirFinanceiroGC(vendas: DadosVenda[], consultar: Consulta, progresso?: (concluidos:number,total:number)=>void) {
+export async function conferirFinanceiroGC(vendas: DadosVenda[], consultar: Consulta, progresso?: (concluidos:number,total:number,etapa?:string)=>void) {
   const clientes=[...new Set(vendas.map(v=>String(v.venda.cliente_id||'')).filter(Boolean))];
   let proximo=0,concluidos=0;
   const resultado=vendas.map(v=>({...v,consultaFinanceira:'pendente' as 'gc'|'pendente'}));
@@ -79,12 +83,15 @@ export async function conferirFinanceiroGC(vendas: DadosVenda[], consultar: Cons
       try {
         const titulos=await buscarTitulosCliente(cliente,consultar);
         for(const v of grupo) {
-          const outros = v.recebimentos.filter(r=>String(r.cliente_id)!==cliente);
+          // Nunca descartar um título conhecido apenas porque a listagem o omitiu.
+          // A leitura por ID também protege títulos do mesmo cliente contra recortes do GC.
+          const outros = v.recebimentos.filter(r=>!titulos.some(t=>String(t.gc_id)===String(r.gc_id??r.id)));
           const atualizados: Registro[] = [];
           for (const anterior of outros) {
-            const resposta=await consultar({endpoint:`/api/recebimentos/${encodeURIComponent(anterior.gc_id)}`,params:{}});
+            const id=String(anterior.gc_id??anterior.id);
+            const resposta=await consultar({endpoint:`/api/recebimentos/${encodeURIComponent(id)}`,params:{}});
             const raw=resposta.data?.data?.data??resposta.data?.data??resposta.data;
-            if(resposta.status<200||resposta.status>=300||String(raw?.id)!==String(anterior.gc_id)) throw new Error('Não foi possível atualizar título faturado em outro cliente');
+            if(resposta.status<200||resposta.status>=300||String(raw?.id)!==id) throw new Error('Não foi possível atualizar título conhecido pelo ID');
             atualizados.push({...raw,gc_id:String(raw.id),gc_codigo:raw.codigo,gc_payload_raw:raw,liquidado:raw.liquidado===true||raw.liquidado==='1'||raw.liquidado===1});
           }
           v.recebimentos=vincularTitulos(v.venda,[...titulos,...atualizados],resultado.map(g=>g.venda));
@@ -103,7 +110,7 @@ export async function conferirFinanceiroGC(vendas: DadosVenda[], consultar: Cons
     // Uma cobrança nova em outra unidade pode ainda não estar no cache.
     // A ausência só é confirmada depois de consultar a coleção completa.
     try{
-      const globais=await buscarColecaoFinanceira('/api/recebimentos',consultar);
+      const globais=await buscarColecaoFinanceira('/api/recebimentos',consultar,(n,total)=>progresso?.(n,total,'páginas de recebimentos'));
       for(const v of semTitulos)v.recebimentos=vincularTitulos(v.venda,globais,resultado.map(r=>r.venda));
     }catch{for(const v of semTitulos)v.consultaFinanceira='pendente';}
   }
