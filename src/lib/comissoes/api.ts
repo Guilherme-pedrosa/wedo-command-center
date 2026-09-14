@@ -1,12 +1,13 @@
 import { callGC } from '@/lib/gc-client';
-import { conferirFinanceiroGC } from './financeiroGC';
+import { conferirFinanceiroGC, buscarPagamentosGC } from './financeiroGC';
+import { analisarFretes } from './fretes';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import type { Conferencia, DadosVenda, PagamentoComissao, Parametros } from './calculo';
 
 // Tabelas da migration 20260914160000, ainda não incluídas no arquivo gerado.
 const db = supabase as unknown as SupabaseClient;
-export async function carregarComissoes(inicio: string, fim: string, progresso?: (concluidos:number,total:number)=>void) {
+export async function carregarComissoes(inicio: string, fim: string, progresso?: (concluidos:number,total:number,etapa?:string)=>void) {
   if (!inicio || !fim || inicio > fim || (Date.parse(fim) - Date.parse(inicio)) / 86400000 > 366) throw new Error('Escolha um período válido de até 366 dias.');
   const config = await db.from('fin_comissoes_config').select('parametros').eq('id', 'global').single();
   if (config.error) throw config.error;
@@ -19,7 +20,19 @@ export async function carregarComissoes(inicio: string, fim: string, progresso?:
     vendas.push(...(data as DadosVenda[]));
     if (data.length < 200) break;
   }
-  return { vendas: await conferirFinanceiroGC(vendas,callGC,progresso), parametros };
+  const fontes: { tipo:string; registro:Record<string,any> }[]=[];
+  for(let offset=0;;offset+=200) {
+    const {data,error}=await db.rpc('fin_comissoes_fontes_frete').range(offset,offset+199);
+    if(error)throw error;
+    fontes.push(...data);if(data.length<200)break;
+  }
+  let pagamentosFrete=fontes.filter(f=>f.tipo==='pagamento').map(f=>f.registro);
+  let avisoFretes='';
+  try {pagamentosFrete=await buscarPagamentosGC(callGC,(n,total)=>progresso?.(n,total,'páginas de pagamentos'));}
+  catch {avisoFretes='Não foi possível concluir a consulta dos pagamentos no GC. Fretes exibidos pela última sincronização, sujeitos a títulos substituídos ou excluídos.';}
+  const fretes=analisarFretes(fontes.filter(f=>f.tipo==='compra').map(f=>f.registro),pagamentosFrete);
+  const rateios=fontes.filter(f=>f.tipo==='rateio').map(f=>f.registro);
+  return { vendas: (await conferirFinanceiroGC(vendas,callGC,progresso)).map(v=>({...v,fretes,consultaFretes:avisoFretes?'pendente' as const:'gc' as const})), parametros, fretes, rateios, avisoFretes, origemConsulta:'gc' };
 }
 export async function salvarConferencia(value: Conferencia) {
   const { error } = await db.from('fin_comissoes_conferencias').upsert(value);

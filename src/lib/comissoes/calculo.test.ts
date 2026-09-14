@@ -4,6 +4,17 @@ import { DEFAULT_ANALYSIS_CONFIG, defaultExtras } from './analisePickPack';
 const p:Parametros={config:{...DEFAULT_ANALYSIS_CONFIG,impostoPct:0,custoFixoPct:0,garantiaPct:0},margemAposComissao:false,origem:'teste'};
 function venda(custo=70):DadosVenda {return {venda:{id:'local',gc_id:'gc',codigo:'1',data:'2026-09-14',nome_situacao:'Concretizada',nome_cliente:'Cliente',valor_total:100,gc_payload_raw:{nome_vendedor:'Maria',valor_total:'100.00',produtos:[{produto:{nome_produto:'Produto',quantidade:'1',valor_venda:'100',valor_total:'100',valor_custo:String(custo)}}]}},recebimentos:[],pagamentos:[],conferencia:{venda_id:'local',conferido:false,ajustes:{extras:{...defaultExtras(p.config),considerarAlimentacao:false,considerarAdmin:false,considerarPremiacao:false,considerarParcelamento:false}}}};}
 describe('faixas contratuais de comissão',()=>{
+  it('desconta rateio do frete uma vez e respeita custo já incluído',()=>{
+    const d=venda(70);d.conferencia!.ajustes.fretes=[{fonteId:'compra:1',valor:10,limite:30,incluidoNoCusto:false,justificativa:'Um terço da entrega'}];
+    expect(calcularVenda(d,p).lucroAntes).toBe(20);
+    d.conferencia!.ajustes.fretes[0].incluidoNoCusto=true;expect(calcularVenda(d,p).lucroAntes).toBe(30);
+  });
+  it('desconto financeiro reduz lucro e preserva quitação pelo valor original',()=>{
+    const d=venda(70);
+    d.recebimentos=[{gc_id:'titulo',valor:95,liquidado:true,gc_payload_raw:{valor:'100.00',valor_total:'95.00',desconto:'5.00'}}];
+    const r=calcularVenda(d,p);
+    expect(r.recebimento).toBe('Recebido');expect(r.recebido).toBe(95);expect(r.totalTitulos).toBe(100);expect(r.lucroAntes).toBe(25);expect(r.base).toBe(100);
+  });
   it('venda de adesivo usa custo GC 6,736 sem adicionar alimentação ou administração',()=>{
     const d=venda(6.736); d.conferencia=null; d.venda.valor_total=9.21; const raw=d.venda.gc_payload_raw; raw.valor_total='9.21'; Object.assign(raw.produtos[0].produto,{valor_venda:'9.2054',valor_total:'9.21'});
     const r=calcularVenda(d,{...p,config:{...p.config,impostoPct:14}});

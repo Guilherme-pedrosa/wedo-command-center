@@ -1,15 +1,16 @@
 import { analyzeOrcamento, defaultExtras, DEFAULT_DESLOCAMENTO, parseMoney, type AnalysisConfig, type ExtrasInput, type DeslocamentoInput } from './analisePickPack';
+import { indiciosFrete, type FonteFrete, type RateioFrete } from './fretes';
 
 export type Registro = Record<string, any>;
 export interface Conferencia {
   venda_id: string;
-  ajustes: { extras?: ExtrasInput; deslocamento?: DeslocamentoInput; custoAdicional?: number; vendedorNome?: string; justificativa?: string };
+  ajustes: { extras?: ExtrasInput; deslocamento?: DeslocamentoInput; custoAdicional?: number; vendedorNome?: string; justificativa?: string; fretes?: RateioFrete[] };
   conferido: boolean;
   assinatura?: string;
   updated_at?: string;
 }
 export interface PagamentoComissao { id: string; venda_id: string; valor: number; data_pagamento: string; forma_pagamento: string; observacao: string; created_at?: string; snapshot?: Registro }
-export interface DadosVenda { consultaFinanceira?: 'gc'|'pendente'; venda: Registro; recebimentos: Registro[]; conferencia: Conferencia | null; pagamentos: PagamentoComissao[] }
+export interface DadosVenda { consultaFretes?:'gc'|'pendente'; fretes?: FonteFrete[]; consultaFinanceira?: 'gc'|'pendente'; venda: Registro; recebimentos: Registro[]; conferencia: Conferencia | null; pagamentos: PagamentoComissao[] }
 export interface Parametros { config: AnalysisConfig; margemAposComissao: boolean; origem: string }
 
 export function faixaComissao(margem: number | null): number {
@@ -25,7 +26,7 @@ function canonico(value: any): string {
 }
 export function assinaturaVenda(dados: DadosVenda, parametros: Parametros) {
   const raw=dados.venda.gc_payload_raw??{};
-  return canonico({total:dados.venda.valor_total,situacao:dados.venda.nome_situacao,produtos:raw.produtos,servicos:raw.servicos,frete:raw.valor_frete,desconto:raw.desconto_valor,vendedor:raw.nome_vendedor,parcelas:raw.numero_parcelas,pagamentos:raw.pagamentos,parametros,ajustes:dados.conferencia?.ajustes??{},taxas:dados.recebimentos.map(r=>[r.gc_id,r.gc_payload_raw?.taxa_banco,r.gc_payload_raw?.taxa_operadora]).sort()});
+  return canonico({total:dados.venda.valor_total,situacao:dados.venda.nome_situacao,produtos:raw.produtos,servicos:raw.servicos,frete:raw.valor_frete,desconto:raw.desconto_valor,vendedor:raw.nome_vendedor,parcelas:raw.numero_parcelas,pagamentos:raw.pagamentos,fontesFrete:(dados.fretes??[]).filter(f=>(dados.conferencia?.ajustes.fretes??[]).some(r=>r.fonteId===f.id)).map(f=>[f.id,f.valor,f.pago,f.avisos]),parametros,ajustes:dados.conferencia?.ajustes??{},taxas:dados.recebimentos.map(r=>[r.gc_id,r.gc_payload_raw?.taxa_banco,r.gc_payload_raw?.taxa_operadora,r.gc_payload_raw?.desconto,r.gc_payload_raw?.valor,r.valor_total,r.valor,r.liquidado,r.cliente_id]).sort()});
 }
 
 export function calcularVenda(dados: DadosVenda, parametros: Parametros) {
@@ -52,8 +53,18 @@ export function calcularVenda(dados: DadosVenda, parametros: Parametros) {
   const fatorDesconto = a.receitaBruta > 0 ? Math.min(1, a.receitaLiquida / a.receitaBruta) : 0;
   const base = centavos(Math.max(0, a.receitaProdutos * fatorDesconto));
   const custoAdicional = Math.max(0, Number(ajustes.custoAdicional) || 0);
-  const taxasRecebimento = dados.recebimentos.reduce((s, r) => s + parseMoney(r.gc_payload_raw?.taxa_banco) + parseMoney(r.gc_payload_raw?.taxa_operadora), 0);
-  const lucroAntes = centavos(a.lucro - custoAdicional - taxasRecebimento);
+  const rateios = ajustes.fretes ?? [];
+  if(dados.consultaFretes==='pendente')avisos.push('Atualização dos pagamentos de frete pendente no GC');
+  const custoFrete = centavos(rateios.filter(f=>!f.incluidoNoCusto).reduce((s,f)=>s+f.valor,0));
+  const fretesPendentes = (dados.fretes??[]).filter(f=>indiciosFrete(f,v).length&&!rateios.some(r=>r.fonteId===f.id));
+  if(fretesPendentes.length) avisos.push(`${fretesPendentes.length} frete(s) com indício de vínculo: conferir rateio e custo já incluído`);
+  if(rateios.some(r=>!(dados.fretes??[]).some(f=>f.id===r.fonteId&&Math.abs(f.valor-r.limite)<=0.02))) avisos.push('Fonte ou valor do frete mudou: conferir novamente');
+  // Desconto financeiro reduz o lucro, mas não transforma título liquidado em falta de pagamento.
+  const taxasRecebimento = dados.recebimentos.reduce((s, r) => {
+    const titulo = r.gc_payload_raw ?? r;
+    return s + parseMoney(titulo.desconto) + parseMoney(titulo.taxa_banco) + parseMoney(titulo.taxa_operadora);
+  }, 0);
+  const lucroAntes = centavos(a.lucro - custoAdicional - taxasRecebimento - custoFrete);
   const margemAntes = a.receitaLiquida > 0 ? lucroAntes / a.receitaLiquida * 100 : null;
   const custosValidos = a.linhas.length > 0 && a.linhasSemCusto === 0 && !itensInvalidos && margemAntes !== null;
   let percentual = custosValidos && !cancelada && concretizada ? faixaComissao(margemAntes) : 0;
@@ -67,11 +78,12 @@ export function calcularVenda(dados: DadosVenda, parametros: Parametros) {
 
   const titulos = dados.recebimentos;
   const recebido = centavos(titulos.filter(r => r.liquidado === true).reduce((s, r) => s + parseMoney(r.valor_total ?? r.valor), 0));
-  const totalTitulos = centavos(titulos.reduce((s, r) => s + parseMoney(r.valor_total ?? r.valor), 0));
+  const totalTitulos = centavos(titulos.reduce((s, r) => s + parseMoney(r.gc_payload_raw?.valor ?? r.valor_total ?? r.valor), 0));
   const todosLiquidados = titulos.length > 0 && titulos.every(r => r.liquidado === true);
   const financeiroCompleto = titulos.length > 0 && Math.abs(totalTitulos - a.receitaLiquida) <= 0.02;
   const recebimento = !titulos.length ? (dados.consultaFinanceira==='gc'?'Títulos não localizados no GC':'Financeiro pendente de consulta') : !financeiroCompleto ? 'Conferir valores do financeiro' : todosLiquidados ? 'Recebido' : recebido > 0 ? 'Parcial' : 'Em aberto';
   if (!financeiroCompleto) avisos.push(recebimento);
+  if (titulos.some(r => r.cliente_id && String(r.cliente_id)!==String(v.cliente_id))) avisos.push('Cobrança em cliente diferente da venda: conferir destinatários dos títulos');
   if(dados.consultaFinanceira==='pendente') avisos.push('Não foi possível atualizar o financeiro no GC; última leitura preservada');
   const parcelas = (raw.pagamentos ?? []).map((p: Registro) => p.pagamento ?? p);
   const formas = [...new Set<string>([raw.nome_forma_pagamento, ...parcelas.map((p: Registro) => p.nome_forma_pagamento), ...titulos.map(r => r.nome_forma_pagamento)].filter(Boolean))];
@@ -82,7 +94,7 @@ export function calcularVenda(dados: DadosVenda, parametros: Parametros) {
   const conferidaAtual = !!dados.conferencia?.conferido && dados.conferencia.assinatura === assinaturaVenda(dados,parametros);
   if (dados.conferencia?.conferido && !conferidaAtual) avisos.push('Valores ou parâmetros mudaram: conferir novamente');
   if (pago > comissao) avisos.push('Comissão paga maior que a previsão atual');
-  return { ...dados, a, extras, vendedor, vendedorOriginal, base, custoAdicional, taxasRecebimento, lucroAntes, margemAntes: custosValidos ? margemAntes : null, margemFinal: custosValidos ? margemFinal : null, percentual, comissao, recebido, totalTitulos, recebimento, formas, formaAusente, avisos, pago, saldo: centavos(comissao - pago), custosValidos, cancelada, concretizada, conferidaAtual };
+  return { ...dados, a, extras, vendedor, vendedorOriginal, base, custoAdicional, custoFrete, fretesPendentes, taxasRecebimento, lucroAntes, margemAntes: custosValidos ? margemAntes : null, margemFinal: custosValidos ? margemFinal : null, percentual, comissao, recebido, totalTitulos, recebimento, formas, formaAusente, avisos, pago, saldo: centavos(comissao - pago), custosValidos, cancelada, concretizada, conferidaAtual };
 }
 
 export function periodoComissao(mes: string, tipo: 'mes' | 'primeira' | 'segunda') {
