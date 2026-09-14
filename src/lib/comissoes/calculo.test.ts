@@ -4,6 +4,24 @@ import { DEFAULT_ANALYSIS_CONFIG, defaultExtras } from './analisePickPack';
 const p:Parametros={config:{...DEFAULT_ANALYSIS_CONFIG,impostoPct:0,custoFixoPct:0,garantiaPct:0},margemAposComissao:false,origem:'teste'};
 function venda(custo=70):DadosVenda {return {venda:{id:'local',gc_id:'gc',codigo:'1',data:'2026-09-14',nome_situacao:'Concretizada',nome_cliente:'Cliente',valor_total:100,gc_payload_raw:{nome_vendedor:'Maria',valor_total:'100.00',produtos:[{produto:{nome_produto:'Produto',quantidade:'1',valor_venda:'100',valor_total:'100',valor_custo:String(custo)}}]}},recebimentos:[],pagamentos:[],conferencia:{venda_id:'local',conferido:false,ajustes:{extras:{...defaultExtras(p.config),considerarAlimentacao:false,considerarAdmin:false,considerarPremiacao:false,considerarParcelamento:false}}}};}
 describe('faixas contratuais de comissão',()=>{
+  it('retira comissão sem apagar venda, custo ou pagamento do cliente',()=>{
+    const d=venda(70);d.recebimentos=[{gc_id:'r',valor:100,liquidado:true}];
+    d.conferencia={...d.conferencia!,retirada:true,motivo_retirada:'Venda atendida pela gerência'};
+    const r=calcularVenda(d,p);
+    expect(r.comissaoCalculada).toBe(5);expect(r.comissaoRetirada).toBe(5);expect(r.comissao).toBe(0);expect(r.recebido).toBe(100);expect(r.a.custoProdutos).toBe(70);expect(r.saldo).toBe(0);expect(r.margemFinal).toBe(30);
+  });
+  it('preserva comissão paga após retirada e restaura regra atual ao reincluir',()=>{
+    const d=venda(70);d.pagamentos=[{id:'p',venda_id:'local',valor:5,data_pagamento:'2026-09-14',forma_pagamento:'PIX',observacao:'Comprovante existente'}];
+    d.conferencia={...d.conferencia!,retirada:true,motivo_retirada:'Ajuste'};
+    const retirada=calcularVenda(d,p);expect(retirada.pago).toBe(5);expect(retirada.saldo).toBe(-5);expect(retirada.pagamentos).toEqual(d.pagamentos);expect(retirada.avisos).toContain('Comissão retirada com pagamento registrado: conferir ajuste; histórico preservado');
+    d.conferencia.retirada=false;d.conferencia.motivo_retirada='';d.venda.gc_payload_raw.produtos[0].produto.valor_custo='80';
+    const reincluida=calcularVenda(d,p);expect(reincluida.comissao).toBe(3);expect(reincluida.saldo).toBe(-2);expect(reincluida.comissaoRetirada).toBe(0);
+  });
+  it('não mantém conferência anterior ao retirar e distingue vendedores homônimos pelo ID',()=>{
+    const d=venda();d.conferencia!.conferido=true;d.conferencia!.assinatura=assinaturaVenda(d,p);d.conferencia!.retirada=true;
+    expect(calcularVenda(d,p).conferidaAtual).toBe(false);
+    d.venda.gc_payload_raw.vendedor_id='100';const a=calcularVenda(d,p);d.venda.gc_payload_raw.vendedor_id='200';const b=calcularVenda(d,p);expect(a.vendedor).toBe(b.vendedor);expect(a.vendedorChave).not.toBe(b.vendedorChave);
+  });
   it('desconta rateio do frete uma vez e respeita custo já incluído',()=>{
     const d=venda(70);d.conferencia!.ajustes.fretes=[{fonteId:'compra:1',valor:10,limite:30,incluidoNoCusto:false,justificativa:'Um terço da entrega'}];
     expect(calcularVenda(d,p).lucroAntes).toBe(20);

@@ -13,4 +13,21 @@ describe('exportação Excel da conferência',()=>{
     expect(s.getCell('I8').value).toBe(Number((r.a.receitaLiquida-r.lucroAntes).toFixed(2)));
     expect(s.views[0]).toMatchObject({state:'frozen',xSplit:3,ySplit:7});expect(s.getTable('ConferenciaComissoes')).toBeTruthy();expect(String(s.getCell('A3').value)).toContain('Guilherme');
   });
+  it('exporta comissão retirada, motivo e pagamentos preservados no detalhe e por vendedor',async()=>{
+    const base={venda:{id:'retirada',codigo:'123',data:'2026-09-10',valor_total:100,nome_cliente:'Cliente',nome_situacao:'Concretizada',gc_payload_raw:{vendedor_id:'10',nome_vendedor:'Maria',produtos:[{produto:{nome_produto:'Produto',quantidade:1,valor_total:100,valor_venda:100,valor_custo:50}}]}},recebimentos:[],pagamentos:[{id:'p',venda_id:'retirada',valor:5,data_pagamento:'2026-09-12',forma_pagamento:'PIX',observacao:'Pago antes da retirada'}],conferencia:{venda_id:'retirada',ajustes:{},conferido:false,retirada:true,motivo_retirada:'Atendida pela gerência'}};
+    const parametros={config:DEFAULT_ANALYSIS_CONFIG,margemAposComissao:false,origem:'teste'};
+    const retirada=calcularVenda(base,parametros);
+    const ativa=calcularVenda({...base,venda:{...base.venda,id:'ativa',codigo:'124'},pagamentos:[],conferencia:null},parametros);
+    const homonima=calcularVenda({...base,venda:{...base.venda,id:'outra',codigo:'125',gc_payload_raw:{...base.venda.gc_payload_raw,vendedor_id:'20'}},pagamentos:[],conferencia:null},parametros);
+    const original=await criarExcelComissoes([retirada,ativa,homonima],{inicio:'2026-09-01',fim:'2026-09-30',vendedores:[],situacoesGC:[],pagamentos:[],busca:''});
+    const w=new ExcelJS.Workbook();await w.xlsx.load(await original.xlsx.writeBuffer());
+    const detalhe=w.getWorksheet('Comissões')!;
+    expect(detalhe.getCell('L8').value).toBe(0);expect(detalhe.getCell('Q8').value).toBe(5);expect(detalhe.getCell('R8').value).toBe(-5);
+    expect(detalhe.getCell('W8').value).toBe(5);expect(detalhe.getCell('X8').value).toBe(5);expect(detalhe.getCell('Y8').value).toBe('Retirada');expect(detalhe.getCell('Z8').value).toBe('Atendida pela gerência');
+    const resumo=w.getWorksheet('Por vendedor')!;
+    expect(resumo.getCell('B5').value).toBe(2);expect(resumo.getCell('D5').value).toBe(10);expect(resumo.getCell('E5').value).toBe(5);expect(resumo.getCell('F5').value).toBe(5);expect(resumo.getCell('G5').value).toBe(5);
+    expect(resumo.getCell('H5').value).toBe(5);expect(resumo.getCell('I5').value).toBe(5);expect(resumo.getCell('B6').value).toBe(1);
+    expect(resumo.getCell('H5').numFmt).toContain('R$');expect(resumo.getTable('ResumoVendedores')).toBeTruthy();
+  });
+
 });

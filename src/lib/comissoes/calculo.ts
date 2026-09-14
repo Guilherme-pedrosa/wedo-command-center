@@ -8,6 +8,10 @@ export interface Conferencia {
   conferido: boolean;
   assinatura?: string;
   updated_at?: string;
+  retirada?: boolean;
+  motivo_retirada?: string;
+  situacao_alterada_em?: string | null;
+  situacao_alterada_por?: string | null;
 }
 export interface PagamentoComissao { id: string; venda_id: string; valor: number; data_pagamento: string; forma_pagamento: string; observacao: string; created_at?: string; snapshot?: Registro }
 export interface DadosVenda { consultaFretes?:'gc'|'pendente'; fretes?: FonteFrete[]; consultaFinanceira?: 'gc'|'pendente'; venda: Registro; recebimentos: Registro[]; conferencia: Conferencia | null; pagamentos: PagamentoComissao[] }
@@ -26,7 +30,7 @@ function canonico(value: any): string {
 }
 export function assinaturaVenda(dados: DadosVenda, parametros: Parametros) {
   const raw=dados.venda.gc_payload_raw??{};
-  return canonico({total:dados.venda.valor_total,situacao:dados.venda.nome_situacao,produtos:raw.produtos,servicos:raw.servicos,frete:raw.valor_frete,desconto:raw.desconto_valor,vendedor:raw.nome_vendedor,parcelas:raw.numero_parcelas,pagamentos:raw.pagamentos,fontesFrete:(dados.fretes??[]).filter(f=>(dados.conferencia?.ajustes.fretes??[]).some(r=>r.fonteId===f.id)).map(f=>[f.id,f.valor,f.pago,f.avisos]),parametros,ajustes:dados.conferencia?.ajustes??{},taxas:dados.recebimentos.map(r=>[r.gc_id,r.gc_payload_raw?.taxa_banco,r.gc_payload_raw?.taxa_operadora,r.gc_payload_raw?.desconto,r.gc_payload_raw?.valor,r.valor_total,r.valor,r.liquidado,r.cliente_id]).sort()});
+  return canonico({total:dados.venda.valor_total,situacao:dados.venda.nome_situacao,produtos:raw.produtos,servicos:raw.servicos,frete:raw.valor_frete,desconto:raw.desconto_valor,vendedor:raw.nome_vendedor,parcelas:raw.numero_parcelas,pagamentos:raw.pagamentos,fontesFrete:(dados.fretes??[]).filter(f=>(dados.conferencia?.ajustes.fretes??[]).some(r=>r.fonteId===f.id)).map(f=>[f.id,f.valor,f.pago,f.avisos]),parametros,...(dados.conferencia?.retirada?{retirada:true}:{}),ajustes:dados.conferencia?.ajustes??{},taxas:dados.recebimentos.map(r=>[r.gc_id,r.gc_payload_raw?.taxa_banco,r.gc_payload_raw?.taxa_operadora,r.gc_payload_raw?.desconto,r.gc_payload_raw?.valor,r.valor_total,r.valor,r.liquidado,r.cliente_id]).sort()});
 }
 
 export function calcularVenda(dados: DadosVenda, parametros: Parametros) {
@@ -38,6 +42,9 @@ export function calcularVenda(dados: DadosVenda, parametros: Parametros) {
   const avisos: string[] = [];
   const vendedorOriginal = String(raw.nome_vendedor ?? '').trim();
   const vendedor = ajustes.vendedorNome?.trim() || vendedorOriginal;
+  const vendedorChave = ajustes.vendedorNome?.trim()
+    ? `conferido:${vendedor.normalize('NFKC').toLocaleLowerCase('pt-BR')}`
+    : raw.vendedor_id ? `gc:${raw.vendedor_id}` : `nome:${vendedor.normalize('NFKC').toLocaleLowerCase('pt-BR')}`;
   if (!vendedor || /\bAPI\b/i.test(vendedor)) avisos.push('Identificar o vendedor responsável');
   if (!a.linhas.length) avisos.push('Itens da venda não sincronizados');
   if (a.linhasSemCusto) avisos.push(`${a.linhasSemCusto} item(ns) sem custo — conferir antes de calcular`);
@@ -72,7 +79,11 @@ export function calcularVenda(dados: DadosVenda, parametros: Parametros) {
     const margemCom = (pct: number) => (lucroAntes - centavos(base * pct / 100)) / a.receitaLiquida * 100;
     percentual = margemCom(5) > 20 ? 5 : margemCom(3) >= 12 ? 3 : 0;
   }
-  const comissao = centavos(base * percentual / 100);
+  const comissaoCalculada = centavos(base * percentual / 100);
+  const retirada = dados.conferencia?.retirada === true;
+  const comissaoRetirada = retirada ? comissaoCalculada : 0;
+  const comissao = retirada ? 0 : comissaoCalculada;
+  if (retirada) avisos.push(`Comissão retirada: ${dados.conferencia?.motivo_retirada || 'Consulte o histórico'}`);
   const margemFinal = a.receitaLiquida > 0 ? (lucroAntes - comissao) / a.receitaLiquida * 100 : null;
   if (custosValidos && concretizada && !cancelada && !percentual) avisos.push('Margem abaixo de 12%: sem comissão');
 
@@ -93,8 +104,8 @@ export function calcularVenda(dados: DadosVenda, parametros: Parametros) {
   const pago = centavos(dados.pagamentos.reduce((s, p) => s + Number(p.valor), 0));
   const conferidaAtual = !!dados.conferencia?.conferido && dados.conferencia.assinatura === assinaturaVenda(dados,parametros);
   if (dados.conferencia?.conferido && !conferidaAtual) avisos.push('Valores ou parâmetros mudaram: conferir novamente');
-  if (pago > comissao) avisos.push('Comissão paga maior que a previsão atual');
-  return { ...dados, a, extras, vendedor, vendedorOriginal, base, custoAdicional, custoFrete, fretesPendentes, taxasRecebimento, lucroAntes, margemAntes: custosValidos ? margemAntes : null, margemFinal: custosValidos ? margemFinal : null, percentual, comissao, recebido, totalTitulos, recebimento, formas, formaAusente, avisos, pago, saldo: centavos(comissao - pago), custosValidos, cancelada, concretizada, conferidaAtual };
+  if (pago > comissao) avisos.push(retirada ? 'Comissão retirada com pagamento registrado: conferir ajuste; histórico preservado' : 'Comissão paga maior que a previsão atual');
+  return { ...dados, a, extras, vendedor, vendedorChave, vendedorOriginal, base, custoAdicional, custoFrete, fretesPendentes, taxasRecebimento, lucroAntes, margemAntes: custosValidos ? margemAntes : null, margemFinal: custosValidos ? margemFinal : null, percentual, comissao, comissaoCalculada, comissaoRetirada, retirada, recebido, totalTitulos, recebimento, formas, formaAusente, avisos, pago, saldo: centavos(comissao - pago), custosValidos, cancelada, concretizada, conferidaAtual };
 }
 
 export function periodoComissao(mes: string, tipo: 'mes' | 'primeira' | 'segunda') {

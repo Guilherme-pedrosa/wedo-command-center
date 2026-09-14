@@ -4,6 +4,7 @@ import { analisarFretes } from './fretes';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import type { Conferencia, DadosVenda, PagamentoComissao, Parametros } from './calculo';
+import type { EventoSituacaoComissao, ResultadoSituacaoComissoes } from './situacao';
 
 // Tabelas da migration 20260914160000, ainda não incluídas no arquivo gerado.
 const db = supabase as unknown as SupabaseClient;
@@ -35,8 +36,40 @@ export async function carregarComissoes(inicio: string, fim: string, progresso?:
   return { vendas: (await conferirFinanceiroGC(vendas,callGC,progresso)).map(v=>({...v,fretes,consultaFretes:avisoFretes?'pendente' as const:'gc' as const})), parametros, fretes, rateios, avisoFretes, origemConsulta:'gc' };
 }
 export async function salvarConferencia(value: Conferencia) {
-  const { error } = await db.from('fin_comissoes_conferencias').upsert(value);
+  // A situação usa uma RPC própria. Não reenviar esses campos de uma tela
+  // desatualizada evita substituir uma retirada feita por outro administrador.
+  const { venda_id, ajustes, conferido, assinatura } = value;
+  const { error } = await db.from('fin_comissoes_conferencias').upsert({ venda_id, ajustes, conferido, assinatura });
   if (error) throw error;
+}
+export async function alterarSituacaoComissoes(ids: string[], retirada: boolean, motivo: string): Promise<ResultadoSituacaoComissoes> {
+  const vendaIds = [...new Set(ids)];
+  const justificativa = motivo.trim();
+  if (!vendaIds.length || vendaIds.length > 200 || vendaIds.some(id => !id)) throw new Error('Selecione entre 1 e 200 vendas por operação.');
+  if (!justificativa || justificativa.length > 2000) throw new Error('Informe o motivo com até 2.000 caracteres.');
+  const { data, error } = await db.rpc('fin_comissoes_alterar_situacao', {
+    p_venda_ids: vendaIds, p_retirada: retirada, p_motivo: justificativa,
+  });
+  if (error) throw error;
+  return data as ResultadoSituacaoComissoes;
+}
+export async function carregarHistoricoComissao(vendaId: string): Promise<EventoSituacaoComissao[]> {
+  const historico: EventoSituacaoComissao[] = [];
+  for (let offset = 0; ; offset += 200) {
+    const { data, error } = await db.from('fin_comissoes_situacao_eventos').select('*')
+      .eq('venda_id', vendaId).order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + 199);
+    if (error) throw error;
+    historico.push(...data as EventoSituacaoComissao[]);
+    if (data.length < 200) return historico;
+  }
+}
+export async function carregarConferenciasComissoes(vendaIds: string[]): Promise<Conferencia[]> {
+  const ids = [...new Set(vendaIds)];
+  if (!ids.length) return [];
+  if (ids.length > 500) throw new Error('Consulte até 500 conferências por operação.');
+  const { data, error } = await db.from('fin_comissoes_conferencias').select('*').in('venda_id', ids);
+  if (error) throw error;
+  return data as Conferencia[];
 }
 export async function registrarPagamento(value: Omit<PagamentoComissao, 'created_at'>) {
   if (!Number.isFinite(value.valor) || value.valor <= 0 || !value.data_pagamento || !value.forma_pagamento.trim()) throw new Error('Informe valor, data e forma do pagamento da comissão.');
