@@ -82,12 +82,17 @@ export async function executeNegotiation(deps: Dependencies) {
       if (method === "PUT") current = (await gc(endpoint)).data;
       else if (previous.id) current = await getReceipt(previous.id);
       else if (recover) current = await recover();
-      if (!current || !verify(current)) throw new Error(`Etapa ${key} tem efeito externo incerto; conferir antes de repetir.`);
-      state.steps[key] = { ...previous, status: "verified", id: String(current.id), result: current };
-      await persistState();
-      return current;
+      if (current && verify(current)) {
+        state.steps[key] = { ...previous, status: "verified", id: String(current.id), result: current };
+        await persistState();
+        return current;
+      }
+      // A full-payload PUT is idempotent on an existing record: when the GET proves the planned
+      // state was not applied, re-dispatching the same PUT cannot duplicate any financial effect.
+      // A POST could create a second title, so it stays pending for human verification.
+      if (method !== "PUT" || !current?.id) throw new Error(`Etapa ${key} tem efeito externo incerto; conferir antes de repetir.`);
     }
-    state.steps[key] = { status: "dispatching", method, endpoint, payload, started_at: new Date().toISOString() };
+    state.steps[key] = { status: "dispatching", method, endpoint, payload, started_at: new Date().toISOString(), retry_of: previous?.started_at ?? null };
     await persistState();
     const response = await gc(endpoint, method, payload);
     const created = unwrap(response.data);
