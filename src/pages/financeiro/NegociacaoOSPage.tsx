@@ -492,7 +492,20 @@ export default function NegociacaoOSPage() {
       const { data } = await supabase.auth.getUser();
       if (!data.user || !mounted.current) return;
       const saved = localStorage.getItem(pendingStorageKey(data.user.id));
-      if (!saved) return;
+      if (!saved) {
+        // Outro navegador/sessão: o pedido continua salvo no servidor e precisa reaparecer para conferência.
+        const { data: jobs } = await supabase.from("fin_negociacao_jobs")
+          .select("id, status")
+          .eq("created_by", data.user.id)
+          .in("status", ["pendente", "processando", "erro", "pendente_conferencia"])
+          .order("created_at", { ascending: false })
+          .limit(1);
+        const job = jobs?.[0];
+        if (!job || !mounted.current) return;
+        serverRecoveredJob.current = job.id;
+        await watchJob(job.id, data.user.id, {});
+        return;
+      }
       const pending = JSON.parse(saved);
       if (!pending.idempotency_key || !pending.payload) return;
       setExecuting(true); setPendingJob(pending.job_id || "Confirmação do envio pendente");
