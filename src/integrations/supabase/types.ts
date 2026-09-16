@@ -708,6 +708,192 @@ export type Database = {
         }
         Relationships: []
       }
+      fin_comissoes_auditoria: {
+        Row: {
+          antes: Json | null
+          created_at: string
+          depois: Json
+          id: number
+          registro_id: string
+          tabela: string
+          usuario_id: string | null
+        }
+        Insert: {
+          antes?: Json | null
+          created_at?: string
+          depois: Json
+          id?: never
+          registro_id: string
+          tabela: string
+          usuario_id?: string | null
+        }
+        Update: {
+          antes?: Json | null
+          created_at?: string
+          depois?: Json
+          id?: never
+          registro_id?: string
+          tabela?: string
+          usuario_id?: string | null
+        }
+        Relationships: []
+      }
+      fin_comissoes_conferencias: {
+        Row: {
+          ajustes: Json
+          assinatura: string
+          conferido: boolean
+          motivo_retirada: string
+          retirada: boolean
+          situacao_alterada_em: string | null
+          situacao_alterada_por: string | null
+          updated_at: string
+          updated_by: string | null
+          venda_id: string
+        }
+        Insert: {
+          ajustes?: Json
+          assinatura?: string
+          conferido?: boolean
+          motivo_retirada?: string
+          retirada?: boolean
+          situacao_alterada_em?: string | null
+          situacao_alterada_por?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          venda_id: string
+        }
+        Update: {
+          ajustes?: Json
+          assinatura?: string
+          conferido?: boolean
+          motivo_retirada?: string
+          retirada?: boolean
+          situacao_alterada_em?: string | null
+          situacao_alterada_por?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          venda_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_comissoes_conferencias_venda_id_fkey"
+            columns: ["venda_id"]
+            isOneToOne: true
+            referencedRelation: "gc_vendas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fin_comissoes_config: {
+        Row: {
+          id: string
+          parametros: Json
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          parametros: Json
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          parametros?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      fin_comissoes_pagamentos: {
+        Row: {
+          created_at: string
+          created_by: string
+          data_pagamento: string
+          forma_pagamento: string
+          id: string
+          observacao: string
+          snapshot: Json
+          valor: number
+          venda_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          data_pagamento: string
+          forma_pagamento: string
+          id?: string
+          observacao?: string
+          snapshot?: Json
+          valor: number
+          venda_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          data_pagamento?: string
+          forma_pagamento?: string
+          id?: string
+          observacao?: string
+          snapshot?: Json
+          valor?: number
+          venda_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_comissoes_pagamentos_venda_id_fkey"
+            columns: ["venda_id"]
+            isOneToOne: false
+            referencedRelation: "gc_vendas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fin_comissoes_situacao_eventos: {
+        Row: {
+          created_at: string
+          id: string
+          motivo: string
+          retirada_antes: boolean
+          retirada_depois: boolean
+          snapshot: Json
+          usuario_id: string
+          usuario_nome: string
+          venda_id: string
+          vendedor_nome: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          motivo: string
+          retirada_antes: boolean
+          retirada_depois: boolean
+          snapshot: Json
+          usuario_id: string
+          usuario_nome?: string
+          venda_id: string
+          vendedor_nome: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          motivo?: string
+          retirada_antes?: boolean
+          retirada_depois?: boolean
+          snapshot?: Json
+          usuario_id?: string
+          usuario_nome?: string
+          venda_id?: string
+          vendedor_nome?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_comissoes_situacao_eventos_venda_id_fkey"
+            columns: ["venda_id"]
+            isOneToOne: false
+            referencedRelation: "gc_vendas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fin_configuracoes: {
         Row: {
           chave: string
@@ -1750,6 +1936,7 @@ export type Database = {
           inter_txid: string | null
           itens_baixados: number | null
           itens_total: number | null
+          negociacao_job_id: string | null
           negociacao_numero: number | null
           nfse_emitida_em: string | null
           nfse_link: string | null
@@ -1759,6 +1946,7 @@ export type Database = {
           nome_cliente: string | null
           observacao: string | null
           os_codigos: string[] | null
+          parcela_numero: number | null
           status: Database["public"]["Enums"]["fin_status_grupo"] | null
           updated_at: string | null
           valor_recebido: number | null
@@ -1786,6 +1974,7 @@ export type Database = {
           inter_txid?: string | null
           itens_baixados?: number | null
           itens_total?: number | null
+          negociacao_job_id?: string | null
           negociacao_numero?: number | null
           nfse_emitida_em?: string | null
           nfse_link?: string | null
@@ -1795,6 +1984,7 @@ export type Database = {
           nome_cliente?: string | null
           observacao?: string | null
           os_codigos?: string[] | null
+          parcela_numero?: number | null
           status?: Database["public"]["Enums"]["fin_status_grupo"] | null
           updated_at?: string | null
           valor_recebido?: number | null
@@ -1822,6 +2012,7 @@ export type Database = {
           inter_txid?: string | null
           itens_baixados?: number | null
           itens_total?: number | null
+          negociacao_job_id?: string | null
           negociacao_numero?: number | null
           nfse_emitida_em?: string | null
           nfse_link?: string | null
@@ -1831,12 +2022,21 @@ export type Database = {
           nome_cliente?: string | null
           observacao?: string | null
           os_codigos?: string[] | null
+          parcela_numero?: number | null
           status?: Database["public"]["Enums"]["fin_status_grupo"] | null
           updated_at?: string | null
           valor_recebido?: number | null
           valor_total?: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "fin_grupos_receber_negociacao_job_id_fkey"
+            columns: ["negociacao_job_id"]
+            isOneToOne: false
+            referencedRelation: "fin_negociacao_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       fin_job_locks: {
         Row: {
@@ -2022,6 +2222,8 @@ export type Database = {
           erro_count: number | null
           erro_msg: string | null
           etapas: Json
+          execution_state: Json
+          execution_token: string | null
           finalizado_em: string | null
           id: string
           idempotency_key: string | null
@@ -2029,6 +2231,8 @@ export type Database = {
           negociacao_numero: number | null
           ok_count: number | null
           payload: Json
+          payload_hash: string | null
+          persisted_plan_hash: string | null
           plano: Json | null
           progresso: string | null
           resultado: Json | null
@@ -2044,6 +2248,8 @@ export type Database = {
           erro_count?: number | null
           erro_msg?: string | null
           etapas?: Json
+          execution_state?: Json
+          execution_token?: string | null
           finalizado_em?: string | null
           id?: string
           idempotency_key?: string | null
@@ -2051,6 +2257,8 @@ export type Database = {
           negociacao_numero?: number | null
           ok_count?: number | null
           payload: Json
+          payload_hash?: string | null
+          persisted_plan_hash?: string | null
           plano?: Json | null
           progresso?: string | null
           resultado?: Json | null
@@ -2066,6 +2274,8 @@ export type Database = {
           erro_count?: number | null
           erro_msg?: string | null
           etapas?: Json
+          execution_state?: Json
+          execution_token?: string | null
           finalizado_em?: string | null
           id?: string
           idempotency_key?: string | null
@@ -2073,6 +2283,8 @@ export type Database = {
           negociacao_numero?: number | null
           ok_count?: number | null
           payload?: Json
+          payload_hash?: string | null
+          persisted_plan_hash?: string | null
           plano?: Json | null
           progresso?: string | null
           resultado?: Json | null
@@ -2082,6 +2294,44 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      fin_negociacao_reservas: {
+        Row: {
+          cliente_gc_id: string
+          created_at: string
+          estado: string
+          id: string
+          job_id: string
+          origin_key: string
+          updated_at: string
+        }
+        Insert: {
+          cliente_gc_id: string
+          created_at?: string
+          estado?: string
+          id?: string
+          job_id: string
+          origin_key: string
+          updated_at?: string
+        }
+        Update: {
+          cliente_gc_id?: string
+          created_at?: string
+          estado?: string
+          id?: string
+          job_id?: string
+          origin_key?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_negociacao_reservas_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "fin_negociacao_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       fin_nfe_match_pendentes: {
         Row: {
@@ -3052,6 +3302,7 @@ export type Database = {
           gc_codigo: string | null
           gc_recebimento_id: string | null
           id: string
+          negociacao_origem_grupo_id: string | null
           negociacao_origem_numero: number | null
           nome_cliente: string
           observacao: string | null
@@ -3072,6 +3323,7 @@ export type Database = {
           gc_codigo?: string | null
           gc_recebimento_id?: string | null
           id?: string
+          negociacao_origem_grupo_id?: string | null
           negociacao_origem_numero?: number | null
           nome_cliente: string
           observacao?: string | null
@@ -3092,6 +3344,7 @@ export type Database = {
           gc_codigo?: string | null
           gc_recebimento_id?: string | null
           id?: string
+          negociacao_origem_grupo_id?: string | null
           negociacao_origem_numero?: number | null
           nome_cliente?: string
           observacao?: string | null
@@ -3103,7 +3356,15 @@ export type Database = {
           valor_alocado?: number
           valor_residual?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "fin_residuos_negociacao_negociacao_origem_grupo_id_fkey"
+            columns: ["negociacao_origem_grupo_id"]
+            isOneToOne: false
+            referencedRelation: "fin_grupos_receber"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       fin_sync_log: {
         Row: {
@@ -5292,6 +5553,63 @@ export type Database = {
         Args: { p_ano: number; p_mes: number; p_ttl_seconds?: number }
         Returns: Json
       }
+      fin_claim_negotiation_execution: {
+        Args: { p_execution_token: string; p_job_id: string }
+        Returns: boolean
+      }
+      fin_comissoes_alterar_situacao: {
+        Args: { p_motivo: string; p_retirada: boolean; p_venda_ids: string[] }
+        Returns: Json
+      }
+      fin_comissoes_dados: {
+        Args: { fim: string; inicio: string }
+        Returns: {
+          conferencia: Json
+          pagamentos: Json
+          recebimentos: Json
+          venda: Json
+        }[]
+      }
+      fin_comissoes_fontes_frete: {
+        Args: never
+        Returns: {
+          registro: Json
+          tipo: string
+        }[]
+      }
+      fin_comissoes_pagamento_indica_frete: {
+        Args: { pagamento: Json }
+        Returns: boolean
+      }
+      fin_create_receivable_group: {
+        Args: {
+          p_check_only?: boolean
+          p_data_vencimento: string
+          p_expected_values: Json
+          p_id: string
+          p_nome: string
+          p_observacao: string
+          p_receipt_ids: string[]
+        }
+        Returns: Json
+      }
+      fin_enqueue_negotiation: {
+        Args: {
+          p_created_by: string
+          p_idempotency_key: string
+          p_payload: Json
+        }
+        Returns: Json
+      }
+      fin_finalize_negotiation: {
+        Args: { p_execution_token: string; p_job_id: string; p_result: Json }
+        Returns: Json
+      }
+      fin_grupo_integrity_facts: { Args: { p_grupo_id: string }; Returns: Json }
+      fin_persist_negotiation: {
+        Args: { p_execution_token: string; p_job_id: string; p_plan: Json }
+        Returns: Json
+      }
       fin_reconcile_extrato_atomic: {
         Args: {
           p_extrato_id: string
@@ -5300,11 +5618,29 @@ export type Database = {
         }
         Returns: Json
       }
+      fin_resume_negotiation: {
+        Args: { p_created_by: string; p_job_id: string }
+        Returns: Json
+      }
+      fin_solicitar_cancelamento_negociacao: {
+        Args: { p_grupo_ids: string[]; p_motivo: string }
+        Returns: Json
+      }
       fin_undo_reconcile_extrato_atomic: {
         Args: { p_extrato_id: string }
         Returns: Json
       }
       fn_dashboard_stats: { Args: never; Returns: Json }
+      fn_negotiation_backend_context: { Args: never; Returns: boolean }
+      fn_negotiation_repair_context: { Args: never; Returns: boolean }
+      fn_refresh_grupo_receber_integrity: {
+        Args: { p_grupo_id: string }
+        Returns: undefined
+      }
+      fn_refresh_residual_receipt: {
+        Args: { p_recebimento_id: string }
+        Returns: undefined
+      }
       has_financeiro_write: { Args: { _user_id: string }; Returns: boolean }
       has_role: {
         Args: {

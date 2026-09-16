@@ -82,12 +82,17 @@ export async function executeNegotiation(deps: Dependencies) {
       if (method === "PUT") current = (await gc(endpoint)).data;
       else if (previous.id) current = await getReceipt(previous.id);
       else if (recover) current = await recover();
-      if (!current || !verify(current)) throw new Error(`Etapa ${key} tem efeito externo incerto; conferir antes de repetir.`);
-      state.steps[key] = { ...previous, status: "verified", id: String(current.id), result: current };
-      await persistState();
-      return current;
+      if (current && verify(current)) {
+        state.steps[key] = { ...previous, status: "verified", id: String(current.id), result: current };
+        await persistState();
+        return current;
+      }
+      // A full-payload PUT is idempotent on an existing record: when the GET proves the planned
+      // state was not applied, re-dispatching the same PUT cannot duplicate any financial effect.
+      // A POST could create a second title, so it stays pending for human verification.
+      if (method !== "PUT" || !current?.id) throw new Error(`Etapa ${key} tem efeito externo incerto; conferir antes de repetir.`);
     }
-    state.steps[key] = { status: "dispatching", method, endpoint, payload, started_at: new Date().toISOString() };
+    state.steps[key] = { status: "dispatching", method, endpoint, payload, started_at: new Date().toISOString(), retry_of: previous?.started_at ?? null };
     await persistState();
     const response = await gc(endpoint, method, payload);
     const created = unwrap(response.data);
@@ -232,7 +237,9 @@ export async function executeNegotiation(deps: Dependencies) {
     };
     if (!state.steps[stageBKey] || state.steps[stageBKey].status !== "verified") {
       const fresh = await getOS(origin.id);
-      await mutation(stageBKey, endpoint, "PUT", { ...osPayload(fresh, technicalUser), situacao_id: "8896431", data_primeira_parcela: segments[0].date, numero_parcelas: String(payments.length), condicao_pagamento: payments.length > 1 ? "parcelado" : "a_vista", intervalo_dias: payments.length > 1 ? "30" : "0", pagamentos: payments }, verifyPayments);
+      // "a_vista" makes the ERP ignore data_primeira_parcela and keep the entry-date payment,
+      // so a single negotiated installment is also sent as an explicit one-installment plan.
+      await mutation(stageBKey, endpoint, "PUT", { ...osPayload(fresh, technicalUser), situacao_id: "8896431", data_primeira_parcela: segments[0].date, numero_parcelas: String(payments.length), condicao_pagamento: "parcelado", intervalo_dias: "30", pagamentos: payments }, verifyPayments);
     }
     if (!state.steps[stageCKey] || state.steps[stageCKey].status !== "verified") {
       const fresh = await getOS(origin.id);
