@@ -3,16 +3,16 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  invoke: vi.fn(), getUser: vi.fn(), readJob: vi.fn(), job: {} as any, clients: [] as any[],
+  invoke: vi.fn(), getUser: vi.fn(), readJob: vi.fn(), job: {} as any, clients: [] as any[], serverJobs: [] as any[],
   success: vi.fn(), error: vi.fn(), loading: vi.fn(() => "toast"), dismiss: vi.fn(),
 }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {
   auth: { getUser: mocks.getUser }, functions: { invoke: mocks.invoke },
   from: (table: string) => {
     const query: any = {
-      select: () => query, eq: () => query, order: () => query, limit: () => query,
+      select: () => query, eq: () => query, in: () => query, order: () => query, limit: () => query,
       maybeSingle: async () => table === "fin_negociacao_jobs" ? mocks.readJob() : ({ data: null, error: null }),
-      then: (resolve: (r: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve),
+      then: (resolve: (r: unknown) => unknown) => Promise.resolve({ data: table === "fin_negociacao_jobs" ? mocks.serverJobs : [], error: null }).then(resolve),
     };
     return query;
   },
@@ -40,6 +40,7 @@ describe("recuperação da negociação pela página real", () => {
     mocks.job = { status: "concluido", erro_count: 0, resultado: { success: true, integrity_verified: true, results: [], pendencias: [] } };
     mocks.readJob.mockImplementation(async () => ({ data: mocks.job, error: null }));
     mocks.clients = [];
+    mocks.serverJobs = [];
     mocks.invoke.mockImplementation(async (_name, options) => options.body.action === "enqueue" ? { data: { success: true, job_id: "job-1", status: "pendente" }, error: null } : { data: { clients: mocks.clients }, error: null });
   });
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -189,6 +190,26 @@ describe("recuperação da negociação pela página real", () => {
     fireEvent.click(button);
     await waitFor(() => expect(mocks.success).toHaveBeenCalled());
     expect(mocks.invoke.mock.calls.filter(([, options]) => options.body?.action === "resume")[0][1].body).toEqual({ action: "resume", job_id: "job-1" });
+    expect(enqueueCalls()).toHaveLength(0);
+  });
+
+  it("retoma um job recuperado do servidor, sem rascunho local, e continua acompanhando", async () => {
+    mocks.serverJobs = [{ id: "job-1", status: "erro" }];
+    mocks.job = { status: "erro", erro_count: 1, erro_msg: "OS 1000: após a liberação financeira o GC mostra situação 7116099", resultado: { success: false } };
+    mocks.invoke.mockImplementation(async (_name, options) => {
+      if (options.body.action === "resume") {
+        mocks.job = { status: "concluido", erro_count: 0, resultado: { success: true, integrity_verified: true, pendencias: [], results: [] } };
+        return { data: { job_id: "job-1" }, error: null };
+      }
+      return { data: { clients: [] }, error: null };
+    });
+    mount();
+    const button = await screen.findByRole("button", { name: "Retomar conferência" });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
+    await waitFor(() => expect(mocks.success).toHaveBeenCalledWith("Negociação concluída e composição conferida."));
+    expect(mocks.invoke.mock.calls.filter(([, options]) => options.body?.action === "resume")).toHaveLength(1);
+    expect(mocks.error.mock.calls.flat().some(message => /Cannot read|os_map|undefined/.test(String(message)))).toBe(false);
     expect(enqueueCalls()).toHaveLength(0);
   });
 });

@@ -37,16 +37,42 @@ function requiredReceiptPayload(raw: RecordData): RecordData {
   return result;
 }
 
-const osKeys = ["tipo", "codigo", "cliente_id", "data", "vendedor_id", "tecnico_id", "saida", "previsao_entrega", "transportadora_id", "centro_custo_id", "aos_cuidados_de", "validade", "introducao", "observacoes", "observacoes_interna", "valor_frete", "desconto", "condicao_pagamento", "forma_pagamento_id", "data_primeira_parcela", "numero_parcelas", "intervalo_dias", "equipamentos", "pagamentos", "produtos", "servicos", "campos_personalizados", "campos_customizados", "campos_extras", "atributos"];
-function osPayload(raw: RecordData, technicalUser: string): RecordData {
+// The ERP names the header discount `desconto_valor`/`desconto_porcentagem`; a PUT without them zeroes the
+// discount while keeping `valor_total`, and the next payment plan is then refused ("está faltando X").
+const osKeys = ["tipo", "codigo", "cliente_id", "data", "vendedor_id", "tecnico_id", "saida", "previsao_entrega", "transportadora_id", "centro_custo_id", "aos_cuidados_de", "validade", "introducao", "observacoes", "observacoes_interna", "valor_frete", "desconto_valor", "desconto_porcentagem", "condicao_pagamento", "forma_pagamento_id", "data_primeira_parcela", "numero_parcelas", "intervalo_dias", "equipamentos", "pagamentos", "produtos", "servicos", "campos_personalizados", "campos_customizados", "campos_extras", "atributos"];
+const lineCents = (lines: unknown, wrapper: string) => (Array.isArray(lines) ? lines : []).reduce((sum: number, item: any) => sum + negotiationCents((item?.[wrapper] ?? item)?.valor_total ?? 0), 0);
+export function osLinesCents(raw: RecordData): number {
+  return lineCents(raw.produtos, "produto") + lineCents(raw.servicos, "servico") + negotiationCents(raw.valor_frete ?? 0);
+}
+// GC recomputes the order value as lines + freight - header discount whenever a payment plan is sent, so the
+// header discount must travel explicitly and reconcile with `valor_total`. When the ERP already dropped it
+// (earlier PUT without the field), the planned snapshot restores it; any other mismatch stops the execution.
+export function osHeaderDiscount(raw: RecordData, snapshot?: RecordData): { desconto_valor: string; desconto_porcentagem: string } {
+  const total = negotiationCents(raw.valor_total);
+  const current = negotiationCents(raw.desconto_valor ?? 0);
+  // Without any line array there is nothing to reconcile against; the current header values pass through.
+  if (!Array.isArray(raw.produtos) && !Array.isArray(raw.servicos)) return { desconto_valor: money(current), desconto_porcentagem: String(raw.desconto_porcentagem ?? "0.00") };
+  const lines = osLinesCents(raw);
+  const expected = lines - total;
+  if (expected >= 0 && current === expected) return { desconto_valor: money(expected), desconto_porcentagem: String(raw.desconto_porcentagem ?? "0.00") };
+  if (expected >= 0 && snapshot && negotiationCents(snapshot.desconto_valor ?? 0) === expected) return { desconto_valor: money(expected), desconto_porcentagem: String(snapshot.desconto_porcentagem ?? "0.00") };
+  throw new Error(`OS ${raw.codigo ?? raw.id}: total R$ ${money(total)} não fecha com itens+frete R$ ${money(lines)} e desconto R$ ${money(current)} no GC; corrigir a OS antes de continuar.`);
+}
+export function osConsistent(raw: RecordData, totalCents?: number): boolean {
+  try { osHeaderDiscount(raw); } catch { return false; }
+  return totalCents === undefined || negotiationCents(raw.valor_total) === totalCents;
+}
+function osPayload(raw: RecordData, technicalUser: string, snapshot?: RecordData): RecordData {
   const result: RecordData = { usuario_id: technicalUser };
   for (const key of osKeys) if (raw[key] != null && raw[key] !== "") result[key] = raw[key];
   if (Array.isArray(raw.atributos)) result.atributos = raw.atributos.map((wrapper: any) => {
     const attribute = wrapper.atributo ?? wrapper;
     return { atributo: { atributo_id: String(attribute.atributo_id ?? attribute.id), conteudo: String(attribute.conteudo ?? "") } };
   });
+  Object.assign(result, osHeaderDiscount(raw, snapshot));
   return result;
 }
+const describeOs = (raw: RecordData) => `situação ${raw?.situacao_id ?? "?"}${raw?.nome_situacao ? ` (${raw.nome_situacao})` : ""}, pagamentos [${(raw?.pagamentos ?? []).map(unwrap).map((p: any) => `R$ ${money(negotiationCents(p.valor ?? 0))} em ${String(p.data_vencimento ?? "").slice(0, 10)}`).join("; ") || "nenhum"}]`;
 
 export async function executeNegotiation(deps: Dependencies) {
   const { supabase, job, gcFetch: gc, resolveOsTotal, technicalUser } = deps;
@@ -223,13 +249,17 @@ export async function executeNegotiation(deps: Dependencies) {
     } }));
     const endpoint = `/api/ordens_servicos/${origin.id}`;
     const stageAKey = `${origin.key}:A`, stageBKey = `${origin.key}:B`, stageCKey = `${origin.key}:C`;
+    const plannedText = segments.map((segment) => `R$ ${money(segment.cents)} em ${segment.date}`).join("; ");
+    const divergence = (raw: RecordData, moment: string) => new Error(`OS ${origin.codigo}: ${moment} o GC mostra ${describeOs(raw)}; plano persistido: situação 7063724, pagamentos [${plannedText}]. Conferir a OS no GC antes de retomar.`);
     // Completed stages must not replay old statuses when resuming a later stage.
     if (!state.steps[stageAKey]) {
       const fresh = await getOS(origin.id);
       if (String(fresh.cliente_id) !== client || String(fresh.situacao_id) !== "7116099" || negotiationCents(fresh.valor_total) !== origin.availableCents) throw new Error("OS mudou desde a validação inicial; negociação interrompida.");
-      await mutation(stageAKey, endpoint, "PUT", { ...osPayload(fresh, technicalUser), situacao_id: "8896431" }, (r) => String(r?.id) === origin.id && String(r.situacao_id) === "8896431");
+      await mutation(stageAKey, endpoint, "PUT", { ...osPayload(fresh, technicalUser, original), situacao_id: "8896431" }, (r) => String(r?.id) === origin.id && String(r.situacao_id) === "8896431" && osConsistent(r, origin.availableCents));
     } else if (state.steps[stageAKey].status !== "verified" && !state.steps[stageBKey]) {
-      await mutation(stageAKey, endpoint, "PUT", state.steps[stageAKey].payload, (r) => String(r?.id) === origin.id && String(r.situacao_id) === "8896431");
+      // Rebuilt from the current OS (not the journaled payload) so a payload written before the header
+      // discount was carried cannot zero the discount again on retry.
+      await mutation(stageAKey, endpoint, "PUT", { ...osPayload(await getOS(origin.id), technicalUser, original), situacao_id: "8896431" }, (r) => String(r?.id) === origin.id && String(r.situacao_id) === "8896431" && osConsistent(r, origin.availableCents));
     }
     const verifyPayments = (raw: RecordData) => {
       const actual = (raw?.pagamentos ?? []).map(unwrap);
@@ -237,17 +267,18 @@ export async function executeNegotiation(deps: Dependencies) {
     };
     if (!state.steps[stageBKey] || state.steps[stageBKey].status !== "verified") {
       const fresh = await getOS(origin.id);
-      // "a_vista" makes the ERP ignore data_primeira_parcela and keep the entry-date payment,
-      // so a single negotiated installment is also sent as an explicit one-installment plan.
-      await mutation(stageBKey, endpoint, "PUT", { ...osPayload(fresh, technicalUser), situacao_id: "8896431", data_primeira_parcela: segments[0].date, numero_parcelas: String(payments.length), condicao_pagamento: "parcelado", intervalo_dias: "30", pagamentos: payments }, verifyPayments);
+      if (negotiationCents(fresh.valor_total) !== origin.availableCents) throw new Error(`OS ${origin.codigo}: total no GC (R$ ${money(negotiationCents(fresh.valor_total))}) difere do plano (R$ ${money(origin.availableCents)}); negociação interrompida.`);
+      // One installment keeps the ERP's proven single-payment contract (a_vista + explicit date); several
+      // installments are an explicit monthly plan. The payment list is always sent and verified afterwards.
+      const single = payments.length === 1;
+      await mutation(stageBKey, endpoint, "PUT", { ...osPayload(fresh, technicalUser, original), situacao_id: "8896431", forma_pagamento_id: payments[0].pagamento.forma_pagamento_id, data_primeira_parcela: segments[0].date, numero_parcelas: String(payments.length), condicao_pagamento: single ? "a_vista" : "parcelado", intervalo_dias: single ? "0" : "30", pagamentos: payments }, (r) => verifyPayments(r) && osConsistent(r, origin.availableCents));
     }
-    if (!state.steps[stageCKey] || state.steps[stageCKey].status !== "verified") {
-      const fresh = await getOS(origin.id);
-      if (!verifyPayments(fresh)) throw new Error("Plano de pagamentos da OS mudou antes da liberação financeira.");
-      await mutation(stageCKey, endpoint, "PUT", { ...osPayload(fresh, technicalUser), situacao_id: "7063724" }, (r) => verifyPayments(r) && String(r.situacao_id) === "7063724");
-    }
-    const currentOS = await getOS(origin.id);
-    if (!verifyPayments(currentOS) || String(currentOS.situacao_id) !== "7063724") throw new Error("OS final diverge do plano persistido.");
+    // The release PUT is idempotent on the OS: when a verified release was undone by hand (status moved back)
+    // while the payment plan is intact, it is re-applied and re-verified instead of failing without detail.
+    const beforeRelease = await getOS(origin.id);
+    if (!verifyPayments(beforeRelease)) throw divergence(beforeRelease, "antes da liberação financeira");
+    const currentOS = await mutation(stageCKey, endpoint, "PUT", { ...osPayload(beforeRelease, technicalUser, original), situacao_id: "7063724" }, (r) => verifyPayments(r) && String(r.situacao_id) === "7063724" && osConsistent(r, origin.availableCents));
+    if (!verifyPayments(currentOS) || String(currentOS.situacao_id) !== "7063724") throw divergence(currentOS, "após a liberação financeira");
     const receipts = await listReceipts();
     const originReceipts = receipts.filter((r) => String(r.cliente_id) === client && (belongsToOS(r, origin) || String(r.descricao ?? "").includes(`WEDO:${job.id}:${origin.key}:`)));
     if (originReceipts.length !== segments.length || originReceipts.some((r) => !explicitlyOpen(r)) || originReceipts.reduce((sum, r) => sum + receiptCents(r), 0) !== origin.availableCents) throw new Error(`OS ${origin.codigo}: quantidade ou saldo dos títulos gerados não fecha com a origem.`);

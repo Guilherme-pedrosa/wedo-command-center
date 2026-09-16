@@ -540,7 +540,8 @@ export default function NegociacaoOSPage() {
       if (pending?.job_id !== pendingJob && serverRecoveredJob.current !== pendingJob) throw new Error("Não foi possível confirmar a identidade do pedido salvo.");
       const { error } = await supabase.functions.invoke("negotiate-os", { body: { action: "resume", job_id: pendingJob } });
       if (error) throw error;
-      await watchJob(pendingJob, data.user.id, pending.os_map || {});
+      // A job recovered from the server has no local draft: the watcher must still start.
+      await watchJob(pendingJob, data.user.id, pending?.os_map || {});
     } catch (error) { toast.error(await extractFnError(error, "Não foi possível retomar a conferência")); }
     finally { setExecuting(false); }
   };

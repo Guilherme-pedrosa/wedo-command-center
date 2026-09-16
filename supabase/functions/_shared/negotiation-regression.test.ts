@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildNegotiationPlan, negotiationDueDates } from "./negotiation-plan.ts";
-import { executeNegotiation, receiptOsCodes } from "./negotiation-execution.ts";
+import { buildNegotiationPlan, negotiationDueDates, negotiationResidualDate } from "./negotiation-plan.ts";
+import { executeNegotiation, osConsistent, osHeaderDiscount, receiptOsCodes } from "./negotiation-execution.ts";
 import { residualScanDecision, scanNegotiationResiduals } from "./negotiation-scan.ts";
 import { financialActor } from "./financial-auth.ts";
 import { negotiationRequest } from "./negotiation-service.ts";
@@ -143,7 +143,7 @@ function mixedFixture() {
     const query: any = { select: () => query, eq: () => query, then: (resolve: any, reject: any) => Promise.resolve({ data: [{ origin_key: "os:10", estado: "reservado" }, { origin_key: "residual:res-1", estado: "reservado" }], error: null }).then(resolve, reject) };
     return query;
   };
-  const os: any = { id: "10", codigo: "1000", cliente_id: "42", tipo: "servico", data: "2026-09-01", valor_total: "600.00", situacao_id: "7116099", atributos: [{ atributo: { atributo_id: "77", conteudo: "Preservado" } }], pagamentos: [{ pagamento: { data_vencimento: "2026-09-30", valor: "600.00", forma_pagamento_id: "2", plano_contas_id: "1" } }] };
+  const os: any = { id: "10", codigo: "1000", cliente_id: "42", tipo: "servico", data: "2026-09-01", valor_total: "600.00", valor_frete: "0.00", desconto_valor: "0.00", desconto_porcentagem: "0.00", situacao_id: "7116099", servicos: [{ servico: { servico_id: "s1", quantidade: "1.0000", valor_venda: "600.0000", valor_total: "600.00" } }], atributos: [{ atributo: { atributo_id: "77", conteudo: "Preservado" } }], pagamentos: [{ pagamento: { data_vencimento: "2026-09-30", valor: "600.00", forma_pagamento_id: "2", plano_contas_id: "1" } }] };
   const originalGC = f.deps.gcFetch;
   const control: any = { wrongIdentity: false, extraReceipt: false, failOsPut: false };
   f.deps.gcFetch = async (endpoint: string, method = "GET", payload?: any) => {
@@ -231,4 +231,140 @@ test("uncertain enqueue keeps request identity while confirmed rollback may rele
     assert.equal(body.pending_reconciliation, pending);
     assert.equal(fetches, 0);
   }
+});
+
+// Mirrors the ERP contract observed on 16/09/2026: a PUT without `desconto_valor` zeroes the header discount
+// but keeps `valor_total`; a payment plan whose total differs from lines + freight - discount is refused.
+function discountFixture(options: { parts?: number; osState?: Record<string, any>; steps?: Record<string, any>; withPlan?: boolean } = {}) {
+  const parts = options.parts ?? 1;
+  const f = fixture(510.84, parts);
+  f.deps.job.payload = { cliente_gc_id: "42", os_ids: ["10"], residual_ids: [], valor_negociado: 510.84, parcelas: parts, dia_vencimento: 18, mes_inicio: "2026-09" };
+  const oldFrom = f.deps.supabase.from;
+  f.deps.supabase.from = (table: string) => {
+    if (table !== "fin_negociacao_reservas") return oldFrom(table);
+    const query: any = { select: () => query, eq: () => query, then: (resolve: any, reject: any) => Promise.resolve({ data: [{ origin_key: "os:10", estado: "reservado" }], error: null }).then(resolve, reject) };
+    return query;
+  };
+  const snapshot: any = {
+    id: "10", codigo: "1000", cliente_id: "42", tipo: "servico", data: "2026-09-01", situacao_id: "7116099", nome_situacao: "EXECUTADO - AGUARDANDO NEGOCIAÇÃO FINANCEIRA",
+    valor_total: "510.84", valor_produtos: "128.80", valor_servicos: "439.00", valor_frete: "0.00", desconto_valor: "56.96", desconto_porcentagem: "0.00", condicao_pagamento: "a_vista", forma_pagamento_id: "", numero_parcelas: "",
+    produtos: [{ produto: { produto_id: "p1", quantidade: "1.0000", valor_venda: "128.8000", valor_total: "128.80", desconto_valor: "0.0000" } }],
+    servicos: [{ servico: { servico_id: "s1", quantidade: "1.0000", valor_venda: "439.0000", valor_total: "439.00" } }],
+    atributos: [{ atributo: { atributo_id: "77", conteudo: "Preservado" } }],
+    pagamentos: [{ pagamento: { data_vencimento: "2026-09-01", valor: "510.84", forma_pagamento_id: "2", plano_contas_id: "1" } }],
+  };
+  const os: any = structuredClone({ ...snapshot, ...(options.osState ?? {}) });
+  const dates = negotiationDueDates("2026-09", 18, parts);
+  if (options.withPlan) {
+    const plan = buildNegotiationPlan([{ key: "os:10", availableCents: 51084 }], 51084, undefined, parts);
+    f.deps.job.execution_state = { plan: { dates, residualDate: negotiationResidualDate(dates[dates.length - 1]), ...plan, sources: [{ key: "os:10", id: "10", kind: "os", codigo: "1000", os_codigos: ["1000"], raw: structuredClone(snapshot), availableCents: 51084 }] }, steps: structuredClone(options.steps ?? {}) };
+  }
+  const cents = (v: unknown) => Math.round(Number(v) * 100);
+  const originalGC = f.deps.gcFetch;
+  f.deps.gcFetch = async (endpoint: string, method = "GET", payload?: any) => {
+    if (!endpoint.startsWith("/api/ordens_servicos")) return originalGC(endpoint, method, payload);
+    if (method === "PUT") {
+      f.db.writes.push({ method, endpoint, payload });
+      const lines = [...(payload.produtos ?? []).map((w: any) => w.produto), ...(payload.servicos ?? []).map((w: any) => w.servico)].reduce((sum: number, line: any) => sum + cents(line.valor_total), 0) + cents(payload.valor_frete ?? 0);
+      const discount = payload.desconto_valor === undefined ? 0 : cents(payload.desconto_valor);
+      if (payload.numero_parcelas !== undefined && Array.isArray(payload.pagamentos)) {
+        const planned = payload.pagamentos.reduce((sum: number, w: any) => sum + cents(w.pagamento.valor), 0);
+        if (lines - discount !== planned) throw new Error(`GC PUT ${endpoint} falhou (HTTP 404): O valor do pedido não pode ser diferente do valor das parcelas, está faltando ${((lines - discount - planned) / 100).toFixed(2)}`);
+      }
+      Object.assign(os, payload, { desconto_valor: (discount / 100).toFixed(2), valor_total: os.valor_total });
+      if (String(os.situacao_id) === "7063724") os.pagamentos.forEach((wrapper: any, index: number) => {
+        const p = wrapper.pagamento;
+        const id = String(300 + index);
+        f.receipts.set(id, { ...f.receipts.get("100"), ...p, id, codigo: id, valor_total: p.valor, cliente_id: "42", descricao: `Ordem de serviço de nº 1000 (${index + 1}/${os.pagamentos.length})`, observacao: "" });
+      });
+    }
+    return { data: structuredClone(os) };
+  };
+  return { ...f, os, snapshot, dates };
+}
+
+test("header discount is reconciled from lines and restored from the plan only when it explains the total", () => {
+  const raw = { codigo: "1000", valor_total: "510.84", valor_frete: "0.00", desconto_valor: "56.96", produtos: [{ produto: { valor_total: "128.80" } }], servicos: [{ servico: { valor_total: "439.00" } }] };
+  assert.deepEqual(osHeaderDiscount(raw), { desconto_valor: "56.96", desconto_porcentagem: "0.00" });
+  assert.deepEqual(osHeaderDiscount({ ...raw, desconto_valor: "0.00" }, raw), { desconto_valor: "56.96", desconto_porcentagem: "0.00" });
+  assert.throws(() => osHeaderDiscount({ ...raw, desconto_valor: "0.00" }), /total R\$ 510\.84 não fecha.*567\.80/);
+  assert.throws(() => osHeaderDiscount({ ...raw, desconto_valor: "0.00" }, { ...raw, desconto_valor: "10.00" }), /não fecha/);
+  assert.equal(osConsistent(raw, 51084), true);
+  assert.equal(osConsistent({ ...raw, desconto_valor: "0.00" }, 51084), false);
+  assert.equal(osConsistent(raw, 51085), false);
+  assert.deepEqual(osHeaderDiscount({ valor_total: "600.00" }), { desconto_valor: "0.00", desconto_porcentagem: "0.00" });
+});
+
+test("OS header discount travels with every PUT and a single installment keeps the proven a_vista contract", async () => {
+  const f = discountFixture();
+  const result = await executeNegotiation(f.deps);
+  assert.equal(result.integrity_verified, true);
+  assert.equal(f.os.desconto_valor, "56.96");
+  assert.equal(f.os.situacao_id, "7063724");
+  const puts = f.db.writes.filter((w: any) => w.endpoint === "/api/ordens_servicos/10");
+  assert.equal(puts.length, 3);
+  assert.ok(puts.every((w: any) => w.payload.desconto_valor === "56.96"));
+  assert.equal(puts[1].payload.condicao_pagamento, "a_vista");
+  assert.equal(puts[1].payload.intervalo_dias, "0");
+  assert.equal(puts[1].payload.numero_parcelas, "1");
+  assert.equal(puts[1].payload.data_primeira_parcela, "2026-09-18");
+  assert.equal(puts[1].payload.forma_pagamento_id, "2");
+  assert.deepEqual(f.db.plan.parcelas.map((p: any) => p.valor_cents), [51084]);
+});
+
+test("several installments are sent as an explicit monthly plan with the header discount preserved", async () => {
+  const f = discountFixture({ parts: 2 });
+  await executeNegotiation(f.deps);
+  const stageB = f.db.writes.filter((w: any) => w.endpoint === "/api/ordens_servicos/10")[1].payload;
+  assert.equal(stageB.condicao_pagamento, "parcelado");
+  assert.equal(stageB.intervalo_dias, "30");
+  assert.equal(stageB.numero_parcelas, "2");
+  assert.equal(stageB.desconto_valor, "56.96");
+  assert.deepEqual(stageB.pagamentos.map((w: any) => w.pagamento.data_vencimento), ["2026-09-18", "2026-10-18"]);
+  assert.deepEqual(f.db.plan.parcelas.map((p: any) => p.valor_cents), [25542, 25542]);
+  assert.equal(f.os.desconto_valor, "56.96");
+});
+
+test("resuming after the ERP dropped the header discount restores it from the persisted plan", async () => {
+  const stageA = { status: "verified", method: "PUT", endpoint: "/api/ordens_servicos/10", payload: { situacao_id: "8896431" }, started_at: "2026-09-16T13:50:55.845Z" };
+  const stageB = { status: "dispatching", method: "PUT", endpoint: "/api/ordens_servicos/10", payload: { situacao_id: "8896431", condicao_pagamento: "a_vista" }, started_at: "2026-09-16T13:50:57.903Z" };
+  const f = discountFixture({ withPlan: true, steps: { "os:10:A": stageA, "os:10:B": stageB }, osState: { situacao_id: "8896431", desconto_valor: "0.00" } });
+  const result = await executeNegotiation(f.deps);
+  assert.equal(result.integrity_verified, true);
+  const puts = f.db.writes.filter((w: any) => w.endpoint === "/api/ordens_servicos/10");
+  assert.equal(puts.length, 2);
+  assert.equal(puts[0].payload.desconto_valor, "56.96");
+  assert.equal(puts[0].payload.numero_parcelas, "1");
+  assert.equal(f.os.desconto_valor, "56.96");
+  assert.equal(f.os.situacao_id, "7063724");
+});
+
+test("a release undone by hand is re-applied when the payment plan is intact", async () => {
+  const verified = (situacao: string) => ({ status: "verified", method: "PUT", endpoint: "/api/ordens_servicos/10", payload: { situacao_id: situacao }, started_at: "2026-09-16T14:22:32.194Z" });
+  const planned = [{ pagamento: { data_vencimento: "2026-09-18", valor: "510.84", forma_pagamento_id: "2", plano_contas_id: "1", observacao: "" } }];
+  const f = discountFixture({ withPlan: true, steps: { "os:10:A": verified("8896431"), "os:10:B": verified("8896431"), "os:10:C": verified("7063724") }, osState: { situacao_id: "7116099", condicao_pagamento: "a_vista", numero_parcelas: "1", data_primeira_parcela: "2026-09-18", pagamentos: planned } });
+  const result = await executeNegotiation(f.deps);
+  assert.equal(result.integrity_verified, true);
+  const puts = f.db.writes.filter((w: any) => w.endpoint === "/api/ordens_servicos/10");
+  assert.equal(puts.length, 1);
+  assert.equal(puts[0].payload.situacao_id, "7063724");
+  assert.equal(puts[0].payload.desconto_valor, "56.96");
+  assert.equal(f.os.situacao_id, "7063724");
+  assert.equal(f.db.plan.parcelas[0].items.length, 1);
+});
+
+test("payments changed after the release are reported with the OS code and both states, without writes", async () => {
+  const verified = (situacao: string) => ({ status: "verified", method: "PUT", endpoint: "/api/ordens_servicos/10", payload: { situacao_id: situacao }, started_at: "2026-09-16T14:22:32.194Z" });
+  const changed = [{ pagamento: { data_vencimento: "2026-10-01", valor: "510.84", forma_pagamento_id: "2", plano_contas_id: "1" } }];
+  const f = discountFixture({ withPlan: true, steps: { "os:10:A": verified("8896431"), "os:10:B": verified("8896431"), "os:10:C": verified("7063724") }, osState: { situacao_id: "7063724", pagamentos: changed } });
+  await assert.rejects(() => executeNegotiation(f.deps), (error: Error) => /OS 1000/.test(error.message) && /2026-10-01/.test(error.message) && /2026-09-18/.test(error.message) && /7063724/.test(error.message));
+  assert.equal(f.db.writes.length, 0);
+  assert.equal(f.db.plan, null);
+});
+
+test("an OS whose total no longer closes with its lines stops before any write", async () => {
+  const f = discountFixture({ osState: { desconto_valor: "0.00" } });
+  await assert.rejects(() => executeNegotiation(f.deps), /OS 1000: total R\$ 510\.84 não fecha/);
+  assert.equal(f.db.writes.length, 0);
+  assert.equal(f.db.plan, null);
 });

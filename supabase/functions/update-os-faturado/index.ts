@@ -31,7 +31,9 @@ const SAFE_PASSTHROUGH = [
   "vendedor_id", "tecnico_id", "saida", "previsao_entrega",
   "transportadora_id", "centro_custo_id", "aos_cuidados_de",
   "validade", "introducao", "observacoes", "observacoes_interna",
-  "valor_frete", "equipamentos", "produtos", "servicos",
+  // Header discount travels with the payload: a PUT without it zeroes the GC discount
+  // and leaves valor_total inconsistent with the lines (see negotiation-execution.ts).
+  "valor_frete", "desconto_valor", "desconto_porcentagem", "equipamentos", "produtos", "servicos",
   "campos_personalizados", "campos_customizados", "campos_extras",
   "atributos",
 ];
