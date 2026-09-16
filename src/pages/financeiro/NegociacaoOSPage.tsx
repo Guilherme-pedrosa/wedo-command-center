@@ -136,6 +136,7 @@ export default function NegociacaoOSPage() {
   const recoveryStarted = useRef(false);
   const jobWatcher = useRef<AbortController | null>(null);
   const mounted = useRef(true);
+  const serverRecoveredJob = useRef<string | null>(null);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; jobWatcher.current?.abort(); };
