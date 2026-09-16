@@ -136,6 +136,7 @@ export default function NegociacaoOSPage() {
   const recoveryStarted = useRef(false);
   const jobWatcher = useRef<AbortController | null>(null);
   const mounted = useRef(true);
+  const serverRecoveredJob = useRef<string | null>(null);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; jobWatcher.current?.abort(); };
@@ -492,7 +493,20 @@ export default function NegociacaoOSPage() {
       const { data } = await supabase.auth.getUser();
       if (!data.user || !mounted.current) return;
       const saved = localStorage.getItem(pendingStorageKey(data.user.id));
-      if (!saved) return;
+      if (!saved) {
+        // Outro navegador/sessão: o pedido continua salvo no servidor e precisa reaparecer para conferência.
+        const { data: jobs } = await supabase.from("fin_negociacao_jobs")
+          .select("id, status")
+          .eq("created_by", data.user.id)
+          .in("status", ["pendente", "processando", "erro", "pendente_conferencia"])
+          .order("created_at", { ascending: false })
+          .limit(1);
+        const job = jobs?.[0];
+        if (!job || !mounted.current) return;
+        serverRecoveredJob.current = job.id;
+        await watchJob(job.id, data.user.id, {});
+        return;
+      }
       const pending = JSON.parse(saved);
       if (!pending.idempotency_key || !pending.payload) return;
       setExecuting(true); setPendingJob(pending.job_id || "Confirmação do envio pendente");
@@ -523,7 +537,7 @@ export default function NegociacaoOSPage() {
       if (!data.user) throw new Error("Sessão expirada.");
       const stored = localStorage.getItem(pendingStorageKey(data.user.id));
       const pending = stored ? JSON.parse(stored) : null;
-      if (pending?.job_id !== pendingJob) throw new Error("Não foi possível confirmar a identidade do pedido salvo.");
+      if (pending?.job_id !== pendingJob && serverRecoveredJob.current !== pendingJob) throw new Error("Não foi possível confirmar a identidade do pedido salvo.");
       const { error } = await supabase.functions.invoke("negotiate-os", { body: { action: "resume", job_id: pendingJob } });
       if (error) throw error;
       await watchJob(pendingJob, data.user.id, pending.os_map || {});
