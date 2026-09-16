@@ -537,7 +537,7 @@ export default function NegociacaoOSPage() {
       if (!data.user) throw new Error("Sessão expirada.");
       const stored = localStorage.getItem(pendingStorageKey(data.user.id));
       const pending = stored ? JSON.parse(stored) : null;
-      if (pending?.job_id !== pendingJob) throw new Error("Não foi possível confirmar a identidade do pedido salvo.");
+      if (pending?.job_id !== pendingJob && serverRecoveredJob.current !== pendingJob) throw new Error("Não foi possível confirmar a identidade do pedido salvo.");
       const { error } = await supabase.functions.invoke("negotiate-os", { body: { action: "resume", job_id: pendingJob } });
       if (error) throw error;
       await watchJob(pendingJob, data.user.id, pending.os_map || {});
