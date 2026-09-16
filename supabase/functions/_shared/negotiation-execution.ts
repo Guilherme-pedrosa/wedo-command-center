@@ -237,7 +237,9 @@ export async function executeNegotiation(deps: Dependencies) {
     };
     if (!state.steps[stageBKey] || state.steps[stageBKey].status !== "verified") {
       const fresh = await getOS(origin.id);
-      await mutation(stageBKey, endpoint, "PUT", { ...osPayload(fresh, technicalUser), situacao_id: "8896431", data_primeira_parcela: segments[0].date, numero_parcelas: String(payments.length), condicao_pagamento: payments.length > 1 ? "parcelado" : "a_vista", intervalo_dias: payments.length > 1 ? "30" : "0", pagamentos: payments }, verifyPayments);
+      // "a_vista" makes the ERP ignore data_primeira_parcela and keep the entry-date payment,
+      // so a single negotiated installment is also sent as an explicit one-installment plan.
+      await mutation(stageBKey, endpoint, "PUT", { ...osPayload(fresh, technicalUser), situacao_id: "8896431", data_primeira_parcela: segments[0].date, numero_parcelas: String(payments.length), condicao_pagamento: "parcelado", intervalo_dias: "30", pagamentos: payments }, verifyPayments);
     }
     if (!state.steps[stageCKey] || state.steps[stageCKey].status !== "verified") {
       const fresh = await getOS(origin.id);
