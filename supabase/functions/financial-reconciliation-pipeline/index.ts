@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { deveAguardar, janelaIncremental } from "../_shared/inter-sync-policy.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -19,9 +20,35 @@ serve(async (req) => {
   const supabase = createClient(supabaseUrl, serviceKey);
   const body = await req.json().catch(() => ({}));
   const today = new Date().toISOString().slice(0, 10);
-  const inferredStart = new Date(Date.now() - 89 * 86400000).toISOString().slice(0, 10);
-  const dataInicio = String(body.dataInicio ?? inferredStart);
+
+  // Janela incremental. Antes era "hoje − 89 dias" fixo, sem cursor: cada
+  // corrida (duas crons, a cada ~15 min) relia um trimestre de extrato do
+  // Inter — 378 chamadas em 24 h — e foi isso que levou o Inter a devolver
+  // 429 no OAuth por horas em 17/09/2026. Agora recomeça 3 dias antes do
+  // último pipeline bem-sucedido; sem sucesso anterior, 7 dias.
+  // dataInicio explícito (importação manual pela tela) continua mandando.
+  let janelaMotivo = "dataInicio informado pelo chamador";
+  let inferredStart: string;
+  if (body.dataInicio) {
+    inferredStart = String(body.dataInicio);
+  } else {
+    const { data: ultimoOk } = await supabase.from("fin_sync_log")
+      .select("payload")
+      .eq("tipo", "financial_reconciliation_pipeline")
+      .eq("status", "success")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const janela = janelaIncremental({
+      hoje: today,
+      ultimoSucessoFim: (ultimoOk?.payload as { dataFim?: string } | null)?.dataFim ?? null,
+    });
+    inferredStart = janela.dataInicio;
+    janelaMotivo = janela.motivo;
+  }
+  const dataInicio = inferredStart;
   const dataFim = String(body.dataFim ?? today);
+  console.log(`[pipeline] janela ${dataInicio} → ${dataFim} (${janelaMotivo})`);
   const rootDataInicio = String(body.root_data_inicio ?? dataInicio);
   const existingJobId = typeof body.job_id === "string" ? body.job_id : null;
   const jobId = existingJobId ?? crypto.randomUUID();
@@ -40,19 +67,23 @@ serve(async (req) => {
 
   if (!existingJobId && !force) {
     const recentFloor = new Date(Date.now() - 25 * 60 * 1000).toISOString();
+    // Inclui "error" de propósito: um pipeline que falha na conciliação já
+    // bateu no Inter na etapa do extrato. Reagendá-lo quatro vezes por hora
+    // era o que mantinha o 429 aceso — 92 corridas em erro em 24 h.
     const { data: recent } = await supabase.from("fin_sync_log")
       .select("id,status,created_at")
       .eq("tipo", "financial_reconciliation_pipeline")
-      .in("status", ["running", "success"])
+      .in("status", ["running", "success", "error"])
       .gte("created_at", recentFloor)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (recent) {
+    const espera = deveAguardar(recent ?? null, Date.now());
+    if (recent && espera.aguardar) {
       return jsonResponse({
         success: true,
         skipped: true,
-        reason: "pipeline recente já executado ou em andamento",
+        reason: espera.motivo,
         job_id: recent.id,
         status: recent.status,
       });

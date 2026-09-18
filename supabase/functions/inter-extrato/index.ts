@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { decidirRetry } from "../_shared/inter-sync-policy.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -122,26 +123,48 @@ function splitMonthlyChunks(dataInicio: string, dataFim: string): Array<{ start:
   return chunks;
 }
 
-/** Fetch with retries and backoff for rate limits (429, 500, 503) */
+/**
+ * Fetch com repetição guiada pela política de `_shared/inter-sync-policy`.
+ *
+ * A versão anterior repetia 4 vezes qualquer 429/500/503, por endpoint, com
+ * 4 endpoints por chunk e 4 chunks: quando o Inter limitava o OAuth, uma
+ * única corrida disparava até 64 pedidos de token e o bloqueio só crescia.
+ * Agora 429 com `retry_after` não se insiste, 500 ganha uma repetição e o
+ * status real do Inter fica em `ultimoStatusInter` para o log dizer a
+ * verdade em vez de "todos os endpoints falharam".
+ */
+let ultimoStatusInter: { status: number; retryAfterSeg: number | null; detalhe: string } | null = null;
+
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
   maxRetries = 3,
   label = ""
 ): Promise<Response> {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, options);
-    if (res.status === 429 || res.status === 500 || res.status === 503) {
-      if (attempt < maxRetries) {
-        const delay = (attempt + 1) * 2000; // 2s, 4s
-        console.warn(`[inter-extrato] ${label} → HTTP ${res.status}, aguardando ${delay / 1000}s (tentativa ${attempt + 1}/${maxRetries})...`);
-        await sleep(delay);
-        continue;
-      }
+    if (res.status < 400) return res;
+
+    // Lê o corpo uma vez para achar retry_after; devolve um Response novo
+    // com o mesmo corpo, porque o stream original já foi consumido.
+    const texto = await res.text();
+    let retryAfterSeg: number | null = null;
+    let detalhe = texto.slice(0, 200);
+    try {
+      const j = JSON.parse(texto);
+      if (typeof j?.retry_after_seconds === "number") retryAfterSeg = j.retry_after_seconds;
+      if (typeof j?.error === "string") detalhe = j.error;
+    } catch { /* corpo nao-JSON */ }
+    ultimoStatusInter = { status: res.status, retryAfterSeg, detalhe };
+
+    const d = decidirRetry(res.status, attempt, maxRetries, retryAfterSeg);
+    if (!d.tentar) {
+      console.warn(`[inter-extrato] ${label} → HTTP ${res.status}: ${d.motivo}`);
+      return new Response(texto, { status: res.status, headers: res.headers });
     }
-    return res;
+    console.warn(`[inter-extrato] ${label} → HTTP ${res.status}, ${d.motivo}, aguardando ${d.esperaMs / 1000}s`);
+    await sleep(d.esperaMs);
   }
-  return await fetch(url, options);
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -235,6 +258,7 @@ serve(async (req) => {
         },
       ];
 
+      ultimoStatusInter = null;
       for (const ep of ENDPOINTS) {
         try {
           console.log(`[inter-extrato] Tentando ${ep.label}...`);
@@ -335,9 +359,18 @@ serve(async (req) => {
       }
 
       if (!transacoes) {
-        console.warn(`[inter-extrato] Chunk ${chunk.start}→${chunk.end}: todos endpoints falharam, pulando...`);
+        // O motivo real importa: "429, aguarde 60 s" leva a uma ação; "todos
+        // falharam" só gera uma investigação de hora — foi o que aconteceu.
+        const u = ultimoStatusInter;
+        const motivo = u
+          ? `Inter HTTP ${u.status}${u.retryAfterSeg ? ` (retry_after ${u.retryAfterSeg}s)` : ""}: ${u.detalhe}`
+          : "Todos os endpoints do Inter falharam";
+        console.warn(`[inter-extrato] Chunk ${chunk.start}→${chunk.end}: ${motivo}, pulando...`);
         totalErrors++;
-        errorSamples.push({ chunk, error: "Todos os endpoints do Inter falharam" });
+        errorSamples.push({ chunk, error: motivo });
+        // Em 429, os próximos chunks vão bater no mesmo bloqueio. Parar aqui
+        // poupa o Inter e devolve o restante como pendente.
+        if (u?.status === 429) { truncado = true; break; }
         continue;
       }
 

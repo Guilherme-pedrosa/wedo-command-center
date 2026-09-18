@@ -11,10 +11,27 @@ const corsHeaders = {
 const INTER_HOST = "cdpj.partners.bancointer.com.br";
 const INTER_PORT = 443;
 
+import { cooldownAte } from "../_shared/inter-sync-policy.ts";
+
 // ─── Cache ─────────────────────────────────────────────────────
 let cachedCert: string | null = null;
 let cachedKey: string | null = null;
 const tokenCache: Record<string, { token: string; expiry: number }> = {};
+/**
+ * Até quando NÃO pedir token para cada scope, depois de um 429 no OAuth.
+ * Sem isto, cada chamada que chegava no meio do bloqueio pedia token de novo
+ * e alimentava o próprio 429 — foi o que segurou o Inter por horas em 17/09.
+ */
+const tokenCooldown: Record<string, number> = {};
+/** Pedido de token em andamento por scope: quem chega junto espera o mesmo. */
+const tokenEmVoo: Record<string, Promise<string> | undefined> = {};
+
+/** Erro do OAuth que carrega o status do Inter, para a resposta ser honesta. */
+class OAuthError extends Error {
+  constructor(public readonly status: number, public readonly retryAfterSeg: number | null) {
+    super(`OAuth failed (${status})`);
+  }
+}
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -199,7 +216,7 @@ async function makeHttpsRequest(
   body: string | null,
   cert: string,
   key: string
-): Promise<{ status: number; body: string }> {
+): Promise<{ status: number; body: string; headers: string }> {
   console.log(`[inter-proxy] Making ${method} request to ${path}`);
 
   // IMPORTANTE: usar "cert" e "key" (não "certChain"/"privateKey")
@@ -292,7 +309,7 @@ async function makeHttpsRequest(
     }
 
     console.log(`[inter-proxy] Response status: ${status}, body length: ${finalBody.length}`);
-    return { status, body: finalBody };
+    return { status, body: finalBody, headers: headersPart };
   } finally {
     conn.close();
   }
@@ -311,45 +328,72 @@ async function getToken(cert: string, key: string, scope: string): Promise<strin
   const cached = tokenCache[scope];
   if (cached && Date.now() < cached.expiry - 30_000) return cached.token;
 
-  const clientId     = (Deno.env.get("INTER_CLIENT_ID")     ?? "").trim();
-  const clientSecret = (Deno.env.get("INTER_CLIENT_SECRET") ?? "").trim();
-  if (!clientId || !clientSecret)
-    throw new Error("INTER_CLIENT_ID ou INTER_CLIENT_SECRET ausentes");
+  // Em cooldown: não bate no OAuth. Devolve 429 com quanto falta, para o
+  // chamador esperar em vez de repetir.
+  const ate = tokenCooldown[scope] ?? 0;
+  if (Date.now() < ate) {
+    throw new OAuthError(429, Math.ceil((ate - Date.now()) / 1000));
+  }
 
-  const bodyStr = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    grant_type: "client_credentials",
-    scope,
-  }).toString();
+  // Chamadas simultâneas partilham o mesmo pedido em vez de disparar N.
+  const emVoo = tokenEmVoo[scope];
+  if (emVoo) return emVoo;
 
-  console.log("[inter-proxy] OAuth via mTLS, scope:", scope);
+  const pedido = (async () => {
+    const clientId     = (Deno.env.get("INTER_CLIENT_ID")     ?? "").trim();
+    const clientSecret = (Deno.env.get("INTER_CLIENT_SECRET") ?? "").trim();
+    if (!clientId || !clientSecret)
+      throw new Error("INTER_CLIENT_ID ou INTER_CLIENT_SECRET ausentes");
 
-  const { status, body: resBody } = await makeHttpsRequest(
-    "POST",
-    "/oauth/v2/token",
-    { "Content-Type": "application/x-www-form-urlencoded" },
-    bodyStr,
-    cert,
-    key
-  );
+    const bodyStr = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "client_credentials",
+      scope,
+    }).toString();
 
-  console.log("[inter-proxy] OAuth status:", status);
+    console.log("[inter-proxy] OAuth via mTLS, scope:", scope);
 
-  if (status !== 200) throw new Error(`OAuth failed (${status})`);
+    const { status, body: resBody, headers } = await makeHttpsRequest(
+      "POST",
+      "/oauth/v2/token",
+      { "Content-Type": "application/x-www-form-urlencoded" },
+      bodyStr,
+      cert,
+      key
+    );
 
-  const data = JSON.parse(resBody);
-  if (!data.access_token) throw new Error("OAuth response missing access_token");
+    console.log("[inter-proxy] OAuth status:", status);
 
-  tokenCache[scope] = {
-    token: data.access_token,
-    expiry: Date.now() + (data.expires_in ?? 3600) * 1000,
-  };
-  console.log("[inter-proxy] OAuth token obtained, scope:", data.scope);
-  return data.access_token;
+    if (status === 429) {
+      const retryAfter = headers.match(/^Retry-After:\s*(\S+)/im)?.[1] ?? null;
+      const fim = cooldownAte(retryAfter, Date.now());
+      tokenCooldown[scope] = fim;
+      console.warn(`[inter-proxy] OAuth 429, scope ${scope}: cooldown até ${new Date(fim).toISOString()}`);
+      throw new OAuthError(429, Math.ceil((fim - Date.now()) / 1000));
+    }
+    if (status !== 200) throw new OAuthError(status, null);
+
+    const data = JSON.parse(resBody);
+    if (!data.access_token) throw new Error("OAuth response missing access_token");
+
+    tokenCache[scope] = {
+      token: data.access_token,
+      expiry: Date.now() + (data.expires_in ?? 3600) * 1000,
+    };
+    delete tokenCooldown[scope];
+    console.log("[inter-proxy] OAuth token obtained, scope:", data.scope);
+    return data.access_token as string;
+  })();
+
+  tokenEmVoo[scope] = pedido;
+  try {
+    return await pedido;
+  } finally {
+    delete tokenEmVoo[scope];
+  }
 }
 
-// ─── Handler ──────────────────────────────────────────────────
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -441,9 +485,32 @@ serve(async (req) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[inter-proxy] ERRO:", msg);
+
+    // 429 do OAuth sai como 429, com o tempo de espera. Como 500, o
+    // inter-extrato tratava como transitório e tentava de novo — 4 vezes por
+    // endpoint, 4 endpoints por chunk — e o bloqueio só crescia.
+    if (err instanceof OAuthError && err.status === 429) {
+      return new Response(
+        JSON.stringify({
+          error: "Banco Inter limitou a autenticação (429). Aguarde antes de repetir.",
+          inter_status: 429,
+          retry_after_seconds: err.retryAfterSeg ?? 60,
+        }),
+        {
+          status: 429,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+            "Retry-After": String(err.retryAfterSeg ?? 60),
+          },
+        },
+      );
+    }
+
+    const status = err instanceof OAuthError ? 502 : 500;
     return new Response(
-      JSON.stringify({ error: msg }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ error: msg, inter_status: err instanceof OAuthError ? err.status : undefined }),
+      { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
