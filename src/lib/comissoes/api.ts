@@ -4,13 +4,32 @@ import { analisarFretes } from './fretes';
 import { tabelaValida } from './taxasRecebimento';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
-import type { Conferencia, DadosVenda, PagamentoComissao, Parametros } from './calculo';
+import type { Conferencia, DadosVenda, OrigemConsulta, PagamentoComissao, Parametros } from './calculo';
 import type { PedidoCompraComissao } from './pedidoCompraGC';
 import type { EventoSituacaoComissao, ResultadoSituacaoComissoes } from './situacao';
 
 // Tabelas da migration 20260914160000, ainda não incluídas no arquivo gerado.
 const db = supabase as unknown as SupabaseClient;
-export async function carregarComissoes(inicio: string, fim: string, progresso?: (concluidos:number,total:number,etapa?:string)=>void) {
+export interface OpcoesCarga {
+  /**
+   * true: conferir recebimentos e pagamentos ao vivo no GC (145+ paginas de
+   * /api/pagamentos e uma consulta por cliente -- minutos). false: usar o
+   * espelho local, que o sync-all atualiza a cada 30 min -- segundos.
+   */
+  aoVivo?: boolean;
+}
+
+/** Quando cada colecao foi sincronizada do GC pela ultima vez, para a tela dizer a idade do dado. */
+export async function ultimaSincronizacaoGC(): Promise<{ recebimentos: string | null; pagamentos: string | null }> {
+  const ler = async (tipo: string) => {
+    const { data } = await db.from('fin_sync_log').select('created_at').eq('tipo', tipo).eq('status', 'success').order('created_at', { ascending: false }).limit(1).maybeSingle();
+    return (data?.created_at as string | undefined) ?? null;
+  };
+  const [recebimentos, pagamentos] = await Promise.all([ler('gc_import_recebimentos'), ler('gc_import_pagamentos')]);
+  return { recebimentos, pagamentos };
+}
+
+export async function carregarComissoes(inicio: string, fim: string, progresso?: (concluidos:number,total:number,etapa?:string)=>void, opcoes: OpcoesCarga = {}) {
   if (!inicio || !fim || inicio > fim || (Date.parse(fim) - Date.parse(inicio)) / 86400000 > 366) throw new Error('Escolha um período válido de até 366 dias.');
   const config = await db.from('fin_comissoes_config').select('parametros').eq('id', 'global').single();
   if (config.error) throw config.error;
@@ -29,13 +48,23 @@ export async function carregarComissoes(inicio: string, fim: string, progresso?:
     if(error)throw error;
     fontes.push(...data);if(data.length<200)break;
   }
+  // Por padrao tudo vem do espelho local. Ir ao GC a cada carga da pagina
+  // custava minutos (145 paginas de pagamentos + uma consulta por cliente),
+  // e cada F5 repetia -- alem de ser uma das fontes de 429 no GC.
   let pagamentosFrete=fontes.filter(f=>f.tipo==='pagamento').map(f=>f.registro);
   let avisoFretes='';
-  try {pagamentosFrete=await buscarPagamentosGC(callGC,(n,total)=>progresso?.(n,total,'páginas de pagamentos'));}
-  catch {avisoFretes='Não foi possível concluir a consulta dos pagamentos no GC. Fretes exibidos pela última sincronização, sujeitos a títulos substituídos ou excluídos.';}
+  let origemFretes: OrigemConsulta = 'sync';
+  if (opcoes.aoVivo) {
+    try {pagamentosFrete=await buscarPagamentosGC(callGC,(n,total)=>progresso?.(n,total,'páginas de pagamentos'));origemFretes='gc';}
+    catch {avisoFretes='Não foi possível concluir a consulta dos pagamentos no GC. Fretes exibidos pela última sincronização, sujeitos a títulos substituídos ou excluídos.';origemFretes='pendente';}
+  }
   const fretes=analisarFretes(fontes.filter(f=>f.tipo==='compra').map(f=>f.registro),pagamentosFrete);
   const rateios=fontes.filter(f=>f.tipo==='rateio').map(f=>f.registro);
-  return { vendas: (await conferirFinanceiroGC(vendas,callGC,progresso)).map(v=>({...v,fretes,consultaFretes:avisoFretes?'pendente' as const:'gc' as const})), parametros, fretes, rateios, avisoFretes, origemConsulta:'gc' };
+  const vendasConferidas = opcoes.aoVivo
+    ? await conferirFinanceiroGC(vendas,callGC,progresso)
+    : vendas.map(v=>({...v,consultaFinanceira:'sync' as const}));
+  const sincronizadoEm = await ultimaSincronizacaoGC();
+  return { vendas: vendasConferidas.map(v=>({...v,fretes,consultaFretes:origemFretes})), parametros, fretes, rateios, avisoFretes, origemConsulta: opcoes.aoVivo ? 'gc' as const : 'sync' as const, sincronizadoEm };
 }
 export async function salvarConferencia(value: Conferencia) {
   // A situação usa uma RPC própria. Não reenviar esses campos de uma tela

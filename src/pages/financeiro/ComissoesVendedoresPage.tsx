@@ -45,7 +45,14 @@ export default function ComissoesVendedoresPage() {
   const alterarSituacao=(ids:string[],retirada:boolean)=>{setSelecionada(null);setAlteracaoSituacao({ids,retirada});};
   const [parametrosAberto,setParametrosAberto]=useState(false);
   const { isAdmin }=useAuth();
-  const query=useQuery({refetchOnWindowFocus:false,staleTime:60000,queryKey:['comissoes',periodo],queryFn:()=>carregarComissoes(periodo.inicio,periodo.fim,(n,total,etapa='clientes')=>setProgressoFinanceiro(`Conferindo GC: ${n} de ${total} ${etapa}`)),retry:1});
+  // Abrir a pagina le o espelho local (segundos). Ir ao GC -- 145 paginas de
+  // pagamentos mais uma consulta por cliente, minutos -- so pelo botao.
+  const [aoVivo,setAoVivo]=useState(false);
+  const query=useQuery({refetchOnWindowFocus:false,staleTime:aoVivo?60000:5*60000,queryKey:['comissoes',periodo,aoVivo],queryFn:()=>carregarComissoes(periodo.inicio,periodo.fim,(n,total,etapa='clientes')=>setProgressoFinanceiro(`Conferindo GC: ${n} de ${total} ${etapa}`),{aoVivo}),retry:1});
+  const horaBR=(iso:string|null)=>iso?new Date(iso).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+  const carimbo=query.data?.origemConsulta==='gc'
+    ?'Financeiro conferido ao vivo no GC agora.'
+    :query.data?.sincronizadoEm?`Financeiro do espelho local — recebimentos sincronizados ${horaBR(query.data.sincronizadoEm.recebimentos)}, pagamentos ${horaBR(query.data.sincronizadoEm.pagamentos)}. O sync roda a cada 30 min.`:'';
   const linhas=useMemo(()=>query.data?.vendas.map(v=>calcularVenda(v,query.data.parametros))??[],[query.data]);
   const vendedores=[...new Set(linhas.map(r=>r.vendedor||'Sem vendedor'))].sort();
   const filtradas=linhas.filter(r=>(!vendedor.length||vendedor.includes(r.vendedor||'Sem vendedor'))&&(!situacoesGC.length||situacoesGC.includes(r.venda.nome_situacao||'Não informada'))&&
@@ -54,10 +61,10 @@ export default function ComissoesVendedoresPage() {
   const soma=(key:'comissao'|'comissaoCalculada'|'comissaoRetirada'|'pago'|'base'|'recebido')=>filtradas.reduce((s,r)=>s+r[key],0);
   const atual=linhas.find(r=>r.venda.id===selecionada);
   return <div className="p-4 md:p-6 space-y-5">
-    <div className="flex flex-wrap justify-between gap-3"><div><h1 className="text-2xl font-semibold flex gap-2 items-center"><Users/> Comissões de vendedores</h1><p className="text-sm text-muted-foreground">Conferência de vendas de produtos, margem, recebimentos e pagamento das comissões.</p></div><div className="flex gap-2"><Button variant="outline" onClick={()=>void query.refetch()} disabled={query.isFetching}><RefreshCw className="mr-2 h-4 w-4"/>{query.data?.origemConsulta==='snapshot'?'Recarregar prévia':'Atualizar financeiro do GC'}</Button><Button variant="outline" disabled={!filtradas.length||exportando} onClick={()=>void exportar(filtradas)}><Download className="mr-2 h-4 w-4"/>{exportando?'Gerando Excel…':'Exportar Excel'}</Button><Button variant="outline" disabled={!query.data} onClick={()=>setParametrosAberto(true)}>Custos e regras</Button></div></div>
+    <div className="flex flex-wrap justify-between gap-3"><div><h1 className="text-2xl font-semibold flex gap-2 items-center"><Users/> Comissões de vendedores</h1><p className="text-sm text-muted-foreground">Conferência de vendas de produtos, margem, recebimentos e pagamento das comissões.</p></div><div className="flex gap-2"><Button variant="outline" onClick={()=>{if(aoVivo)void query.refetch();else setAoVivo(true);}} disabled={query.isFetching} title="Consulta o GC ao vivo: demora alguns minutos. A carga normal usa o espelho sincronizado a cada 30 min."><RefreshCw className="mr-2 h-4 w-4"/>{aoVivo?'Conferir de novo no GC':'Atualizar financeiro do GC'}</Button><Button variant="outline" disabled={!filtradas.length||exportando} onClick={()=>void exportar(filtradas)}><Download className="mr-2 h-4 w-4"/>{exportando?'Gerando Excel…':'Exportar Excel'}</Button><Button variant="outline" disabled={!query.data} onClick={()=>setParametrosAberto(true)}>Custos e regras</Button></div></div>
     <div className="rounded-lg border bg-muted/30 p-3 text-sm">Margem acima de 20%: <b>5%</b> · De 12% até 20%: <b>3%</b> · Abaixo de 12%: <b>sem comissão</b>. Base: valor dos produtos após descontos. Serviços e frete ficam fora da base.</div>
     <Card><CardContent className="pt-5 flex flex-wrap gap-3 items-end">
-      <label className="space-y-1 text-sm">Mês<Input type="month" value={mes} onChange={e=>{setMes(e.target.value);if(e.target.value)setPeriodo(periodoComissao(e.target.value,'mes'));}}/></label>
+      <label className="space-y-1 text-sm">Mês<Input type="month" value={mes} onChange={e=>{setMes(e.target.value);if(e.target.value)setPeriodo(periodoComissao(e.target.value,'mes'));setAoVivo(false);}}/></label>
       <Button variant="outline" onClick={()=>setPeriodo({inicio:hoje(),fim:hoje()})}>Hoje</Button>
       <Button variant="outline" disabled={!mes} onClick={()=>setPeriodo(periodoComissao(mes,'mes'))}>Mês inteiro</Button>
       <Button variant="outline" disabled={!mes} onClick={()=>setPeriodo(periodoComissao(mes,'primeira'))}>1ª quinzena</Button>
@@ -72,6 +79,7 @@ export default function ComissoesVendedoresPage() {
     {query.isPending||query.isFetching?<p role="status">Carregando conferência… {progressoFinanceiro}</p>:query.isError?<div role="alert" className="text-destructive">Não foi possível carregar as comissões: {(query.error as Error).message}. <Button variant="outline" onClick={()=>void query.refetch()}>Tentar novamente</Button></div>:<>
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">{[['Vendas de produtos',formatBRL(soma('base'))],['Comissão calculada',formatBRL(soma('comissaoCalculada'))],['Comissões retiradas',formatBRL(soma('comissaoRetirada'))],['Comissão devida',formatBRL(soma('comissao'))],['Comissão paga registrada',formatBRL(soma('pago'))],['Recebido dos clientes',formatBRL(soma('recebido'))]].map(([label,value])=><Card key={label}><CardContent className="pt-5"><p className="text-sm text-muted-foreground">{label}</p><p className="text-2xl font-semibold">{value}</p></CardContent></Card>)}</div>
       <p className="text-xs text-muted-foreground">{filtradas.length} venda(s). Margem para a faixa: {query.data?.parametros.margemAposComissao?'após':'antes de'} descontar a própria comissão. Recebimentos consideram todas as parcelas das vendas selecionadas, inclusive fora do período. “Recebido” indica baixa no GC, não conciliação bancária.</p>
+      {carimbo&&<p className="text-xs text-muted-foreground" aria-live="polite">{carimbo}</p>}
       <p className="text-amber-500 text-sm" role="status">{query.data?.avisoFretes}</p>
       <FretesComissoes fontes={query.data?.fretes??[]} rateios={query.data?.rateios??[]}/>
       <div role="group" aria-label="Visualização das comissões" className="flex gap-2"><Button variant={visualizacao==='vendedor'?'default':'outline'} aria-pressed={visualizacao==='vendedor'} onClick={()=>setVisualizacao('vendedor')}>Por vendedor</Button><Button variant={visualizacao==='venda'?'default':'outline'} aria-pressed={visualizacao==='venda'} onClick={()=>setVisualizacao('venda')}>Por venda</Button></div>
@@ -89,7 +97,7 @@ export default function ComissoesVendedoresPage() {
     </>}
     {atual&&query.data&&<Detalhes key={atual.venda.id} dados={atual} rateios={query.data.rateios??[]} parametros={query.data.parametros} isAdmin={isAdmin} onClose={()=>setSelecionada(null)} onAlterarSituacao={()=>alterarSituacao([atual.venda.id],!atual.retirada)}/>}
     {alteracaoSituacao&&<AlterarSituacaoComissoesDialog linhas={linhas.filter(r=>alteracaoSituacao.ids.includes(r.venda.id))} retirada={alteracaoSituacao.retirada} onClose={()=>setAlteracaoSituacao(null)}/>}
-    {parametrosAberto&&query.data&&<ParametrosDialog parametros={query.data.parametros} isAdmin={isAdmin} onClose={()=>setParametrosAberto(false)} vendedores={Object.fromEntries(linhas.filter(l=>l.vendedor&&!/API/i.test(l.vendedor)).map(l=>[l.vendedorChave,l.vendedor]))}/>}
+    {parametrosAberto&&query.data&&<ParametrosDialog parametros={query.data.parametros} isAdmin={isAdmin} onClose={()=>setParametrosAberto(false)} vendedores={Object.fromEntries(linhas.filter(l=>l.vendedor&&!/\bAPI\b/i.test(l.vendedor)).map(l=>[l.vendedorChave,l.vendedor]))}/>}
   </div>;
 }
 

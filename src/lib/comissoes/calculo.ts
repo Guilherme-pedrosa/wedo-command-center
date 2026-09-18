@@ -16,7 +16,15 @@ export interface Conferencia {
   situacao_alterada_por?: string | null;
 }
 export interface PagamentoComissao { id: string; venda_id: string; valor: number; data_pagamento: string; forma_pagamento: string; observacao: string; created_at?: string; snapshot?: Registro }
-export interface DadosVenda { consultaFretes?:'gc'|'pendente'; fretes?: FonteFrete[]; consultaFinanceira?: 'gc'|'pendente'; venda: Registro; recebimentos: Registro[]; conferencia: Conferencia | null; pagamentos: PagamentoComissao[] }
+/**
+ * De onde veio o financeiro desta venda:
+ * - 'sync': espelho local (gc_recebimentos/fin_pagamentos), atualizado pelo
+ *   sync-all a cada 30 min. E o padrao -- a tela abre na hora.
+ * - 'gc': consulta ao vivo, so quando a pessoa pede "Atualizar do GC".
+ * - 'pendente': tentou ao vivo e o GC falhou; ultima leitura preservada.
+ */
+export type OrigemConsulta = 'sync' | 'gc' | 'pendente';
+export interface DadosVenda { consultaFretes?: OrigemConsulta; fretes?: FonteFrete[]; consultaFinanceira?: OrigemConsulta; venda: Registro; recebimentos: Registro[]; conferencia: Conferencia | null; pagamentos: PagamentoComissao[] }
 export interface Parametros { config: AnalysisConfig; margemAposComissao: boolean; origem: string; tabelaTaxas?: TaxaForma[]; pedidoGC?: ConfigPedidoGC }
 
 export function faixaComissao(margem: number | null): number {
@@ -100,7 +108,7 @@ export function calcularVenda(dados: DadosVenda, parametros: Parametros) {
   const totalTitulos = centavos(titulos.reduce((s, r) => s + parseMoney(r.gc_payload_raw?.valor ?? r.valor_total ?? r.valor), 0));
   const todosLiquidados = titulos.length > 0 && titulos.every(r => r.liquidado === true);
   const financeiroCompleto = titulos.length > 0 && Math.abs(totalTitulos - a.receitaLiquida) <= 0.02;
-  const recebimento = !titulos.length ? (dados.consultaFinanceira==='gc'?'Títulos não localizados no GC':'Financeiro pendente de consulta') : !financeiroCompleto ? 'Conferir valores do financeiro' : todosLiquidados ? 'Recebido' : recebido > 0 ? 'Parcial' : 'Em aberto';
+  const recebimento = !titulos.length ? (dados.consultaFinanceira==='gc'?'Títulos não localizados no GC':dados.consultaFinanceira==='sync'?'Sem títulos na última sincronização':'Financeiro pendente de consulta') : !financeiroCompleto ? 'Conferir valores do financeiro' : todosLiquidados ? 'Recebido' : recebido > 0 ? 'Parcial' : 'Em aberto';
   if (!financeiroCompleto) avisos.push(recebimento);
   if (titulos.some(r => r.cliente_id && String(r.cliente_id)!==String(v.cliente_id))) avisos.push('Cobrança em cliente diferente da venda: conferir destinatários dos títulos');
   if(dados.consultaFinanceira==='pendente') avisos.push('Não foi possível atualizar o financeiro no GC; última leitura preservada');
