@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, UserRound } from 'lucide-react';
+import { PedidoCompraComissaoDialog } from '@/components/financeiro/PedidoCompraComissaoDialog';
+import { ChevronDown, ChevronUp, UserRound, ShoppingCart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ResumoCustosComissao } from './ResumoCustosComissao';
 import { resumirCustosComissao } from '@/lib/comissoes/resumoCustos';
@@ -13,8 +14,13 @@ export interface PainelComissoesVendedorProps {
   onConferir: (vendaId: string) => void;
   onAlterarSituacao: (ids: string[], retirada: boolean) => void;
   isAdmin: boolean;
+  /** Período em tela; o pedido de compra no GC cobre exatamente este recorte. */
+  periodo?: { inicio: string; fim: string };
+  /** `parametros.pedidoGC` cru, validado no diálogo. */
+  configPedidoGC?: unknown;
 }
 
+const hojeIso = () => new Date().toISOString().slice(0, 10);
 const dataBR = (valor?: string) => valor ? valor.slice(0, 10).split('-').reverse().join('/') : '—';
 
 function situacaoComissao(linha: LinhaComissao) {
@@ -43,12 +49,15 @@ export function PainelComissoesVendedor(props: PainelComissoesVendedorProps) {
 
   return <div className="space-y-3">
     <p className="text-sm text-muted-foreground">Abra um vendedor para conferir as vendas e suas comissões. Os valores abaixo respeitam os filtros do período.</p>
-    {grupos.map(([chave, { nome, linhas }]) => <CardVendedor key={chave} {...props} nome={nome} linhas={linhas} />)}
+    {grupos.map(([chave, { nome, linhas }]) => <CardVendedor key={chave} {...props} chave={chave} nome={nome} linhas={linhas} />)}
   </div>;
 }
 
-function CardVendedor({ nome, linhas, onConferir, onAlterarSituacao, isAdmin }: PainelComissoesVendedorProps & { nome: string }) {
+function CardVendedor({ chave, nome, linhas, onConferir, onAlterarSituacao, isAdmin, periodo, configPedidoGC }: PainelComissoesVendedorProps & { chave: string; nome: string }) {
   const [aberto, setAberto] = useState(false);
+  const [pedidoAberto, setPedidoAberto] = useState(false);
+  // Comissão fechada e ainda devida: é o que pode virar pedido de compra.
+  const aptasParaPedido = linhas.filter(l => !l.retirada && l.conferidaAtual && l.custosValidos && l.comissao > 0 && l.saldo > 0).length;
   const [selecao, setSelecao] = useState<{ escopo: string; ids: string[] }>({ escopo: '', ids: [] });
   const id = useId();
   // A seleção pertence exatamente às linhas e situações exibidas neste card.
@@ -185,5 +194,23 @@ function CardVendedor({ nome, linhas, onConferir, onAlterarSituacao, isAdmin }: 
         </ul>
       </>}
     </div>
+    {isAdmin && aberto && (
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/20 px-4 py-3 text-sm">
+        <span className="text-muted-foreground">{aptasParaPedido} venda(s) com comissão fechada e a pagar neste período.</span>
+        <Button type="button" size="sm" variant="outline" className="gap-2" disabled={!aptasParaPedido} onClick={() => setPedidoAberto(true)}>
+          <ShoppingCart className="h-4 w-4" aria-hidden="true" /> Gerar pedido de compra no GC
+        </Button>
+      </div>
+    )}
+    {pedidoAberto && (
+      <PedidoCompraComissaoDialog
+        vendedorChave={chave}
+        vendedorNome={nome}
+        linhas={linhas}
+        periodo={periodo ?? { inicio: hojeIso(), fim: hojeIso() }}
+        configBruta={configPedidoGC}
+        onClose={() => setPedidoAberto(false)}
+      />
+    )}
   </section>;
 }

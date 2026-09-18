@@ -20,6 +20,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { carregarComissoes, registrarPagamento, salvarConferencia, salvarParametros } from '@/lib/comissoes/api';
 import { calcularVenda, assinaturaVenda, periodoComissao, type Conferencia, type DadosVenda, type Parametros } from '@/lib/comissoes/calculo';
 import { tabelaValida } from '@/lib/comissoes/taxasRecebimento';
+import { configPedidoValida } from '@/lib/comissoes/pedidoCompraGC';
+import { ConfigPedidoGCComissoes } from '@/components/financeiro/ConfigPedidoGCComissoes';
 import { formatBRL, formatPct, parseMoney, DEFAULT_DESLOCAMENTO } from '@/lib/comissoes/analisePickPack';
 
 const hoje = () => format(new Date(), 'yyyy-MM-dd');
@@ -73,7 +75,7 @@ export default function ComissoesVendedoresPage() {
       <p className="text-amber-500 text-sm" role="status">{query.data?.avisoFretes}</p>
       <FretesComissoes fontes={query.data?.fretes??[]} rateios={query.data?.rateios??[]}/>
       <div role="group" aria-label="Visualização das comissões" className="flex gap-2"><Button variant={visualizacao==='vendedor'?'default':'outline'} aria-pressed={visualizacao==='vendedor'} onClick={()=>setVisualizacao('vendedor')}>Por vendedor</Button><Button variant={visualizacao==='venda'?'default':'outline'} aria-pressed={visualizacao==='venda'} onClick={()=>setVisualizacao('venda')}>Por venda</Button></div>
-      {visualizacao==='vendedor'?<PainelComissoesVendedor linhas={filtradas} isAdmin={isAdmin} onConferir={setSelecionada} onAlterarSituacao={alterarSituacao}/>:<div className="rounded-lg border overflow-x-auto"><table className="w-full text-sm"><thead className="bg-muted/40"><tr>{['Venda / data','Vendedor / cliente','Produtos','Valor / margem','Comissão','Pagamento do cliente','Forma de pagamento','Conferência'].map(h=><th className="p-3 text-left whitespace-nowrap" key={h}>{h}</th>)}</tr></thead><tbody>{filtradas.map(r=><Fragment key={r.venda.id}><tr className="border-t align-top hover:bg-muted/20">
+      {visualizacao==='vendedor'?<PainelComissoesVendedor linhas={filtradas} isAdmin={isAdmin} onConferir={setSelecionada} onAlterarSituacao={alterarSituacao} periodo={periodo} configPedidoGC={query.data?.parametros.pedidoGC}/>:<div className="rounded-lg border overflow-x-auto"><table className="w-full text-sm"><thead className="bg-muted/40"><tr>{['Venda / data','Vendedor / cliente','Produtos','Valor / margem','Comissão','Pagamento do cliente','Forma de pagamento','Conferência'].map(h=><th className="p-3 text-left whitespace-nowrap" key={h}>{h}</th>)}</tr></thead><tbody>{filtradas.map(r=><Fragment key={r.venda.id}><tr className="border-t align-top hover:bg-muted/20">
         <td className="p-3 whitespace-nowrap"><a href={`https://gestaoclick.com/pedidos/vendas/vendas_produtos/visualizar/${encodeURIComponent(r.venda.gc_id)}`} target="_blank" rel="noreferrer" className="text-primary underline">{r.venda.codigo}</a><p>{dataBR(r.venda.data)}</p><p className="text-xs text-muted-foreground">{r.venda.nome_situacao}</p></td>
         <td className="p-3 min-w-48"><b>{r.vendedor||'Vendedor não informado'}</b><p>{r.venda.nome_cliente}</p></td>
         <td className="p-3 min-w-52">{r.a.linhas.filter(l=>l.tipo==='produto').slice(0,3).map((l,i)=><p key={i}>{l.quantidade} × {l.nome}</p>)}{r.a.linhas.length>3&&<p className="text-muted-foreground">Ver todos em Conferir</p>}</td>
@@ -87,7 +89,7 @@ export default function ComissoesVendedoresPage() {
     </>}
     {atual&&query.data&&<Detalhes key={atual.venda.id} dados={atual} rateios={query.data.rateios??[]} parametros={query.data.parametros} isAdmin={isAdmin} onClose={()=>setSelecionada(null)} onAlterarSituacao={()=>alterarSituacao([atual.venda.id],!atual.retirada)}/>}
     {alteracaoSituacao&&<AlterarSituacaoComissoesDialog linhas={linhas.filter(r=>alteracaoSituacao.ids.includes(r.venda.id))} retirada={alteracaoSituacao.retirada} onClose={()=>setAlteracaoSituacao(null)}/>}
-    {parametrosAberto&&query.data&&<ParametrosDialog parametros={query.data.parametros} isAdmin={isAdmin} onClose={()=>setParametrosAberto(false)}/>}
+    {parametrosAberto&&query.data&&<ParametrosDialog parametros={query.data.parametros} isAdmin={isAdmin} onClose={()=>setParametrosAberto(false)} vendedores={Object.fromEntries(linhas.filter(l=>l.vendedor&&!/API/i.test(l.vendedor)).map(l=>[l.vendedorChave,l.vendedor]))}/>}
   </div>;
 }
 
@@ -132,8 +134,8 @@ function Detalhes({dados,parametros,isAdmin,onClose,rateios,onAlterarSituacao}:{
   </DialogContent></Dialog>;
 }
 
-function ParametrosDialog({parametros,isAdmin,onClose}:{parametros:Parametros;isAdmin:boolean;onClose:()=>void}) {
-  const [p,setP]=useState<Parametros>({...parametros,tabelaTaxas:tabelaValida(parametros.tabelaTaxas)});const [busy,setBusy]=useState(false);const qc=useQueryClient();
+function ParametrosDialog({parametros,isAdmin,onClose,vendedores}:{parametros:Parametros;isAdmin:boolean;onClose:()=>void;vendedores:Record<string,string>}) {
+  const [p,setP]=useState<Parametros>({...parametros,tabelaTaxas:tabelaValida(parametros.tabelaTaxas),pedidoGC:configPedidoValida(parametros.pedidoGC)});const [busy,setBusy]=useState(false);const qc=useQueryClient();
   const taxas=p.tabelaTaxas??[];
   const setTaxa=(i:number,campo:'forma'|'percentual'|'fixo',v:string)=>setP(x=>({...x,tabelaTaxas:(x.tabelaTaxas??[]).map((t,k)=>k!==i?t:{...t,[campo]:campo==='forma'?v:Number(v)})}));
   const labels:Record<string,string>={impostoPct:'Impostos sobre venda (%)',custoFixoPct:'Rateio fixo (%)',garantiaPct:'Garantia (%)',custoPorKm:'Custo por km (R$)',alimentacaoDia:'Alimentação por dia (R$)',moAdminHora:'Hora administrativa (R$)',moAdminHorasPadrao:'Horas administrativas padrão',premiacaoPecaPct:'Premiação técnica de peças (%)',premiacaoServicoPct:'Premiação técnica de serviços (%)',cdbAnualPct:'Custo financeiro anual (%)'};
@@ -151,5 +153,6 @@ function ParametrosDialog({parametros,isAdmin,onClose}:{parametros:Parametros;is
     </Fragment>)}
   </div>
   <Button type="button" variant="outline" size="sm" onClick={()=>setP(x=>({...x,tabelaTaxas:[...(x.tabelaTaxas??[]),{forma:'',percentual:0,fixo:0}]}))}>Adicionar forma</Button>
-</div><p className="text-xs text-muted-foreground">Alterar parâmetros recalcula as previsões, inclusive vendas antigas. Os pagamentos registrados permanecem no histórico.</p><Button onClick={async()=>{setBusy(true);try{await salvarParametros({...p,origem:`Parâmetros conferidos no Command Center em ${dataBR(hoje())}`});await qc.invalidateQueries({queryKey:['comissoes']});onClose();toast.success('Parâmetros salvos.');}catch(e){toast.error((e as Error).message);}finally{setBusy(false);}}}>Salvar parâmetros</Button></fieldset></DialogContent></Dialog>;
+</div>
+<ConfigPedidoGCComissoes value={p.pedidoGC??configPedidoValida(undefined)} onChange={c=>setP(x=>({...x,pedidoGC:c}))} vendedores={vendedores} disabled={!isAdmin||busy}/><p className="text-xs text-muted-foreground">Alterar parâmetros recalcula as previsões, inclusive vendas antigas. Os pagamentos registrados permanecem no histórico.</p><Button onClick={async()=>{setBusy(true);try{await salvarParametros({...p,pedidoGC:configPedidoValida(p.pedidoGC),origem:`Parâmetros conferidos no Command Center em ${dataBR(hoje())}`});await qc.invalidateQueries({queryKey:['comissoes']});onClose();toast.success('Parâmetros salvos.');}catch(e){toast.error((e as Error).message);}finally{setBusy(false);}}}>Salvar parâmetros</Button></fieldset></DialogContent></Dialog>;
 }

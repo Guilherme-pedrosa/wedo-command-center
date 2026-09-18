@@ -1,6 +1,7 @@
 import { analyzeOrcamento, defaultExtras, DEFAULT_DESLOCAMENTO, parseMoney, type AnalysisConfig, type ExtrasInput, type DeslocamentoInput } from './analisePickPack';
 import { indiciosFrete, type FonteFrete, type RateioFrete } from './fretes';
 import { resumirTaxas, tabelaValida, type TaxaForma } from './taxasRecebimento';
+import type { ConfigPedidoGC } from './pedidoCompraGC';
 
 export type Registro = Record<string, any>;
 export interface Conferencia {
@@ -16,7 +17,7 @@ export interface Conferencia {
 }
 export interface PagamentoComissao { id: string; venda_id: string; valor: number; data_pagamento: string; forma_pagamento: string; observacao: string; created_at?: string; snapshot?: Registro }
 export interface DadosVenda { consultaFretes?:'gc'|'pendente'; fretes?: FonteFrete[]; consultaFinanceira?: 'gc'|'pendente'; venda: Registro; recebimentos: Registro[]; conferencia: Conferencia | null; pagamentos: PagamentoComissao[] }
-export interface Parametros { config: AnalysisConfig; margemAposComissao: boolean; origem: string; tabelaTaxas?: TaxaForma[] }
+export interface Parametros { config: AnalysisConfig; margemAposComissao: boolean; origem: string; tabelaTaxas?: TaxaForma[]; pedidoGC?: ConfigPedidoGC }
 
 export function faixaComissao(margem: number | null): number {
   if (margem === null || !Number.isFinite(margem)) return 0;

@@ -256,6 +256,74 @@ Deno.serve(async (req) => {
       continue;
     }
 
+    // ── Pedido de compra de comissão: POST, sem GET prévio ─────────────
+    // Os demais recursos fazem PUT em algo que já existe no GC e conferem
+    // antes. Aqui o registro nasce no POST; o que se confere é a resposta,
+    // e o id/código devolvidos são gravados em fin_comissoes_pedidos_gc.
+    if (job.recurso === "compras") {
+      const pedidoId = String(job.recurso_id);
+      let httpStatus = 0;
+      let body: unknown = null;
+      let erro = "";
+      try {
+        if (!GC_ACCESS_TOKEN || !GC_SECRET_TOKEN) throw new Error("Credenciais públicas do GestãoClick não configuradas.");
+        const res = await gcFetch(`${GC_BASE_URL}/api/compras`, {
+          method: "POST",
+          headers: {
+            "access-token": GC_ACCESS_TOKEN,
+            "secret-access-token": GC_SECRET_TOKEN,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(job.payload),
+        });
+        httpStatus = res.status;
+        const texto = await res.text();
+        try { body = JSON.parse(texto); } catch { body = { raw: texto.slice(0, 2000) }; }
+        const dados = asRecord(asRecord(body)?.data);
+        if (!res.ok || !dados?.id) {
+          erro = `POST /api/compras HTTP ${res.status}: ${texto.slice(0, 500)}`;
+        } else {
+          await supabase.from("fin_comissoes_pedidos_gc").update({
+            status: "enviado",
+            gc_compra_id: String(dados.id),
+            gc_codigo: dados.codigo != null ? String(dados.codigo) : null,
+            erro: null,
+          }).eq("id", pedidoId);
+        }
+      } catch (e) {
+        erro = e instanceof Error ? e.message : String(e);
+      }
+
+      if (erro) {
+        // 4xx é resposta do GC ao conteúdo: repetir não muda nada. 5xx e rede
+        // podem passar; seguem a política de tentativas dos outros recursos.
+        const definitivo = httpStatus >= 400 && httpStatus < 500;
+        const novasTentativas = (job.tentativas ?? 0) + 1;
+        const novoStatus = definitivo || novasTentativas >= MAX_RETRIES ? "erro_fatal" : "erro_retentavel";
+        await supabase.from("fin_gc_write_jobs").update({
+          status: novoStatus,
+          ultimo_erro: erro,
+          response_body: body as never,
+          finalizado_em: novoStatus === "erro_fatal" ? new Date().toISOString() : null,
+        }).eq("id", job.id);
+        if (novoStatus === "erro_fatal") {
+          await supabase.from("fin_comissoes_pedidos_gc").update({ status: "erro", erro }).eq("id", pedidoId);
+        }
+        results.push({ id: job.id, status: novoStatus, erro, http: httpStatus });
+      } else {
+        await supabase.from("fin_gc_write_jobs").update({
+          status: "sucesso",
+          ultimo_erro: null,
+          response_body: body as never,
+          finalizado_em: new Date().toISOString(),
+        }).eq("id", job.id);
+        results.push({ id: job.id, status: "sucesso", recurso_id: job.recurso_id, http: httpStatus });
+      }
+      await sleep(RATE_LIMIT_MS);
+      continue;
+    }
+
     // Endpoint/método por recurso
     let url: string;
     let method: string;

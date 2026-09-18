@@ -5,6 +5,7 @@ import { tabelaValida } from './taxasRecebimento';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import type { Conferencia, DadosVenda, PagamentoComissao, Parametros } from './calculo';
+import type { PedidoCompraComissao } from './pedidoCompraGC';
 import type { EventoSituacaoComissao, ResultadoSituacaoComissoes } from './situacao';
 
 // Tabelas da migration 20260914160000, ainda não incluídas no arquivo gerado.
@@ -82,4 +83,87 @@ export async function salvarParametros(parametros: Parametros) {
   if (parametros.tabelaTaxas !== undefined && tabelaValida(parametros.tabelaTaxas) !== parametros.tabelaTaxas) throw new Error('Tabela de taxas inválida: cada linha precisa de forma, percentual entre 0 e 100 e valor fixo não negativo.');
   const { error } = await db.from('fin_comissoes_config').update({ parametros }).eq('id', 'global');
   if (error) throw error;
+}
+
+// ─── Pedido de compra no GC ───────────────────────────────────────────────
+
+export interface PedidoGCRegistro {
+  id: string;
+  vendedor_chave: string;
+  vendedor_nome: string;
+  fornecedor_gc_id: string;
+  periodo_inicio: string;
+  periodo_fim: string;
+  valor_total: number;
+  vendas: { vendaId: string; codigo: string; comissao: number }[];
+  status: 'pendente' | 'enviado' | 'erro' | 'cancelado';
+  gc_compra_id: string | null;
+  gc_codigo: string | null;
+  erro: string | null;
+  created_at: string;
+}
+
+/** Pedidos já gerados, mais recentes primeiro. A tela usa para saber o que já foi pedido. */
+export async function listarPedidosGC(): Promise<PedidoGCRegistro[]> {
+  const { data, error } = await db.from('fin_comissoes_pedidos_gc').select('*').order('created_at', { ascending: false }).limit(200);
+  if (error) throw error;
+  return (data ?? []) as PedidoGCRegistro[];
+}
+
+/** Ids das vendas que já estão em algum pedido não cancelado. */
+export function vendasJaPedidas(pedidos: PedidoGCRegistro[]): Set<string> {
+  const s = new Set<string>();
+  for (const p of pedidos) {
+    if (p.status === 'cancelado') continue;
+    for (const v of p.vendas ?? []) s.add(String(v.vendaId));
+  }
+  return s;
+}
+
+/**
+ * Grava o pedido e enfileira o POST para o GC.
+ *
+ * Duas escritas, nesta ordem: primeiro o pedido (a unicidade por vendedor e
+ * período barra a duplicata antes de qualquer job existir), depois o job em
+ * fin_gc_write_jobs, que o cron process-gc-write-jobs executa com lock e
+ * retry. O processador grava de volta o id e o código do GC. Nada aqui
+ * chama o GC diretamente — quem falha no meio deixa o pedido em "pendente"
+ * sem job, e a tela oferece reenfileirar.
+ */
+export async function gerarPedidoCompraGC(pedido: PedidoCompraComissao): Promise<PedidoGCRegistro> {
+  const { data: linha, error } = await db
+    .from('fin_comissoes_pedidos_gc')
+    .insert({
+      vendedor_chave: pedido.vendedorChave,
+      vendedor_nome: pedido.vendedorNome,
+      fornecedor_gc_id: pedido.fornecedorId,
+      periodo_inicio: pedido.periodoInicio,
+      periodo_fim: pedido.periodoFim,
+      valor_total: pedido.valorTotal,
+      vendas: pedido.vendas,
+      payload: pedido.payload,
+      status: 'pendente',
+    })
+    .select('*')
+    .single();
+  if (error) {
+    if (String(error.code) === '23505') throw new Error(`Já existe pedido de ${pedido.vendedorNome} para o período ${pedido.periodoInicio} a ${pedido.periodoFim}.`);
+    throw error;
+  }
+
+  const { data: job, error: erroJob } = await db
+    .from('fin_gc_write_jobs')
+    .insert({
+      recurso: 'compras',
+      recurso_id: String(linha.id),
+      payload: pedido.payload,
+      payload_hash: btoa(`comissao-v1|${linha.id}`),
+      status: 'pendente',
+    })
+    .select('id')
+    .single();
+  if (erroJob) throw new Error(`Pedido gravado, mas o envio ao GC não foi enfileirado: ${erroJob.message}`);
+
+  await db.from('fin_comissoes_pedidos_gc').update({ job_id: job.id }).eq('id', linha.id);
+  return { ...(linha as PedidoGCRegistro), status: 'pendente' };
 }
