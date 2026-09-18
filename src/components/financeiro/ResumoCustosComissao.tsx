@@ -8,7 +8,7 @@ export function ResumoCustosComissao({ linha }: { linha: ReturnType<typeof calcu
     ['Produtos GC', resumo.custoProdutos],
     ...(linha.a.linhas.some(item => item.tipo === 'servico') ? [['Serviços GC', resumo.custoServicos]] : []),
     ['Impostos', resumo.impostos],
-    ['Descontos / taxas do financeiro', resumo.taxasRecebimento],
+    [linha.taxasEstimadas > 0 ? `Descontos / taxas do financeiro (R$ ${linha.taxasEstimadas.toFixed(2)} estimados)` : 'Descontos / taxas do financeiro', resumo.taxasRecebimento],
     ['Demais despesas', resumo.demaisDespesas],
     ['Frete adicional atribuído', resumo.custoFrete],
     ...(resumo.ajusteArredondamento ? [['Arredondamento', resumo.ajusteArredondamento]] : []),
@@ -19,7 +19,7 @@ export function ResumoCustosComissao({ linha }: { linha: ReturnType<typeof calcu
       <h4 className="mb-2 font-semibold">Custos da venda</h4>
       <dl className="space-y-1">
         {custos.map(([rotulo, valor]) => <div key={rotulo} className="flex justify-between gap-3">
-          <dt className="text-muted-foreground" title={rotulo === 'Demais despesas' ? 'Deslocamento adicional, despesas operacionais, custo fixo, garantia e ajustes manuais.' : undefined}>{rotulo}</dt>
+          <dt className="text-muted-foreground" title={rotulo === 'Demais despesas' ? 'Deslocamento adicional, despesas operacionais, custo fixo, garantia e ajustes manuais.' : rotulo.startsWith('Descontos') && linha.taxasEstimadas > 0 ? 'Taxa de cartão estimada pela tabela dos parâmetros porque o título no GC não tem desconto lançado. Lance o desconto real no GC para substituir a estimativa.' : undefined}>{rotulo}</dt>
           <dd className="shrink-0 tabular-nums">{formatBRL(valor)}</dd>
         </div>)}
         <div className="flex justify-between gap-3 border-t pt-1 font-semibold"><dt>Total antes da comissão</dt><dd className="shrink-0 tabular-nums">{formatBRL(resumo.totalCustosAntesComissao)}</dd></div>

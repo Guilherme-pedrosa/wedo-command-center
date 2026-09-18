@@ -1,5 +1,6 @@
 import { analyzeOrcamento, defaultExtras, DEFAULT_DESLOCAMENTO, parseMoney, type AnalysisConfig, type ExtrasInput, type DeslocamentoInput } from './analisePickPack';
 import { indiciosFrete, type FonteFrete, type RateioFrete } from './fretes';
+import { resumirTaxas, tabelaValida, type TaxaForma } from './taxasRecebimento';
 
 export type Registro = Record<string, any>;
 export interface Conferencia {
@@ -15,7 +16,7 @@ export interface Conferencia {
 }
 export interface PagamentoComissao { id: string; venda_id: string; valor: number; data_pagamento: string; forma_pagamento: string; observacao: string; created_at?: string; snapshot?: Registro }
 export interface DadosVenda { consultaFretes?:'gc'|'pendente'; fretes?: FonteFrete[]; consultaFinanceira?: 'gc'|'pendente'; venda: Registro; recebimentos: Registro[]; conferencia: Conferencia | null; pagamentos: PagamentoComissao[] }
-export interface Parametros { config: AnalysisConfig; margemAposComissao: boolean; origem: string }
+export interface Parametros { config: AnalysisConfig; margemAposComissao: boolean; origem: string; tabelaTaxas?: TaxaForma[] }
 
 export function faixaComissao(margem: number | null): number {
   if (margem === null || !Number.isFinite(margem)) return 0;
@@ -30,7 +31,7 @@ function canonico(value: any): string {
 }
 export function assinaturaVenda(dados: DadosVenda, parametros: Parametros) {
   const raw=dados.venda.gc_payload_raw??{};
-  return canonico({total:dados.venda.valor_total,situacao:dados.venda.nome_situacao,produtos:raw.produtos,servicos:raw.servicos,frete:raw.valor_frete,desconto:raw.desconto_valor,vendedor:raw.nome_vendedor,parcelas:raw.numero_parcelas,pagamentos:raw.pagamentos,fontesFrete:(dados.fretes??[]).filter(f=>(dados.conferencia?.ajustes.fretes??[]).some(r=>r.fonteId===f.id)).map(f=>[f.id,f.valor,f.pago,f.avisos]),parametros,...(dados.conferencia?.retirada?{retirada:true}:{}),ajustes:dados.conferencia?.ajustes??{},taxas:dados.recebimentos.map(r=>[r.gc_id,r.gc_payload_raw?.taxa_banco,r.gc_payload_raw?.taxa_operadora,r.gc_payload_raw?.desconto,r.gc_payload_raw?.valor,r.valor_total,r.valor,r.liquidado,r.cliente_id]).sort()});
+  return canonico({total:dados.venda.valor_total,situacao:dados.venda.nome_situacao,produtos:raw.produtos,servicos:raw.servicos,frete:raw.valor_frete,desconto:raw.desconto_valor,vendedor:raw.nome_vendedor,parcelas:raw.numero_parcelas,pagamentos:raw.pagamentos,fontesFrete:(dados.fretes??[]).filter(f=>(dados.conferencia?.ajustes.fretes??[]).some(r=>r.fonteId===f.id)).map(f=>[f.id,f.valor,f.pago,f.avisos]),parametros,...(dados.conferencia?.retirada?{retirada:true}:{}),ajustes:dados.conferencia?.ajustes??{},tabelaTaxas:parametros.tabelaTaxas??null,taxas:dados.recebimentos.map(r=>[r.gc_id,r.gc_payload_raw?.taxa_banco,r.gc_payload_raw?.taxa_operadora,r.gc_payload_raw?.desconto,r.gc_payload_raw?.valor,r.valor_total,r.valor,r.liquidado,r.cliente_id]).sort()});
 }
 
 export function calcularVenda(dados: DadosVenda, parametros: Parametros) {
@@ -67,10 +68,16 @@ export function calcularVenda(dados: DadosVenda, parametros: Parametros) {
   if(fretesPendentes.length) avisos.push(`${fretesPendentes.length} frete(s) com indício de vínculo: conferir rateio e custo já incluído`);
   if(rateios.some(r=>!(dados.fretes??[]).some(f=>f.id===r.fonteId&&Math.abs(f.valor-r.limite)<=0.02))) avisos.push('Fonte ou valor do frete mudou: conferir novamente');
   // Desconto financeiro reduz o lucro, mas não transforma título liquidado em falta de pagamento.
-  const taxasRecebimento = dados.recebimentos.reduce((s, r) => {
-    const titulo = r.gc_payload_raw ?? r;
-    return s + parseMoney(titulo.desconto) + parseMoney(titulo.taxa_banco) + parseMoney(titulo.taxa_operadora);
-  }, 0);
+  // O lucro sai do recebível real: o que a máquina de cartão ficou nunca
+  // chegou à conta. Quando o GC não traz a taxa lançada, ela é estimada pela
+  // tabela dos parâmetros e o aviso diz que é estimativa.
+  const taxas = resumirTaxas(dados.recebimentos, tabelaValida(parametros.tabelaTaxas));
+  const taxasRecebimento = taxas.total;
+  const taxasEstimadas = taxas.estimadas;
+  if (taxas.titulosEstimados.length) {
+    const pct = [...new Set(taxas.titulosEstimados.map(t => t.percentual))].join('/');
+    avisos.push(`Taxa de cartão estimada em ${pct}% (R$ ${taxasEstimadas.toFixed(2)}): lançar o desconto real no título do GC`);
+  }
   const lucroAntes = centavos(a.lucro - custoAdicional - taxasRecebimento - custoFrete);
   const margemAntes = a.receitaLiquida > 0 ? lucroAntes / a.receitaLiquida * 100 : null;
   const custosValidos = a.linhas.length > 0 && a.linhasSemCusto === 0 && !itensInvalidos && margemAntes !== null;
@@ -105,7 +112,7 @@ export function calcularVenda(dados: DadosVenda, parametros: Parametros) {
   const conferidaAtual = !!dados.conferencia?.conferido && dados.conferencia.assinatura === assinaturaVenda(dados,parametros);
   if (dados.conferencia?.conferido && !conferidaAtual) avisos.push('Valores ou parâmetros mudaram: conferir novamente');
   if (pago > comissao) avisos.push(retirada ? 'Comissão retirada com pagamento registrado: conferir ajuste; histórico preservado' : 'Comissão paga maior que a previsão atual');
-  return { ...dados, a, extras, vendedor, vendedorChave, vendedorOriginal, base, custoAdicional, custoFrete, fretesPendentes, taxasRecebimento, lucroAntes, margemAntes: custosValidos ? margemAntes : null, margemFinal: custosValidos ? margemFinal : null, percentual, comissao, comissaoCalculada, comissaoRetirada, retirada, recebido, totalTitulos, recebimento, formas, formaAusente, avisos, pago, saldo: centavos(comissao - pago), custosValidos, cancelada, concretizada, conferidaAtual };
+  return { ...dados, a, extras, vendedor, vendedorChave, vendedorOriginal, base, custoAdicional, custoFrete, fretesPendentes, taxasRecebimento, taxasEstimadas, lucroAntes, margemAntes: custosValidos ? margemAntes : null, margemFinal: custosValidos ? margemFinal : null, percentual, comissao, comissaoCalculada, comissaoRetirada, retirada, recebido, totalTitulos, recebimento, formas, formaAusente, avisos, pago, saldo: centavos(comissao - pago), custosValidos, cancelada, concretizada, conferidaAtual };
 }
 
 export function periodoComissao(mes: string, tipo: 'mes' | 'primeira' | 'segunda') {

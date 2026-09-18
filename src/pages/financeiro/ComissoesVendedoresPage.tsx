@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
 import { carregarComissoes, registrarPagamento, salvarConferencia, salvarParametros } from '@/lib/comissoes/api';
 import { calcularVenda, assinaturaVenda, periodoComissao, type Conferencia, type DadosVenda, type Parametros } from '@/lib/comissoes/calculo';
+import { tabelaValida } from '@/lib/comissoes/taxasRecebimento';
 import { formatBRL, formatPct, parseMoney, DEFAULT_DESLOCAMENTO } from '@/lib/comissoes/analisePickPack';
 
 const hoje = () => format(new Date(), 'yyyy-MM-dd');
@@ -132,7 +133,23 @@ function Detalhes({dados,parametros,isAdmin,onClose,rateios,onAlterarSituacao}:{
 }
 
 function ParametrosDialog({parametros,isAdmin,onClose}:{parametros:Parametros;isAdmin:boolean;onClose:()=>void}) {
-  const [p,setP]=useState(parametros);const [busy,setBusy]=useState(false);const qc=useQueryClient();
+  const [p,setP]=useState<Parametros>({...parametros,tabelaTaxas:tabelaValida(parametros.tabelaTaxas)});const [busy,setBusy]=useState(false);const qc=useQueryClient();
+  const taxas=p.tabelaTaxas??[];
+  const setTaxa=(i:number,campo:'forma'|'percentual'|'fixo',v:string)=>setP(x=>({...x,tabelaTaxas:(x.tabelaTaxas??[]).map((t,k)=>k!==i?t:{...t,[campo]:campo==='forma'?v:Number(v)})}));
   const labels:Record<string,string>={impostoPct:'Impostos sobre venda (%)',custoFixoPct:'Rateio fixo (%)',garantiaPct:'Garantia (%)',custoPorKm:'Custo por km (R$)',alimentacaoDia:'Alimentação por dia (R$)',moAdminHora:'Hora administrativa (R$)',moAdminHorasPadrao:'Horas administrativas padrão',premiacaoPecaPct:'Premiação técnica de peças (%)',premiacaoServicoPct:'Premiação técnica de serviços (%)',cdbAnualPct:'Custo financeiro anual (%)'};
-  return <Dialog open onOpenChange={onClose}><DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Custos e regras de comissão</DialogTitle></DialogHeader><p className="text-sm">{parametros.origem}. A fórmula segue a análise do Pick & Pack. Os parâmetros abaixo são compartilhados nesta tela; ajustes posteriores no Pick & Pack precisam ser conferidos aqui. Valores de imposto são parâmetros gerenciais, não apuração fiscal.</p><fieldset disabled={!isAdmin||busy} className="space-y-4"><div className="grid sm:grid-cols-2 gap-3">{Object.entries(labels).map(([key,label])=><Numero key={key} label={label} value={p.config[key as keyof typeof p.config]} onChange={n=>setP(x=>({...x,config:{...x.config,[key]:n}}))}/>)}</div><label className="text-sm flex gap-2"><input type="checkbox" checked={p.margemAposComissao} onChange={e=>setP(x=>({...x,margemAposComissao:e.target.checked}))}/>Definir a faixa considerando a margem após descontar a própria comissão</label><p className="text-xs text-muted-foreground">Alterar parâmetros recalcula as previsões, inclusive vendas antigas. Os pagamentos registrados permanecem no histórico.</p><Button onClick={async()=>{setBusy(true);try{await salvarParametros({...p,origem:`Parâmetros conferidos no Command Center em ${dataBR(hoje())}`});await qc.invalidateQueries({queryKey:['comissoes']});onClose();toast.success('Parâmetros salvos.');}catch(e){toast.error((e as Error).message);}finally{setBusy(false);}}}>Salvar parâmetros</Button></fieldset></DialogContent></Dialog>;
+  return <Dialog open onOpenChange={onClose}><DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Custos e regras de comissão</DialogTitle></DialogHeader><p className="text-sm">{parametros.origem}. A fórmula segue a análise do Pick & Pack. Os parâmetros abaixo são compartilhados nesta tela; ajustes posteriores no Pick & Pack precisam ser conferidos aqui. Valores de imposto são parâmetros gerenciais, não apuração fiscal.</p><fieldset disabled={!isAdmin||busy} className="space-y-4"><div className="grid sm:grid-cols-2 gap-3">{Object.entries(labels).map(([key,label])=><Numero key={key} label={label} value={p.config[key as keyof typeof p.config]} onChange={n=>setP(x=>({...x,config:{...x.config,[key]:n}}))}/>)}</div><label className="text-sm flex gap-2"><input type="checkbox" checked={p.margemAposComissao} onChange={e=>setP(x=>({...x,margemAposComissao:e.target.checked}))}/>Definir a faixa considerando a margem após descontar a própria comissão</label>
+<div className="space-y-2 rounded-md border p-3">
+  <h4 className="text-sm font-semibold">Taxas de recebimento estimadas</h4>
+  <p className="text-xs text-muted-foreground">O lucro é calculado do recebível real. Quando o título no GC tem desconto, taxa de banco ou de operadora lançados, vale o lançado. Quando não tem, a taxa é estimada por esta tabela conforme a forma de pagamento — e a venda recebe um aviso pedindo o lançamento real no GC. A forma é comparada por trecho, sem acento.</p>
+  <div className="grid grid-cols-[1fr_7rem_7rem_auto] items-end gap-2 text-xs">
+    <span className="font-medium">Forma de pagamento contém</span><span className="font-medium">Percentual (%)</span><span className="font-medium">Fixo (R$)</span><span/>
+    {taxas.map((t,i)=><Fragment key={i}>
+      <Input value={t.forma} onChange={e=>setTaxa(i,'forma',e.target.value)} placeholder="CARTAO DE CREDITO"/>
+      <Input type="number" step="0.01" min={0} max={99.99} value={t.percentual} onChange={e=>setTaxa(i,'percentual',e.target.value)}/>
+      <Input type="number" step="0.01" min={0} value={t.fixo} onChange={e=>setTaxa(i,'fixo',e.target.value)}/>
+      <Button type="button" variant="ghost" size="sm" onClick={()=>setP(x=>({...x,tabelaTaxas:(x.tabelaTaxas??[]).filter((_,k)=>k!==i)}))} aria-label="Remover linha">×</Button>
+    </Fragment>)}
+  </div>
+  <Button type="button" variant="outline" size="sm" onClick={()=>setP(x=>({...x,tabelaTaxas:[...(x.tabelaTaxas??[]),{forma:'',percentual:0,fixo:0}]}))}>Adicionar forma</Button>
+</div><p className="text-xs text-muted-foreground">Alterar parâmetros recalcula as previsões, inclusive vendas antigas. Os pagamentos registrados permanecem no histórico.</p><Button onClick={async()=>{setBusy(true);try{await salvarParametros({...p,origem:`Parâmetros conferidos no Command Center em ${dataBR(hoje())}`});await qc.invalidateQueries({queryKey:['comissoes']});onClose();toast.success('Parâmetros salvos.');}catch(e){toast.error((e as Error).message);}finally{setBusy(false);}}}>Salvar parâmetros</Button></fieldset></DialogContent></Dialog>;
 }

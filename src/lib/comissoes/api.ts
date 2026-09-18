@@ -1,6 +1,7 @@
 import { callGC } from '@/lib/gc-client';
 import { conferirFinanceiroGC, buscarPagamentosGC } from './financeiroGC';
 import { analisarFretes } from './fretes';
+import { tabelaValida } from './taxasRecebimento';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import type { Conferencia, DadosVenda, PagamentoComissao, Parametros } from './calculo';
@@ -78,6 +79,7 @@ export async function registrarPagamento(value: Omit<PagamentoComissao, 'created
 }
 export async function salvarParametros(parametros: Parametros) {
   if (Object.values(parametros.config).some(x => !Number.isFinite(x) || x < 0)) throw new Error('Os parâmetros devem ser números válidos e não negativos.');
+  if (parametros.tabelaTaxas !== undefined && tabelaValida(parametros.tabelaTaxas) !== parametros.tabelaTaxas) throw new Error('Tabela de taxas inválida: cada linha precisa de forma, percentual entre 0 e 100 e valor fixo não negativo.');
   const { error } = await db.from('fin_comissoes_config').update({ parametros }).eq('id', 'global');
   if (error) throw error;
 }
